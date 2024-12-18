@@ -188,6 +188,37 @@ static void test_string_parse_u64() {
   }
 }
 
+static void test_string_cmp() {
+  {
+    StringCompare cmp = string_cmp(S("a"), S("aa"));
+    ASSERT(STRING_CMP_LESS == cmp);
+  }
+  {
+    StringCompare cmp = string_cmp(S(""), S("a"));
+    ASSERT(STRING_CMP_LESS == cmp);
+  }
+  {
+    StringCompare cmp = string_cmp(S(""), S(""));
+    ASSERT(STRING_CMP_EQ == cmp);
+  }
+  {
+    StringCompare cmp = string_cmp(S("a"), S("a"));
+    ASSERT(STRING_CMP_EQ == cmp);
+  }
+  {
+    StringCompare cmp = string_cmp(S("a"), S("b"));
+    ASSERT(STRING_CMP_LESS == cmp);
+  }
+  {
+    StringCompare cmp = string_cmp(S("b"), S("aa"));
+    ASSERT(STRING_CMP_LESS == cmp);
+  }
+  {
+    StringCompare cmp = string_cmp(S("b"), S("a"));
+    ASSERT(STRING_CMP_GREATER == cmp);
+  }
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -196,4 +227,5 @@ int main() {
   test_slice_range();
   test_string_consume();
   test_string_parse_u64();
+  test_string_cmp();
 }

@@ -380,6 +380,32 @@ arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
   return res;
 }
 
+typedef enum {
+  STRING_CMP_LESS = -1,
+  STRING_CMP_EQ = 0,
+  STRING_CMP_GREATER = 1,
+} StringCompare;
+
+[[maybe_unused]] [[nodiscard]] static StringCompare string_cmp(String a,
+                                                               String b) {
+  if (a.len < b.len) {
+    return STRING_CMP_LESS;
+  }
+  if (a.len > b.len) {
+    return STRING_CMP_GREATER;
+  }
+
+  ASSERT(a.len == b.len);
+  int cmp = memcmp(a.data, b.data, a.len);
+  if (cmp < 0) {
+    return STRING_CMP_LESS;
+  } else if (cmp > 0) {
+    return STRING_CMP_GREATER;
+  } else {
+    return STRING_CMP_EQ;
+  }
+}
+
 [[maybe_unused]] static void dyn_grow(void *slice, u64 size, u64 align,
                                       u64 count, Arena *a) {
   ASSERT(nullptr != slice);
@@ -462,6 +488,8 @@ typedef struct {
   } while (0)
 
 #define dyn_last_ptr(s) AT_PTR((s)->data, (s)->len, (s)->len - 1)
+
+#define dyn_last(s) AT((s).data, (s).len, (s).len - 1)
 
 #define dyn_at_ptr(s, idx) AT_PTR((s)->data, (s)->len, idx)
 
