@@ -318,6 +318,12 @@ typedef struct {
 [[maybe_unused]] [[nodiscard]] static ParseNumberResult
 string_parse_u64(String s) {
   ParseNumberResult res = {0};
+  res.remaining = s;
+
+  // Forbid leading zero(es).
+  if (string_starts_with(s, S("0"))) {
+    return res;
+  }
 
   for (u64 i = 0; i < s.len; i++) {
     u8 c = slice_at(s, i);

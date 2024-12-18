@@ -176,6 +176,11 @@ static void test_string_parse_u64() {
     ASSERT(string_eq(S("a123b"), num_res.remaining));
   }
   {
+    ParseNumberResult num_res = string_parse_u64(S("0123"));
+    ASSERT(!num_res.present);
+    ASSERT(string_eq(S("0123"), num_res.remaining));
+  }
+  {
     ParseNumberResult num_res = string_parse_u64(S("123a"));
     ASSERT(num_res.present);
     ASSERT(string_eq(S("a"), num_res.remaining));
