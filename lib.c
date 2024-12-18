@@ -269,6 +269,27 @@ typedef struct {
   return string_eq(needle, start);
 }
 
+typedef struct {
+  bool consumed;
+  String remaining;
+} StringConsumeResult;
+
+[[nodiscard]] static StringConsumeResult string_consume(String haystack,
+                                                        u8 needle) {
+  StringConsumeResult res = {0};
+
+  if (haystack.len == 0) {
+    return res;
+  }
+  if (haystack.data[0] != needle) {
+    return res;
+  }
+
+  res.consumed = true;
+  res.remaining = slice_range(haystack, 1, 0);
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static bool string_ends_with(String haystack,
                                                             String needle) {
   if (haystack.len == 0 || haystack.len < needle.len) {
@@ -622,11 +643,11 @@ typedef struct {
 
 #define L(k, v)                                                                \
   (_Generic((v),                                                               \
-      int: log_entry_int,                                                      \
-      u16: log_entry_u16,                                                      \
-      u32: log_entry_u32,                                                      \
-      u64: log_entry_u64,                                                      \
-      String: log_entry_slice)((S(k)), v))
+       int: log_entry_int,                                                     \
+       u16: log_entry_u16,                                                     \
+       u32: log_entry_u32,                                                     \
+       u64: log_entry_u64,                                                     \
+       String: log_entry_slice)((S(k)), v))
 
 #define LOG_ARGS_COUNT(...)                                                    \
   (sizeof((LogEntry[]){__VA_ARGS__}) / sizeof(LogEntry))
