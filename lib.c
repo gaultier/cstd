@@ -21,6 +21,10 @@
 #include <sys/sendfile.h>
 #endif
 
+#ifndef MIN
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#endif
+
 #define KiB (1024ULL)
 #define MiB (1024ULL * Ki)
 #define GiB (1024ULL * Mi)
@@ -388,22 +392,25 @@ typedef enum {
 
 [[maybe_unused]] [[nodiscard]] static StringCompare string_cmp(String a,
                                                                String b) {
+  int cmp = memcmp(a.data, b.data, MIN(a.len, b.len));
+  if (cmp < 0) {
+    return STRING_CMP_LESS;
+  } else if (cmp > 0) {
+    return STRING_CMP_GREATER;
+  } else if (a.len == b.len) {
+    return STRING_CMP_EQ;
+  }
+
+  ASSERT(0 == cmp);
+  ASSERT(a.len != b.len);
+
   if (a.len < b.len) {
     return STRING_CMP_LESS;
   }
   if (a.len > b.len) {
     return STRING_CMP_GREATER;
   }
-
-  ASSERT(a.len == b.len);
-  int cmp = memcmp(a.data, b.data, a.len);
-  if (cmp < 0) {
-    return STRING_CMP_LESS;
-  } else if (cmp > 0) {
-    return STRING_CMP_GREATER;
-  } else {
-    return STRING_CMP_EQ;
-  }
+  __builtin_unreachable();
 }
 
 [[maybe_unused]] static void dyn_grow(void *slice, u64 size, u64 align,

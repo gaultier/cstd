@@ -211,11 +211,15 @@ static void test_string_cmp() {
   }
   {
     StringCompare cmp = string_cmp(S("b"), S("aa"));
-    ASSERT(STRING_CMP_LESS == cmp);
+    ASSERT(STRING_CMP_GREATER == cmp);
   }
   {
     StringCompare cmp = string_cmp(S("b"), S("a"));
     ASSERT(STRING_CMP_GREATER == cmp);
+  }
+  {
+    StringCompare cmp = string_cmp(S("announce"), S("comment"));
+    ASSERT(STRING_CMP_LESS == cmp);
   }
 }
 
