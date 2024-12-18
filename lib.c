@@ -1,4 +1,5 @@
-#pragma once
+#ifndef CSTD_LIB_C
+#define CSTD_LIB_C
 #define _POSIX_C_SOURCE 200809L
 #define __XSI_VISIBLE 600
 #define __BSD_VISIBLE 1
@@ -1086,3 +1087,5 @@ json_decode_string_slice(String s, Arena *arena) {
   SHA1Update(&ctx, s.data, s.len);
   SHA1Final(hash, &ctx);
 }
+
+#endif
