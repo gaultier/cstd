@@ -223,6 +223,21 @@ static void test_string_cmp() {
   }
 }
 
+static void test_sha1() {
+  {
+    u8 hash[20] = {0};
+    sha1(S("abc"), hash);
+
+    u8 expected_hash[20] = {
+        0xA9, 0x99, 0x3E, 0x36, 0x47, 0x06, 0x81, 0x6A, 0xBA, 0x3E,
+        0x25, 0x71, 0x78, 0x50, 0xC2, 0x6C, 0x9C, 0xD0, 0xD8, 0x9D,
+    };
+    static_assert(sizeof(hash) == sizeof(expected_hash));
+
+    ASSERT(0 == memcmp(hash, expected_hash, sizeof(hash)));
+  }
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -232,4 +247,5 @@ int main() {
   test_string_consume();
   test_string_parse_u64();
   test_string_cmp();
+  test_sha1();
 }

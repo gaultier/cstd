@@ -4,6 +4,7 @@
 #define __BSD_VISIBLE 1
 #define _XOPEN_SOURCE 700
 #define _DEFAULT_SOURCE 1
+#include "sha1.c"
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -1077,4 +1078,11 @@ json_decode_string_slice(String s, Arena *arena) {
   string_lowercase_ascii_mut(b_clone);
 
   return string_eq(a_clone, b_clone);
+}
+
+[[maybe_unused]] static void sha1(String s, u8 hash[20]) {
+  SHA1_CTX ctx = {0};
+  SHA1Init(&ctx);
+  SHA1Update(&ctx, s.data, s.len);
+  SHA1Final(hash, &ctx);
 }
