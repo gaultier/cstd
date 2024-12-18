@@ -143,10 +143,27 @@ static void test_slice_range() {
   ASSERT(string_eq(slice_at(s, 2), slice_at(range, 1)));
 }
 
+static void test_string_consume() {
+  {
+    StringConsumeResult res = string_consume(S(""), '{');
+    ASSERT(!res.consumed);
+  }
+  {
+    StringConsumeResult res = string_consume(S("[1,2]"), '{');
+    ASSERT(!res.consumed);
+  }
+  {
+    StringConsumeResult res = string_consume(S("[1,2]"), '[');
+    ASSERT(res.consumed);
+    ASSERT(string_eq(S("1,2]"), res.remaining));
+  }
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
   test_string_split();
   test_dyn_ensure_cap();
   test_slice_range();
+  test_string_consume();
 }
