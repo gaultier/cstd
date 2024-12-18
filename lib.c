@@ -305,27 +305,25 @@ typedef struct {
 
 typedef struct {
   u64 n;
-  bool err;
   bool present;
+  String remaining;
 } ParseNumberResult;
 
-[[nodiscard]] static ParseNumberResult string_parse_u64_decimal(String s) {
-  String trimmed = string_trim(s, ' ');
-
+[[nodiscard]] static ParseNumberResult string_parse_u64(String s) {
   ParseNumberResult res = {0};
 
-  for (u64 i = 0; i < trimmed.len; i++) {
-    u8 c = slice_at(trimmed, i);
+  for (u64 i = 0; i < s.len; i++) {
+    u8 c = slice_at(s, i);
 
-    if (!('0' <= c && c <= '9')) { // Error.
-      res.err = true;
+    if (!('0' <= c && c <= '9')) { // End of numbers sequence.
+      res.remaining = slice_range(s, i, 0);
       return res;
     }
 
     res.n *= 10;
-    res.n += (u8)slice_at(trimmed, i) - '0';
+    res.n += (u8)slice_at(s, i) - '0';
+    res.present = true;
   }
-  res.present = true;
   return res;
 }
 

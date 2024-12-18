@@ -159,6 +159,30 @@ static void test_string_consume() {
   }
 }
 
+static void test_string_parse_u64() {
+  {
+    ParseNumberResult num_res = string_parse_u64(S(""));
+    ASSERT(!num_res.present);
+    ASSERT(0 == num_res.remaining.len);
+  }
+  {
+    ParseNumberResult num_res = string_parse_u64(S("a"));
+    ASSERT(!num_res.present);
+    ASSERT(string_eq(S("a"), num_res.remaining));
+  }
+  {
+    ParseNumberResult num_res = string_parse_u64(S("a123b"));
+    ASSERT(!num_res.present);
+    ASSERT(string_eq(S("a123b"), num_res.remaining));
+  }
+  {
+    ParseNumberResult num_res = string_parse_u64(S("123a"));
+    ASSERT(num_res.present);
+    ASSERT(string_eq(S("a"), num_res.remaining));
+    ASSERT(123 == num_res.n);
+  }
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -166,4 +190,5 @@ int main() {
   test_dyn_ensure_cap();
   test_slice_range();
   test_string_consume();
+  test_string_parse_u64();
 }
