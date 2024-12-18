@@ -545,6 +545,38 @@ typedef struct {
   ASSERT(0);
 }
 
+[[maybe_unused]] [[nodiscard]] static u8 u8_to_ch_hex_upper(u8 n) {
+  ASSERT(n < 16);
+
+  if (n <= 9) {
+    return n + '0';
+  } else if (10 == n) {
+    return 'A';
+  } else if (11 == n) {
+    return 'B';
+  } else if (12 == n) {
+    return 'C';
+  } else if (13 == n) {
+    return 'D';
+  } else if (14 == n) {
+    return 'E';
+  } else if (15 == n) {
+    return 'F';
+  }
+  ASSERT(0);
+}
+
+static void dynu8_append_u8_hex_upper(DynU8 *dyn, u8 n, Arena *arena) {
+  dyn_ensure_cap(dyn, dyn->len + 2, arena);
+  u64 dyn_original_len = dyn->len;
+
+  u8 c1 = n % 16;
+  u8 c2 = n / 16;
+  *dyn_push(dyn, arena) = u8_to_ch_hex_upper(c2);
+  *dyn_push(dyn, arena) = u8_to_ch_hex_upper(c1);
+  ASSERT(2 == (dyn->len - dyn_original_len));
+}
+
 [[maybe_unused]] static void dynu8_append_u128_hex(DynU8 *dyn, u128 n,
                                                    Arena *arena) {
   dyn_ensure_cap(dyn, dyn->len + 32, arena);
