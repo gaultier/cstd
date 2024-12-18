@@ -80,6 +80,11 @@ typedef u32 Error;
          ('a' <= c && c <= 'f');
 }
 
+[[maybe_unused]] [[nodiscard]] static bool ch_is_alphanumeric(u8 c) {
+  return ('0' <= c && c <= '9') || ('A' <= c && c <= 'Z') ||
+         ('a' <= c && c <= 'z');
+}
+
 [[maybe_unused]] [[nodiscard]] static u8 ch_from_hex(u8 c) {
   ASSERT(ch_is_hex_digit(c));
 
