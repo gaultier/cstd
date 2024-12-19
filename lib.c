@@ -1169,13 +1169,13 @@ typedef struct {
 
   int fd = open(path_c, O_RDONLY);
   if (fd < 0) {
-    res.error = errno;
+    res.error = (Error)errno;
     return res;
   }
 
   struct stat st = {0};
   if (-1 == stat(path_c, &st)) {
-    res.error = errno;
+    res.error = (Error)errno;
     goto end;
   }
 
@@ -1190,12 +1190,12 @@ typedef struct {
     DynU8 space = slice_range(sb, sb.len, 0);
     ssize_t read_n = read(fd, space.data, space.len);
     if (-1 == read_n) {
-      res.error = errno;
+      res.error = (Error)errno;
       goto end;
     }
 
     if (0 == read_n) {
-      res.error = EINVAL;
+      res.error = (Error)EINVAL;
       goto end;
     }
 
