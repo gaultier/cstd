@@ -1187,7 +1187,7 @@ typedef struct {
       break;
     }
 
-    DynU8 space = slice_range(sb, sb.len, 0);
+    String space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
     ssize_t read_n = read(fd, space.data, space.len);
     if (-1 == read_n) {
       res.error = (Error)errno;
