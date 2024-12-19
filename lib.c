@@ -273,6 +273,21 @@ string_split_next(SplitIterator *it) {
   return (i64)res;
 }
 
+[[maybe_unused]] [[nodiscard]] static i64
+string_indexof_any_byte(String haystack, String needle) {
+  for (i64 i = 0; i < (i64)haystack.len; i++) {
+    u8 c_h = slice_at(haystack, i);
+
+    for (i64 j = 0; j < (i64)needle.len; j++) {
+      u8 c_n = slice_at(needle, j);
+      if (c_h == c_n) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
 [[maybe_unused]] [[nodiscard]] static bool string_starts_with(String haystack,
                                                               String needle) {
   if (haystack.len == 0 || haystack.len < needle.len) {
