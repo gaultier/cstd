@@ -1,5 +1,6 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
+#include <fcntl.h>
 #define _POSIX_C_SOURCE 200809L
 #define __XSI_VISIBLE 600
 #define __BSD_VISIBLE 1
@@ -16,6 +17,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -404,6 +406,13 @@ arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
   ASSERT(0 == AT(res, s.len + 1, s.len));
 
   return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static String cstr_to_string(char *s) {
+  return (String){
+      .data = (u8 *)s,
+      .len = strlen(s),
+  };
 }
 
 typedef enum {
@@ -1145,6 +1154,60 @@ json_decode_string_slice(String s, Arena *arena) {
   SHA1Init(&ctx);
   SHA1Update(&ctx, s.data, s.len);
   SHA1Final(hash, &ctx);
+}
+
+typedef struct {
+  Error error;
+  String content;
+} ReadFileResult;
+
+[[maybe_unused]] static ReadFileResult file_read_full(String path,
+                                                      Arena *arena) {
+
+  ReadFileResult res = {0};
+  char *path_c = string_to_cstr(path, arena);
+
+  int fd = open(path_c, O_RDONLY);
+  if (fd < 0) {
+    res.error = errno;
+    return res;
+  }
+
+  struct stat st = {0};
+  if (-1 == stat(path_c, &st)) {
+    res.error = errno;
+    goto end;
+  }
+
+  DynU8 sb = {0};
+  dyn_ensure_cap(&sb, (u64)st.st_size, arena);
+
+  for (u64 lim = 0; lim < st.st_size; i++) {
+    if ((u64)st.st_size == sb.len) {
+      break;
+    }
+
+    DynU8 space = slice_range(sb, sb.len, 0);
+    ssize_t read_n = read(fd, space.data, space.len);
+    if (-1 == read_n) {
+      res.error = errno;
+      goto end;
+    }
+
+    if (0 == read_n) {
+      res.error = EINVAL;
+      goto end;
+    }
+
+    ASSERT((u64)read_n <= space.len);
+
+    sb.len += (u64)read_n;
+  }
+
+end:
+  close(fd);
+  res.content = dyn_slice(String, sb);
+  return res;
 }
 
 #endif
