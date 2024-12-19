@@ -529,6 +529,13 @@ typedef struct {
   dyn_append_slice(dyn, s, arena);
 }
 
+[[maybe_unused]] [[nodiscard]] static String u64_to_string(u64 n,
+                                                           Arena *arena) {
+  DynU8 sb = {0};
+  dynu8_append_u64(&sb, n, arena);
+  return dyn_slice(String, sb);
+}
+
 [[maybe_unused]] [[nodiscard]] static u8 u8_to_ch_hex(u8 n) {
   ASSERT(n < 16);
 
