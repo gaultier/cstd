@@ -1,6 +1,5 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
-#include <fcntl.h>
 #define _POSIX_C_SOURCE 200809L
 #define __XSI_VISIBLE 600
 #define __BSD_VISIBLE 1
@@ -8,6 +7,7 @@
 #define _DEFAULT_SOURCE 1
 #include "sha1.c"
 #include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdckdint.h>
@@ -1182,7 +1182,7 @@ typedef struct {
   DynU8 sb = {0};
   dyn_ensure_cap(&sb, (u64)st.st_size, arena);
 
-  for (u64 lim = 0; lim < st.st_size; i++) {
+  for (u64 lim = 0; lim < (u64)st.st_size; lim++) {
     if ((u64)st.st_size == sb.len) {
       break;
     }
