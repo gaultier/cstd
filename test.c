@@ -238,6 +238,28 @@ static void test_sha1() {
   }
 }
 
+static void test_slice_swap_remove() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+  {
+    String s = string_dup(S("hello world!"), &arena);
+    slice_swap_remove(&s, 4);
+    ASSERT(string_eq(s, S("hell! world")));
+  }
+}
+
+static void test_dynu8_append_u8_hex_upper() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+  {
+    DynU8 sb = {0};
+    dynu8_append_u8_hex_upper(&sb, 0xac, &arena);
+    dynu8_append_u8_hex_upper(&sb, 0x89, &arena);
+
+    String s = dyn_slice(String, sb);
+    ASSERT(string_eq(s, S("AC89")));
+  }
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -248,4 +270,6 @@ int main() {
   test_string_parse_u64();
   test_string_cmp();
   test_sha1();
+  test_slice_swap_remove();
+  test_dynu8_append_u8_hex_upper();
 }

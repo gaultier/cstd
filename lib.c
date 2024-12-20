@@ -75,6 +75,16 @@ typedef int64_t i64;
 
 #define slice_at(s, idx) (AT((s).data, (s).len, idx))
 
+#define slice_swap_remove(s, idx)                                              \
+  do {                                                                         \
+    if ((i64)(idx) >= (i64)((s)->len)) {                                       \
+      __builtin_trap();                                                        \
+    }                                                                          \
+    *(AT_PTR((s)->data, (s)->len, idx)) =                                      \
+        AT((s)->data, (s)->len, (s)->len - 1);                                 \
+    (s)->len -= 1;                                                             \
+  } while (0)
+
 typedef u32 Error;
 
 [[maybe_unused]] [[nodiscard]] static bool ch_is_hex_digit(u8 c) {
@@ -632,6 +642,17 @@ static void dynu8_append_u8_hex_upper(DynU8 *dyn, u8 n, Arena *arena) {
 }
 
 #define arena_new(a, t, n) (t *)arena_alloc(a, sizeof(t), _Alignof(t), n)
+
+[[maybe_unused]] [[nodiscard]] static String string_dup(String src,
+                                                        Arena *arena) {
+  String dst = {
+      .len = src.len,
+      .data = arena_new(arena, u8, src.len),
+  };
+  memcpy(dst.data, src.data, src.len);
+
+  return dst;
+}
 
 [[maybe_unused]] [[nodiscard]] static u64 round_up_multiple_of(u64 n,
                                                                u64 multiple) {
