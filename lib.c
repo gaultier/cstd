@@ -1236,4 +1236,12 @@ typedef struct {
   u16 port; // Host order.
 } Ipv4Address;
 
+#define DYN(T)                                                                 \
+  typedef struct {                                                             \
+    T *data;                                                                   \
+    u64 len, cap;                                                              \
+  } Dyn##T
+
+DYN(Ipv4Address);
+
 #endif
