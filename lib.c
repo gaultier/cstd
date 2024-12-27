@@ -1231,4 +1231,9 @@ end:
   return res;
 }
 
+typedef struct {
+  u32 ip;   // Host order.
+  u16 port; // Host order.
+} Ipv4Address;
+
 #endif
