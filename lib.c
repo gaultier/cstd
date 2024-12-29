@@ -808,10 +808,11 @@ log_level_to_string(LogLevel level) {
   (sizeof((LogEntry[]){__VA_ARGS__}) / sizeof(LogEntry))
 #define log(level, msg, arena, ...)                                            \
   do {                                                                         \
-    Arena tmp_arena = *arena;                                                  \
-    String log_line = make_log_line(level, S(msg), &tmp_arena,                 \
-                                    LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__); \
-    write(1, log_line.data, log_line.len);                                     \
+    Arena xxx_tmp_arena = *arena;                                              \
+    String xxx_log_line =                                                      \
+        make_log_line(level, S(msg), &xxx_tmp_arena,                           \
+                      LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);               \
+    write(1, xxx_log_line.data, xxx_log_line.len);                             \
   } while (0)
 
 [[maybe_unused]] [[nodiscard]] static String json_escape_string(String entry,
