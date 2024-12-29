@@ -273,6 +273,95 @@ static void test_ipv4_address_to_string() {
   }
 }
 
+static void test_url_encode() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+  {
+    DynU8 sb = {0};
+    url_encode_string(&sb, S("日本語"), S("123"), &arena);
+    String encoded = dyn_slice(String, sb);
+
+    ASSERT(string_eq(encoded, S("%E6%97%A5%E6%9C%AC%E8%AA%9E=123")));
+  }
+
+  {
+    DynU8 sb = {0};
+    url_encode_string(&sb, S("日本語"), S("foo"), &arena);
+    String encoded = dyn_slice(String, sb);
+
+    ASSERT(string_eq(encoded, S("%E6%97%A5%E6%9C%AC%E8%AA%9E=foo")));
+  }
+}
+
+static void test_string_indexof_any_byte() {
+  {
+    i64 idx = string_indexof_any_byte(S(""), S(""));
+    ASSERT(-1 == idx);
+  }
+  {
+    i64 idx = string_indexof_any_byte(S(""), S(":"));
+    ASSERT(-1 == idx);
+  }
+  {
+    i64 idx = string_indexof_any_byte(S("?"), S(":"));
+    ASSERT(-1 == idx);
+  }
+  {
+    i64 idx = string_indexof_any_byte(S("abc"), S(":?"));
+    ASSERT(-1 == idx);
+  }
+  {
+    i64 idx = string_indexof_any_byte(S("x"), S("yz"));
+    ASSERT(-1 == idx);
+  }
+  {
+    i64 idx = string_indexof_any_byte(S(":"), S(":"));
+    ASSERT(0 == idx);
+  }
+  {
+    i64 idx = string_indexof_any_byte(S("abc"), S("cd"));
+    ASSERT(2 == idx);
+  }
+}
+
+static void test_log_entry_quote_value() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+  // Nothing to escape.
+  {
+    String s = S("hello");
+    String expected = S("\"hello\"");
+    ASSERT(string_eq(expected, json_escape_string(s, &arena)));
+  }
+  {
+    String s = S("{\"id\": 1}");
+    String expected = S("\"{\\\"id\\\"\\: 1}\"");
+    ASSERT(string_eq(expected, json_escape_string(s, &arena)));
+  }
+  {
+    u8 backslash = 0x5c;
+    u8 double_quote = '"';
+    u8 data[] = {backslash, double_quote};
+    String s = {.data = data, .len = sizeof(data)};
+
+    u8 data_expected[] = {double_quote, backslash,    backslash,
+                          backslash,    double_quote, double_quote};
+    String expected = {.data = data_expected, .len = sizeof(data_expected)};
+    ASSERT(string_eq(expected, json_escape_string(s, &arena)));
+  }
+}
+
+static void test_make_log_line() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+  String log_line = make_log_line(LOG_LEVEL_DEBUG, S("foobar"), &arena, 2,
+                                  L("num", 42), L("s", S("hello \"world\"")));
+
+  String expected_suffix =
+      S("\"message\":\"foobar\",\"num\":42,\"s\":\"hello \\\"world\\\"\"}\n");
+  ASSERT(string_starts_with(log_line,
+                            S("{\"level\":\"debug\",\"timestamp_ns\":")));
+  ASSERT(string_ends_with(log_line, expected_suffix));
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -286,4 +375,8 @@ int main() {
   test_slice_swap_remove();
   test_dynu8_append_u8_hex_upper();
   test_ipv4_address_to_string();
+  test_url_encode();
+  test_string_indexof_any_byte();
+  test_log_entry_quote_value();
+  test_make_log_line();
 }
