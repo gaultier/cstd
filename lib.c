@@ -1244,4 +1244,53 @@ typedef struct {
 
 DYN(Ipv4Address);
 
+[[nodiscard]] static String make_unique_id_u128_string(Arena *arena) {
+  u128 id = 0;
+  arc4random_buf(&id, sizeof(id));
+
+  DynU8 dyn = {0};
+  dynu8_append_u128_hex(&dyn, id, arena);
+
+  return dyn_slice(String, dyn);
+}
+
+[[maybe_unused]] static void url_encode_string(DynU8 *sb, String key,
+                                               String value, Arena *arena) {
+  for (u64 i = 0; i < key.len; i++) {
+    u8 c = slice_at(key, i);
+    if (ch_is_alphanumeric(c)) {
+      *dyn_push(sb, arena) = c;
+    } else {
+      *dyn_push(sb, arena) = '%';
+      dynu8_append_u8_hex_upper(sb, c, arena);
+    }
+  }
+
+  *dyn_push(sb, arena) = '=';
+
+  for (u64 i = 0; i < value.len; i++) {
+    u8 c = slice_at(value, i);
+    if (ch_is_alphanumeric(c)) {
+      *dyn_push(sb, arena) = c;
+    } else {
+      *dyn_push(sb, arena) = '%';
+      dynu8_append_u8_hex_upper(sb, c, arena);
+    }
+  }
+}
+
+[[maybe_unused]] [[nodiscard]] static String
+ipv4_address_to_string(Ipv4Address address, Arena *arena) {
+  DynU8 sb = {0};
+  dynu8_append_u64(&sb, (address.ip >> 24) & 0xFF, arena);
+  dynu8_append_u64(&sb, (address.ip >> 16) & 0xFF, arena);
+  dynu8_append_u64(&sb, (address.ip >> 8) & 0xFF, arena);
+  dynu8_append_u64(&sb, (address.ip >> 0) & 0xFF, arena);
+  *dyn_push(&sb, arena) = ':';
+  dynu8_append_u64(&sb, (address.port >> 8) & 0xFF, arena);
+  dynu8_append_u64(&sb, (address.port >> 0) & 0xFF, arena);
+
+  return dyn_slice(String, sb);
+}
+
 #endif
