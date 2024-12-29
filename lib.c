@@ -34,6 +34,18 @@
 #define GiB (1024ULL * Mi)
 #define TiB (1024ULL * Gi)
 
+#define DYN(T)                                                                 \
+  typedef struct {                                                             \
+    T *data;                                                                   \
+    u64 len, cap;                                                              \
+  } Dyn##T
+
+#define SLICE(T)                                                               \
+  typedef struct {                                                             \
+    T *data;                                                                   \
+    u64 len;                                                                   \
+  } T##Slice
+
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -74,6 +86,8 @@ typedef int64_t i64;
 #define AT(arr, len, idx) (*AT_PTR(arr, len, idx))
 
 #define slice_at(s, idx) (AT((s).data, (s).len, idx))
+
+#define slice_at_ptr(s, idx) (AT_PTR((s)->data, (s)->len, idx))
 
 #define slice_swap_remove(s, idx)                                              \
   do {                                                                         \
@@ -520,10 +534,7 @@ typedef struct {
   u64 len, cap;
 } DynU8;
 
-typedef struct {
-  String *data;
-  u64 len, cap;
-} DynString;
+DYN(String);
 
 #define dyn_push(s, arena)                                                     \
   (dyn_ensure_cap(s, (s)->len + 1, arena), (s)->data + (s)->len++)
@@ -813,9 +824,6 @@ log_level_to_string(LogLevel level) {
     if ('"' == c) {
       *dyn_push(&sb, arena) = '\\';
       *dyn_push(&sb, arena) = '"';
-    } else if (':' == c) {
-      *dyn_push(&sb, arena) = '\\';
-      *dyn_push(&sb, arena) = ':';
     } else if ('\\' == c) {
       *dyn_push(&sb, arena) = '\\';
       *dyn_push(&sb, arena) = '\\';
@@ -984,10 +992,7 @@ make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count, ...) {
 #endif
 }
 
-typedef struct {
-  String *data;
-  u64 len;
-} StringSlice;
+SLICE(String);
 
 [[maybe_unused]] [[nodiscard]] static String
 json_encode_string_slice(StringSlice strings, Arena *arena) {
@@ -1238,12 +1243,6 @@ typedef struct {
   u32 ip;   // Host order.
   u16 port; // Host order.
 } Ipv4Address;
-
-#define DYN(T)                                                                 \
-  typedef struct {                                                             \
-    T *data;                                                                   \
-    u64 len, cap;                                                              \
-  } Dyn##T
 
 DYN(Ipv4Address);
 

@@ -333,12 +333,12 @@ static void test_log_entry_quote_value() {
   }
   {
     String s = S("{\"id\": 1}");
-    String expected = S("\"{\\\"id\\\"\\: 1}\"");
+    String expected = S("\"{\\\"id\\\": 1}\"");
     ASSERT(string_eq(expected, json_escape_string(s, &arena)));
   }
   {
     String s = S("192.168.1.2:12345");
-    String expected = S("\"192.168.1.2\\:12345\"");
+    String expected = S("\"192.168.1.2:12345\"");
     ASSERT(string_eq(expected, json_escape_string(s, &arena)));
   }
   {
