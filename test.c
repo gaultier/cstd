@@ -260,6 +260,19 @@ static void test_dynu8_append_u8_hex_upper() {
   }
 }
 
+static void test_ipv4_address_to_string() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+  {
+    Ipv4Address address = {
+        .ip = (192UL << 24) | (168UL << 16) | (1UL << 8) | (56UL << 0),
+        .port = 6881,
+    };
+
+    String s = ipv4_address_to_string(address, &arena);
+    ASSERT(string_eq(s, S("192.168.1.56:6881")));
+  }
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -272,4 +285,5 @@ int main() {
   test_sha1();
   test_slice_swap_remove();
   test_dynu8_append_u8_hex_upper();
+  test_ipv4_address_to_string();
 }

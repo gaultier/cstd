@@ -791,7 +791,7 @@ log_level_to_string(LogLevel level) {
        u16: log_entry_u16,                                                     \
        u32: log_entry_u32,                                                     \
        u64: log_entry_u64,                                                     \
-       String: log_entry_slice)((S(k)), v))
+       String: log_entry_slice)((S(k)), (v)))
 
 #define LOG_ARGS_COUNT(...)                                                    \
   (sizeof((LogEntry[]){__VA_ARGS__}) / sizeof(LogEntry))
@@ -813,6 +813,9 @@ log_level_to_string(LogLevel level) {
     if ('"' == c) {
       *dyn_push(&sb, arena) = '\\';
       *dyn_push(&sb, arena) = '"';
+    } else if (':' == c) {
+      *dyn_push(&sb, arena) = '\\';
+      *dyn_push(&sb, arena) = ':';
     } else if ('\\' == c) {
       *dyn_push(&sb, arena) = '\\';
       *dyn_push(&sb, arena) = '\\';
@@ -1244,7 +1247,8 @@ typedef struct {
 
 DYN(Ipv4Address);
 
-[[nodiscard]] static String make_unique_id_u128_string(Arena *arena) {
+[[maybe_unused]] [[nodiscard]] static String
+make_unique_id_u128_string(Arena *arena) {
   u128 id = 0;
   arc4random_buf(&id, sizeof(id));
 
@@ -1283,12 +1287,14 @@ DYN(Ipv4Address);
 ipv4_address_to_string(Ipv4Address address, Arena *arena) {
   DynU8 sb = {0};
   dynu8_append_u64(&sb, (address.ip >> 24) & 0xFF, arena);
+  *dyn_push(&sb, arena) = '.';
   dynu8_append_u64(&sb, (address.ip >> 16) & 0xFF, arena);
+  *dyn_push(&sb, arena) = '.';
   dynu8_append_u64(&sb, (address.ip >> 8) & 0xFF, arena);
+  *dyn_push(&sb, arena) = '.';
   dynu8_append_u64(&sb, (address.ip >> 0) & 0xFF, arena);
   *dyn_push(&sb, arena) = ':';
-  dynu8_append_u64(&sb, (address.port >> 8) & 0xFF, arena);
-  dynu8_append_u64(&sb, (address.port >> 0) & 0xFF, arena);
+  dynu8_append_u64(&sb, address.port, arena);
 
   return dyn_slice(String, sb);
 }
