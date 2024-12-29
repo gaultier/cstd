@@ -1298,4 +1298,26 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
   return dyn_slice(String, sb);
 }
 
+[[maybe_unused]] [[nodiscard]] static u64 monotonic_now_ns() {
+  struct timespec now = {0};
+  if (-1 == clock_gettime(
+#ifdef CLOCK_MONOTONIC_COARSE
+                CLOCK_MONOTONIC_COARSE
+#else
+                CLOCK_MONOTONIC
+#endif
+                ,
+                &now)) {
+    exit(errno);
+  }
+  u64 now_ns = (u64)now.tv_sec * 1000'000'000 + (u64)now.tv_nsec;
+  return now_ns;
+}
+
+[[maybe_unused]] [[nodiscard]] static u32 u8x4_be_to_u32(String s) {
+  ASSERT(4 == s.len);
+  return (u32)(slice_at(s, 0) << 24) | (u32)(slice_at(s, 1) << 16) |
+         (u32)(slice_at(s, 2) << 8) | (u32)(slice_at(s, 3) << 0);
+}
+
 #endif

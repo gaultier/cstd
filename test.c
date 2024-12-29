@@ -367,6 +367,14 @@ static void test_make_log_line() {
   ASSERT(string_ends_with(log_line, expected_suffix));
 }
 
+static void test_u8x4_be_to_u32() {
+  {
+    u8 data[4] = {1, 2, 3, 4};
+    String s = {.data = data, .len = sizeof(data)};
+    ASSERT(0x01'02'03'04 == u8x4_be_to_u32(s));
+  }
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -384,4 +392,5 @@ int main() {
   test_string_indexof_any_byte();
   test_log_entry_quote_value();
   test_make_log_line();
+  test_u8x4_be_to_u32();
 }
