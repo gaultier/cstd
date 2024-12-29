@@ -337,6 +337,11 @@ static void test_log_entry_quote_value() {
     ASSERT(string_eq(expected, json_escape_string(s, &arena)));
   }
   {
+    String s = S("192.168.1.2:12345");
+    String expected = S("\"192.168.1.2\\:12345\"");
+    ASSERT(string_eq(expected, json_escape_string(s, &arena)));
+  }
+  {
     u8 backslash = 0x5c;
     u8 double_quote = '"';
     u8 data[] = {backslash, double_quote};
