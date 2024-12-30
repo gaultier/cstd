@@ -367,11 +367,18 @@ static void test_make_log_line() {
   ASSERT(string_ends_with(log_line, expected_suffix));
 }
 
-static void test_u8x4_be_to_u32() {
+static void test_u8x4_be_to_u32_and_back() {
   {
-    u8 data[4] = {1, 2, 3, 4};
-    String s = {.data = data, .len = sizeof(data)};
-    ASSERT(0x01'02'03'04 == u8x4_be_to_u32(s));
+    u32 n = 123'456'789;
+    u8 data[sizeof(n)] = {0};
+    String s = {.data = data, .len = sizeof(n)};
+    u32_to_u8x4_be(n, &s);
+    ASSERT(string_eq(s, S("\x07"
+                          "\x5b"
+                          "\x0cd"
+                          "\x15")));
+
+    ASSERT(n == u8x4_be_to_u32(s));
   }
 }
 
@@ -392,5 +399,5 @@ int main() {
   test_string_indexof_any_byte();
   test_log_entry_quote_value();
   test_make_log_line();
-  test_u8x4_be_to_u32();
+  test_u8x4_be_to_u32_and_back();
 }

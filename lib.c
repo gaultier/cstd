@@ -576,7 +576,7 @@ DYN(String);
 }
 
 [[maybe_unused]] static void u32_to_u8x4_be(u32 n, String *dst) {
-  ASSERT(0 == dst->len);
+  ASSERT(sizeof(n) == dst->len);
 
   *(slice_at_ptr(dst, 0)) = (u8)(n >> 24);
   *(slice_at_ptr(dst, 1)) = (u8)(n >> 16);
