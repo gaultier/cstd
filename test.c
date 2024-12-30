@@ -382,6 +382,29 @@ static void test_u8x4_be_to_u32_and_back() {
   }
 }
 
+static void test_bitfield() {
+  {
+    String bitfield = S("\x3"
+                        "\x2");
+    ASSERT(bitfield_get(bitfield, 0));
+    ASSERT(bitfield_get(bitfield, 1));
+    ASSERT(!bitfield_get(bitfield, 2));
+    ASSERT(!bitfield_get(bitfield, 3));
+    ASSERT(!bitfield_get(bitfield, 4));
+    ASSERT(!bitfield_get(bitfield, 5));
+    ASSERT(!bitfield_get(bitfield, 6));
+    ASSERT(!bitfield_get(bitfield, 7));
+    ASSERT(!bitfield_get(bitfield, 8));
+    ASSERT(bitfield_get(bitfield, 9));
+    ASSERT(!bitfield_get(bitfield, 10));
+    ASSERT(!bitfield_get(bitfield, 11));
+    ASSERT(!bitfield_get(bitfield, 12));
+    ASSERT(!bitfield_get(bitfield, 13));
+    ASSERT(!bitfield_get(bitfield, 14));
+    ASSERT(!bitfield_get(bitfield, 15));
+  }
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -400,4 +423,5 @@ int main() {
   test_log_entry_quote_value();
   test_make_log_line();
   test_u8x4_be_to_u32_and_back();
+  test_bitfield();
 }

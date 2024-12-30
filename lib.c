@@ -1339,4 +1339,13 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
          (u32)(slice_at(s, 2) << 8) | (u32)(slice_at(s, 3) << 0);
 }
 
+[[maybe_unused]] [[nodiscard]] static bool bitfield_get(String bitfield,
+                                                        u64 idx_bit) {
+  ASSERT(idx_bit < bitfield.len * 8);
+
+  u64 idx_byte = idx_bit / 8;
+
+  return slice_at(bitfield, idx_byte) & (1 << (idx_bit % 8));
+}
+
 #endif
