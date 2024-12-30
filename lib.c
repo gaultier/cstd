@@ -564,7 +564,8 @@ DYN(String);
 
 #define dyn_slice(T, dyn) ((T){.data = dyn.data, .len = dyn.len})
 
-[[maybe_unused]] static void dynu8_append_u64(DynU8 *dyn, u64 n, Arena *arena) {
+[[maybe_unused]] static void dynu8_append_u64_to_string(DynU8 *dyn, u64 n,
+                                                        Arena *arena) {
   u8 tmp[30] = {0};
   const int written_count = snprintf((char *)tmp, sizeof(tmp), "%lu", n);
 
@@ -574,10 +575,27 @@ DYN(String);
   dyn_append_slice(dyn, s, arena);
 }
 
+[[maybe_unused]] static void u32_to_u8x4_be(u32 n, String *dst) {
+  ASSERT(0 == dst->len);
+
+  *(slice_at_ptr(dst, 0)) = (u8)(n >> 24);
+  *(slice_at_ptr(dst, 1)) = (u8)(n >> 16);
+  *(slice_at_ptr(dst, 2)) = (u8)(n >> 8);
+  *(slice_at_ptr(dst, 3)) = (u8)(n >> 0);
+}
+
+[[maybe_unused]] static void dynu8_append_u32(DynU8 *dyn, u32 n, Arena *arena) {
+
+  u8 data[sizeof(n)] = {0};
+  String s = {.data = data, .len = sizeof(n)};
+  u32_to_u8x4_be(n, &s);
+  dyn_append_slice(dyn, s, arena);
+}
+
 [[maybe_unused]] [[nodiscard]] static String u64_to_string(u64 n,
                                                            Arena *arena) {
   DynU8 sb = {0};
-  dynu8_append_u64(&sb, n, arena);
+  dynu8_append_u64_to_string(&sb, n, arena);
   return dyn_slice(String, sb);
 }
 
@@ -915,7 +933,7 @@ dynu8_append_json_object_key_string_value_u64(DynU8 *sb, String key, u64 value,
 
   dyn_append_slice(sb, S(":"), arena);
 
-  dynu8_append_u64(sb, value, arena);
+  dynu8_append_u64_to_string(sb, value, arena);
 
   dyn_append_slice(sb, S(","), arena);
 }
@@ -1286,15 +1304,15 @@ make_unique_id_u128_string(Arena *arena) {
 [[maybe_unused]] [[nodiscard]] static String
 ipv4_address_to_string(Ipv4Address address, Arena *arena) {
   DynU8 sb = {0};
-  dynu8_append_u64(&sb, (address.ip >> 24) & 0xFF, arena);
+  dynu8_append_u64_to_string(&sb, (address.ip >> 24) & 0xFF, arena);
   *dyn_push(&sb, arena) = '.';
-  dynu8_append_u64(&sb, (address.ip >> 16) & 0xFF, arena);
+  dynu8_append_u64_to_string(&sb, (address.ip >> 16) & 0xFF, arena);
   *dyn_push(&sb, arena) = '.';
-  dynu8_append_u64(&sb, (address.ip >> 8) & 0xFF, arena);
+  dynu8_append_u64_to_string(&sb, (address.ip >> 8) & 0xFF, arena);
   *dyn_push(&sb, arena) = '.';
-  dynu8_append_u64(&sb, (address.ip >> 0) & 0xFF, arena);
+  dynu8_append_u64_to_string(&sb, (address.ip >> 0) & 0xFF, arena);
   *dyn_push(&sb, arena) = ':';
-  dynu8_append_u64(&sb, address.port, arena);
+  dynu8_append_u64_to_string(&sb, address.port, arena);
 
   return dyn_slice(String, sb);
 }
