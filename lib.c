@@ -56,6 +56,14 @@ typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
 
+typedef u32 Error;
+
+#define RESULT(T)                                                              \
+  typedef struct {                                                             \
+    Error err;                                                                 \
+    T result;                                                                  \
+  }
+
 #define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
 
 #define CLAMP(n, min, max)                                                     \
@@ -98,8 +106,6 @@ typedef int64_t i64;
         AT((s)->data, (s)->len, (s)->len - 1);                                 \
     (s)->len -= 1;                                                             \
   } while (0)
-
-typedef u32 Error;
 
 [[maybe_unused]] [[nodiscard]] static bool ch_is_hex_digit(u8 c) {
   return ('0' <= c && c <= '9') || ('A' <= c && c <= 'F') ||
@@ -1347,5 +1353,32 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
 
   return slice_at(bitfield, idx_byte) & (1 << (idx_bit % 8));
 }
+
+RESULT(int) CreateSocketResult;
+
+[[nodiscard]]
+static CreateSocketResult net_create_socket();
+
+#if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
+#include <netinet/tcp.h>
+
+[[nodiscard]]
+static CreateSocketResult net_create_socket() {
+  CreateSocketResult res = {0};
+
+  int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (-1 == sock_fd) {
+    res.err = (Error)errno;
+    return res;
+  }
+
+  res.result = sock_fd;
+
+  return res;
+}
+
+#else
+#error "TODO"
+#endif
 
 #endif
