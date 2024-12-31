@@ -1358,8 +1358,10 @@ RESULT(int) CreateSocketResult;
 
 [[nodiscard]] static CreateSocketResult net_create_socket();
 [[nodiscard]] static Error net_set_nodelay(int sock_fd, bool enabled);
+[[nodiscard]] static Error net_connect_ipv4(int sock_fd, Ipv4Address address);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 
 [[nodiscard]]
@@ -1380,6 +1382,20 @@ static CreateSocketResult net_create_socket() {
 [[nodiscard]] static Error net_set_nodelay(int sock_fd, bool enabled) {
   int opt = enabled;
   if (-1 == setsockopt(sock_fd, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+    return (Error)errno;
+  }
+
+  return 0;
+}
+
+[[nodiscard]] static Error net_connect_ipv4(int sock_fd, Ipv4Address address) {
+  struct sockaddr_in addr = {
+      .sin_family = AF_INET,
+      .sin_port = htons(address.port),
+      .sin_addr = {htonl(address.ip)},
+  };
+
+  if (-1 == connect(sock_fd, (struct sockaddr *)&addr, sizeof(addr))) {
     return (Error)errno;
   }
 
