@@ -61,7 +61,7 @@ typedef u32 Error;
 #define RESULT(T)                                                              \
   typedef struct {                                                             \
     Error err;                                                                 \
-    T result;                                                                  \
+    T res;                                                                     \
   }
 
 #define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
@@ -1355,19 +1355,25 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
 }
 
 RESULT(int) CreateSocketResult;
-[[nodiscard]] static CreateSocketResult net_create_socket();
+[[nodiscard]] static CreateSocketResult net_create_tcp_socket();
+[[nodiscard]] static Error net_close_socket(int sock_fd);
 [[nodiscard]] static Error net_set_nodelay(int sock_fd, bool enabled);
 [[nodiscard]] static Error net_connect_ipv4(int sock_fd, Ipv4Address address);
-RESULT(Ipv4Address) DnsResolveIpv4AddressResult;
-[[nodiscard]] static DnsResolveIpv4AddressResult
-net_dsn_resolve_ipv4(String host, u16 port);
+typedef struct {
+  Ipv4Address address;
+  int socket;
+} Ipv4AddressSocket;
+RESULT(Ipv4AddressSocket) DnsResolveIpv4AddressSocketResult;
+[[nodiscard]] static DnsResolveIpv4AddressSocketResult
+net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
+#include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
 [[nodiscard]]
-static CreateSocketResult net_create_socket() {
+static CreateSocketResult net_create_tcp_socket() {
   CreateSocketResult res = {0};
 
   int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -1376,9 +1382,13 @@ static CreateSocketResult net_create_socket() {
     return res;
   }
 
-  res.result = sock_fd;
+  res.res = sock_fd;
 
   return res;
+}
+
+[[nodiscard]] static Error net_close_socket(int sock_fd) {
+  return (Error)close(sock_fd);
 }
 
 [[nodiscard]] static Error net_set_nodelay(int sock_fd, bool enabled) {
@@ -1404,11 +1414,50 @@ static CreateSocketResult net_create_socket() {
   return 0;
 }
 
-[[nodiscard]] static DnsResolveIpv4AddressResult
-net_dsn_resolve_ipv4(String host, u16 port) {
-  DnsResolveIpv4AddressResult res = {0};
+[[nodiscard]] static DnsResolveIpv4AddressSocketResult
+net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena) {
+  DnsResolveIpv4AddressSocketResult res = {0};
 
-  // TODO
+  struct addrinfo hints = {0};
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_protocol = IPPROTO_TCP;
+
+  struct addrinfo *addr_info = nullptr;
+  int res_getaddrinfo = getaddrinfo(
+      string_to_cstr(host, &arena),
+      string_to_cstr(u64_to_string(port, &arena), &arena), &hints, &addr_info);
+  if (res_getaddrinfo != 0) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  struct addrinfo *rp = nullptr;
+  for (rp = addr_info; rp != nullptr; rp = rp->ai_next) {
+    CreateSocketResult res_create_socket = net_create_tcp_socket();
+    if (res_create_socket.err) {
+      res.err = res_create_socket.err;
+      continue;
+    }
+
+    if (-1 == connect(res_create_socket.res, rp->ai_addr, rp->ai_addrlen)) {
+      // TODO: EINPROGRESS in case of non-blocking.
+      res.err = (Error)errno;
+      (void)net_close_socket(res_create_socket.res);
+      continue;
+    }
+
+    res.res.socket = res_create_socket.res;
+    res.res.address.ip = 0; // FIXME
+    res.res.address.port = port;
+    break;
+  }
+
+  freeaddrinfo(addr_info);
+
+  if (nullptr == rp) { // No address succeeded.
+    res.err = EINVAL;
+    return res;
+  }
 
   return res;
 }
