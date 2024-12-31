@@ -535,6 +535,9 @@ typedef enum {
                  arena),                                                       \
       0 : 0
 
+#define dyn_space(T, dyn)                                                      \
+  ((T){.data = (dyn)->data, .len = (dyn)->cap - (dyn)->len})
+
 typedef struct {
   u8 *data;
   u64 len, cap;
@@ -1371,6 +1374,7 @@ RESULT(Ipv4AddressSocket) DnsResolveIpv4AddressSocketResult;
 net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -1447,7 +1451,9 @@ net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena) {
     }
 
     res.res.socket = res_create_socket.res;
-    res.res.address.ip = 0; // FIXME
+
+    res.res.address.ip =
+        inet_netof(((struct sockaddr_in *)(void *)rp->ai_addr)->sin_addr);
     res.res.address.port = port;
     break;
   }
@@ -1465,5 +1471,47 @@ net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena) {
 #else
 #error "TODO"
 #endif
+
+RESULT(String) IoOperationResult;
+
+typedef IoOperationResult (*ReadFn)(void *ctx, void *buf, size_t buf_len);
+
+typedef struct {
+  Ipv4AddressSocket sock;
+  ReadFn read;
+} DirectReader;
+
+[[maybe_unused]] [[nodiscard]] static IoOperationResult
+direct_reader_read_exactly(DirectReader *r, u64 count, Arena *arena) {
+  ASSERT(r->read != nullptr);
+
+  DynU8 sb = {0};
+  dyn_ensure_cap(&sb, count, arena);
+
+  IoOperationResult res = {0};
+
+  for (u64 i = 0; i < count; i++) {
+    if (res.res.len == count) { // The end.
+      return res;
+    }
+
+    String space = dyn_space(String, &sb);
+    res = r->read(r, space.data, space.len);
+    if (res.err) {
+      return res;
+    }
+    if (0 == res.res.len) {
+      res.err = (Error)EIO;
+      return res;
+    }
+
+    ASSERT(space.len <= count);
+    dyn_append_slice(&sb, space, arena);
+    ASSERT(sb.len <= count);
+  }
+
+  ASSERT(res.res.len == count);
+  return res;
+}
 
 #endif
