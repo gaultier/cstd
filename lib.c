@@ -1355,10 +1355,12 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
 }
 
 RESULT(int) CreateSocketResult;
-
 [[nodiscard]] static CreateSocketResult net_create_socket();
 [[nodiscard]] static Error net_set_nodelay(int sock_fd, bool enabled);
 [[nodiscard]] static Error net_connect_ipv4(int sock_fd, Ipv4Address address);
+RESULT(Ipv4Address) DnsResolveIpv4AddressResult;
+[[nodiscard]] static DnsResolveIpv4AddressResult
+net_dsn_resolve_ipv4(String host, u16 port);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #include <netinet/in.h>
@@ -1400,6 +1402,15 @@ static CreateSocketResult net_create_socket() {
   }
 
   return 0;
+}
+
+[[nodiscard]] static DnsResolveIpv4AddressResult
+net_dsn_resolve_ipv4(String host, u16 port) {
+  DnsResolveIpv4AddressResult res = {0};
+
+  // TODO
+
+  return res;
 }
 
 #else
