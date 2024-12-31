@@ -1355,16 +1355,19 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
 }
 
 RESULT(int) CreateSocketResult;
-[[nodiscard]] static CreateSocketResult net_create_tcp_socket();
-[[nodiscard]] static Error net_close_socket(int sock_fd);
-[[nodiscard]] static Error net_set_nodelay(int sock_fd, bool enabled);
-[[nodiscard]] static Error net_connect_ipv4(int sock_fd, Ipv4Address address);
+[[maybe_unused]] [[nodiscard]] static CreateSocketResult
+net_create_tcp_socket();
+[[maybe_unused]] [[nodiscard]] static Error net_close_socket(int sock_fd);
+[[maybe_unused]] [[nodiscard]] static Error net_set_nodelay(int sock_fd,
+                                                            bool enabled);
+[[maybe_unused]] [[nodiscard]] static Error
+net_connect_ipv4(int sock_fd, Ipv4Address address);
 typedef struct {
   Ipv4Address address;
   int socket;
 } Ipv4AddressSocket;
 RESULT(Ipv4AddressSocket) DnsResolveIpv4AddressSocketResult;
-[[nodiscard]] static DnsResolveIpv4AddressSocketResult
+[[maybe_unused]] [[nodiscard]] static DnsResolveIpv4AddressSocketResult
 net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
@@ -1372,7 +1375,6 @@ net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena);
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
-[[nodiscard]]
 static CreateSocketResult net_create_tcp_socket() {
   CreateSocketResult res = {0};
 
@@ -1387,11 +1389,9 @@ static CreateSocketResult net_create_tcp_socket() {
   return res;
 }
 
-[[nodiscard]] static Error net_close_socket(int sock_fd) {
-  return (Error)close(sock_fd);
-}
+static Error net_close_socket(int sock_fd) { return (Error)close(sock_fd); }
 
-[[nodiscard]] static Error net_set_nodelay(int sock_fd, bool enabled) {
+static Error net_set_nodelay(int sock_fd, bool enabled) {
   int opt = enabled;
   if (-1 == setsockopt(sock_fd, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
     return (Error)errno;
@@ -1400,7 +1400,7 @@ static CreateSocketResult net_create_tcp_socket() {
   return 0;
 }
 
-[[nodiscard]] static Error net_connect_ipv4(int sock_fd, Ipv4Address address) {
+static Error net_connect_ipv4(int sock_fd, Ipv4Address address) {
   struct sockaddr_in addr = {
       .sin_family = AF_INET,
       .sin_port = htons(address.port),
@@ -1414,7 +1414,7 @@ static CreateSocketResult net_create_tcp_socket() {
   return 0;
 }
 
-[[nodiscard]] static DnsResolveIpv4AddressSocketResult
+static DnsResolveIpv4AddressSocketResult
 net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena) {
   DnsResolveIpv4AddressSocketResult res = {0};
 
