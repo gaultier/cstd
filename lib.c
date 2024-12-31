@@ -1356,8 +1356,8 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
 
 RESULT(int) CreateSocketResult;
 
-[[nodiscard]]
-static CreateSocketResult net_create_socket();
+[[nodiscard]] static CreateSocketResult net_create_socket();
+[[nodiscard]] static Error net_set_nodelay(int sock_fd, bool enabled);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #include <netinet/tcp.h>
@@ -1375,6 +1375,15 @@ static CreateSocketResult net_create_socket() {
   res.result = sock_fd;
 
   return res;
+}
+
+[[nodiscard]] static Error net_set_nodelay(int sock_fd, bool enabled) {
+  int opt = enabled;
+  if (-1 == setsockopt(sock_fd, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+    return (Error)errno;
+  }
+
+  return 0;
 }
 
 #else
