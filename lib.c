@@ -1664,4 +1664,78 @@ typedef struct {
   return 0;
 }
 
+typedef enum { HM_UNKNOWN, HM_GET, HM_POST } HttpMethod;
+
+[[maybe_unused]]
+String static http_method_to_s(HttpMethod m) {
+  switch (m) {
+  case HM_UNKNOWN:
+    return S("unknown");
+  case HM_GET:
+    return S("GET");
+  case HM_POST:
+    return S("POST");
+  default:
+    ASSERT(0);
+  }
+}
+
+typedef struct {
+  String key, value;
+} KeyValue;
+
+typedef struct {
+  KeyValue *data;
+  u64 len, cap;
+} DynKeyValue;
+
+typedef struct {
+  String id;
+  String path_raw;
+  DynString path_components;
+  DynKeyValue url_parameters;
+  HttpMethod method;
+  DynKeyValue headers;
+  String body;
+  Error err;
+} HttpRequest;
+
+typedef struct {
+  u16 status;
+  DynKeyValue headers;
+  Error err;
+
+  // TODO: union{file_path,body}?
+  String file_path;
+  String body;
+} HttpResponse;
+
+[[maybe_unused]] [[nodiscard]] static DynString
+http_parse_relative_path(String s, bool must_start_with_slash, Arena *arena) {
+  if (must_start_with_slash) {
+    ASSERT(string_starts_with(s, S("/")));
+  }
+
+  DynString res = {0};
+
+  SplitIterator split_it_question = string_split(s, '?');
+  String work = string_split_next(&split_it_question).s;
+
+  SplitIterator split_it_slash = string_split(work, '/');
+  for (u64 i = 0; i < s.len; i++) { // Bound.
+    SplitResult split = string_split_next(&split_it_slash);
+    if (!split.ok) {
+      break;
+    }
+
+    if (slice_is_empty(split.s)) {
+      continue;
+    }
+
+    *dyn_push(&res, arena) = split.s;
+  }
+
+  return res;
+}
+
 #endif
