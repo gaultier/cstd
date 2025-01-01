@@ -1616,4 +1616,52 @@ buffered_reader_read_until_slice(BufferedReader *br, String needle,
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static IoResult
+buffered_reader_read_until_end(BufferedReader *br, Arena *arena) {
+  ASSERT(br->buf.cap != 0);
+
+  u64 BUFFERED_READER_MAX_READ_BYTES = 4096;
+
+  IoResult res = {0};
+  DynU8 sb = {0};
+
+  for (u64 i = 0; i < 128; i++) {
+    IoResult res_io = buffered_reader_read(br, BUFFERED_READER_MAX_READ_BYTES);
+    if (res_io.err) {
+      res.err = res_io.err;
+      return res;
+    }
+    if (slice_is_empty(res_io.res)) {
+      res.res = dyn_slice(String, sb);
+      return res;
+    }
+
+    dyn_append_slice(&sb, res_io.res, arena);
+  }
+
+  res.err = (Error)EOF;
+  return res;
+}
+
+typedef struct {
+  int fd;
+} Writer;
+
+[[maybe_unused]] [[nodiscard]] static Error writer_write_all_sync(Writer *w,
+                                                                  String s) {
+  for (u64 idx = 0; idx < s.len;) {
+    const String to_write = slice_range(s, idx, 0);
+    ssize_t written_n = write(w->fd, to_write.data, to_write.len);
+    if (-1 == written_n) {
+      return (Error)errno;
+    }
+
+    ASSERT((u64)written_n <= s.len);
+    ASSERT(idx <= s.len);
+    idx += (u64)written_n;
+    ASSERT(idx <= s.len);
+  }
+  return 0;
+}
+
 #endif

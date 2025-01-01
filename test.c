@@ -440,10 +440,10 @@ static void test_buffered_reader_read_exactly() {
 }
 
 static void test_buffered_reader_read_until_slice() {
-  Arena arena = arena_make_from_virtual_mem(16 * KiB);
 
   // Read from closed remote end: error.
   {
+    Arena arena = arena_make_from_virtual_mem(4 * KiB);
     int fd_pipe[2] = {0};
     ASSERT(-1 != pipe(fd_pipe));
     close(fd_pipe[1]);
@@ -457,6 +457,7 @@ static void test_buffered_reader_read_until_slice() {
 
   // Needle absent.
   {
+    Arena arena = arena_make_from_virtual_mem(8 * KiB);
     int fd_pipe[2] = {0};
     ASSERT(-1 != pipe(fd_pipe));
 
@@ -474,6 +475,7 @@ static void test_buffered_reader_read_until_slice() {
 
   // Needle present.
   {
+    Arena arena = arena_make_from_virtual_mem(8 * KiB);
     int fd_pipe[2] = {0};
     ASSERT(-1 != pipe(fd_pipe));
 
@@ -489,6 +491,40 @@ static void test_buffered_reader_read_until_slice() {
 
     close(fd_pipe[0]);
     close(fd_pipe[1]);
+  }
+}
+
+static void test_buffered_reader_read_until_end() {
+  Arena arena = arena_make_from_virtual_mem(16 * KiB);
+
+  // Read from closed remote end.
+  {
+    int fd_pipe[2] = {0};
+    ASSERT(-1 != pipe(fd_pipe));
+    close(fd_pipe[1]);
+
+    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
+    IoResult res_io = buffered_reader_read_until_end(&br, &arena);
+    ASSERT(0 == res_io.err);
+    ASSERT(0 == res_io.res.len);
+
+    close(fd_pipe[0]);
+  }
+
+  {
+    int fd_pipe[2] = {0};
+    ASSERT(-1 != pipe(fd_pipe));
+
+    String value = S("hello");
+    ASSERT(write(fd_pipe[1], value.data, value.len) == (i64)value.len);
+    close(fd_pipe[1]);
+
+    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
+    IoResult res_io = buffered_reader_read_until_end(&br, &arena);
+    ASSERT(0 == res_io.err);
+    ASSERT(string_eq(value, res_io.res));
+
+    close(fd_pipe[0]);
   }
 }
 
@@ -513,4 +549,5 @@ int main() {
   test_bitfield();
   test_buffered_reader_read_exactly();
   test_buffered_reader_read_until_slice();
+  test_buffered_reader_read_until_end();
 }
