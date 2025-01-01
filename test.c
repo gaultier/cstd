@@ -405,7 +405,7 @@ static void test_bitfield() {
   }
 }
 
-static void test_buffered_reader_read_from_fd() {
+static void test_buffered_reader_read_exactly() {
   Arena arena = arena_make_from_virtual_mem(16 * KiB);
 
   // Read from closed remote end: error.
@@ -421,7 +421,6 @@ static void test_buffered_reader_read_from_fd() {
     close(fd_pipe[0]);
   }
 
-  // Partial read.
   {
     int fd_pipe[2] = {0};
     ASSERT(-1 != pipe(fd_pipe));
@@ -434,6 +433,57 @@ static void test_buffered_reader_read_from_fd() {
     ASSERT(0 == res_io.err);
     ASSERT(7 == res_io.res.len);
     ASSERT(string_eq(res_io.res, S("\x12\x0\x0\x0\x0\x0\x0")));
+
+    close(fd_pipe[0]);
+    close(fd_pipe[1]);
+  }
+}
+
+static void test_buffered_reader_read_until_slice() {
+  Arena arena = arena_make_from_virtual_mem(16 * KiB);
+
+  // Read from closed remote end: error.
+  {
+    int fd_pipe[2] = {0};
+    ASSERT(-1 != pipe(fd_pipe));
+    close(fd_pipe[1]);
+
+    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
+    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"));
+    ASSERT((Error)EOF == res_io.err);
+
+    close(fd_pipe[0]);
+  }
+
+  // Needle absent.
+  {
+    int fd_pipe[2] = {0};
+    ASSERT(-1 != pipe(fd_pipe));
+
+    String value = S("hello");
+    ASSERT(write(fd_pipe[1], value.data, value.len) == (i64)value.len);
+
+    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
+    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"));
+    ASSERT((Error)EOF == res_io.err);
+    ASSERT(0 == res_io.res.len);
+
+    close(fd_pipe[0]);
+    close(fd_pipe[1]);
+  }
+
+  // Needle present.
+  {
+    int fd_pipe[2] = {0};
+    ASSERT(-1 != pipe(fd_pipe));
+
+    String value = S("hello");
+    ASSERT(write(fd_pipe[1], value.data, value.len) == (i64)value.len);
+
+    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
+    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"));
+    ASSERT((Error)EOF == res_io.err);
+    ASSERT(0 == res_io.res.len);
 
     close(fd_pipe[0]);
     close(fd_pipe[1]);
@@ -459,5 +509,6 @@ int main() {
   test_make_log_line();
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
-  test_buffered_reader_read_from_fd();
+  test_buffered_reader_read_exactly();
+  test_buffered_reader_read_until_slice();
 }
