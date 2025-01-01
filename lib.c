@@ -1472,41 +1472,111 @@ net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena) {
 #error "TODO"
 #endif
 
-RESULT(String) IoOperationResult;
+RESULT(u64) IoCountResult;
+RESULT(String) IoResult;
 
-typedef IoOperationResult (*ReadFn)(void *ctx, void *buf, size_t buf_len);
+typedef IoCountResult (*ReadFn)(void *self, u8 *buf, size_t buf_len);
 
 typedef struct {
-  Ipv4AddressSocket sock;
   ReadFn read;
+} Reader;
+
+typedef struct {
+  ReadFn read;
+  int fd;
 } DirectReader;
 
-[[maybe_unused]] [[nodiscard]] static IoOperationResult
-direct_reader_read_exactly(DirectReader *r, u64 count, Arena *arena) {
+typedef struct {
+  ReadFn read;
+  int fd;
+
+  // TODO: Should probably be a ring buffer?
+  u64 buf_idx;
+  DynU8 buf;
+} BufferedReader;
+
+[[maybe_unused]] [[nodiscard]] static IoCountResult
+direct_reader_read(void *self, u8 *buf, size_t buf_len) {
+  ASSERT(self != nullptr);
+  DirectReader *r = self;
+  ASSERT(r->read != nullptr);
+
+  IoCountResult res = {0};
+
+  ssize_t read_n = read(r->fd, buf, buf_len);
+  if (-1 == read_n) {
+    res.err = (Error)errno;
+    return res;
+  }
+
+  res.res = (u64)read_n;
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static IoCountResult
+buffered_reader_read(void *self, u8 *buf, size_t buf_len) {
+  ASSERT(self != nullptr);
+  BufferedReader *r = self;
+  ASSERT(r->read != nullptr);
+  ASSERT(r->buf_idx <= r->buf.len);
+
+  IoCountResult res = {0};
+
+  // Buffered read.
+  {
+    u64 read_count_target = MIN(buf_len, r->buf.len);
+    String buffered =
+        slice_range(dyn_slice(String, r->buf), r->buf_idx, read_count_target);
+    if (buffered.len != 0) {
+      res.res = read_count_target;
+      r->buf_idx = r->buf.len = 0;
+      return res;
+    }
+  }
+
+  // I/O read up to 4096 bytes.
+  // Then do the buffered read.
+  ASSERT(r->buf.len == 0);
+  ASSERT(r->buf.cap <= 4096);
+  String space = dyn_space(String, &r->buf);
+  ssize_t read_n = read(r->fd, space.data, space.len);
+  if (-1 == read_n) {
+    res.err = (Error)errno;
+    return res;
+  }
+
+  r->buf.len = (u64)read_n;
+
+  return buffered_reader_read(r, buf, buf_len);
+}
+
+[[maybe_unused]] [[nodiscard]] static IoResult
+reader_read_exactly(Reader *r, u64 count, Arena *arena) {
   ASSERT(r->read != nullptr);
 
   DynU8 sb = {0};
   dyn_ensure_cap(&sb, count, arena);
 
-  IoOperationResult res = {0};
+  IoResult res = {0};
 
   for (u64 i = 0; i < count; i++) {
     if (res.res.len == count) { // The end.
       return res;
     }
 
-    String space = dyn_space(String, &sb);
-    res = r->read(r, space.data, space.len);
-    if (res.err) {
+    String dst = slice_range(dyn_space(String, &sb), 0, count);
+    IoCountResult res_count = r->read(r, dst.data, dst.len);
+    if (res_count.err) {
+      res.err = res_count.err;
       return res;
     }
-    if (0 == res.res.len) {
+    if (0 == res_count.res) {
       res.err = (Error)EIO;
       return res;
     }
 
-    ASSERT(space.len <= count);
-    dyn_append_slice(&sb, space, arena);
+    sb.len += res_count.res;
     ASSERT(sb.len <= count);
   }
 
