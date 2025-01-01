@@ -449,7 +449,7 @@ static void test_buffered_reader_read_until_slice() {
     close(fd_pipe[1]);
 
     BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"));
+    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"), &arena);
     ASSERT((Error)EOF == res_io.err);
 
     close(fd_pipe[0]);
@@ -462,14 +462,14 @@ static void test_buffered_reader_read_until_slice() {
 
     String value = S("hello");
     ASSERT(write(fd_pipe[1], value.data, value.len) == (i64)value.len);
+    close(fd_pipe[1]);
 
     BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"));
+    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"), &arena);
     ASSERT((Error)EOF == res_io.err);
     ASSERT(0 == res_io.res.len);
 
     close(fd_pipe[0]);
-    close(fd_pipe[1]);
   }
 
   // Needle present.
@@ -477,13 +477,15 @@ static void test_buffered_reader_read_until_slice() {
     int fd_pipe[2] = {0};
     ASSERT(-1 != pipe(fd_pipe));
 
-    String value = S("hello");
+    String value = S("hello\r\nbar");
     ASSERT(write(fd_pipe[1], value.data, value.len) == (i64)value.len);
 
     BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"));
-    ASSERT((Error)EOF == res_io.err);
-    ASSERT(0 == res_io.res.len);
+    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"), &arena);
+    ASSERT(0 == res_io.err);
+    ASSERT(5 + 2 == res_io.res.len);
+    ASSERT(3 == br.buf.len);
+    ASSERT(0 == br.buf_idx);
 
     close(fd_pipe[0]);
     close(fd_pipe[1]);

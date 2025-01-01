@@ -1516,7 +1516,6 @@ buffered_reader_read(BufferedReader *br, u64 count) {
     String buffered =
         slice_range(dyn_slice(String, br->buf), br->buf_idx, read_count_target);
     res.res = buffered;
-    ASSERT(buffered.len == count);
     br->buf_idx = br->buf.len = 0;
     return res;
   }
@@ -1562,12 +1561,28 @@ buffered_reader_make(int fd, Arena *arena) {
   return r;
 }
 
+[[maybe_unused]] static void buffered_reader_put_back(BufferedReader *br,
+                                                      String data) {
+  ASSERT(0 == br->buf_idx);
+  ASSERT(data.len <= br->buf.cap);
+  if (0 == data.len) {
+    return;
+  }
+  ASSERT(nullptr != data.data);
+  ASSERT(nullptr != br->buf.data);
+
+  memcpy(&br->buf.data, data.data, data.len);
+  br->buf.len = data.len;
+}
+
 [[maybe_unused]] [[nodiscard]] static IoResult
-buffered_reader_read_until_slice(BufferedReader *br, String needle) {
+buffered_reader_read_until_slice(BufferedReader *br, String needle,
+                                 Arena *arena) {
   ASSERT(br->buf.cap != 0);
   u64 BUFFERED_READER_MAX_READ_BYTES = 4096;
 
   IoResult res = {0};
+  DynU8 sb = {0};
 
   for (u64 i = 0; i < 128; i++) {
     IoResult res_io = buffered_reader_read(br, BUFFERED_READER_MAX_READ_BYTES);
@@ -1575,17 +1590,29 @@ buffered_reader_read_until_slice(BufferedReader *br, String needle) {
       res.err = res_io.err;
       return res;
     }
+    if (slice_is_empty(res_io.res)) {
+      res.err = (Error)EOF;
+      return res;
+    }
 
-    String read = dyn_slice(String, br->buf);
-    i64 idx = string_indexof_string(read, needle);
+    dyn_append_slice(&sb, res_io.res, arena);
+
+    // OPTIMIZATION: Could search only most recent part of sb minus the needle
+    // len.
+    String to_search = dyn_slice(String, sb);
+    i64 idx = string_indexof_string(to_search, needle);
     if (idx == -1) {
       continue;
     }
 
-    res.res = slice_range(read, 0, (u64)idx);
+    res.res = slice_range(to_search, 0, (u64)idx + needle.len);
+    buffered_reader_put_back(br,
+                             slice_range(to_search, (u64)idx + needle.len, 0));
+
     return res;
   }
 
+  res.err = (Error)EOF;
   return res;
 }
 
