@@ -1810,4 +1810,192 @@ static void http_push_header(DynKeyValue *headers, String key, String value,
   *dyn_push(headers, arena) = (KeyValue){.key = key, .value = value};
 }
 
+// TODO: Split serializing body?
+[[maybe_unused]] [[nodiscard]] static String
+http_request_serialize(HttpRequest req, Arena *arena) {
+  DynU8 sb = {0};
+  dyn_append_slice(&sb, http_method_to_s(req.method), arena);
+  dyn_append_slice(&sb, S(" /"), arena);
+
+  for (u64 i = 0; i < req.path_components.len; i++) {
+    String path_component = dyn_at(req.path_components, i);
+    dyn_append_slice(&sb, path_component, arena);
+
+    if (i < req.path_components.len - 1) {
+      *dyn_push(&sb, arena) = '/';
+    }
+  }
+
+  if (req.url_parameters.len > 0) {
+    *dyn_push(&sb, arena) = '?';
+    for (u64 i = 0; i < req.url_parameters.len; i++) {
+      KeyValue param = dyn_at(req.url_parameters, i);
+      url_encode_string(&sb, param.key, param.value, arena);
+
+      if (i < req.url_parameters.len - 1) {
+        *dyn_push(&sb, arena) = '&';
+      }
+    }
+  }
+
+  dyn_append_slice(&sb, S(" HTTP/1.1"), arena);
+  dyn_append_slice(&sb, S("\r\n"), arena);
+
+  for (u64 i = 0; i < req.headers.len; i++) {
+    KeyValue header = dyn_at(req.headers, i);
+    dyn_append_slice(&sb, header.key, arena);
+    dyn_append_slice(&sb, S(": "), arena);
+    dyn_append_slice(&sb, header.value, arena);
+    dyn_append_slice(&sb, S("\r\n"), arena);
+  }
+  dyn_append_slice(&sb, S("\r\n"), arena);
+  dyn_append_slice(&sb, req.body, arena);
+
+  return dyn_slice(String, sb);
+}
+
+// NOTE: Only sanitation for including the string inside an HTML tag e.g.:
+// `<div>...ESCAPED_STRING..</div>`.
+// To include the string inside other context (e.g. JS, CSS, HTML attributes,
+// etc), more advance sanitation is required.
+[[maybe_unused]] [[nodiscard]] static String html_sanitize(String s,
+                                                           Arena *arena) {
+  DynU8 res = {0};
+  dyn_ensure_cap(&res, s.len, arena);
+  for (u64 i = 0; i < s.len; i++) {
+    u8 c = slice_at(s, i);
+
+    if ('&' == c) {
+      dyn_append_slice(&res, S("&amp"), arena);
+    } else if ('<' == c) {
+      dyn_append_slice(&res, S("&lt"), arena);
+    } else if ('>' == c) {
+      dyn_append_slice(&res, S("&gt"), arena);
+    } else if ('"' == c) {
+      dyn_append_slice(&res, S("&quot"), arena);
+    } else if ('\'' == c) {
+      dyn_append_slice(&res, S("&#x27"), arena);
+    } else {
+      *dyn_push(&res, arena) = c;
+    }
+  }
+
+  return dyn_slice(String, res);
+}
+
+typedef struct {
+  String scheme;
+  String username, password;
+  String host; // Including subdomains.
+  DynString path_components;
+  // TODO: DynKeyValue url_parameters;
+  u16 port;
+  // TODO: fragment.
+} Url;
+
+RESULT(Url) ParseUrlResult;
+
+[[maybe_unused]] [[nodiscard]] static ParseUrlResult url_parse(String s,
+                                                               Arena *arena) {
+  ParseUrlResult res = {0};
+
+  String remaining = s;
+
+  // Scheme, mandatory.
+  {
+    String scheme_sep = S("://");
+    i64 scheme_sep_idx = string_indexof_string(remaining, scheme_sep);
+    if (scheme_sep_idx <= 1) { // Absent/empty scheme.
+      res.err = EINVAL;
+      return res;
+    }
+    res.res.scheme = slice_range(remaining, 0, (u64)scheme_sep_idx);
+    remaining = slice_range(remaining, (u64)scheme_sep_idx + scheme_sep.len, 0);
+  }
+
+  // Username/password, optional.
+  {
+    i64 user_password_sep_idx = string_indexof_byte(remaining, '@');
+    if (user_password_sep_idx >= 0) {
+      ASSERT(0 && "TODO");
+    }
+  }
+
+  // Host, mandatory (?).
+  {
+    i64 any_sep_idx = string_indexof_any_byte(remaining, S(":/?#"));
+    if (-1 == any_sep_idx) {
+      res.err = EINVAL;
+      res.res.host = remaining;
+      if (0 == res.res.host.len) {
+        return res;
+      }
+
+      return res;
+    }
+
+    res.res.host = slice_range(remaining, 0, (u64)any_sep_idx);
+    if (0 == res.res.host.len) {
+      res.err = EINVAL;
+      return res;
+    }
+
+    bool is_port_sep = slice_at(remaining, any_sep_idx) == ':';
+    remaining =
+        slice_range(remaining, (u64)any_sep_idx + (is_port_sep ? 1 : 0), 0);
+
+    if (is_port_sep) {
+      ParseNumberResult port_parse = string_parse_u64(remaining);
+      if (!port_parse.present) { // Empty/invalid port.
+        res.err = EINVAL;
+        return res;
+      }
+      if (port_parse.n > UINT16_MAX) { // Port too big.
+        res.err = EINVAL;
+        return res;
+      }
+      if (0 == port_parse.n) { // Zero port e.g. `http://abc:0`.
+        res.err = EINVAL;
+        return res;
+      }
+      res.res.port = (u16)port_parse.n;
+      remaining = port_parse.remaining;
+    }
+  }
+
+  // Path, optional.
+  // Query parameters, optional.
+  // FIXME: Messy code.
+  {
+    i64 any_sep_idx = string_indexof_any_byte(remaining, S("/?#"));
+    if (-1 == any_sep_idx) {
+      res.err = EINVAL;
+      return res;
+    }
+
+    bool is_sep_path = slice_at(remaining, any_sep_idx) == '/';
+    bool is_sep_fragment = slice_at(remaining, any_sep_idx) == '#';
+    bool is_sep_query_params = slice_at(remaining, any_sep_idx) == '?';
+    if (is_sep_query_params) {
+      ASSERT(0 && "TODO");
+    }
+    if (is_sep_fragment) {
+      ASSERT(0 && "TODO");
+    } else if (is_sep_path) {
+      if (any_sep_idx != 0) {
+        res.err = EINVAL;
+        return res;
+      }
+
+      String path_raw = slice_range(remaining, (u64)any_sep_idx + 1, 0);
+      res.res.path_components =
+          http_parse_relative_path(path_raw, false, arena);
+    } else {
+      ASSERT(0);
+    }
+  }
+
+  return res;
+}
+
 #endif

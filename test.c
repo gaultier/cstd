@@ -528,6 +528,107 @@ static void test_buffered_reader_read_until_end() {
   }
 }
 
+static void test_url_parse() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+  {
+    ParseUrlResult res = url_parse(S(""), &arena);
+    ASSERT(res.err != 0);
+  }
+  {
+    ParseUrlResult res = url_parse(S("x"), &arena);
+    ASSERT(res.err != 0);
+  }
+  {
+    ParseUrlResult res = url_parse(S("http:"), &arena);
+    ASSERT(res.err != 0);
+  }
+  {
+    ParseUrlResult res = url_parse(S("http:/"), &arena);
+    ASSERT(res.err != 0);
+  }
+  {
+    ParseUrlResult res = url_parse(S("http://"), &arena);
+    ASSERT(res.err != 0);
+  }
+  {
+    ParseUrlResult res = url_parse(S("://"), &arena);
+    ASSERT(res.err != 0);
+  }
+  {
+    ParseUrlResult res = url_parse(S("http://a:"), &arena);
+    ASSERT(res.err != 0);
+  }
+  {
+    ParseUrlResult res = url_parse(S("http://a:/"), &arena);
+    ASSERT(res.err != 0);
+  }
+  {
+    ParseUrlResult res = url_parse(S("http://a:bc"), &arena);
+    ASSERT(res.err != 0);
+  }
+  {
+    ParseUrlResult res = url_parse(S("http://abc:0"), &arena);
+    ASSERT(res.err != 0);
+  }
+  {
+    ParseUrlResult res = url_parse(S("http://abc:999999"), &arena);
+    ASSERT(res.err != 0);
+  }
+  {
+    ParseUrlResult res = url_parse(S("http://a:80"), &arena);
+    ASSERT(res.err != 0);
+    ASSERT(string_eq(S("http"), res.res.scheme));
+    ASSERT(0 == res.res.username.len);
+    ASSERT(0 == res.res.password.len);
+    ASSERT(string_eq(S("a"), res.res.host));
+    ASSERT(0 == res.res.path_components.len);
+    ASSERT(80 == res.res.port);
+  }
+  {
+    ParseUrlResult res = url_parse(S("http://a.b.c:80/foo"), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(S("http"), res.res.scheme));
+    ASSERT(0 == res.res.username.len);
+    ASSERT(0 == res.res.password.len);
+    ASSERT(string_eq(S("a.b.c"), res.res.host));
+    ASSERT(80 == res.res.port);
+    ASSERT(1 == res.res.path_components.len);
+
+    String path_component0 = slice_at(res.res.path_components, 0);
+    ASSERT(string_eq(S("foo"), path_component0));
+  }
+  {
+    ParseUrlResult res = url_parse(S("http://a.b.c:80/"), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(S("http"), res.res.scheme));
+    ASSERT(0 == res.res.username.len);
+    ASSERT(0 == res.res.password.len);
+    ASSERT(string_eq(S("a.b.c"), res.res.host));
+    ASSERT(80 == res.res.port);
+    ASSERT(0 == res.res.path_components.len);
+  }
+  {
+    ParseUrlResult res = url_parse(S("http://a.b.c/foo/bar/baz"), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(S("http"), res.res.scheme));
+    ASSERT(0 == res.res.username.len);
+    ASSERT(0 == res.res.password.len);
+    ASSERT(string_eq(S("a.b.c"), res.res.host));
+    ASSERT(0 == res.res.port);
+    ASSERT(3 == res.res.path_components.len);
+
+    String path_component0 = slice_at(res.res.path_components, 0);
+    ASSERT(string_eq(S("foo"), path_component0));
+
+    String path_component1 = slice_at(res.res.path_components, 1);
+    ASSERT(string_eq(S("bar"), path_component1));
+
+    String path_component2 = slice_at(res.res.path_components, 2);
+    ASSERT(string_eq(S("baz"), path_component2));
+  }
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -550,4 +651,5 @@ int main() {
   test_buffered_reader_read_exactly();
   test_buffered_reader_read_until_slice();
   test_buffered_reader_read_until_end();
+  test_url_parse();
 }
