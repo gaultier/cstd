@@ -1738,4 +1738,69 @@ http_parse_relative_path(String s, bool must_start_with_slash, Arena *arena) {
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static HttpRequest
+request_parse_status_line(String status_line, Arena *arena) {
+  HttpRequest req = {.id = make_unique_id_u128_string(arena)};
+
+  if (slice_is_empty(status_line)) {
+    req.err = HS_ERR_INVALID_HTTP_REQUEST;
+    return req;
+  }
+
+  SplitIterator it = string_split(status_line, ' ');
+
+  {
+    SplitResult method = string_split_next(&it);
+    if (!method.ok) {
+      req.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return req;
+    }
+
+    if (string_eq(method.s, S("GET"))) {
+      req.method = HM_GET;
+    } else if (string_eq(method.s, S("POST"))) {
+      req.method = HM_POST;
+    } else {
+      // FIXME: More.
+      req.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return req;
+    }
+  }
+
+  {
+    SplitResult path = string_split_next(&it);
+    if (!path.ok) {
+      req.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return req;
+    }
+
+    if (slice_is_empty(path.s)) {
+      req.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return req;
+    }
+
+    if (path.s.data[0] != '/') {
+      req.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return req;
+    }
+
+    req.path_raw = path.s;
+    req.path_components = http_parse_relative_path(path.s, true, arena);
+  }
+
+  {
+    SplitResult http_version = string_split_next(&it);
+    if (!http_version.ok) {
+      req.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return req;
+    }
+
+    if (!string_eq(http_version.s, S("HTTP/1.1"))) {
+      req.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return req;
+    }
+  }
+
+  return req;
+}
 #endif
