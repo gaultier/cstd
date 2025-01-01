@@ -1803,4 +1803,11 @@ request_parse_status_line(String status_line, Arena *arena) {
 
   return req;
 }
+
+[[maybe_unused]]
+static void http_push_header(DynKeyValue *headers, String key, String value,
+                             Arena *arena) {
+  *dyn_push(headers, arena) = (KeyValue){.key = key, .value = value};
+}
+
 #endif
