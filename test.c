@@ -405,47 +405,6 @@ static void test_bitfield() {
   }
 }
 
-#if 0
-static void test_direct_reader_read_from_fd() {
-  Arena arena = arena_make_from_virtual_mem(4 * KiB);
-
-  // Read from closed remote end: error.
-  {
-    int fd_pipe[2] = {0};
-    ASSERT(-1 != pipe(fd_pipe));
-    close(fd_pipe[1]);
-
-    DirectReader dr = direct_reader_make(fd_pipe[0]);
-    Reader *r = (Reader *)&dr;
-
-    IoResult res_io = reader_read_exactly(r, 128, &arena);
-    ASSERT(EIO == res_io.err);
-
-    close(fd_pipe[0]);
-  }
-
-  // Partial read.
-  {
-    int fd_pipe[2] = {0};
-    ASSERT(-1 != pipe(fd_pipe));
-
-    u8 value[8] = {0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34};
-    ASSERT(write(fd_pipe[1], &value, sizeof(value)) == sizeof(value));
-
-    DirectReader dr = direct_reader_make(fd_pipe[0]);
-    Reader *r = (Reader *)&dr;
-
-    IoResult res_io = reader_read_exactly(r, 7, &arena);
-    ASSERT(0 == res_io.err);
-    ASSERT(7 == res_io.res.len);
-    ASSERT(string_eq(res_io.res, S("\x12\x0\x0\x0\x0\x0\x0")));
-
-    close(fd_pipe[0]);
-    close(fd_pipe[1]);
-  }
-}
-#endif
-
 static void test_buffered_reader_read_from_fd() {
   Arena arena = arena_make_from_virtual_mem(16 * KiB);
 
@@ -500,8 +459,5 @@ int main() {
   test_make_log_line();
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
-#if 0
-  test_direct_reader_read_from_fd();
-#endif
   test_buffered_reader_read_from_fd();
 }

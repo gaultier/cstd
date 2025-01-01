@@ -1477,19 +1477,6 @@ RESULT(String) IoResult;
 
 typedef IoCountResult (*ReadFn)(void *self, u8 *buf, size_t buf_len);
 
-#if 0
-typedef struct {
-  ReadFn read;
-} Reader;
-#endif
-
-#if 0
-typedef struct {
-  ReadFn read;
-  int fd;
-} DirectReader;
-#endif
-
 typedef struct {
   int fd;
 
@@ -1497,27 +1484,6 @@ typedef struct {
   u64 buf_idx;
   DynU8 buf;
 } BufferedReader;
-
-#if 0
-[[maybe_unused]] [[nodiscard]] static IoCountResult
-direct_reader_read(void *self, u8 *buf, size_t buf_len) {
-  ASSERT(self != nullptr);
-  DirectReader *r = self;
-  ASSERT(r->read != nullptr);
-
-  IoCountResult res = {0};
-
-  ssize_t read_n = read(r->fd, buf, buf_len);
-  if (-1 == read_n) {
-    res.err = (Error)errno;
-    return res;
-  }
-
-  res.res = (u64)read_n;
-
-  return res;
-}
-#endif
 
 [[maybe_unused]] [[nodiscard]] static IoResult
 buffered_reader_read(BufferedReader *br, u64 count) {
@@ -1586,16 +1552,6 @@ buffered_reader_read_exactly(BufferedReader *r, u64 count, Arena *arena) {
   ASSERT(res.res.len == count);
   return res;
 }
-
-#if 0
-[[maybe_unused]] [[nodiscard]] static DirectReader direct_reader_make(int fd) {
-  DirectReader r = {0};
-  r.read = direct_reader_read;
-  r.fd = fd;
-
-  return r;
-}
-#endif
 
 [[maybe_unused]] [[nodiscard]] static BufferedReader
 buffered_reader_make(int fd, Arena *arena) {
