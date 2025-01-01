@@ -1561,11 +1561,13 @@ reader_read_exactly(Reader *r, u64 count, Arena *arena) {
   IoResult res = {0};
 
   for (u64 i = 0; i < count; i++) {
-    if (res.res.len == count) { // The end.
+    if (sb.len == count) { // The end.
+      res.res = dyn_slice(String, sb);
       return res;
     }
 
-    String dst = slice_range(dyn_space(String, &sb), 0, count);
+    String space = dyn_space(String, &sb);
+    String dst = slice_range(space, 0, count - sb.len);
     IoCountResult res_count = r->read(r, dst.data, dst.len);
     if (res_count.err) {
       res.err = res_count.err;
@@ -1582,6 +1584,24 @@ reader_read_exactly(Reader *r, u64 count, Arena *arena) {
 
   ASSERT(res.res.len == count);
   return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static DirectReader direct_reader_make(int fd) {
+  DirectReader r = {0};
+  r.read = direct_reader_read;
+  r.fd = fd;
+
+  return r;
+}
+
+[[maybe_unused]] [[nodiscard]] static BufferedReader
+buffered_reader_make(int fd, Arena *arena) {
+  BufferedReader r = {0};
+  r.fd = fd;
+  r.read = buffered_reader_read;
+  dyn_ensure_cap(&r.buf, 4096, arena);
+
+  return r;
 }
 
 #endif
