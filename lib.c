@@ -1477,17 +1477,20 @@ RESULT(String) IoResult;
 
 typedef IoCountResult (*ReadFn)(void *self, u8 *buf, size_t buf_len);
 
+#if 0
 typedef struct {
   ReadFn read;
 } Reader;
+#endif
 
+#if 0
 typedef struct {
   ReadFn read;
   int fd;
 } DirectReader;
+#endif
 
 typedef struct {
-  ReadFn read;
   int fd;
 
   // TODO: Should probably be a ring buffer?
@@ -1495,6 +1498,7 @@ typedef struct {
   DynU8 buf;
 } BufferedReader;
 
+#if 0
 [[maybe_unused]] [[nodiscard]] static IoCountResult
 direct_reader_read(void *self, u8 *buf, size_t buf_len) {
   ASSERT(self != nullptr);
@@ -1513,21 +1517,19 @@ direct_reader_read(void *self, u8 *buf, size_t buf_len) {
 
   return res;
 }
+#endif
 
 [[maybe_unused]] [[nodiscard]] static IoCountResult
-buffered_reader_read(void *self, u8 *buf, size_t buf_len) {
-  ASSERT(self != nullptr);
-  BufferedReader *r = self;
-  ASSERT(r->read != nullptr);
-  ASSERT(r->buf_idx <= r->buf.len);
+buffered_reader_read(BufferedReader *br, u8 *buf, size_t buf_len) {
+  ASSERT(br->buf_idx <= br->buf.len);
 
   IoCountResult res = {0};
 
-  if (r->buf_idx == r->buf.len) { // If the buffer is empty.
-    ASSERT(r->buf.len == 0);
-    ASSERT(r->buf.cap <= 4096);
-    String space = dyn_space(String, &r->buf);
-    ssize_t read_n = read(r->fd, space.data, space.len);
+  if (br->buf_idx == br->buf.len) { // If the buffer is empty.
+    ASSERT(br->buf.len == 0);
+    ASSERT(br->buf.cap <= 4096);
+    String space = dyn_space(String, &br->buf);
+    ssize_t read_n = read(br->fd, space.data, space.len);
     if (-1 == read_n) {
       res.err = (Error)errno;
       return res;
@@ -1537,42 +1539,39 @@ buffered_reader_read(void *self, u8 *buf, size_t buf_len) {
       return res;
     }
 
-    r->buf.len = (u64)read_n;
+    br->buf.len = (u64)read_n;
   }
 
-  ASSERT(r->buf_idx < r->buf.len);
+  ASSERT(br->buf_idx < br->buf.len);
 
   // Buffered read.
   {
-    u64 read_count_target = MIN(buf_len, r->buf.len);
+    u64 read_count_target = MIN(buf_len, br->buf.len);
     String buffered =
-        slice_range(dyn_slice(String, r->buf), r->buf_idx, read_count_target);
+        slice_range(dyn_slice(String, br->buf), br->buf_idx, read_count_target);
     res.res = read_count_target;
     ASSERT(buffered.len == buf_len);
     mempcpy(buf, buffered.data, buf_len);
-    r->buf_idx = r->buf.len = 0;
+    br->buf_idx = br->buf.len = 0;
     return res;
   }
 }
 
 [[maybe_unused]] [[nodiscard]] static IoResult
-reader_read_exactly(Reader *r, u64 count, Arena *arena) {
-  ASSERT(r->read != nullptr);
-
-  DynU8 sb = {0};
-  dyn_ensure_cap(&sb, count, arena);
+buffered_reader_read_exactly(BufferedReader *r, u64 count, Arena *arena) {
+  dyn_ensure_cap(&r->buf, count, arena);
 
   IoResult res = {0};
 
   for (u64 i = 0; i < count; i++) {
-    if (sb.len == count) { // The end.
-      res.res = dyn_slice(String, sb);
+    if (r->buf.len == count) { // The end.
+      res.res = dyn_slice(String, r->buf);
       return res;
     }
 
-    String space = dyn_space(String, &sb);
-    String dst = slice_range(space, 0, count - sb.len);
-    IoCountResult res_count = r->read(r, dst.data, dst.len);
+    String space = dyn_space(String, &r->buf);
+    String dst = slice_range(space, 0, count - r->buf.len);
+    IoCountResult res_count = buffered_reader_read(r, dst.data, dst.len);
     if (res_count.err) {
       res.err = res_count.err;
       return res;
@@ -1582,14 +1581,15 @@ reader_read_exactly(Reader *r, u64 count, Arena *arena) {
       return res;
     }
 
-    sb.len += res_count.res;
-    ASSERT(sb.len <= count);
+    r->buf.len += res_count.res;
+    ASSERT(r->buf.len <= count);
   }
 
   ASSERT(res.res.len == count);
   return res;
 }
 
+#if 0
 [[maybe_unused]] [[nodiscard]] static DirectReader direct_reader_make(int fd) {
   DirectReader r = {0};
   r.read = direct_reader_read;
@@ -1597,15 +1597,41 @@ reader_read_exactly(Reader *r, u64 count, Arena *arena) {
 
   return r;
 }
+#endif
 
 [[maybe_unused]] [[nodiscard]] static BufferedReader
 buffered_reader_make(int fd, Arena *arena) {
   BufferedReader r = {0};
   r.fd = fd;
-  r.read = buffered_reader_read;
   dyn_ensure_cap(&r.buf, 4096, arena);
 
   return r;
+}
+
+[[maybe_unused]] [[nodiscard]] static IoResult
+buffered_reader_read_until_slice(BufferedReader *br, String needle,
+                                 Arena *arena) {
+  u64 BUFFERED_READER_MAX_READ_BYTES = 4096;
+
+  dyn_ensure_cap(&br->buf, BUFFERED_READER_MAX_READ_BYTES, arena);
+  IoResult res = {0};
+
+  for (u64 i = 0; i < 128; i++) {
+    String space = dyn_space(String, &br->buf);
+    IoCountResult res_count = buffered_reader_read(br, space.data, space.len);
+    if (res_count.err) {
+      res.err = res_count.err;
+      return res;
+    }
+
+    String read = dyn_slice(String, br->buf);
+    i64 idx = string_indexof_string(read, needle);
+    if (idx == -1) {
+      continue;
+    }
+  }
+
+  return res;
 }
 
 #endif

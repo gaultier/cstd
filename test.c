@@ -405,6 +405,7 @@ static void test_bitfield() {
   }
 }
 
+#if 0
 static void test_direct_reader_read_from_fd() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
 
@@ -443,6 +444,7 @@ static void test_direct_reader_read_from_fd() {
     close(fd_pipe[1]);
   }
 }
+#endif
 
 static void test_buffered_reader_read_from_fd() {
   Arena arena = arena_make_from_virtual_mem(16 * KiB);
@@ -454,9 +456,7 @@ static void test_buffered_reader_read_from_fd() {
     close(fd_pipe[1]);
 
     BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    Reader *r = (Reader *)&br;
-
-    IoResult res_io = reader_read_exactly(r, 128, &arena);
+    IoResult res_io = buffered_reader_read_exactly(&br, 128, &arena);
     ASSERT(EIO == res_io.err);
 
     close(fd_pipe[0]);
@@ -471,9 +471,7 @@ static void test_buffered_reader_read_from_fd() {
     ASSERT(write(fd_pipe[1], &value, sizeof(value)) == sizeof(value));
 
     BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    Reader *r = (Reader *)&br;
-
-    IoResult res_io = reader_read_exactly(r, 7, &arena);
+    IoResult res_io = buffered_reader_read_exactly(&br, 7, &arena);
     ASSERT(0 == res_io.err);
     ASSERT(7 == res_io.res.len);
     ASSERT(string_eq(res_io.res, S("\x12\x0\x0\x0\x0\x0\x0")));
@@ -502,6 +500,8 @@ int main() {
   test_make_log_line();
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
+#if 0
   test_direct_reader_read_from_fd();
+#endif
   test_buffered_reader_read_from_fd();
 }
