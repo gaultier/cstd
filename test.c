@@ -457,7 +457,7 @@ static void test_buffered_reader_read_from_fd() {
 
     BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
     IoResult res_io = buffered_reader_read_exactly(&br, 128, &arena);
-    ASSERT(EIO == res_io.err);
+    ASSERT((Error)EOF == res_io.err);
 
     close(fd_pipe[0]);
   }
