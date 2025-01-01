@@ -1523,32 +1523,36 @@ buffered_reader_read(void *self, u8 *buf, size_t buf_len) {
 
   IoCountResult res = {0};
 
+  if (r->buf_idx == r->buf.len) { // If the buffer is empty.
+    ASSERT(r->buf.len == 0);
+    ASSERT(r->buf.cap <= 4096);
+    String space = dyn_space(String, &r->buf);
+    ssize_t read_n = read(r->fd, space.data, space.len);
+    if (-1 == read_n) {
+      res.err = (Error)errno;
+      return res;
+    }
+
+    if (0 == read_n) {
+      return res;
+    }
+
+    r->buf.len = (u64)read_n;
+  }
+
+  ASSERT(r->buf_idx < r->buf.len);
+
   // Buffered read.
   {
     u64 read_count_target = MIN(buf_len, r->buf.len);
     String buffered =
         slice_range(dyn_slice(String, r->buf), r->buf_idx, read_count_target);
-    if (buffered.len != 0) {
-      res.res = read_count_target;
-      r->buf_idx = r->buf.len = 0;
-      return res;
-    }
-  }
-
-  // I/O read up to 4096 bytes.
-  // Then do the buffered read.
-  ASSERT(r->buf.len == 0);
-  ASSERT(r->buf.cap <= 4096);
-  String space = dyn_space(String, &r->buf);
-  ssize_t read_n = read(r->fd, space.data, space.len);
-  if (-1 == read_n) {
-    res.err = (Error)errno;
+    res.res = read_count_target;
+    ASSERT(buffered.len == buf_len);
+    mempcpy(buf, buffered.data, buf_len);
+    r->buf_idx = r->buf.len = 0;
     return res;
   }
-
-  r->buf.len = (u64)read_n;
-
-  return buffered_reader_read(r, buf, buf_len);
 }
 
 [[maybe_unused]] [[nodiscard]] static IoResult

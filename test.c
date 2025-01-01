@@ -444,6 +444,45 @@ static void test_direct_reader_read_from_fd() {
   }
 }
 
+static void test_buffered_reader_read_from_fd() {
+  Arena arena = arena_make_from_virtual_mem(16 * KiB);
+
+  // Read from closed remote end: error.
+  {
+    int fd_pipe[2] = {0};
+    ASSERT(-1 != pipe(fd_pipe));
+    close(fd_pipe[1]);
+
+    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
+    Reader *r = (Reader *)&br;
+
+    IoResult res_io = reader_read_exactly(r, 128, &arena);
+    ASSERT(EIO == res_io.err);
+
+    close(fd_pipe[0]);
+  }
+
+  // Partial read.
+  {
+    int fd_pipe[2] = {0};
+    ASSERT(-1 != pipe(fd_pipe));
+
+    u8 value[8] = {0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34};
+    ASSERT(write(fd_pipe[1], &value, sizeof(value)) == sizeof(value));
+
+    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
+    Reader *r = (Reader *)&br;
+
+    IoResult res_io = reader_read_exactly(r, 7, &arena);
+    ASSERT(0 == res_io.err);
+    ASSERT(7 == res_io.res.len);
+    ASSERT(string_eq(res_io.res, S("\x12\x0\x0\x0\x0\x0\x0")));
+
+    close(fd_pipe[0]);
+    close(fd_pipe[1]);
+  }
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -464,4 +503,5 @@ int main() {
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
   test_direct_reader_read_from_fd();
+  test_buffered_reader_read_from_fd();
 }
