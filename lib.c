@@ -1629,6 +1629,9 @@ buffered_reader_read_until_slice(BufferedReader *br, String needle,
     if (idx == -1) {
       continue;
     }
+
+    res.res = slice_range(read, 0, (u64)idx);
+    return res;
   }
 
   return res;
