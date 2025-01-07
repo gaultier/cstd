@@ -1897,29 +1897,6 @@ buffered_reader_read_until_slice(BufferedReader *br, String needle,
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static IoResult
-buffered_reader_read_until_end(BufferedReader *br, Arena *arena) {
-  IoResult res = {0};
-  DynU8 sb = {0};
-
-  for (u64 i = 0; i < 128; i++) {
-    IoResult res_io = buffered_reader_read(br, 1024, arena);
-    if (res_io.err) {
-      res.err = res_io.err;
-      return res;
-    }
-    if (slice_is_empty(res_io.res)) {
-      res.res = dyn_slice(String, sb);
-      return res;
-    }
-
-    dyn_append_slice(&sb, res_io.res, arena);
-  }
-
-  res.err = (Error)EOF;
-  return res;
-}
-
 typedef struct {
   int fd;
 } Writer;
@@ -2326,22 +2303,6 @@ request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
   return (ParseNumberResult){0};
 }
 
-[[nodiscard]] static HttpRequest request_read_body(HttpRequest req,
-                                                   BufferedReader *reader,
-                                                   u64 content_length,
-                                                   Arena *arena) {
-  ASSERT(!req.err);
-  HttpRequest res = req;
-
-  IoResult res_io = buffered_reader_read_exactly(reader, content_length, arena);
-  if (res_io.err) {
-    res.err = res_io.err;
-    return res;
-  }
-
-  return res;
-}
-
 [[maybe_unused]] [[nodiscard]] static HttpRequest
 request_read(BufferedReader *reader, Arena *arena) {
   const IoResult status_line =
@@ -2368,7 +2329,13 @@ request_read(BufferedReader *reader, Arena *arena) {
   }
 
   if (content_length.present) {
-    req = request_read_body(req, reader, content_length.n, arena);
+    IoResult res_io =
+        buffered_reader_read_exactly(reader, content_length.n, arena);
+    if (res_io.err) {
+      req.err = res_io.err;
+      return req;
+    }
+    req.body = res_io.res;
   }
 
   return req;
