@@ -427,6 +427,17 @@ static void test_ring_buffer_write_slice() {
     ASSERT(string_eq(S("hello world"),
                      (String){.data = rg.data.data, .len = rg.idx_write}));
   }
+  // Write to full ring buffer.
+  {
+    RingBuffer rg = {
+        .data.data = arena_alloc(&arena, 1, 1, 12),
+        .data.len = 12,
+        .idx_write = 1,
+        .idx_read = 2,
+    };
+    ASSERT(false == ring_buffer_write_slice(&rg, S("hello")));
+    ASSERT(1 == rg.idx_write);
+  }
 }
 
 #if 0
