@@ -1477,17 +1477,44 @@ RESULT(String) IoResult;
 
 typedef IoCountResult (*ReadFn)(void *self, u8 *buf, size_t buf_len);
 
+// TODO: Guard with `ifdef`?
+// TODO: Windows?
+[[maybe_unused]] [[nodiscard]] static IoCountResult
+unix_read(void *self, u8 *buf, size_t buf_len) {
+  ASSERT(nullptr != self);
+
+  int fd = (int)(u64)self;
+  ssize_t n_read = read(fd, buf, buf_len);
+
+  IoCountResult res = {0};
+  if (n_read < 0) {
+    res.err = (Error)errno;
+  } else {
+    res.res = (u64)n_read;
+  }
+
+  return res;
+}
+
 typedef struct {
-  int fd;
+  void *ctx;
+  ReadFn read_fn;
 
   // TODO: Should probably be a ring buffer?
   u64 buf_idx;
   DynU8 buf;
 } BufferedReader;
 
+[[maybe_unused]] [[nodiscard]] static int
+buffered_reader_fd(BufferedReader *br) {
+  ASSERT(br->ctx);
+  return (int)(u64)br->ctx;
+}
+
 [[maybe_unused]] [[nodiscard]] static IoResult
 buffered_reader_read(BufferedReader *br, u64 count) {
   ASSERT(br->buf_idx <= br->buf.len);
+  ASSERT(nullptr != br->read_fn);
 
   IoResult res = {0};
 
@@ -1495,17 +1522,17 @@ buffered_reader_read(BufferedReader *br, u64 count) {
     ASSERT(br->buf.len == 0);
     ASSERT(br->buf.cap <= 4096);
     String space = dyn_space(String, &br->buf);
-    ssize_t read_n = read(br->fd, space.data, space.len);
-    if (-1 == read_n) {
-      res.err = (Error)errno;
+    IoCountResult res_io = br->read_fn(br->ctx, space.data, space.len);
+    if (res_io.err) {
+      res.err = res_io.err;
       return res;
     }
 
-    if (0 == read_n) {
+    if (0 == res_io.res) {
       return res;
     }
 
-    br->buf.len = (u64)read_n;
+    br->buf.len = res_io.res;
   }
 
   ASSERT(br->buf_idx < br->buf.len);
@@ -1555,7 +1582,51 @@ buffered_reader_read_exactly(BufferedReader *r, u64 count, Arena *arena) {
 [[maybe_unused]] [[nodiscard]] static BufferedReader
 buffered_reader_make(int fd, Arena *arena) {
   BufferedReader r = {0};
-  r.fd = fd;
+  r.ctx = (void *)(u64)fd;
+  dyn_ensure_cap(&r.buf, 4096, arena);
+
+  // TODO: Windows.
+  r.read_fn = unix_read;
+
+  return r;
+}
+
+typedef struct {
+  String s;
+  u64 idx;
+} TestMemReadContext;
+
+static IoCountResult test_buffered_reader_read_from_slice(void *ctx, u8 *buf,
+                                                          size_t buf_len) {
+  TestMemReadContext *mem_ctx = ctx;
+
+  ASSERT(buf != nullptr);
+  ASSERT(mem_ctx->s.data != nullptr);
+
+  IoCountResult res = {0};
+  if (mem_ctx->idx >= mem_ctx->s.len) {
+    // End.
+    return res;
+  }
+
+  const u64 remaining = mem_ctx->s.len - mem_ctx->idx;
+  const u64 can_fill = MIN(remaining, buf_len);
+  ASSERT(can_fill <= remaining);
+
+  res.res = can_fill;
+  memcpy(buf, mem_ctx->s.data + mem_ctx->idx, can_fill);
+
+  ASSERT(mem_ctx->idx + can_fill <= mem_ctx->s.len);
+  mem_ctx->idx += can_fill;
+  ASSERT(mem_ctx->idx <= mem_ctx->s.len);
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static BufferedReader
+test_buffered_reader_make(TestMemReadContext *ctx, Arena *arena) {
+  BufferedReader r = {0};
+  r.ctx = ctx;
+  r.read_fn = test_buffered_reader_read_from_slice;
   dyn_ensure_cap(&r.buf, 4096, arena);
 
   return r;
@@ -1571,6 +1642,7 @@ buffered_reader_make(int fd, Arena *arena) {
   ASSERT(nullptr != data.data);
   ASSERT(nullptr != br->buf.data);
 
+  ASSERT(data.len <= br->buf.cap);
   memcpy(&br->buf.data, data.data, data.len);
   br->buf.len = data.len;
 }
@@ -1996,6 +2068,105 @@ RESULT(Url) ParseUrlResult;
   }
 
   return res;
+}
+
+static const u64 HTTP_REQUEST_LINES_MAX_COUNT = 512;
+[[nodiscard]] static Error reader_read_headers(BufferedReader *reader,
+                                               DynKeyValue *headers,
+                                               Arena *arena) {
+  dyn_ensure_cap(headers, 30, arena);
+
+  for (u64 _i = 0; _i < HTTP_REQUEST_LINES_MAX_COUNT; _i++) {
+    const IoResult res_io =
+        buffered_reader_read_until_slice(reader, S("\r\n"), arena);
+
+    if (res_io.err) {
+      return res_io.err;
+    }
+
+    if (slice_is_empty(res_io.res)) {
+      break;
+    }
+
+    SplitIterator it = string_split(res_io.res, ':');
+    SplitResult key = string_split_next(&it);
+    if (!key.ok) {
+      return HS_ERR_INVALID_HTTP_REQUEST;
+    }
+
+    String key_trimmed = string_trim(key.s, ' ');
+
+    String value = it.s; // Remainder.
+    String value_trimmed = string_trim(value, ' ');
+
+    KeyValue header = {.key = key_trimmed, .value = value_trimmed};
+    *dyn_push(headers, arena) = header;
+  }
+  return 0;
+}
+
+[[nodiscard]] static ParseNumberResult
+request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
+  ASSERT(!req.err);
+
+  for (u64 i = 0; i < req.headers.len; i++) {
+    KeyValue h = req.headers.data[i];
+
+    if (!string_ieq_ascii(S("Content-Length"), h.key, arena)) {
+      continue;
+    }
+
+    return string_parse_u64(h.value);
+  }
+  return (ParseNumberResult){0};
+}
+
+[[nodiscard]] static HttpRequest request_read_body(HttpRequest req,
+                                                   BufferedReader *reader,
+                                                   u64 content_length,
+                                                   Arena *arena) {
+  ASSERT(!req.err);
+  HttpRequest res = req;
+
+  IoResult res_io = buffered_reader_read_exactly(reader, content_length, arena);
+  if (res_io.err) {
+    res.err = res_io.err;
+    return res;
+  }
+
+  return res;
+}
+
+[[nodiscard]] static HttpRequest request_read(BufferedReader *reader,
+                                              Arena *arena) {
+  const IoResult status_line =
+      buffered_reader_read_until_slice(reader, S("\r\n"), arena);
+  if (status_line.err) {
+    return (HttpRequest){.err = status_line.err};
+  }
+
+  HttpRequest req = request_parse_status_line(status_line.res, arena);
+  if (req.err) {
+    return req;
+  }
+
+  req.err = reader_read_headers(reader, &req.headers, arena);
+  if (req.err) {
+    return req;
+  }
+
+  ParseNumberResult content_length =
+      request_parse_content_length_maybe(req, arena);
+  if (!content_length.present) {
+    req.err = HS_ERR_INVALID_HTTP_REQUEST;
+    return req;
+  }
+
+  if (content_length.present) {
+    req = request_read_body(req, reader, content_length.n, arena);
+  }
+
+  return req;
 }
 
 #endif

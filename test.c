@@ -486,8 +486,8 @@ static void test_buffered_reader_read_until_slice() {
     IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"), &arena);
     ASSERT(0 == res_io.err);
     ASSERT(5 + 2 == res_io.res.len);
-    ASSERT(3 == br.buf.len);
-    ASSERT(0 == br.buf_idx);
+    ASSERT(value.len == br.buf.len);
+    ASSERT(res_io.res.len == br.buf_idx);
 
     close(fd_pipe[0]);
     close(fd_pipe[1]);
@@ -629,6 +629,26 @@ static void test_url_parse() {
   }
 }
 
+static void test_read_http_request_without_body() {
+  Arena arena = arena_make_from_virtual_mem(8 * KiB);
+
+  String req_slice = S("GET /foo?bar=2 HTTP/1.1\r\nHost: "
+                       "localhost:12345\r\nAccept: */*\r\n\r\n");
+  TestMemReadContext ctx = {.s = string_dup(req_slice, &arena)};
+  BufferedReader reader = test_buffered_reader_make(&ctx, &arena);
+  const HttpRequest req = request_read(&reader, &arena);
+
+  ASSERT(reader.buf_idx == req_slice.len); // Read all.
+  ASSERT(0 == req.err);
+  ASSERT(HM_GET == req.method);
+  ASSERT(string_eq(req.path_raw, S("/foo?bar=2")));
+
+  ASSERT(2 == req.headers.len);
+  ASSERT(string_eq(dyn_at(req.headers, 0).value, S("localhost:12345")));
+  ASSERT(string_eq(dyn_at(req.headers, 1).key, S("Accept")));
+  ASSERT(string_eq(dyn_at(req.headers, 1).value, S("*/*")));
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -652,4 +672,5 @@ int main() {
   test_buffered_reader_read_until_slice();
   test_buffered_reader_read_until_end();
   test_url_parse();
+  test_read_http_request_without_body();
 }
