@@ -1711,6 +1711,8 @@ buffered_reader_read(BufferedReader *br, u64 count, Arena *arena) {
       return res;
     }
 
+    dst.len = res_io.res;
+
     ASSERT(ring_buffer_write_slice(&br->rg, dst));
   }
   return buffered_reader_read(br, count, arena);
