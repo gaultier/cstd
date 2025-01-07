@@ -464,6 +464,71 @@ static void test_ring_buffer_write_slice() {
   }
 }
 
+static void test_ring_buffer_read_write_slice() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+  // Write to empty ring buffer.
+  {
+    RingBuffer rg = {
+        .data.data = arena_alloc(&arena, 1, 1, 12),
+        .data.len = 12,
+    };
+    ASSERT(ring_buffer_write_slice(&rg, S("hello")));
+    ASSERT(5 == rg.idx_write);
+
+    String dst = string_dup(S("xyz"), &arena);
+    ASSERT(ring_buffer_read_slice(&rg, dst));
+#if 0
+    ASSERT(false == ring_buffer_write_slice(&rg, S(" world!")));
+    ASSERT(5 == rg.idx_write);
+
+    ASSERT(true == ring_buffer_write_slice(&rg, S(" world")));
+    ASSERT(11 == rg.idx_write);
+
+    ASSERT(0 == rg.idx_read);
+    ASSERT(string_eq(S("hello world"),
+                     (String){.data = rg.data.data, .len = rg.idx_write}));
+#endif
+  }
+#if 0
+  // Write to full ring buffer.
+  {
+    RingBuffer rg = {
+        .data.data = arena_alloc(&arena, 1, 1, 12),
+        .data.len = 12,
+        .idx_write = 1,
+        .idx_read = 2,
+    };
+    ASSERT(false == ring_buffer_write_slice(&rg, S("hello")));
+    ASSERT(1 == rg.idx_write);
+  }
+  // Write to ring buffer, easy case.
+  {
+    RingBuffer rg = {
+        .data.data = arena_alloc(&arena, 1, 1, 12),
+        .data.len = 12,
+        .idx_read = 1,
+        .idx_write = 2,
+    };
+    ASSERT(ring_buffer_write_slice(&rg, S("hello")));
+    ASSERT(2 + 5 == rg.idx_write);
+  }
+
+  // Write to ring buffer, hard case.
+  {
+    RingBuffer rg = {
+        .data.data = arena_alloc(&arena, 1, 1, 12),
+        .data.len = 12,
+        .idx_read = 2,
+        .idx_write = 3,
+    };
+    ASSERT(ring_buffer_write_slice(&rg, S("hello worl")));
+    ASSERT(1 == rg.idx_write);
+    ASSERT(string_eq(rg.data, S("l\x0\x0hello wor")));
+  }
+#endif
+}
+
 #if 0
 static void test_buffered_reader_read_exactly() {
   Arena arena = arena_make_from_virtual_mem(16 * KiB);
@@ -741,4 +806,5 @@ int main() {
 #endif
   test_url_parse();
   test_ring_buffer_write_slice();
+  test_ring_buffer_read_write_slice();
 }

@@ -1577,16 +1577,35 @@ ring_buffer_write_slice(RingBuffer *rg, String data) {
   return true;
 }
 
-#if 0
 [[maybe_unused]] [[nodiscard]] static bool
 ring_buffer_read_slice(RingBuffer *rg, String data) {
-  if (ring_buffer_read_space_count(rg) < data.len) {
+  ASSERT(nullptr != rg->data.data);
+  ASSERT(rg->idx_read <= rg->data.len);
+  ASSERT(rg->idx_write <= rg->data.len);
+
+  if (0 == data.len) {
+    return true;
+  }
+  ASSERT(nullptr != data.data);
+
+  if (rg->idx_write == rg->idx_read) { // Empty.
     return false;
+  } else if (rg->idx_read < rg->idx_write) { // Easy case.
+    u64 can_read = rg->idx_write - rg->idx_read;
+    if (data.len > can_read) {
+      return false;
+    }
+    u64 n_read = MIN(data.len, can_read);
+
+    memcpy(data.data, rg->data.data + rg->idx_read, n_read);
+    rg->idx_read += n_read;
+    ASSERT(rg->idx_read < rg->data.len);
+  } else { // Hard case: potentially 2 reads.
+    ASSERT(0 && "TODO");
   }
 
   return true;
 }
-#endif
 
 typedef struct {
   void *ctx;
