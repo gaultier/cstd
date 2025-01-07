@@ -1660,6 +1660,20 @@ buffered_reader_read(BufferedReader *br, u64 count, Arena *arena) {
 
   IoResult res = {0};
 
+  // Try a buffered read first.
+  {
+    Arena cpy = *arena;
+    String dst = string_make(count, arena);
+    bool ok = ring_buffer_read_slice(&br->rg, dst);
+    if (ok) {
+      res.res = dst;
+      return res;
+    }
+    // Reset arena.
+    *arena = cpy;
+  }
+
+  // Now we have to do I/O.
   {
     Arena tmp = *arena;
     String dst = string_make(count, &tmp);
@@ -1675,16 +1689,7 @@ buffered_reader_read(BufferedReader *br, u64 count, Arena *arena) {
 
     ASSERT(ring_buffer_write_slice(&br->rg, dst));
   }
-
-  // Buffered read.
-  {
-    res.res = string_make(count, arena);
-    bool ok = ring_buffer_read_slice(&br->rg, res.res);
-    if (!ok) {
-      res.err = EIO;
-    }
-    return res;
-  }
+  return buffered_reader_read(br, count, arena);
 }
 
 [[maybe_unused]] [[nodiscard]] static IoResult
@@ -1749,6 +1754,34 @@ static IoCountResult test_buffered_reader_read_from_slice(void *ctx, u8 *buf,
 
   const u64 remaining = mem_ctx->s.len - mem_ctx->idx;
   const u64 can_fill = MIN(remaining, buf_len);
+  ASSERT(can_fill <= remaining);
+
+  res.res = can_fill;
+  memcpy(buf, mem_ctx->s.data + mem_ctx->idx, can_fill);
+
+  ASSERT(mem_ctx->idx + can_fill <= mem_ctx->s.len);
+  mem_ctx->idx += can_fill;
+  ASSERT(mem_ctx->idx <= mem_ctx->s.len);
+  return res;
+}
+
+static IoCountResult
+test_buffered_reader_read_from_slice_one(void *ctx, u8 *buf, size_t buf_len) {
+  (void)buf_len;
+
+  TestMemReadContext *mem_ctx = ctx;
+
+  ASSERT(buf != nullptr);
+  ASSERT(mem_ctx->s.data != nullptr);
+
+  IoCountResult res = {0};
+  if (mem_ctx->idx >= mem_ctx->s.len) {
+    // End.
+    return res;
+  }
+
+  const u64 remaining = mem_ctx->s.len - mem_ctx->idx;
+  const u64 can_fill = 1;
   ASSERT(can_fill <= remaining);
 
   res.res = can_fill;

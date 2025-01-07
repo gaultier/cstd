@@ -522,10 +522,10 @@ static void test_ring_buffer_read_write_fuzz() {
 }
 
 static void test_buffered_reader_read_exactly() {
-  Arena arena = arena_make_from_virtual_mem(16 * KiB);
 
   // Read from closed remote end: error.
   {
+    Arena arena = arena_make_from_virtual_mem(16 * KiB);
     int fd_pipe[2] = {0};
     ASSERT(-1 != pipe(fd_pipe));
     close(fd_pipe[1]);
@@ -538,6 +538,7 @@ static void test_buffered_reader_read_exactly() {
   }
 
   {
+    Arena arena = arena_make_from_virtual_mem(16 * KiB);
     int fd_pipe[2] = {0};
     ASSERT(-1 != pipe(fd_pipe));
 
@@ -552,6 +553,17 @@ static void test_buffered_reader_read_exactly() {
 
     close(fd_pipe[0]);
     close(fd_pipe[1]);
+  }
+  {
+    Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+    TestMemReadContext ctx = {.s = string_dup(S("hello world!"), &arena)};
+    BufferedReader reader = test_buffered_reader_make(&ctx, &arena);
+    reader.read_fn = test_buffered_reader_read_from_slice_one;
+
+    IoResult res_io = buffered_reader_read_exactly(&reader, 7, &arena);
+    ASSERT(0 == res_io.err);
+    ASSERT(string_eq(S("hello w"), res_io.res));
   }
 }
 
