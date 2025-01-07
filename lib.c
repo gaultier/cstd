@@ -1537,7 +1537,7 @@ ring_buffer_write_slice(RingBuffer *rg, String data) {
     rg->idx_write += data.len;
     ASSERT(rg->idx_write <= rg->data.len);
     ASSERT(rg->idx_write < rg->idx_read);
-  } else { // Hard case: need two writes.
+  } else { // Hard case: need potentially two writes.
     ASSERT(0 && "TODO");
   }
 
