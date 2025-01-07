@@ -447,8 +447,10 @@ static void test_ring_buffer_write_slice() {
         .idx_read = 1,
         .idx_write = 2,
     };
+    ASSERT(ring_buffer_write_space(rg) == 10);
     ASSERT(ring_buffer_write_slice(&rg, S("hello")));
     ASSERT(2 + 5 == rg.idx_write);
+    ASSERT(ring_buffer_write_space(rg) == 5);
   }
 
   // Write to ring buffer, hard case.
@@ -458,8 +460,10 @@ static void test_ring_buffer_write_slice() {
         .idx_read = 2,
         .idx_write = 3,
     };
+    ASSERT(ring_buffer_write_space(rg) == 10);
     ASSERT(ring_buffer_write_slice(&rg, S("hello worl")));
     ASSERT(1 == rg.idx_write);
+    ASSERT(ring_buffer_write_space(rg) == 0);
     ASSERT(string_eq(rg.data, S("l\x0\x0hello wor")));
   }
 }
