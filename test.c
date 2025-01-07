@@ -504,6 +504,7 @@ static void test_ring_buffer_read_write_fuzz() {
   u64 ROUNDS = 1024;
   Arena arena_strings = arena_make_from_virtual_mem(ROUNDS * 8 * KiB);
 
+  // TODO: Random seed for reproducability?
   for (u64 i = 0; i < ROUNDS; i++) {
     String from =
         string_make(arc4random_uniform((u32)rg.data.len + 1), &arena_strings);
