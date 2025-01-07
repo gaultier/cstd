@@ -410,10 +410,7 @@ static void test_ring_buffer_write_slice() {
 
   // Write to empty ring buffer.
   {
-    RingBuffer rg = {
-        .data.data = arena_alloc(&arena, 1, 1, 12),
-        .data.len = 12,
-    };
+    RingBuffer rg = {.data = string_make(12, &arena)};
     ASSERT(ring_buffer_write_slice(&rg, S("hello")));
     ASSERT(5 == rg.idx_write);
 
@@ -430,8 +427,7 @@ static void test_ring_buffer_write_slice() {
   // Write to full ring buffer.
   {
     RingBuffer rg = {
-        .data.data = arena_alloc(&arena, 1, 1, 12),
-        .data.len = 12,
+        .data = string_make(12, &arena),
         .idx_write = 1,
         .idx_read = 2,
     };
@@ -441,8 +437,7 @@ static void test_ring_buffer_write_slice() {
   // Write to ring buffer, easy case.
   {
     RingBuffer rg = {
-        .data.data = arena_alloc(&arena, 1, 1, 12),
-        .data.len = 12,
+        .data = string_make(12, &arena),
         .idx_read = 1,
         .idx_write = 2,
     };
@@ -453,8 +448,7 @@ static void test_ring_buffer_write_slice() {
   // Write to ring buffer, hard case.
   {
     RingBuffer rg = {
-        .data.data = arena_alloc(&arena, 1, 1, 12),
-        .data.len = 12,
+        .data = string_make(12, &arena),
         .idx_read = 2,
         .idx_write = 3,
     };
@@ -469,10 +463,7 @@ static void test_ring_buffer_read_write_slice() {
 
   // Read from an empty ring buffer.
   {
-    RingBuffer rg = {
-        .data.data = arena_alloc(&arena, 1, 1, 12),
-        .data.len = 12,
-    };
+    RingBuffer rg = {.data = string_make(12, &arena)};
     ASSERT(true == ring_buffer_read_slice(&rg, (String){0}));
 
     String dst = string_dup(S("xyz"), &arena);
@@ -481,10 +472,7 @@ static void test_ring_buffer_read_write_slice() {
 
   // Write to empty ring buffer, then read part of it.
   {
-    RingBuffer rg = {
-        .data.data = arena_alloc(&arena, 1, 1, 12),
-        .data.len = 12,
-    };
+    RingBuffer rg = {.data = string_make(12, &arena)};
     ASSERT(ring_buffer_write_slice(&rg, S("hello")));
     ASSERT(5 == rg.idx_write);
 
@@ -511,22 +499,18 @@ static void test_ring_buffer_read_write_slice() {
 
 static void test_ring_buffer_read_write_fuzz() {
   Arena arena_ring = arena_make_from_virtual_mem(4 * KiB);
-  RingBuffer rg = {0};
-  rg.data.len = 4 * KiB;
-  rg.data.data = arena_alloc(&arena_ring, 1, 1, rg.data.len);
+  RingBuffer rg = {.data = string_make(4 * KiB, &arena_ring)};
 
   u64 ROUNDS = 500;
   Arena arena_strings = arena_make_from_virtual_mem(ROUNDS * 8 * KiB);
 
   for (u64 i = 0; i < ROUNDS; i++) {
-    String from = {0};
-    from.len = arc4random_uniform((u32)rg.data.len + 1);
-    from.data = arena_alloc(&arena_strings, 1, 1, from.len);
+    String from =
+        string_make(arc4random_uniform((u32)rg.data.len + 1), &arena_strings);
     arc4random_buf(from.data, from.len);
 
-    String to = {0};
-    to.len = arc4random_uniform((u32)rg.data.len + 1);
-    to.data = arena_alloc(&arena_strings, 1, 1, to.len);
+    String to =
+        string_make(arc4random_uniform((u32)rg.data.len + 1), &arena_strings);
     arc4random_buf(to.data, to.len);
 
     bool ok_write = ring_buffer_write_slice(&rg, from);

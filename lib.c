@@ -434,9 +434,19 @@ arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
   return memset(res, 0, count * size);
 }
 
+#define arena_new(a, t, n) (t *)arena_alloc(a, sizeof(t), _Alignof(t), n)
+
+[[maybe_unused]] [[nodiscard]] static String string_make(u64 len,
+                                                         Arena *arena) {
+  String res = {0};
+  res.len = len;
+  res.data = arena_new(arena, u8, len);
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static char *string_to_cstr(String s,
                                                            Arena *arena) {
-  char *res = arena_alloc(arena, 1, 1, s.len + 1);
+  char *res = (char *)arena_new(arena, u8, s.len + 1);
   if (NULL != s.data) {
     memcpy(res, s.data, s.len);
   }
@@ -687,14 +697,9 @@ static void dynu8_append_u8_hex_upper(DynU8 *dyn, u8 n, Arena *arena) {
   ASSERT(32 == (dyn->len - dyn_original_len));
 }
 
-#define arena_new(a, t, n) (t *)arena_alloc(a, sizeof(t), _Alignof(t), n)
-
 [[maybe_unused]] [[nodiscard]] static String string_dup(String src,
                                                         Arena *arena) {
-  String dst = {
-      .len = src.len,
-      .data = arena_new(arena, u8, src.len),
-  };
+  String dst = string_make(src.len, arena);
   memcpy(dst.data, src.data, src.len);
 
   return dst;
