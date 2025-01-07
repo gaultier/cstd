@@ -422,6 +422,10 @@ static void test_ring_buffer_write_slice() {
 
     ASSERT(true == ring_buffer_write_slice(&rg, S(" world")));
     ASSERT(11 == rg.idx_write);
+
+    ASSERT(0 == rg.idx_read);
+    ASSERT(string_eq(S("hello world"),
+                     (String){.data = rg.data.data, .len = rg.idx_write}));
   }
 }
 
