@@ -29,6 +29,14 @@
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 
+#ifndef ABS
+#define ABS(a) (((a) < 0) ? (-(a)) : (a))
+#endif
+
+#ifndef ABS_SUB
+#define ABS_SUB(a, b) (((a) < (b)) ? ((b) - (a)) : ((a) - (b)))
+#endif
+
 #define KiB (1024ULL)
 #define MiB (1024ULL * Ki)
 #define GiB (1024ULL * Mi)
@@ -1497,6 +1505,86 @@ unix_read(void *self, u8 *buf, size_t buf_len) {
 }
 
 typedef struct {
+  u64 idx_read, idx_write;
+  String data;
+} RingBuffer;
+
+[[maybe_unused]] [[nodiscard]] static bool
+ring_buffer_write_slice(RingBuffer *rg, String data) {
+  ASSERT(nullptr != rg->data.data);
+  ASSERT(rg->idx_read <= rg->data.len);
+  ASSERT(rg->idx_write <= rg->data.len);
+
+  if (rg->idx_read == rg->idx_write) { // Empty
+    ASSERT(0 == rg->idx_read);
+    u64 space = rg->data.len - 1;
+    ASSERT(space <= rg->data.len);
+
+    if (data.len > space) {
+      return false;
+    }
+    memcpy(rg->data.data, data.data, data.len);
+    rg->idx_write += data.len;
+    ASSERT(rg->idx_write <= rg->data.len);
+  } else if (rg->idx_write < rg->idx_read) { // Easy case.
+    u64 space = rg->idx_read - rg->idx_write - 1;
+    ASSERT(space <= rg->data.len);
+
+    if (data.len > space) {
+      return false;
+    }
+    memcpy(rg->data.data + rg->idx_write, data.data, data.len);
+    rg->idx_write += data.len;
+    ASSERT(rg->idx_write <= rg->data.len);
+    ASSERT(rg->idx_write < rg->idx_read);
+  } else { // Hard case: need two writes.
+    ASSERT(0 && "TODO");
+  }
+
+#if 0
+      rg->idx_write >= rg->idx_read ? rg->data.len - rg->idx_write : 0;
+  ASSERT(write1_cap <= rg->data.len);
+
+  u64 write2_cap =
+      rg->idx_read > rg->idx_write ? rg->idx_read + 1 - rg->idx_write : 0;
+  ASSERT(write2_cap <= rg->data.len);
+
+  u64 write1_len = MIN(write1_cap, data.len);
+  ASSERT(write1_len <= rg->data.len);
+  memcpy(rg->data.data + rg->idx_write, data.data, write1_len);
+  rg->idx_write += write1_len;
+  ASSERT(rg->idx_write <= rg->data.len);
+
+  u64 write2_len = data.len > write1_cap ? data.len - write1_cap : 0;
+  ASSERT(write2_len <= rg->data.len);
+  ASSERT(write2_len <= data.len);
+  ASSERT(write2_len <= rg->idx_read + 1);
+
+  if (write2_len > 0) {
+    ASSERT(0 == rg->idx_write);
+    memcpy(rg->data.data, data.data + write1_len, write2_len);
+    rg->idx_write = write2_len;
+  }
+
+  ASSERT(rg->idx_write <= rg->data.len);
+  ASSERT(rg->idx_write != rg->idx_read);
+#endif
+
+  return true;
+}
+
+#if 0
+[[maybe_unused]] [[nodiscard]] static bool
+ring_buffer_read_slice(RingBuffer *rg, String data) {
+  if (ring_buffer_read_space_count(rg) < data.len) {
+    return false;
+  }
+
+  return true;
+}
+#endif
+
+typedef struct {
   void *ctx;
   ReadFn read_fn;
 
@@ -2137,8 +2225,8 @@ request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
   return res;
 }
 
-[[nodiscard]] static HttpRequest request_read(BufferedReader *reader,
-                                              Arena *arena) {
+[[maybe_unused]] [[nodiscard]] static HttpRequest
+request_read(BufferedReader *reader, Arena *arena) {
   const IoResult status_line =
       buffered_reader_read_until_slice(reader, S("\r\n"), arena);
   if (status_line.err) {

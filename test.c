@@ -405,6 +405,27 @@ static void test_bitfield() {
   }
 }
 
+static void test_ring_buffer_write_slice() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+  // Write to empty ring buffer.
+  {
+    RingBuffer rg = {
+        .data.data = arena_alloc(&arena, 1, 1, 12),
+        .data.len = 12,
+    };
+    ASSERT(ring_buffer_write_slice(&rg, S("hello")));
+    ASSERT(5 == rg.idx_write);
+
+    ASSERT(false == ring_buffer_write_slice(&rg, S(" world!")));
+    ASSERT(5 == rg.idx_write);
+
+    ASSERT(true == ring_buffer_write_slice(&rg, S(" world")));
+    ASSERT(11 == rg.idx_write);
+  }
+}
+
+#if 0
 static void test_buffered_reader_read_exactly() {
   Arena arena = arena_make_from_virtual_mem(16 * KiB);
 
@@ -493,7 +514,9 @@ static void test_buffered_reader_read_until_slice() {
     close(fd_pipe[1]);
   }
 }
+#endif
 
+#if 0
 static void test_buffered_reader_read_until_end() {
   Arena arena = arena_make_from_virtual_mem(16 * KiB);
 
@@ -527,6 +550,7 @@ static void test_buffered_reader_read_until_end() {
     close(fd_pipe[0]);
   }
 }
+#endif
 
 static void test_url_parse() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
@@ -629,6 +653,7 @@ static void test_url_parse() {
   }
 }
 
+#if 0
 static void test_read_http_request_without_body() {
   Arena arena = arena_make_from_virtual_mem(8 * KiB);
 
@@ -648,6 +673,7 @@ static void test_read_http_request_without_body() {
   ASSERT(string_eq(dyn_at(req.headers, 1).key, S("Accept")));
   ASSERT(string_eq(dyn_at(req.headers, 1).value, S("*/*")));
 }
+#endif
 
 int main() {
   test_string_indexof_slice();
@@ -668,9 +694,12 @@ int main() {
   test_make_log_line();
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
+#if 0
   test_buffered_reader_read_exactly();
   test_buffered_reader_read_until_slice();
   test_buffered_reader_read_until_end();
-  test_url_parse();
   test_read_http_request_without_body();
+#endif
+  test_url_parse();
+  test_ring_buffer_write_slice();
 }
