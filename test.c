@@ -501,7 +501,7 @@ static void test_ring_buffer_read_write_fuzz() {
   Arena arena_ring = arena_make_from_virtual_mem(4 * KiB);
   RingBuffer rg = {.data = string_make(4 * KiB, &arena_ring)};
 
-  u64 ROUNDS = 500;
+  u64 ROUNDS = 1024;
   Arena arena_strings = arena_make_from_virtual_mem(ROUNDS * 8 * KiB);
 
   for (u64 i = 0; i < ROUNDS; i++) {
