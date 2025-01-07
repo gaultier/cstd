@@ -474,6 +474,7 @@ static void test_ring_buffer_read_write_slice() {
   // Read from an empty ring buffer.
   {
     RingBuffer rg = {.data = string_make(12, &arena)};
+    ASSERT(0 == ring_buffer_read_space(rg));
     ASSERT(true == ring_buffer_read_slice(&rg, (String){0}));
 
     String dst = string_dup(S("xyz"), &arena);
@@ -485,18 +486,23 @@ static void test_ring_buffer_read_write_slice() {
     RingBuffer rg = {.data = string_make(12, &arena)};
     ASSERT(ring_buffer_write_slice(&rg, S("hello")));
     ASSERT(5 == rg.idx_write);
+    ASSERT(5 == ring_buffer_read_space(rg));
 
     String dst = string_dup(S("xyz"), &arena);
     ASSERT(ring_buffer_read_slice(&rg, dst));
     ASSERT(string_eq(dst, S("hel")));
     ASSERT(3 == rg.idx_read);
     ASSERT(string_eq(rg.data, S("\x0\x0\x0lo\x0\x0\x0\x0\x0\x0\x0")));
+    ASSERT(2 == ring_buffer_read_space(rg));
 
     ASSERT(true == ring_buffer_write_slice(&rg, S(" world!")));
     ASSERT(0 == rg.idx_write);
+    ASSERT(9 == ring_buffer_read_space(rg));
 
     ASSERT(false == ring_buffer_write_slice(&rg, S("abc")));
+    ASSERT(9 == ring_buffer_read_space(rg));
     ASSERT(true == ring_buffer_write_slice(&rg, S("ab")));
+    ASSERT(11 == ring_buffer_read_space(rg));
     ASSERT(2 == rg.idx_write);
 
     dst = string_dup(S("abcdefghijk"), &arena);
@@ -504,6 +510,7 @@ static void test_ring_buffer_read_write_slice() {
     ASSERT(string_eq(dst, S("lo world!ab")));
     ASSERT(2 == rg.idx_read);
     ASSERT(string_eq(rg.data, S("\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0")));
+    ASSERT(0 == ring_buffer_read_space(rg));
   }
 }
 
@@ -530,6 +537,7 @@ static void test_ring_buffer_read_write_fuzz() {
     (void)ok_read;
 
     ASSERT(ring_buffer_write_space(rg) <= rg.data.len - 1);
+    ASSERT(ring_buffer_read_space(rg) <= rg.data.len - 1);
   }
 }
 
@@ -816,8 +824,8 @@ int main() {
   test_bitfield();
   test_buffered_reader_read_exactly();
 #if 0
-  test_buffered_reader_read_until_slice();
   test_buffered_reader_read_until_end();
+  test_buffered_reader_read_until_slice();
   test_read_http_request_without_body();
 #endif
   test_url_parse();

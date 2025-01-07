@@ -1538,6 +1538,22 @@ ring_buffer_write_space(RingBuffer rg) {
   ASSERT(0);
 }
 
+[[maybe_unused]] [[nodiscard]] static u64
+ring_buffer_read_space(RingBuffer rg) {
+  if (rg.idx_write == rg.idx_read) { // Empty.
+    return 0;
+  } else if (rg.idx_read < rg.idx_write) { // Easy case.
+    u64 res = rg.idx_write - rg.idx_read;
+    ASSERT(res < rg.data.len);
+    return res;
+  } else if (rg.idx_read > rg.idx_write) { // Hard case.
+    u64 can_read1 = rg.data.len - rg.idx_read;
+    u64 can_read2 = rg.idx_write;
+    return can_read1 + can_read2;
+  }
+  ASSERT(0);
+}
+
 [[maybe_unused]] [[nodiscard]] static bool
 ring_buffer_write_slice(RingBuffer *rg, String data) {
   ASSERT(nullptr != rg->data.data);
