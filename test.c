@@ -467,7 +467,19 @@ static void test_ring_buffer_write_slice() {
 static void test_ring_buffer_read_write_slice() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
 
-  // Write to empty ring buffer.
+  // Read from an empty ring buffer.
+  {
+    RingBuffer rg = {
+        .data.data = arena_alloc(&arena, 1, 1, 12),
+        .data.len = 12,
+    };
+    ASSERT(true == ring_buffer_read_slice(&rg, (String){0}));
+
+    String dst = string_dup(S("xyz"), &arena);
+    ASSERT(false == ring_buffer_read_slice(&rg, dst));
+  }
+
+  // Write to empty ring buffer, then read part of it.
   {
     RingBuffer rg = {
         .data.data = arena_alloc(&arena, 1, 1, 12),
