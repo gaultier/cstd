@@ -1538,37 +1538,41 @@ ring_buffer_write_slice(RingBuffer *rg, String data) {
     ASSERT(rg->idx_write <= rg->data.len);
     ASSERT(rg->idx_write < rg->idx_read);
   } else { // Hard case: need potentially two writes.
-    ASSERT(0 && "TODO");
+    ASSERT(rg->idx_write >= rg->idx_read);
+
+    u64 space1 = rg->data.len - rg->idx_write;
+    u64 space2 = rg->idx_read;
+    if (space1 >= 1 && rg->idx_read == 0) {
+      space1 -= 1; // Reserve empty slot.
+    } else if (space2 >= 1) {
+      ASSERT(rg->idx_read > 0);
+      space2 -= 1;
+    }
+
+    u64 space_total = space1 + space2;
+    if (space_total < data.len) {
+      return false;
+    }
+
+    u64 write_len1 = MIN(space1, data.len);
+    ASSERT(rg->idx_write + write_len1 <= rg->data.len);
+    ASSERT(write_len1 <= data.len);
+    memcpy(rg->data.data + rg->idx_write, data.data, write_len1);
+    rg->idx_write += write_len1;
+    if (rg->idx_write == rg->data.len) {
+      rg->idx_write = 0;
+    }
+    ASSERT(rg->idx_write < rg->data.len);
+
+    u64 write_len2 = data.len - write_len1;
+    if (write_len2 > 0) {
+      ASSERT(write_len2 + 1 <= rg->idx_read);
+      ASSERT(write_len1 + write_len2 <= data.len);
+      memcpy(rg->data.data, data.data + write_len1, write_len2);
+      rg->idx_write = write_len2;
+      ASSERT(rg->idx_write + 1 <= rg->idx_read);
+    }
   }
-
-#if 0
-      rg->idx_write >= rg->idx_read ? rg->data.len - rg->idx_write : 0;
-  ASSERT(write1_cap <= rg->data.len);
-
-  u64 write2_cap =
-      rg->idx_read > rg->idx_write ? rg->idx_read + 1 - rg->idx_write : 0;
-  ASSERT(write2_cap <= rg->data.len);
-
-  u64 write1_len = MIN(write1_cap, data.len);
-  ASSERT(write1_len <= rg->data.len);
-  memcpy(rg->data.data + rg->idx_write, data.data, write1_len);
-  rg->idx_write += write1_len;
-  ASSERT(rg->idx_write <= rg->data.len);
-
-  u64 write2_len = data.len > write1_cap ? data.len - write1_cap : 0;
-  ASSERT(write2_len <= rg->data.len);
-  ASSERT(write2_len <= data.len);
-  ASSERT(write2_len <= rg->idx_read + 1);
-
-  if (write2_len > 0) {
-    ASSERT(0 == rg->idx_write);
-    memcpy(rg->data.data, data.data + write1_len, write2_len);
-    rg->idx_write = write2_len;
-  }
-
-  ASSERT(rg->idx_write <= rg->data.len);
-  ASSERT(rg->idx_write != rg->idx_read);
-#endif
 
   return true;
 }
