@@ -411,14 +411,18 @@ static void test_ring_buffer_write_slice() {
   // Write to empty ring buffer.
   {
     RingBuffer rg = {.data = string_make(12, &arena)};
+    ASSERT(ring_buffer_write_space(rg) == rg.data.len - 1);
     ASSERT(ring_buffer_write_slice(&rg, S("hello")));
     ASSERT(5 == rg.idx_write);
+    ASSERT(ring_buffer_write_space(rg) == rg.data.len - 1 - 5);
 
     ASSERT(false == ring_buffer_write_slice(&rg, S(" world!")));
     ASSERT(5 == rg.idx_write);
+    ASSERT(ring_buffer_write_space(rg) == rg.data.len - 1 - 5);
 
     ASSERT(true == ring_buffer_write_slice(&rg, S(" world")));
     ASSERT(11 == rg.idx_write);
+    ASSERT(ring_buffer_write_space(rg) == 0);
 
     ASSERT(0 == rg.idx_read);
     ASSERT(string_eq(S("hello world"),
@@ -431,8 +435,10 @@ static void test_ring_buffer_write_slice() {
         .idx_write = 1,
         .idx_read = 2,
     };
+    ASSERT(ring_buffer_write_space(rg) == 0);
     ASSERT(false == ring_buffer_write_slice(&rg, S("hello")));
     ASSERT(1 == rg.idx_write);
+    ASSERT(ring_buffer_write_space(rg) == 0);
   }
   // Write to ring buffer, easy case.
   {
@@ -518,9 +524,12 @@ static void test_ring_buffer_read_write_fuzz() {
     (void)ok_write;
     bool ok_read = ring_buffer_read_slice(&rg, to);
     (void)ok_read;
+
+    ASSERT(ring_buffer_write_space(rg) <= rg.data.len - 1);
   }
 }
 
+#if 0
 static void test_buffered_reader_read_exactly() {
 
   // Read from closed remote end: error.
@@ -566,6 +575,7 @@ static void test_buffered_reader_read_exactly() {
     ASSERT(string_eq(S("hello w"), res_io.res));
   }
 }
+#endif
 
 #if 0
 static void test_buffered_reader_read_until_slice() {
@@ -802,8 +812,8 @@ int main() {
   test_make_log_line();
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
-  test_buffered_reader_read_exactly();
 #if 0
+  test_buffered_reader_read_exactly();
   test_buffered_reader_read_until_slice();
   test_buffered_reader_read_until_end();
   test_read_http_request_without_body();

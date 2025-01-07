@@ -1514,6 +1514,30 @@ typedef struct {
   String data;
 } RingBuffer;
 
+[[maybe_unused]] [[nodiscard]] static u64
+ring_buffer_write_space(RingBuffer rg) {
+  if (rg.idx_write == rg.idx_read) { // Empty.
+    return rg.data.len - 1;
+  } else if (rg.idx_write < rg.idx_read) { // Easy case.
+    u64 res = rg.idx_read - rg.idx_write - 1;
+    ASSERT(res < rg.data.len);
+    return res;
+  } else if (rg.idx_write > rg.idx_read) { // Hard case.
+    u64 can_write1 = rg.data.len - rg.idx_write;
+    u64 can_write2 = rg.idx_read;
+    if (can_write1 >= 1 && rg.idx_read == 0) {
+      can_write1 -= 1; // Reserve empty slot.
+    } else if (can_write2 >= 1) {
+      ASSERT(rg.idx_read > 0);
+      can_write2 -= 1;
+    }
+    ASSERT(can_write1 <= rg.data.len - 1);
+    ASSERT(can_write2 <= rg.data.len - 1);
+    return can_write1 + can_write2;
+  }
+  ASSERT(0);
+}
+
 [[maybe_unused]] [[nodiscard]] static bool
 ring_buffer_write_slice(RingBuffer *rg, String data) {
   ASSERT(nullptr != rg->data.data);
@@ -1739,6 +1763,7 @@ typedef struct {
   u64 idx;
 } TestMemReadContext;
 
+[[nodiscard]] [[maybe_unused]]
 static IoCountResult test_buffered_reader_read_from_slice(void *ctx, u8 *buf,
                                                           size_t buf_len) {
   TestMemReadContext *mem_ctx = ctx;
@@ -1765,6 +1790,7 @@ static IoCountResult test_buffered_reader_read_from_slice(void *ctx, u8 *buf,
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]]
 static IoCountResult
 test_buffered_reader_read_from_slice_one(void *ctx, u8 *buf, size_t buf_len) {
   (void)buf_len;
