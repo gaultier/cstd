@@ -507,28 +507,32 @@ static void test_ring_buffer_read_write_slice() {
     ASSERT(2 == rg.idx_read);
     ASSERT(string_eq(rg.data, S("\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0")));
   }
+}
 
-  // Basic fuzzing.
-  {
-    RingBuffer rg = {
-        .data.data = arena_alloc(&arena, 1, 1, 128),
-        .data.len = 12,
-    };
+static void test_ring_buffer_read_write_fuzz() {
+  Arena arena_ring = arena_make_from_virtual_mem(4 * KiB);
+  RingBuffer rg = {0};
+  rg.data.len = 4 * KiB;
+  rg.data.data = arena_alloc(&arena_ring, 1, 1, rg.data.len);
 
-    for (u64 i = 0; i < 100; i++) {
-      String from = {0};
-      from.len = arc4random_uniform((u32)rg.data.len + 1);
-      from.data = arena_alloc(&arena, 1, 1, from.len);
-      arc4random_buf(from.data, from.len);
+  u64 ROUNDS = 500;
+  Arena arena_strings = arena_make_from_virtual_mem(ROUNDS * 8 * KiB);
 
-      String to = {0};
-      to.len = arc4random_uniform((u32)rg.data.len + 1);
-      to.data = arena_alloc(&arena, 1, 1, to.len);
-      arc4random_buf(to.data, to.len);
+  for (u64 i = 0; i < ROUNDS; i++) {
+    String from = {0};
+    from.len = arc4random_uniform((u32)rg.data.len + 1);
+    from.data = arena_alloc(&arena_strings, 1, 1, from.len);
+    arc4random_buf(from.data, from.len);
 
-      (void)ring_buffer_write_slice(&rg, from);
-      (void)ring_buffer_read_slice(&rg, to);
-    }
+    String to = {0};
+    to.len = arc4random_uniform((u32)rg.data.len + 1);
+    to.data = arena_alloc(&arena_strings, 1, 1, to.len);
+    arc4random_buf(to.data, to.len);
+
+    bool ok_write = ring_buffer_write_slice(&rg, from);
+    (void)ok_write;
+    bool ok_read = ring_buffer_read_slice(&rg, to);
+    (void)ok_read;
   }
 }
 
@@ -810,4 +814,5 @@ int main() {
   test_url_parse();
   test_ring_buffer_write_slice();
   test_ring_buffer_read_write_slice();
+  test_ring_buffer_read_write_fuzz();
 }
