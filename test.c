@@ -438,6 +438,30 @@ static void test_ring_buffer_write_slice() {
     ASSERT(false == ring_buffer_write_slice(&rg, S("hello")));
     ASSERT(1 == rg.idx_write);
   }
+  // Write to ring buffer, easy case.
+  {
+    RingBuffer rg = {
+        .data.data = arena_alloc(&arena, 1, 1, 12),
+        .data.len = 12,
+        .idx_read = 1,
+        .idx_write = 2,
+    };
+    ASSERT(ring_buffer_write_slice(&rg, S("hello")));
+    ASSERT(2 + 5 == rg.idx_write);
+  }
+
+  // Write to ring buffer, hard case.
+  {
+    RingBuffer rg = {
+        .data.data = arena_alloc(&arena, 1, 1, 12),
+        .data.len = 12,
+        .idx_read = 2,
+        .idx_write = 3,
+    };
+    ASSERT(ring_buffer_write_slice(&rg, S("hello worl")));
+    ASSERT(1 == rg.idx_write);
+    ASSERT(string_eq(rg.data, S("l\x0\x0hello wor")));
+  }
 }
 
 #if 0
