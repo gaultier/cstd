@@ -507,43 +507,29 @@ static void test_ring_buffer_read_write_slice() {
     ASSERT(2 == rg.idx_read);
     ASSERT(string_eq(rg.data, S("\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0")));
   }
-#if 0
-  // Write to full ring buffer.
-  {
-    RingBuffer rg = {
-        .data.data = arena_alloc(&arena, 1, 1, 12),
-        .data.len = 12,
-        .idx_write = 1,
-        .idx_read = 2,
-    };
-    ASSERT(false == ring_buffer_write_slice(&rg, S("hello")));
-    ASSERT(1 == rg.idx_write);
-  }
-  // Write to ring buffer, easy case.
-  {
-    RingBuffer rg = {
-        .data.data = arena_alloc(&arena, 1, 1, 12),
-        .data.len = 12,
-        .idx_read = 1,
-        .idx_write = 2,
-    };
-    ASSERT(ring_buffer_write_slice(&rg, S("hello")));
-    ASSERT(2 + 5 == rg.idx_write);
-  }
 
-  // Write to ring buffer, hard case.
+  // Basic fuzzing.
   {
     RingBuffer rg = {
-        .data.data = arena_alloc(&arena, 1, 1, 12),
+        .data.data = arena_alloc(&arena, 1, 1, 128),
         .data.len = 12,
-        .idx_read = 2,
-        .idx_write = 3,
     };
-    ASSERT(ring_buffer_write_slice(&rg, S("hello worl")));
-    ASSERT(1 == rg.idx_write);
-    ASSERT(string_eq(rg.data, S("l\x0\x0hello wor")));
+
+    for (u64 i = 0; i < 100; i++) {
+      String from = {0};
+      from.len = arc4random_uniform((u32)rg.data.len + 1);
+      from.data = arena_alloc(&arena, 1, 1, from.len);
+      arc4random_buf(from.data, from.len);
+
+      String to = {0};
+      to.len = arc4random_uniform((u32)rg.data.len + 1);
+      to.data = arena_alloc(&arena, 1, 1, to.len);
+      arc4random_buf(to.data, to.len);
+
+      (void)ring_buffer_write_slice(&rg, from);
+      (void)ring_buffer_read_slice(&rg, to);
+    }
   }
-#endif
 }
 
 #if 0

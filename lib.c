@@ -1514,9 +1514,9 @@ ring_buffer_write_slice(RingBuffer *rg, String data) {
   ASSERT(nullptr != rg->data.data);
   ASSERT(rg->idx_read <= rg->data.len);
   ASSERT(rg->idx_write <= rg->data.len);
+  ASSERT(rg->data.len > 0);
 
   if (rg->idx_read == rg->idx_write) { // Empty
-    ASSERT(0 == rg->idx_read);
     u64 space = rg->data.len - 1;
     ASSERT(space <= rg->data.len);
 
@@ -1525,7 +1525,7 @@ ring_buffer_write_slice(RingBuffer *rg, String data) {
     }
     memcpy(rg->data.data, data.data, data.len);
     rg->idx_write += data.len;
-    ASSERT(rg->idx_write <= rg->data.len);
+    ASSERT(rg->idx_write < rg->data.len);
   } else if (rg->idx_write < rg->idx_read) { // Easy case.
     u64 space = rg->idx_read - rg->idx_write - 1;
     ASSERT(space <= rg->data.len);
@@ -1584,6 +1584,7 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
   ASSERT(nullptr != rg->data.data);
   ASSERT(rg->idx_read <= rg->data.len);
   ASSERT(rg->idx_write <= rg->data.len);
+  ASSERT(rg->data.len > 0);
 
   if (0 == data.len) {
     return true;
@@ -1623,8 +1624,8 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
     if (rg->idx_read == rg->data.len) {
       rg->idx_read = 0;
     }
-    ASSERT(rg->idx_read < data.len);
     ASSERT(rg->idx_read < rg->data.len);
+    ASSERT(rg->idx_write < rg->data.len);
 
     u64 read_len2 = data.len - read_len1;
     if (read_len2 > 0) {
