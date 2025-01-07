@@ -1048,10 +1048,10 @@ typedef struct {
 } JsonParseStringStrResult;
 
 typedef enum {
-  HS_ERR_INVALID_HTTP_REQUEST,
-  HS_ERR_INVALID_HTTP_RESPONSE,
-  HS_ERR_INVALID_FORM_DATA,
-  HS_ERR_INVALID_JSON,
+  HS_ERR_INVALID_HTTP_REQUEST = 0x800,
+  HS_ERR_INVALID_HTTP_RESPONSE = 0x801,
+  HS_ERR_INVALID_FORM_DATA = 0x802,
+  HS_ERR_INVALID_JSON = 0x803,
 } HS_Error;
 
 [[maybe_unused]] [[nodiscard]] static i64
