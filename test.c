@@ -494,17 +494,18 @@ static void test_ring_buffer_read_write_slice() {
     ASSERT(3 == rg.idx_read);
     ASSERT(string_eq(rg.data, S("\x0\x0\x0lo\x0\x0\x0\x0\x0\x0\x0")));
 
-#if 0
-    ASSERT(false == ring_buffer_write_slice(&rg, S(" world!")));
-    ASSERT(5 == rg.idx_write);
+    ASSERT(true == ring_buffer_write_slice(&rg, S(" world!")));
+    ASSERT(0 == rg.idx_write);
 
-    ASSERT(true == ring_buffer_write_slice(&rg, S(" world")));
-    ASSERT(11 == rg.idx_write);
+    ASSERT(false == ring_buffer_write_slice(&rg, S("abc")));
+    ASSERT(true == ring_buffer_write_slice(&rg, S("ab")));
+    ASSERT(2 == rg.idx_write);
 
-    ASSERT(0 == rg.idx_read);
-    ASSERT(string_eq(S("hello world"),
-                     (String){.data = rg.data.data, .len = rg.idx_write}));
-#endif
+    dst = string_dup(S("abcdefghijk"), &arena);
+    ASSERT(ring_buffer_read_slice(&rg, dst));
+    ASSERT(string_eq(dst, S("lo world!ab")));
+    ASSERT(2 == rg.idx_read);
+    ASSERT(string_eq(rg.data, S("\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0")));
   }
 #if 0
   // Write to full ring buffer.

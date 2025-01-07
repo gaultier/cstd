@@ -1540,21 +1540,21 @@ ring_buffer_write_slice(RingBuffer *rg, String data) {
   } else { // Hard case: need potentially two writes.
     ASSERT(rg->idx_write >= rg->idx_read);
 
-    u64 space1 = rg->data.len - rg->idx_write;
-    u64 space2 = rg->idx_read;
-    if (space1 >= 1 && rg->idx_read == 0) {
-      space1 -= 1; // Reserve empty slot.
-    } else if (space2 >= 1) {
+    u64 can_write1 = rg->data.len - rg->idx_write;
+    u64 can_write2 = rg->idx_read;
+    if (can_write1 >= 1 && rg->idx_read == 0) {
+      can_write1 -= 1; // Reserve empty slot.
+    } else if (can_write2 >= 1) {
       ASSERT(rg->idx_read > 0);
-      space2 -= 1;
+      can_write2 -= 1;
     }
 
-    u64 space_total = space1 + space2;
-    if (space_total < data.len) {
+    u64 can_write = can_write1 + can_write2;
+    if (can_write < data.len) {
       return false;
     }
 
-    u64 write_len1 = MIN(space1, data.len);
+    u64 write_len1 = MIN(can_write1, data.len);
     ASSERT(rg->idx_write + write_len1 <= rg->data.len);
     ASSERT(write_len1 <= data.len);
     memcpy(rg->data.data + rg->idx_write, data.data, write_len1);
@@ -1566,6 +1566,8 @@ ring_buffer_write_slice(RingBuffer *rg, String data) {
 
     u64 write_len2 = data.len - write_len1;
     if (write_len2 > 0) {
+      ASSERT(rg->idx_write = rg->data.len - 1);
+
       ASSERT(write_len2 + 1 <= rg->idx_read);
       ASSERT(write_len1 + write_len2 <= data.len);
       memcpy(rg->data.data, data.data + write_len1, write_len2);
@@ -1602,7 +1604,39 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
     rg->idx_read += n_read;
     ASSERT(rg->idx_read < rg->data.len);
   } else { // Hard case: potentially 2 reads.
-    ASSERT(0 && "TODO");
+    ASSERT(rg->idx_read > rg->idx_write);
+    u64 can_read1 = rg->data.len - rg->idx_read;
+    u64 can_read2 = rg->idx_write;
+    u64 can_read = can_read1 + can_read2;
+    if (can_read < data.len) {
+      // TODO: Should we do short reads like `read(2)`?
+      return false;
+    }
+
+    u64 read_len1 = MIN(can_read1, data.len);
+    ASSERT(read_len1 <= data.len);
+    ASSERT(read_len1 <= rg->data.len);
+
+    memcpy(data.data, rg->data.data + rg->idx_read, read_len1);
+    memset(rg->data.data + rg->idx_read, 0, read_len1);
+    rg->idx_read += read_len1;
+    if (rg->idx_read == rg->data.len) {
+      rg->idx_read = 0;
+    }
+    ASSERT(rg->idx_read < data.len);
+    ASSERT(rg->idx_read < rg->data.len);
+
+    u64 read_len2 = data.len - read_len1;
+    if (read_len2 > 0) {
+      ASSERT(0 == rg->idx_read);
+
+      memcpy(data.data + read_len1, rg->data.data, read_len2);
+      memset(rg->data.data, 0, read_len2);
+      rg->idx_read += read_len2;
+      ASSERT(rg->idx_read <= data.len);
+      ASSERT(rg->idx_read <= rg->data.len);
+      ASSERT(rg->idx_read <= rg->idx_write);
+    }
   }
 
   return true;
