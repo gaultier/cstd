@@ -1516,17 +1516,7 @@ ring_buffer_write_slice(RingBuffer *rg, String data) {
   ASSERT(rg->idx_write <= rg->data.len);
   ASSERT(rg->data.len > 0);
 
-  if (rg->idx_read == rg->idx_write) { // Empty
-    u64 space = rg->data.len - 1;
-    ASSERT(space <= rg->data.len);
-
-    if (data.len > space) {
-      return false;
-    }
-    memcpy(rg->data.data, data.data, data.len);
-    rg->idx_write += data.len;
-    ASSERT(rg->idx_write < rg->data.len);
-  } else if (rg->idx_write < rg->idx_read) { // Easy case.
+  if (rg->idx_write < rg->idx_read) { // Easy case.
     u64 space = rg->idx_read - rg->idx_write - 1;
     ASSERT(space <= rg->data.len);
 
@@ -1541,6 +1531,7 @@ ring_buffer_write_slice(RingBuffer *rg, String data) {
     ASSERT(rg->idx_write >= rg->idx_read);
 
     u64 can_write1 = rg->data.len - rg->idx_write;
+
     u64 can_write2 = rg->idx_read;
     if (can_write1 >= 1 && rg->idx_read == 0) {
       can_write1 -= 1; // Reserve empty slot.
@@ -1548,6 +1539,8 @@ ring_buffer_write_slice(RingBuffer *rg, String data) {
       ASSERT(rg->idx_read > 0);
       can_write2 -= 1;
     }
+    ASSERT(can_write1 <= rg->data.len - 1);
+    ASSERT(can_write2 <= rg->data.len - 1);
 
     u64 can_write = can_write1 + can_write2;
     if (can_write < data.len) {
