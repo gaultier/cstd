@@ -478,6 +478,10 @@ static void test_ring_buffer_read_write_slice() {
 
     String dst = string_dup(S("xyz"), &arena);
     ASSERT(ring_buffer_read_slice(&rg, dst));
+    ASSERT(string_eq(dst, S("hel")));
+    ASSERT(3 == rg.idx_read);
+    ASSERT(string_eq(rg.data, S("\x0\x0\x0lo\x0\x0\x0\x0\x0\x0\x0")));
+
 #if 0
     ASSERT(false == ring_buffer_write_slice(&rg, S(" world!")));
     ASSERT(5 == rg.idx_write);

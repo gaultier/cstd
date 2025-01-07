@@ -1598,6 +1598,7 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
     u64 n_read = MIN(data.len, can_read);
 
     memcpy(data.data, rg->data.data + rg->idx_read, n_read);
+    memset(rg->data.data + rg->idx_read, 0, n_read);
     rg->idx_read += n_read;
     ASSERT(rg->idx_read < rg->data.len);
   } else { // Hard case: potentially 2 reads.
