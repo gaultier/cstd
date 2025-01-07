@@ -1700,7 +1700,7 @@ buffered_reader_read(BufferedReader *br, u64 count, Arena *arena) {
   // Now we have to do I/O.
   {
     Arena tmp = *arena;
-    String dst = string_make(count, &tmp);
+    String dst = string_make(ring_buffer_write_space(br->rg), &tmp);
     IoCountResult res_io = br->read_fn(br->ctx, dst.data, dst.len);
     if (res_io.err) {
       res.err = res_io.err;
