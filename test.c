@@ -521,7 +521,6 @@ static void test_ring_buffer_read_write_fuzz() {
   }
 }
 
-#if 0
 static void test_buffered_reader_read_exactly() {
   Arena arena = arena_make_from_virtual_mem(16 * KiB);
 
@@ -556,6 +555,7 @@ static void test_buffered_reader_read_exactly() {
   }
 }
 
+#if 0
 static void test_buffered_reader_read_until_slice() {
 
   // Read from closed remote end: error.
@@ -790,8 +790,8 @@ int main() {
   test_make_log_line();
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
-#if 0
   test_buffered_reader_read_exactly();
+#if 0
   test_buffered_reader_read_until_slice();
   test_buffered_reader_read_until_end();
   test_read_http_request_without_body();
