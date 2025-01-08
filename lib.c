@@ -1844,7 +1844,6 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
     u64 n_read = MIN(data.len, can_read);
 
     memcpy(data.data, rg->data.data + rg->idx_read, n_read);
-    memset(rg->data.data + rg->idx_read, 0, n_read);
     rg->idx_read += n_read;
     ASSERT(rg->idx_read < rg->data.len);
   } else { // Hard case: potentially 2 reads.
@@ -1862,7 +1861,6 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
     ASSERT(read_len1 <= rg->data.len);
 
     memcpy(data.data, rg->data.data + rg->idx_read, read_len1);
-    memset(rg->data.data + rg->idx_read, 0, read_len1);
     rg->idx_read += read_len1;
     if (rg->idx_read == rg->data.len) {
       rg->idx_read = 0;
@@ -1875,7 +1873,6 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
       ASSERT(0 == rg->idx_read);
 
       memcpy(data.data + read_len1, rg->data.data, read_len2);
-      memset(rg->data.data, 0, read_len2);
       rg->idx_read += read_len2;
       ASSERT(rg->idx_read <= data.len);
       ASSERT(rg->idx_read <= rg->data.len);
@@ -1884,6 +1881,14 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
   }
 
   return true;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool
+ring_buffer_contains(RingBuffer rg, String needle, Arena arena) {
+  String dst = string_make(ring_buffer_read_space(rg), &arena);
+  ASSERT(ring_buffer_read_slice(&rg, dst));
+
+  return -1 != string_indexof_string(dst, needle);
 }
 
 typedef struct {

@@ -492,7 +492,6 @@ static void test_ring_buffer_read_write_slice() {
     ASSERT(ring_buffer_read_slice(&rg, dst));
     ASSERT(string_eq(dst, S("hel")));
     ASSERT(3 == rg.idx_read);
-    ASSERT(string_eq(rg.data, S("\x0\x0\x0lo\x0\x0\x0\x0\x0\x0\x0")));
     ASSERT(2 == ring_buffer_read_space(rg));
 
     ASSERT(true == ring_buffer_write_slice(&rg, S(" world!")));
@@ -509,9 +508,27 @@ static void test_ring_buffer_read_write_slice() {
     ASSERT(ring_buffer_read_slice(&rg, dst));
     ASSERT(string_eq(dst, S("lo world!ab")));
     ASSERT(2 == rg.idx_read);
-    ASSERT(string_eq(rg.data, S("\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0\x0")));
     ASSERT(0 == ring_buffer_read_space(rg));
   }
+}
+
+static void test_ring_buffer_contains() {
+  Arena arena = arena_make_from_virtual_mem(8 * KiB);
+  RingBuffer rg = {.data = string_make(4 * KiB, &arena)};
+  ASSERT(ring_buffer_write_slice(
+      &rg, S("The quick brown fox jumps over the lazy dog")));
+  u64 space_read = ring_buffer_read_space(rg);
+  u64 space_write = ring_buffer_write_space(rg);
+
+  ASSERT(false == ring_buffer_contains(rg, S("\r\n"), arena));
+  // Unmodified.
+  ASSERT(ring_buffer_read_space(rg) == space_read);
+  ASSERT(ring_buffer_write_space(rg) == space_write);
+
+  ASSERT(true == ring_buffer_contains(rg, S("lazy"), arena));
+  // Unmodified.
+  ASSERT(ring_buffer_read_space(rg) == space_read);
+  ASSERT(ring_buffer_write_space(rg) == space_write);
 }
 
 static void test_ring_buffer_read_write_fuzz() {
@@ -977,6 +994,7 @@ int main() {
   test_url_parse();
   test_ring_buffer_write_slice();
   test_ring_buffer_read_write_slice();
+  test_ring_buffer_contains();
   test_ring_buffer_read_write_fuzz();
   test_net_socket();
 }
