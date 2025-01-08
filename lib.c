@@ -2219,7 +2219,7 @@ typedef struct {
 RESULT(StringSlice) StringSliceResult;
 
 [[maybe_unused]] [[nodiscard]] static StringSliceResult
-http_parse_relative_path(String s, Arena *arena) {
+url_parse_relative_path(String s, Arena *arena) {
   ASSERT(-1 == string_indexof_any_byte(s, S("?#:")));
 
   StringSliceResult res = {0};
@@ -2500,7 +2500,7 @@ RESULT(Url) ParseUrlResult;
 
       String path_raw = slice_range(remaining, (u64)any_sep_idx + 1, 0);
       StringSliceResult res_string_slice =
-          http_parse_relative_path(path_raw, arena);
+          url_parse_relative_path(path_raw, arena);
       if (res_string_slice.err) {
         res.err = res_string_slice.err;
         return res;
