@@ -16,14 +16,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
-
-#ifdef __linux__
-#include <sys/sendfile.h>
-#endif
 
 #ifndef MIN
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
@@ -1014,6 +1009,7 @@ make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count, ...) {
 [[maybe_unused]] [[nodiscard]] static Error os_sendfile(int fd_in, int fd_out,
                                                         u64 n_bytes) {
 #if defined(__linux__)
+#include <sys/sendfile.h>
   ssize_t res = sendfile(fd_out, fd_in, nullptr, n_bytes);
   if (res == -1) {
     return (Error)errno;
