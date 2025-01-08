@@ -346,7 +346,7 @@ typedef struct {
 } StringConsumeResult;
 
 [[maybe_unused]] [[nodiscard]] static StringConsumeResult
-string_consume(String haystack, u8 needle) {
+string_consume_byte(String haystack, u8 needle) {
   StringConsumeResult res = {0};
 
   if (haystack.len == 0) {
@@ -358,6 +358,20 @@ string_consume(String haystack, u8 needle) {
 
   res.consumed = true;
   res.remaining = slice_range_start(haystack, 1UL);
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static StringConsumeResult
+string_consume(String haystack, String needle) {
+  StringConsumeResult res = {0};
+  res.remaining = haystack;
+
+  for (u64 i = 0; i < needle.len; i++) {
+    res = string_consume_byte(res.remaining, slice_at(needle, i));
+    if (!res.consumed) {
+      return res;
+    }
+  }
   return res;
 }
 
@@ -2572,11 +2586,12 @@ url_parse_authority(String s, Arena *arena) {
   remaining = slice_range_start(remaining, (u64)scheme_sep_idx + 1);
 
   // TODO: Be less strict hier.
-  if (!string_starts_with(remaining, S("//"))) {
+  StringConsumeResult res_consume = string_consume(remaining, S("//"));
+  if (!res_consume.consumed) {
     res.err = EINVAL;
     return res;
   }
-  remaining = slice_range(remaining, 2UL, 0UL); // Consume `//`.
+  remaining = res_consume.remaining;
 
   i64 authority_sep_idx = string_indexof_any_byte(remaining, S("?#"));
   String authority = remaining;

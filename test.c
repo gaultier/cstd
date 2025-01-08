@@ -167,15 +167,15 @@ static void test_slice_range() {
 
 static void test_string_consume() {
   {
-    StringConsumeResult res = string_consume(S(""), '{');
+    StringConsumeResult res = string_consume_byte(S(""), '{');
     ASSERT(!res.consumed);
   }
   {
-    StringConsumeResult res = string_consume(S("[1,2]"), '{');
+    StringConsumeResult res = string_consume_byte(S("[1,2]"), '{');
     ASSERT(!res.consumed);
   }
   {
-    StringConsumeResult res = string_consume(S("[1,2]"), '[');
+    StringConsumeResult res = string_consume_byte(S("[1,2]"), '[');
     ASSERT(res.consumed);
     ASSERT(string_eq(S("1,2]"), res.remaining));
   }
