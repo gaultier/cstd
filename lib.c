@@ -1423,7 +1423,8 @@ SLICE(AioEvent);
 net_aio_queue_ctl(AioQueue queue, AioEventSlice events);
 
 [[maybe_unused]] [[nodiscard]] static Error
-net_aio_queue_wait(AioQueue queue, AioEventSlice events, u64 timeout_ms);
+net_aio_queue_wait(AioQueue queue, AioEventSlice events, u64 timeout_ms,
+                   Arena arena);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #include <arpa/inet.h>
@@ -1632,15 +1633,34 @@ net_aio_queue_ctl(AioQueue queue, AioEventSlice events) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Error
-net_aio_queue_wait(AioQueue queue, AioEventSlice events, u64 timeout_ms) {
+net_aio_queue_wait(AioQueue queue, AioEventSlice events, u64 timeout_ms,
+                   Arena arena) {
+  struct epoll_event *epoll_events =
+      arena_new(&arena, struct epoll_event, events.len);
+
   int res_epoll =
-      epoll_wait((int)queue, &epoll_events, epoll_events.len, timeout_ms);
+      epoll_wait((int)queue, epoll_events, (int)events.len, (int)timeout_ms);
   if (-1 == res_epoll) {
     return (Error)errno;
   }
 
+  for (u64 i = 0; i < events.len; i++) {
+    AioEvent *event = slice_at_ptr(&events, i);
+    struct epoll_event epoll_event = epoll_events[i];
+    if (epoll_event.events & EPOLLIN) {
+      event->kind |= AIO_EVENT_KIND_IN;
+    }
+    if (epoll_event.events & EPOLLOUT) {
+      event->kind |= AIO_EVENT_KIND_OUT;
+    }
+    if (epoll_event.events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+      event->kind |= AIO_EVENT_KIND_ERR;
+    }
+  }
+
   return 0;
 }
+#endif
 
 RESULT(u64) IoCountResult;
 RESULT(String) IoResult;
