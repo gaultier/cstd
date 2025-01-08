@@ -1100,6 +1100,20 @@ static void test_http_request_serialize() {
                         "\r\n");
     ASSERT(string_eq(s, expected));
   }
+  {
+    HttpRequest req;
+    req.method = HTTP_METHOD_POST;
+    req.body = S("hello!");
+    http_push_header(&req.headers, S("Host"), S("google.com"), &arena);
+    *dyn_push(&req.path_components, &arena) = S("foobar");
+
+    String s = http_request_serialize(req, &arena);
+    String expected = S("POST /foobar HTTP/1.1\r\n"
+                        "Host: google.com\r\n"
+                        "\r\n"
+                        "hello!");
+    ASSERT(string_eq(s, expected));
+  }
 }
 
 int main() {
