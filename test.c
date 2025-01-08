@@ -531,6 +531,29 @@ static void test_ring_buffer_contains() {
   ASSERT(ring_buffer_write_space(rg) == space_write);
 }
 
+static void test_ring_buffer_read_until_excl() {
+  Arena arena = arena_make_from_virtual_mem(8 * KiB);
+  RingBuffer rg = {.data = string_make(4 * KiB, &arena)};
+  ASSERT(ring_buffer_write_slice(
+      &rg, S("The quick brown fox jumps over the lazy dog")));
+
+  {
+    u64 space_read = ring_buffer_read_space(rg);
+    u64 space_write = ring_buffer_write_space(rg);
+    String s = ring_buffer_read_until_excl(&rg, S("\r\n"), &arena);
+    ASSERT(slice_is_empty(s));
+
+    // Unmodified.
+    ASSERT(ring_buffer_read_space(rg) == space_read);
+    ASSERT(ring_buffer_write_space(rg) == space_write);
+  }
+
+  {
+    String s = ring_buffer_read_until_excl(&rg, S(" "), &arena);
+    ASSERT(string_eq(s, S("The")));
+  }
+}
+
 static void test_ring_buffer_read_write_fuzz() {
   Arena arena_ring = arena_make_from_virtual_mem(4 * KiB);
   RingBuffer rg = {.data = string_make(4 * KiB, &arena_ring)};
@@ -995,6 +1018,7 @@ int main() {
   test_ring_buffer_write_slice();
   test_ring_buffer_read_write_slice();
   test_ring_buffer_contains();
+  test_ring_buffer_read_until_excl();
   test_ring_buffer_read_write_fuzz();
   test_net_socket();
 }

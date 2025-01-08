@@ -1902,7 +1902,7 @@ ring_buffer_contains(RingBuffer rg, String needle, Arena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static String
-ring_buffer_read_until(RingBuffer *rg, String needle, Arena *arena) {
+ring_buffer_read_until_excl(RingBuffer *rg, String needle, Arena *arena) {
   RingBuffer cpy_rg = *rg;
   Arena cpy_arena = *arena;
 
@@ -1918,7 +1918,7 @@ ring_buffer_read_until(RingBuffer *rg, String needle, Arena *arena) {
     return res;
   }
 
-  res = slice_range(dst, 0, (u64)idx + needle.len);
+  res = slice_range(dst, 0, (u64)idx);
 
   String put_back = slice_range(dst, (u64)idx + needle.len, 0);
   ring_buffer_rewind_write_idx(rg, put_back.len);
@@ -2566,10 +2566,12 @@ request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
 [[maybe_unused]] [[nodiscard]] static Error
 http_request_parse_next(HttpRequestParseResult *parse, RingBuffer *rg,
                         Arena *arena) {
+  String nr = S("\r\n");
 
   switch (parse->state) {
   case HTTP_PARSE_STATE_NONE: {
-    if (!ring_buffer_contains(*rg, S("\r\n"), *arena)) {
+    String line = ring_buffer_read_until_excl(rg, nr, arena);
+    if (slice_is_empty(line)) {
       return 0;
     }
   } break;
