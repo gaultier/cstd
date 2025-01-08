@@ -2640,6 +2640,15 @@ url_parse_authority(String s, Arena *arena) {
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static bool http_url_is_valid(Url u) {
+  // TODO: Support https.
+  if (!string_eq(u.scheme, S("http"))) {
+    return false;
+  }
+
+  return true;
+}
+
 #if 0
 static const u64 HTTP_REQUEST_LINES_MAX_COUNT = 512;
 [[nodiscard]] static Error
