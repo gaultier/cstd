@@ -129,7 +129,7 @@ static void test_slice_range() {
 
   // Empty slice.
   {
-    String s = {0};
+    String s = S("");
     ASSERT(slice_is_empty(slice_range(s, 0, 0)));
     ASSERT(slice_is_empty(slice_range_start(s, 0)));
   }
@@ -137,7 +137,16 @@ static void test_slice_range() {
   {
     String s = S("a");
     ASSERT(slice_is_empty(slice_range(s, 0, 0)));
-    ASSERT(slice_is_empty(slice_range_start(s, 0)));
+    ASSERT(string_eq(s, slice_range_start(s, 0)));
+  }
+
+  {
+    String s = S("abcd");
+    ASSERT(string_eq(slice_range_start(s, 1), S("bcd")));
+    ASSERT(string_eq(slice_range(s, 1, 3), S("bc")));
+    ASSERT(string_eq(slice_range(s, 1, 4), S("bcd")));
+    ASSERT(string_eq(slice_range(s, 1, 5), S("bcd")));
+    ASSERT(slice_is_empty(slice_range(s, 100, 300)));
   }
 
   DynString dyn = {0};
@@ -149,7 +158,7 @@ static void test_slice_range() {
   *dyn_push(&dyn, &arena) = S("本語");
 
   StringSlice s = dyn_slice(StringSlice, dyn);
-  StringSlice range = slice_range(s, 1, 0);
+  StringSlice range = slice_range_start(s, 1UL);
   ASSERT(2 == range.len);
 
   ASSERT(string_eq(slice_at(s, 1), slice_at(range, 0)));
@@ -1072,11 +1081,11 @@ static void test_url_parse_relative_path() {
 }
 
 int main() {
+  test_slice_range();
   test_string_indexof_slice();
   test_string_trim();
   test_string_split();
   test_dyn_ensure_cap();
-  test_slice_range();
   test_string_consume();
   test_string_parse_u64();
   test_string_cmp();

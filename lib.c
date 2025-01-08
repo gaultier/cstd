@@ -69,15 +69,9 @@ typedef u32 Error;
 
 #define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
 
-#define CLAMP(n, min, max)                                                     \
-  do {                                                                         \
-    if (*(n) < (min)) {                                                        \
-      *(n) = (min);                                                            \
-    }                                                                          \
-    if (*(n) > (max)) {                                                        \
-      *(n) = (max);                                                            \
-    }                                                                          \
-  } while (0)
+#define CLAMP(min, n, max) ((n) < (min) ? (min) : (n) > (max) ? (max) : n)
+
+#define SUB_SAT(a, b) ((a) > (b) ? ((a) - (b)) : 0)
 
 [[maybe_unused]] static void print_stacktrace(const char *file, int line,
                                               const char *function) {
@@ -92,7 +86,7 @@ typedef u32 Error;
 
 #define AT_PTR(arr, len, idx)                                                  \
   (((i64)(idx) >= (i64)(len)) ? (__builtin_trap(), &(arr)[0])                  \
-                              : (ASSERT(nullptr != arr), (&(arr)[idx])))
+                              : (ASSERT(nullptr != (arr)), (&(arr)[idx])))
 
 #define AT(arr, len, idx) (*AT_PTR(arr, len, idx))
 
@@ -222,19 +216,15 @@ typedef struct {
   return res - haystack.data;
 }
 
-#define slice_range_start(s, start)                                            \
-  (typeof((s))) {                                                              \
-    .data = AT_PTR((s).data, (s).len, start), .len = (s).len - (start),        \
-  }
-
 #define slice_range(s, start, end)                                             \
-  (ASSERT((start) <= (end)), ASSERT((end) <= ((s).len)),                       \
-   ASSERT((start) <= (s).len),                                                 \
-   (0 == ((s).len)) ? (s)                                                      \
-                    : ((typeof((s))){                                          \
-                          .data = AT_PTR((s).data, (s).len, start),            \
-                          .len = (u64)(end) - (u64)(start),                    \
-                      }))
+  ((typeof((s))){                                                              \
+      .data = (s).len == CLAMP(0, start, (s).len)                              \
+                  ? nullptr                                                    \
+                  : AT_PTR((s).data, (s).len, CLAMP(0, start, (s).len)),       \
+      .len = SUB_SAT(CLAMP(0, end, (s).len), CLAMP(0, start, (s).len)),        \
+  })
+
+#define slice_range_start(s, start) slice_range(s, start, (s).len)
 
 [[maybe_unused]] [[nodiscard]] static SplitResult
 string_split_next(SplitIterator *it) {
@@ -367,7 +357,7 @@ string_consume(String haystack, u8 needle) {
   }
 
   res.consumed = true;
-  res.remaining = slice_range(haystack, 1, 0);
+  res.remaining = slice_range(haystack, 1UL, 0UL);
   return res;
 }
 
@@ -2527,7 +2517,7 @@ url_parse_authority(String s, Arena *arena) {
   }
 
   if (string_starts_with(remaining, S("/"))) {
-    remaining = slice_range(remaining, 1, 0);
+    remaining = slice_range(remaining, 1UL, 0UL);
 
     StringSliceResult res_path_components =
         url_parse_path_components(remaining, arena);
@@ -2586,7 +2576,7 @@ url_parse_authority(String s, Arena *arena) {
     res.err = EINVAL;
     return res;
   }
-  remaining = slice_range(remaining, 2, 0); // Consume `//`.
+  remaining = slice_range(remaining, 2UL, 0UL); // Consume `//`.
 
   i64 authority_sep_idx = string_indexof_any_byte(remaining, S("?#"));
   String authority = remaining;
