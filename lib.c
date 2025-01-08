@@ -119,8 +119,12 @@ typedef u32 Error;
   return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
 }
 
+[[maybe_unused]] [[nodiscard]] static bool ch_is_numeric(u8 c) {
+  return ('0' <= c && c <= '9');
+}
+
 [[maybe_unused]] [[nodiscard]] static bool ch_is_alphanumeric(u8 c) {
-  return ('0' <= c && c <= '9') || ch_is_alpha(c);
+  return ch_is_numeric(c) || ch_is_alpha(c);
 }
 
 [[maybe_unused]] [[nodiscard]] static u8 ch_from_hex(u8 c) {
@@ -218,14 +222,19 @@ typedef struct {
   return res - haystack.data;
 }
 
+#define slice_range_start(s, start)                                            \
+  (typeof((s))) {                                                              \
+    .data = AT_PTR((s).data, (s).len, start), .len = (s).len - (start),        \
+  }
+
 #define slice_range(s, start, end)                                             \
-  (ASSERT((start) <= (end == 0 ? (s).len : end)), ASSERT((start) <= (s).len),  \
-   ASSERT((end == 0 ? (s).len : end) <= (s).len),                              \
-   (0 == (s).len) ? s                                                          \
-                  : (typeof((s))){                                             \
-                        .data = &(s).data[start],                              \
-                        .len = (end == 0 ? (s).len : end) - (start),           \
-                    })
+  (ASSERT((start) <= (end)), ASSERT((end) <= ((s).len)),                       \
+   ASSERT((start) <= (s).len),                                                 \
+   (0 == ((s).len)) ? (s)                                                      \
+                    : ((typeof((s))){                                          \
+                          .data = AT_PTR((s).data, (s).len, start),            \
+                          .len = (u64)(end) - (u64)(start),                    \
+                      }))
 
 [[maybe_unused]] [[nodiscard]] static SplitResult
 string_split_next(SplitIterator *it) {
@@ -394,7 +403,7 @@ string_parse_u64(String s) {
   for (u64 i = 0; i < s.len; i++) {
     u8 c = slice_at(s, i);
 
-    if (!('0' <= c && c <= '9')) { // End of numbers sequence.
+    if (!ch_is_numeric(c)) { // End of numbers sequence.
       res.remaining = slice_range(s, i, 0);
       return res;
     }
@@ -2459,6 +2468,10 @@ RESULT(u16) PortResult;
   PortResult res = {0};
 
   ParseNumberResult port_parse = string_parse_u64(s);
+  if (!slice_is_empty(port_parse.remaining)) {
+    res.err = EINVAL;
+    return res;
+  }
   res.res = (u16)port_parse.n;
   return res;
 }
@@ -2485,12 +2498,19 @@ url_parse_authority(String s, Arena *arena) {
 
   // Host.
   {
-    i64 sep_idx = string_indexof_byte(remaining, ':');
-    if (-1 != sep_idx) {
-      res.res.host = slice_range(remaining, 0, (u64)sep_idx);
-      remaining = slice_range(remaining, (u64)sep_idx + 1, 0);
+    i64 sep_port_idx = string_indexof_byte(remaining, ':');
+    if (-1 != sep_port_idx) {
+      res.res.host = slice_range(remaining, 0, (u64)sep_port_idx);
+      remaining = slice_range(remaining, (u64)sep_port_idx + 1, 0);
 
-      PortResult res_port = url_parse_port(remaining);
+      i64 sep_path_idx = string_indexof_byte(remaining, '/');
+      String port = remaining;
+      if (-1 != sep_path_idx) {
+        port = slice_range(remaining, 0, (u64)sep_path_idx);
+        remaining = slice_range(remaining, (u64)sep_path_idx + 1, 0);
+      }
+
+      PortResult res_port = url_parse_port(port);
       if (res_port.err) {
         res.err = res_port.err;
         return res;
@@ -2506,13 +2526,17 @@ url_parse_authority(String s, Arena *arena) {
     return res;
   }
 
-  StringSliceResult res_path_components =
-      url_parse_path_components(remaining, arena);
-  if (res_path_components.err) {
-    res.err = res_path_components.err;
-    return res;
+  if (string_starts_with(remaining, S("/"))) {
+    remaining = slice_range(remaining, 1, 0);
+
+    StringSliceResult res_path_components =
+        url_parse_path_components(remaining, arena);
+    if (res_path_components.err) {
+      res.err = res_path_components.err;
+      return res;
+    }
+    res.res.path_components = res_path_components.res;
   }
-  res.res.path_components = res_path_components.res;
 
   return res;
 }

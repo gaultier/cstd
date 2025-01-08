@@ -127,6 +127,19 @@ static void test_dyn_ensure_cap() {
 static void test_slice_range() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
 
+  // Empty slice.
+  {
+    String s = {0};
+    ASSERT(slice_is_empty(slice_range(s, 0, 0)));
+    ASSERT(slice_is_empty(slice_range_start(s, 0)));
+  }
+  // Empty range.
+  {
+    String s = S("a");
+    ASSERT(slice_is_empty(slice_range(s, 0, 0)));
+    ASSERT(slice_is_empty(slice_range_start(s, 0)));
+  }
+
   DynString dyn = {0};
   // Works on empty slices.
   (void)slice_range(dyn_slice(StringSlice, dyn), 0, 0);
@@ -743,11 +756,23 @@ static void test_url_parse() {
   }
   {
     ParseUrlResult res = url_parse(S("http://a:"), &arena);
-    ASSERT(0 != res.err);
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(S("http"), res.res.scheme));
+    ASSERT(0 == res.res.username.len);
+    ASSERT(0 == res.res.password.len);
+    ASSERT(string_eq(S("a"), res.res.host));
+    ASSERT(0 == res.res.path_components.len);
+    ASSERT(0 == res.res.port);
   }
   {
     ParseUrlResult res = url_parse(S("http://a:/"), &arena);
-    ASSERT(0 != res.err);
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(S("http"), res.res.scheme));
+    ASSERT(0 == res.res.username.len);
+    ASSERT(0 == res.res.password.len);
+    ASSERT(string_eq(S("a"), res.res.host));
+    ASSERT(0 == res.res.path_components.len);
+    ASSERT(0 == res.res.port);
   }
   {
     ParseUrlResult res = url_parse(S("http://a:bc"), &arena);
@@ -755,7 +780,13 @@ static void test_url_parse() {
   }
   {
     ParseUrlResult res = url_parse(S("http://abc:0"), &arena);
-    ASSERT(0 != res.err);
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(S("http"), res.res.scheme));
+    ASSERT(0 == res.res.username.len);
+    ASSERT(0 == res.res.password.len);
+    ASSERT(string_eq(S("abc"), res.res.host));
+    ASSERT(0 == res.res.path_components.len);
+    ASSERT(0 == res.res.port);
   }
   {
     ParseUrlResult res = url_parse(S("http://abc:999999"), &arena);
@@ -769,7 +800,7 @@ static void test_url_parse() {
   }
   {
     ParseUrlResult res = url_parse(S("http://a:80"), &arena);
-    ASSERT(0 != res.err);
+    ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
     ASSERT(0 == res.res.password.len);
