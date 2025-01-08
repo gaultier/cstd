@@ -842,20 +842,13 @@ static void test_net_socket() {
 
   AioQueue queue = res_queue_create.res;
   AioEventSlice events = {0};
-  events.len = 1;
+  events.len = 2;
   events.data = arena_new(&arena, AioEvent, 3);
 
-  AioEvent *event_bob = slice_at_ptr(&events, 0);
-  event_bob->socket = socket_bob;
-  event_bob->kind = AIO_EVENT_KIND_IN;
-  event_bob->action = AIO_EVENT_ACTION_KIND_ADD;
-
-#if 0
-  AioEvent *event_alice = slice_at_ptr(&events, 1);
-  event_alice->socket = socket_alice;
-  event_alice->kind = AIO_EVENT_KIND_OUT;
-  event_alice->action = AIO_EVENT_ACTION_KIND_ADD;
-#endif
+  AioEvent *event_bob_listen = slice_at_ptr(&events, 0);
+  event_bob_listen->socket = socket_bob;
+  event_bob_listen->kind = AIO_EVENT_KIND_IN;
+  event_bob_listen->action = AIO_EVENT_ACTION_KIND_ADD;
 
   ASSERT(0 == net_aio_queue_ctl(queue, events));
 
@@ -863,10 +856,26 @@ static void test_net_socket() {
     ASSERT(0 == net_aio_queue_wait(queue, events, -1, arena));
     AioEvent *event = slice_at_ptr(&events, 0);
     ASSERT(AIO_EVENT_KIND_IN == event->kind);
-    ASSERT(event->socket == event_bob->socket);
+    ASSERT(event->socket == event_bob_listen->socket);
 
     Ipv4AddressAcceptResult res_accept = net_tcp_accept(socket_bob);
     ASSERT(0 == res_accept.err);
+
+    events.len = 3;
+    event_bob_listen->action = AIO_EVENT_ACTION_KIND_DEL; // Stop listening.
+
+    AioEvent *event_alice = slice_at_ptr(&events, 1);
+    event_alice->socket = socket_alice;
+    event_alice->kind = AIO_EVENT_KIND_OUT;
+    event_alice->action = AIO_EVENT_ACTION_KIND_ADD;
+
+    AioEvent *event_bob_alice = slice_at_ptr(&events, 2);
+    event_bob_alice->socket = res_accept.socket;
+    event_bob_alice->kind = AIO_EVENT_KIND_IN;
+    event_bob_alice->action = AIO_EVENT_ACTION_KIND_ADD;
+
+    ASSERT(0 == net_aio_queue_ctl(queue, events));
+
     break; // TODO: more.
   }
 
