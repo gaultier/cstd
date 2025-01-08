@@ -983,6 +983,16 @@ end:
   ASSERT(0 == net_socket_close(socket_bob_alice));
 }
 
+static void test_http_parse_status_line() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+  // Empty.
+  {
+    HttpRequestParseResult res = http_parse_status_line(S(""), &arena);
+    ASSERT(res.err);
+  }
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -1014,4 +1024,5 @@ int main() {
   test_ring_buffer_read_until_excl();
   test_ring_buffer_read_write_fuzz();
   test_net_socket();
+  test_http_parse_status_line();
 }

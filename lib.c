@@ -2198,13 +2198,14 @@ typedef struct {
   HttpMethod method;
   DynKeyValue headers;
   String body;
-  Error err;
 } HttpRequest;
+
+RESULT(HttpRequest) HttpRequestParseResult;
 
 typedef struct {
   HttpRequest req;
   HttpParseState state;
-} HttpRequestParseResult;
+} HttpRequestParse;
 
 typedef struct {
   u16 status;
@@ -2244,13 +2245,13 @@ http_parse_relative_path(String s, bool must_start_with_slash, Arena *arena) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static HttpRequest
-request_parse_status_line(String status_line, Arena *arena) {
-  HttpRequest req = {.id = make_unique_id_u128_string(arena)};
+[[maybe_unused]] [[nodiscard]] static HttpRequestParseResult
+http_parse_status_line(String status_line, Arena *arena) {
+  HttpRequestParseResult res = {0};
 
   if (slice_is_empty(status_line)) {
-    req.err = HS_ERR_INVALID_HTTP_REQUEST;
-    return req;
+    res.err = HS_ERR_INVALID_HTTP_REQUEST;
+    return res;
   }
 
   SplitIterator it = string_split(status_line, ' ');
@@ -2258,56 +2259,56 @@ request_parse_status_line(String status_line, Arena *arena) {
   {
     SplitResult method = string_split_next(&it);
     if (!method.ok) {
-      req.err = HS_ERR_INVALID_HTTP_REQUEST;
-      return req;
+      res.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return res;
     }
 
     if (string_eq(method.s, S("GET"))) {
-      req.method = HM_GET;
+      res.res.method = HM_GET;
     } else if (string_eq(method.s, S("POST"))) {
-      req.method = HM_POST;
+      res.res.method = HM_POST;
     } else {
       // FIXME: More.
-      req.err = HS_ERR_INVALID_HTTP_REQUEST;
-      return req;
+      res.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return res;
     }
   }
 
   {
     SplitResult path = string_split_next(&it);
     if (!path.ok) {
-      req.err = HS_ERR_INVALID_HTTP_REQUEST;
-      return req;
+      res.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return res;
     }
 
     if (slice_is_empty(path.s)) {
-      req.err = HS_ERR_INVALID_HTTP_REQUEST;
-      return req;
+      res.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return res;
     }
 
     if (path.s.data[0] != '/') {
-      req.err = HS_ERR_INVALID_HTTP_REQUEST;
-      return req;
+      res.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return res;
     }
 
-    req.path_raw = path.s;
-    req.path_components = http_parse_relative_path(path.s, true, arena);
+    res.res.path_raw = path.s;
+    res.res.path_components = http_parse_relative_path(path.s, true, arena);
   }
 
   {
     SplitResult http_version = string_split_next(&it);
     if (!http_version.ok) {
-      req.err = HS_ERR_INVALID_HTTP_REQUEST;
-      return req;
+      res.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return res;
     }
 
     if (!string_eq(http_version.s, S("HTTP/1.1"))) {
-      req.err = HS_ERR_INVALID_HTTP_REQUEST;
-      return req;
+      res.err = HS_ERR_INVALID_HTTP_REQUEST;
+      return res;
     }
   }
 
-  return req;
+  return res;
 }
 
 [[maybe_unused]]
@@ -2504,6 +2505,7 @@ RESULT(Url) ParseUrlResult;
   return res;
 }
 
+#if 0
 static const u64 HTTP_REQUEST_LINES_MAX_COUNT = 512;
 [[nodiscard]] static Error
 http_read_headers(BufferedReader *reader, DynKeyValue *headers, Arena *arena) {
@@ -2553,10 +2555,10 @@ request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
   }
   return (ParseNumberResult){0};
 }
+#endif
 
 [[maybe_unused]] [[nodiscard]] static Error
-http_request_parse_next(HttpRequestParseResult *parse, RingBuffer *rg,
-                        Arena *arena) {
+http_request_parse_next(HttpRequestParse *parse, RingBuffer *rg, Arena *arena) {
   String nr = S("\r\n");
 
   switch (parse->state) {
@@ -2587,6 +2589,7 @@ http_request_parse_next(HttpRequestParseResult *parse, RingBuffer *rg,
   ASSERT(0);
 }
 
+#if 0
 [[maybe_unused]] [[nodiscard]] static HttpRequest
 request_read(BufferedReader *reader, Arena *arena) {
   const IoResult status_line =
@@ -2595,7 +2598,7 @@ request_read(BufferedReader *reader, Arena *arena) {
     return (HttpRequest){.err = status_line.err};
   }
 
-  HttpRequest req = request_parse_status_line(status_line.res, arena);
+  HttpRequest req = http_parse_status_line(status_line.res, arena);
   if (req.err) {
     return req;
   }
@@ -2721,6 +2724,7 @@ end:
   (void)net_socket_close(sock.socket);
   return res;
 }
+#endif
 
 typedef struct {
   String key, value;
