@@ -429,6 +429,12 @@ arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
   return memset(res, 0, count * size);
 }
 
+[[maybe_unused]] static void arena_shrink_by(Arena *a, u64 diff) {
+  ASSERT(a->start < a->end);
+  ASSERT(a->start + diff <= a->end);
+  a->start -= diff;
+}
+
 #define arena_new(a, t, n) (t *)arena_alloc(a, sizeof(t), _Alignof(t), n)
 
 [[maybe_unused]] [[nodiscard]] static String string_make(u64 len,
@@ -1918,10 +1924,11 @@ ring_buffer_read_until_excl(RingBuffer *rg, String needle, Arena *arena) {
     return res;
   }
 
-  res = slice_range(dst, 0, (u64)idx);
-
   String put_back = slice_range(dst, (u64)idx + needle.len, 0);
   ring_buffer_rewind_write_idx(rg, put_back.len);
+
+  res = slice_range(dst, 0, (u64)idx);
+  arena_shrink_by(arena, put_back.len + needle.len);
 
   return res;
 }

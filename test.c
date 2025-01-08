@@ -552,6 +552,10 @@ static void test_ring_buffer_read_until_excl() {
     String s = ring_buffer_read_until_excl(&rg, S(" "), &arena);
     ASSERT(string_eq(s, S("The")));
   }
+  {
+    String s = ring_buffer_read_until_excl(&rg, S(" "), &arena);
+    ASSERT(string_eq(s, S("quick")));
+  }
 }
 
 static void test_ring_buffer_read_write_fuzz() {
