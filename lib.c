@@ -2203,12 +2203,14 @@ typedef struct {
   u64 len, cap;
 } DynKeyValue;
 
+#if 0
 typedef enum {
   HTTP_PARSE_STATE_NONE,
   HTTP_PARSE_STATE_PARSED_STATUS_LINE,
   HTTP_PARSE_STATE_PARSED_ALL_HEADERS,
   HTTP_PARSE_STATE_DONE,
 } HttpParseState;
+#endif
 
 typedef struct {
   String id;
@@ -2221,10 +2223,12 @@ typedef struct {
 
 RESULT(HttpRequest) HttpRequestParseResult;
 
+#if 0
 typedef struct {
   HttpRequest req;
   HttpParseState state;
 } HttpRequestParse;
+#endif
 
 typedef struct {
   u16 status;
@@ -2701,6 +2705,7 @@ request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
 }
 #endif
 
+#if 0
 [[maybe_unused]] [[nodiscard]] static Error
 http_request_parse_next(HttpRequestParse *parse, RingBuffer *rg, Arena *arena) {
   String nr = S("\r\n");
@@ -2732,6 +2737,7 @@ http_request_parse_next(HttpRequestParse *parse, RingBuffer *rg, Arena *arena) {
 
   ASSERT(0);
 }
+#endif
 
 #if 0
 [[maybe_unused]] [[nodiscard]] static HttpRequest
