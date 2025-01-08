@@ -714,7 +714,6 @@ static void test_buffered_reader_read_until_end() {
 }
 #endif
 
-#if 0
 static void test_url_parse() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
 
@@ -772,6 +771,7 @@ static void test_url_parse() {
     ASSERT(0 == res.res.path_components.len);
     ASSERT(80 == res.res.port);
   }
+#if 0
   {
     ParseUrlResult res = url_parse(S("http://a.b.c:80/foo"), &arena);
     ASSERT(0 == res.err);
@@ -814,8 +814,8 @@ static void test_url_parse() {
     String path_component2 = slice_at(res.res.path_components, 2);
     ASSERT(string_eq(S("baz"), path_component2));
   }
-}
 #endif
+}
 
 #if 0
 static void test_read_http_request_without_body() {
@@ -985,7 +985,7 @@ end:
   ASSERT(0 == net_socket_close(socket_bob_alice));
 }
 
-static void test_http_parse_relative_path() {
+static void test_url_parse_relative_path() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
 
   // Empty.
@@ -1058,12 +1058,12 @@ int main() {
   test_buffered_reader_read_until_end();
   test_buffered_reader_read_until_slice();
   test_read_http_request_without_body();
-  test_url_parse();
 #endif
   test_ring_buffer_write_slice();
   test_ring_buffer_read_write_slice();
   test_ring_buffer_read_until_excl();
   test_ring_buffer_read_write_fuzz();
   test_net_socket();
-  test_http_parse_relative_path();
+  test_url_parse_relative_path();
+  test_url_parse();
 }

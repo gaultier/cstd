@@ -115,9 +115,12 @@ typedef u32 Error;
          ('a' <= c && c <= 'f');
 }
 
+[[maybe_unused]] [[nodiscard]] static bool ch_is_alpha(u8 c) {
+  return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
+}
+
 [[maybe_unused]] [[nodiscard]] static bool ch_is_alphanumeric(u8 c) {
-  return ('0' <= c && c <= '9') || ('A' <= c && c <= 'Z') ||
-         ('a' <= c && c <= 'z');
+  return ('0' <= c && c <= '9') || ch_is_alpha(c);
 }
 
 [[maybe_unused]] [[nodiscard]] static u8 ch_from_hex(u8 c) {
@@ -2413,6 +2416,26 @@ typedef struct {
 } Url;
 
 RESULT(Url) ParseUrlResult;
+
+[[maybe_unused]] [[nodiscard]] static bool url_is_scheme_valid(String scheme) {
+  if (slice_is_empty(scheme)) {
+    return false;
+  }
+
+  u8 first = slice_at(scheme, 0);
+  if (!ch_is_alpha(first)) {
+    return false;
+  }
+
+  for (u64 i = 0; i < scheme.len; i++) {
+    u8 c = slice_at(scheme, i);
+    if (!(ch_is_alphanumeric(c) || c == '+' || c == '-' || c == '.')) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 [[maybe_unused]] [[nodiscard]] static ParseUrlResult url_parse(String s,
                                                                Arena *arena) {
