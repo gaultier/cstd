@@ -1889,6 +1889,11 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
 typedef struct {
   void *ctx;
   ReadFn read_fn;
+} Reader;
+
+typedef struct {
+  void *ctx;
+  ReadFn read_fn;
 
   RingBuffer rg;
 } BufferedReader;
@@ -1944,9 +1949,7 @@ buffered_reader_read(BufferedReader *br, u64 count, Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static IoResult
-buffered_reader_read_exactly(BufferedReader *r, u64 count, Arena *arena) {
-  ASSERT(count + 1 <= r->rg.data.len);
-
+reader_read_exactly(Reader *r, u64 count, Arena *arena) {
   IoResult res = {0};
   DynU8 sb = {0};
   dyn_ensure_cap(&sb, count, arena);
@@ -2536,7 +2539,7 @@ request_read(BufferedReader *reader, Arena *arena) {
 
   if (content_length.present) {
     IoResult res_io =
-        buffered_reader_read_exactly(reader, content_length.n, arena);
+        reader_read_exactly((Reader *)reader, content_length.n, arena);
     if (res_io.err) {
       req.err = res_io.err;
       return req;
@@ -2631,7 +2634,7 @@ http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
 
   if (content_length.present) {
     IoResult res_io =
-        buffered_reader_read_exactly(&reader, content_length.n, arena);
+        reader_read_exactly((Reader *)&reader, content_length.n, arena);
     if (res_io.err) {
       res.err = res_io.err;
       return res;

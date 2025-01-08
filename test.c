@@ -852,35 +852,55 @@ static void test_net_socket() {
 
   ASSERT(0 == net_aio_queue_ctl(queue, events));
 
+  Socket socket_bob_alice = 0;
+  Reader reader_bob_alice = {0};
+  reader_bob_alice.read_fn = unix_read;
+
+  bool bob_received_alice_message = false;
+
   for (;;) {
     ASSERT(0 == net_aio_queue_wait(queue, events, -1, arena));
-    AioEvent *event = slice_at_ptr(&events, 0);
-    ASSERT(AIO_EVENT_KIND_IN == event->kind);
-    ASSERT(event->socket == event_bob_listen->socket);
 
-    Ipv4AddressAcceptResult res_accept = net_tcp_accept(socket_bob);
-    ASSERT(0 == res_accept.err);
+    for (u64 i = 0; i < events.len; i++) {
+      AioEvent event = slice_at(events, i);
+      if (event.socket == event_bob_listen->socket) {
+        Ipv4AddressAcceptResult res_accept = net_tcp_accept(socket_bob);
+        ASSERT(0 == res_accept.err);
 
-    events.len = 3;
-    event_bob_listen->action = AIO_EVENT_ACTION_KIND_DEL; // Stop listening.
+        events.len = 3;
+        event_bob_listen->action = AIO_EVENT_ACTION_KIND_DEL; // Stop listening.
 
-    AioEvent *event_alice = slice_at_ptr(&events, 1);
-    event_alice->socket = socket_alice;
-    event_alice->kind = AIO_EVENT_KIND_OUT;
-    event_alice->action = AIO_EVENT_ACTION_KIND_ADD;
+        AioEvent *event_alice = slice_at_ptr(&events, 1);
+        event_alice->socket = socket_alice;
+        event_alice->kind = AIO_EVENT_KIND_OUT;
+        event_alice->action = AIO_EVENT_ACTION_KIND_ADD;
 
-    AioEvent *event_bob_alice = slice_at_ptr(&events, 2);
-    event_bob_alice->socket = res_accept.socket;
-    event_bob_alice->kind = AIO_EVENT_KIND_IN;
-    event_bob_alice->action = AIO_EVENT_ACTION_KIND_ADD;
+        socket_bob_alice = res_accept.socket;
+        reader_bob_alice.ctx = (void *)(u64)socket_bob_alice;
 
-    ASSERT(0 == net_aio_queue_ctl(queue, events));
+        AioEvent *event_bob_alice = slice_at_ptr(&events, 2);
+        event_bob_alice->socket = res_accept.socket;
+        event_bob_alice->kind = AIO_EVENT_KIND_IN;
+        event_bob_alice->action = AIO_EVENT_ACTION_KIND_ADD;
 
-    break; // TODO: more.
+        ASSERT(0 == net_aio_queue_ctl(queue, events));
+      } else if (event.socket == socket_alice) {
+        ASSERT(AIO_EVENT_KIND_OUT == event.kind);
+        ASSERT(0 == writer_write_all_sync(&writer_alice, S("hello")));
+      } else if (event.socket == socket_bob_alice) {
+        ASSERT(AIO_EVENT_KIND_IN == event.kind);
+
+        IoResult res_io = reader_read_exactly(&reader_bob_alice, 5, &arena);
+        ASSERT(0 == res_io.err);
+        ASSERT(string_eq(res_io.res, S("hello")));
+        bob_received_alice_message = true;
+        goto end; // End of test.
+      }
+    }
   }
 
-  ASSERT(0 == writer_write_all_sync(&writer_alice, S("hello")));
-
+end:
+  ASSERT(bob_received_alice_message);
   ASSERT(0 == net_socket_close(socket_alice));
   ASSERT(0 == net_socket_close(socket_bob));
 }
