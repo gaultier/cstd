@@ -2528,8 +2528,14 @@ url_parse_authority(String s, Arena *arena) {
       }
       res.res.port = res_port.res;
     } else {
-      res.res.host = remaining;
-      remaining = (String){0};
+      i64 sep_path_idx = string_indexof_byte(remaining, '/');
+      if (-1 != sep_path_idx) {
+        res.res.host = slice_range(remaining, 0, (u64)sep_path_idx);
+        remaining = slice_range_start(remaining, (u64)sep_path_idx);
+      } else {
+        res.res.host = remaining;
+        remaining = (String){0};
+      }
     }
   }
   if (slice_is_empty(res.res.host)) {
