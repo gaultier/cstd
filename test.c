@@ -983,13 +983,25 @@ end:
   ASSERT(0 == net_socket_close(socket_bob_alice));
 }
 
-static void test_http_parse_status_line() {
+static void test_http_parse_relative_path() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
 
   // Empty.
   {
-    HttpRequestParseResult res = http_parse_status_line(S(""), &arena);
+    StringSliceResult res = http_parse_relative_path(S(""), true, &arena);
     ASSERT(res.err);
+  }
+  // Must start with slash and it does not.
+  {
+    StringSliceResult res = http_parse_relative_path(S("foo"), true, &arena);
+    ASSERT(res.err);
+  }
+  // Must start with slash and it does.
+  {
+    StringSliceResult res = http_parse_relative_path(S("/foo"), true, &arena);
+    ASSERT(0 == res.err);
+    ASSERT(1 == res.res.len);
+    ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
   }
 }
 
@@ -1024,5 +1036,5 @@ int main() {
   test_ring_buffer_read_until_excl();
   test_ring_buffer_read_write_fuzz();
   test_net_socket();
-  test_http_parse_status_line();
+  test_http_parse_relative_path();
 }

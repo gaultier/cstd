@@ -2216,13 +2216,17 @@ typedef struct {
   String body;
 } HttpResponse;
 
-[[maybe_unused]] [[nodiscard]] static DynString
+RESULT(StringSlice) StringSliceResult;
+
+[[maybe_unused]] [[nodiscard]] static StringSliceResult
 http_parse_relative_path(String s, bool must_start_with_slash, Arena *arena) {
-  if (must_start_with_slash) {
-    ASSERT(string_starts_with(s, S("/")));
+  StringSliceResult res = {0};
+  if (must_start_with_slash && !string_starts_with(s, S("/"))) {
+    res.err = EINVAL;
+    return res;
   }
 
-  DynString res = {0};
+  DynString components = {0};
 
   SplitIterator split_it_question = string_split(s, '?');
   String work = string_split_next(&split_it_question).s;
@@ -2238,12 +2242,14 @@ http_parse_relative_path(String s, bool must_start_with_slash, Arena *arena) {
       continue;
     }
 
-    *dyn_push(&res, arena) = split.s;
+    *dyn_push(&components, arena) = split.s;
   }
 
+  res.res = dyn_slice(StringSlice, components);
   return res;
 }
 
+#if 0
 [[maybe_unused]] [[nodiscard]] static HttpRequestParseResult
 http_parse_status_line(String status_line, Arena *arena) {
   HttpRequestParseResult res = {0};
@@ -2308,6 +2314,7 @@ http_parse_status_line(String status_line, Arena *arena) {
 
   return res;
 }
+#endif
 
 [[maybe_unused]]
 static void http_push_header(DynKeyValue *headers, String key, String value,
@@ -2392,7 +2399,7 @@ typedef struct {
   String scheme;
   String username, password;
   String host; // Including subdomains.
-  DynString path_components;
+  StringSlice path_components;
   // TODO: DynKeyValue url_parameters;
   u16 port;
   // TODO: fragment.
@@ -2493,8 +2500,14 @@ RESULT(Url) ParseUrlResult;
       }
 
       String path_raw = slice_range(remaining, (u64)any_sep_idx + 1, 0);
-      res.res.path_components =
+      StringSliceResult res_string_slice =
           http_parse_relative_path(path_raw, false, arena);
+      if (res_string_slice.err) {
+        res.err = res_string_slice.err;
+        return res;
+      }
+      res.res.path_components = res_string_slice.res;
+
     } else {
       ASSERT(0);
     }
