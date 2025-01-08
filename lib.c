@@ -242,11 +242,11 @@ string_split_next(SplitIterator *it) {
     }
 
     if (idx == 0) { // Multiple contiguous separators.
-      it->s = slice_range(it->s, (u64)idx + 1, 0);
+      it->s = slice_range_start(it->s, (u64)idx + 1);
       continue;
     } else {
       SplitResult res = {.s = slice_range(it->s, 0, (u64)idx), .ok = true};
-      it->s = slice_range(it->s, (u64)idx + 1, 0);
+      it->s = slice_range_start(it->s, (u64)idx + 1);
 
       return res;
     }
