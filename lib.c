@@ -2192,7 +2192,6 @@ typedef enum {
 
 typedef struct {
   String id;
-  String path_raw;
   DynString path_components;
   DynKeyValue url_parameters;
   HttpMethod method;
@@ -2291,7 +2290,6 @@ http_parse_status_line(String status_line, Arena *arena) {
       return res;
     }
 
-    res.res.path_raw = path.s;
     res.res.path_components = http_parse_relative_path(path.s, true, arena);
   }
 
