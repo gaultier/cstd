@@ -1393,6 +1393,38 @@ net_socket_enable_reuse(Socket sock);
 [[maybe_unused]] [[nodiscard]] static Error
 net_socket_set_blocking(Socket sock, bool blocking);
 
+typedef u64 AioQueue;
+RESULT(AioQueue) AioQueueCreateResult;
+[[maybe_unused]] [[nodiscard]] static AioQueueCreateResult
+net_aio_queue_create();
+
+typedef enum {
+  AIO_EVENT_KIND_IN,
+  AIO_EVENT_KIND_OUT,
+  AIO_EVENT_KIND_ERR,
+} AioEventKind;
+
+typedef enum {
+  AIO_EVENT_ACTION_KIND_ADD,
+  AIO_EVENT_ACTION_KIND_MOD,
+  AIO_EVENT_ACTION_KIND_DEL,
+} AioEventActionKind;
+
+typedef struct {
+  Socket socket;
+  AioEventKind kind;
+  AioEventActionKind action;
+  u64 user_data;
+} AioEvent;
+
+SLICE(AioEvent);
+
+[[maybe_unused]] [[nodiscard]] static Error
+net_aio_queue_ctl(AioQueue queue, AioEventSlice events);
+
+[[maybe_unused]] [[nodiscard]] static Error
+net_aio_queue_wait(AioQueue queue, AioEventSlice events);
+
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -1541,6 +1573,66 @@ net_socket_enable_reuse(Socket sock) {
 #else
 #error "TODO"
 #endif
+
+#if defined(__linux__)
+#include <sys/epoll.h>
+
+[[maybe_unused]] [[nodiscard]] static AioQueueCreateResult
+net_aio_queue_create() {
+  AioQueueCreateResult res = {0};
+  int queue = epoll_create(1 /* Ignored */);
+  if (-1 == queue) {
+    res.err = (Error)errno;
+  }
+  res.res = (AioQueue)queue;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Error
+net_aio_queue_ctl(AioQueue queue, AioEventSlice events) {
+  for (u64 i = 0; i < events.len; i++) {
+    AioEvent event = slice_at(events, i);
+
+    int op = 0;
+    switch (event.action) {
+    case AIO_EVENT_ACTION_KIND_ADD:
+      op = EPOLL_CTL_ADD;
+      break;
+    case AIO_EVENT_ACTION_KIND_MOD:
+      op = EPOLL_CTL_MOD;
+      break;
+    case AIO_EVENT_ACTION_KIND_DEL:
+      op = EPOLL_CTL_DEL;
+      break;
+    default:
+      ASSERT(0);
+    }
+
+    struct epoll_event epoll_event = {0};
+    switch (event.kind) {
+    case AIO_EVENT_KIND_IN:
+      epoll_event.events |= EPOLLIN;
+      break;
+    case AIO_EVENT_KIND_OUT:
+      epoll_event.events |= EPOLLOUT;
+      break;
+    case AIO_EVENT_KIND_ERR:
+    default:
+      ASSERT(0);
+    }
+    epoll_event.data.u64 = event.user_data;
+
+    int res_epoll = epoll_ctl((int)queue, op, event.socket, &epoll_event);
+    if (-1 == res_epoll) {
+      return (Error)errno;
+    }
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static Error
+net_aio_queue_wait(AioQueue queue, AioEventSlice events);
 
 RESULT(u64) IoCountResult;
 RESULT(String) IoResult;
