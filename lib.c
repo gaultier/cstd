@@ -146,6 +146,8 @@ typedef struct {
   u64 len;
 } String;
 
+RESULT(String) StringResult;
+
 #define slice_is_empty(s)                                                      \
   (((s).len == 0) ? true : (ASSERT(nullptr != (s).data), false))
 
@@ -2221,44 +2223,6 @@ typedef struct {
 
 RESULT(StringSlice) StringSliceResult;
 
-[[maybe_unused]] [[nodiscard]] static StringSliceResult
-url_parse_path_components(String s, Arena *arena) {
-  StringSliceResult res = {0};
-
-  if (-1 != string_indexof_any_byte(s, S("?#:"))) {
-    res.err = EINVAL;
-    return res;
-  }
-
-  if (slice_is_empty(s)) {
-    return res;
-  }
-
-  if (!string_starts_with(s, S("/"))) {
-    res.err = EINVAL;
-    return res;
-  }
-
-  DynString components = {0};
-
-  SplitIterator split_it_slash = string_split(s, '/');
-  for (u64 i = 0; i < s.len; i++) { // Bound.
-    SplitResult split = string_split_next(&split_it_slash);
-    if (!split.ok) {
-      break;
-    }
-
-    if (slice_is_empty(split.s)) {
-      continue;
-    }
-
-    *dyn_push(&components, arena) = split.s;
-  }
-
-  res.res = dyn_slice(StringSlice, components);
-  return res;
-}
-
 #if 0
 [[maybe_unused]] [[nodiscard]] static HttpRequestParseResult
 http_parse_status_line(String status_line, Arena *arena) {
@@ -2406,6 +2370,20 @@ http_request_serialize(HttpRequest req, Arena *arena) {
 }
 
 typedef struct {
+  String username, password;
+} UrlUserInfo;
+
+RESULT(UrlUserInfo) UrlUserInfoResult;
+
+typedef struct {
+  UrlUserInfo user_info;
+  String host;
+  u16 port;
+} UrlAuthority;
+
+RESULT(UrlAuthority) UrlAuthorityResult;
+
+typedef struct {
   String scheme;
   String username, password;
   String host; // Including subdomains.
@@ -2416,6 +2394,127 @@ typedef struct {
 } Url;
 
 RESULT(Url) ParseUrlResult;
+
+[[maybe_unused]] [[nodiscard]] static StringSliceResult
+url_parse_path_components(String s, Arena *arena) {
+  StringSliceResult res = {0};
+
+  if (-1 != string_indexof_any_byte(s, S("?#:"))) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  if (slice_is_empty(s)) {
+    return res;
+  }
+
+  if (!string_starts_with(s, S("/"))) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  DynString components = {0};
+
+  SplitIterator split_it_slash = string_split(s, '/');
+  for (u64 i = 0; i < s.len; i++) { // Bound.
+    SplitResult split = string_split_next(&split_it_slash);
+    if (!split.ok) {
+      break;
+    }
+
+    if (slice_is_empty(split.s)) {
+      continue;
+    }
+
+    *dyn_push(&components, arena) = split.s;
+  }
+
+  res.res = dyn_slice(StringSlice, components);
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static UrlUserInfoResult
+url_parse_user_info(String s) {
+  UrlUserInfoResult res = {0};
+  // https://www.rfc-editor.org/rfc/rfc3986#section-3.2.1:
+  // Use of the format "user:password" in the userinfo field is
+  // deprecated.  Applications should not render as clear text any data
+  // after the first colon (":") character found within a userinfo
+  // subcomponent unless the data after the colon is the empty string
+  // (indicating no password).  Applications may choose to ignore or
+  // reject such data when it is received.
+
+  if (slice_is_empty(s)) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  return res;
+}
+
+RESULT(u16) PortResult;
+
+[[maybe_unused]] [[nodiscard]] static PortResult url_parse_port(String s) {
+  PortResult res = {0};
+
+  ParseNumberResult port_parse = string_parse_u64(s);
+  if (!port_parse.present) { // Empty/invalid port.
+    res.err = EINVAL;
+    return res;
+  }
+  if (port_parse.n > UINT16_MAX) { // Port too big.
+    res.err = EINVAL;
+    return res;
+  }
+  if (0 == port_parse.n) { // Zero port e.g. `http://abc:0`.
+    res.err = EINVAL;
+    return res;
+  }
+  res.res = (u16)port_parse.n;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static UrlAuthorityResult
+url_parse_authority(String s) {
+  UrlAuthorityResult res = {0};
+
+  String remaining = s;
+  // User info.
+  {
+    i64 sep_idx = string_indexof_byte(remaining, '@');
+    if (-1 != sep_idx) {
+      String user_info = slice_range(remaining, 0, (u64)sep_idx);
+      UrlUserInfoResult res_user_info = url_parse_user_info(user_info);
+      if (res_user_info.err) {
+        res.err = res_user_info.err;
+        return res;
+      }
+
+      remaining = slice_range(remaining, (u64)sep_idx + 1, 0);
+    }
+  }
+
+  // Host.
+  {
+    i64 sep_idx = string_indexof_byte(remaining, ':');
+    if (-1 != sep_idx) {
+      res.res.host = slice_range(remaining, 0, (u64)sep_idx);
+      remaining = slice_range(remaining, (u64)sep_idx + 1, 0);
+
+      PortResult res_port = url_parse_port(remaining);
+      if (res_port.err) {
+        res.err = res_port.err;
+        return res;
+      }
+      res.res.port = res_port.res;
+    } else {
+      res.res.host = remaining;
+      remaining = (String){0};
+    }
+  }
+
+  return res;
+}
 
 [[maybe_unused]] [[nodiscard]] static bool url_is_scheme_valid(String scheme) {
   if (slice_is_empty(scheme)) {
@@ -2443,72 +2542,41 @@ RESULT(Url) ParseUrlResult;
 
   String remaining = s;
 
-  // Scheme, mandatory.
-  {
-    String scheme_sep = S("://");
-    i64 scheme_sep_idx = string_indexof_string(remaining, scheme_sep);
-    if (scheme_sep_idx <= 1) { // Absent/empty scheme.
-      res.err = EINVAL;
-      return res;
-    }
-    res.res.scheme = slice_range(remaining, 0, (u64)scheme_sep_idx);
-    if (!url_is_scheme_valid(res.res.scheme)) {
-      res.err = EINVAL;
-      return res;
-    }
+  i64 scheme_sep_idx = string_indexof_byte(remaining, ':');
+  if (-1 == scheme_sep_idx) {
+    res.err = EINVAL;
+    return res;
+  }
+  String scheme = slice_range(remaining, 0, (u64)scheme_sep_idx);
+  if (!url_is_scheme_valid(scheme)) {
+    res.err = EINVAL;
+    return res;
+  }
+  res.res.scheme = scheme;
 
-    remaining = slice_range(remaining, (u64)scheme_sep_idx + scheme_sep.len, 0);
+  remaining = slice_range(remaining, (u64)scheme_sep_idx + 1, 0);
+
+  // TODO: Be less strict hier.
+  if (!string_starts_with(remaining, S("//"))) {
+    res.err = EINVAL;
+    return res;
+  }
+  remaining = slice_range(remaining, 2, 0); // Consume `//`.
+
+  i64 authority_sep_idx = string_indexof_any_byte(remaining, S("?#"));
+  String authority = remaining;
+  if (-1 != authority_sep_idx) {
+    authority = slice_range(remaining, 0, (u64)authority_sep_idx);
+    remaining = slice_range(remaining, (u64)authority_sep_idx + 1, 0);
   }
 
-  // Username/password, optional.
-  {
-    i64 user_password_sep_idx = string_indexof_byte(remaining, '@');
-    if (user_password_sep_idx >= 0) {
-      ASSERT(0 && "TODO");
-    }
+  UrlAuthorityResult res_authority = url_parse_authority(authority);
+  if (res_authority.err) {
+    res.err = res_authority.err;
+    return res;
   }
-
-  // Host, mandatory (?).
-  {
-    i64 any_sep_idx = string_indexof_any_byte(remaining, S(":/?#"));
-    if (-1 == any_sep_idx) {
-      res.err = EINVAL;
-      res.res.host = remaining;
-      if (0 == res.res.host.len) {
-        return res;
-      }
-
-      return res;
-    }
-
-    res.res.host = slice_range(remaining, 0, (u64)any_sep_idx);
-    if (0 == res.res.host.len) {
-      res.err = EINVAL;
-      return res;
-    }
-
-    bool is_port_sep = slice_at(remaining, any_sep_idx) == ':';
-    remaining =
-        slice_range(remaining, (u64)any_sep_idx + (is_port_sep ? 1 : 0), 0);
-
-    if (is_port_sep) {
-      ParseNumberResult port_parse = string_parse_u64(remaining);
-      if (!port_parse.present) { // Empty/invalid port.
-        res.err = EINVAL;
-        return res;
-      }
-      if (port_parse.n > UINT16_MAX) { // Port too big.
-        res.err = EINVAL;
-        return res;
-      }
-      if (0 == port_parse.n) { // Zero port e.g. `http://abc:0`.
-        res.err = EINVAL;
-        return res;
-      }
-      res.res.port = (u16)port_parse.n;
-      remaining = port_parse.remaining;
-    }
-  }
+  res.res.host = res_authority.res.host;
+  res.res.port = res_authority.res.port;
 
   // Path, optional.
   // Query parameters, optional.
