@@ -2219,9 +2219,9 @@ typedef struct {
 RESULT(StringSlice) StringSliceResult;
 
 [[maybe_unused]] [[nodiscard]] static StringSliceResult
-http_parse_relative_path(String s, bool must_start_with_slash, Arena *arena) {
+http_parse_relative_path(String s, Arena *arena) {
   StringSliceResult res = {0};
-  if (must_start_with_slash && !string_starts_with(s, S("/"))) {
+  if (!string_starts_with(s, S("/"))) {
     res.err = EINVAL;
     return res;
   }
@@ -2501,7 +2501,7 @@ RESULT(Url) ParseUrlResult;
 
       String path_raw = slice_range(remaining, (u64)any_sep_idx + 1, 0);
       StringSliceResult res_string_slice =
-          http_parse_relative_path(path_raw, false, arena);
+          http_parse_relative_path(path_raw, arena);
       if (res_string_slice.err) {
         res.err = res_string_slice.err;
         return res;

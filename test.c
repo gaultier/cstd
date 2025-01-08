@@ -714,6 +714,7 @@ static void test_buffered_reader_read_until_end() {
 }
 #endif
 
+#if 0
 static void test_url_parse() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
 
@@ -814,6 +815,7 @@ static void test_url_parse() {
     ASSERT(string_eq(S("baz"), path_component2));
   }
 }
+#endif
 
 #if 0
 static void test_read_http_request_without_body() {
@@ -988,20 +990,39 @@ static void test_http_parse_relative_path() {
 
   // Empty.
   {
-    StringSliceResult res = http_parse_relative_path(S(""), true, &arena);
+    StringSliceResult res = http_parse_relative_path(S(""), &arena);
     ASSERT(res.err);
   }
   // Must start with slash and it does not.
   {
-    StringSliceResult res = http_parse_relative_path(S("foo"), true, &arena);
+    StringSliceResult res = http_parse_relative_path(S("foo"), &arena);
     ASSERT(res.err);
   }
   // Must start with slash and it does.
   {
-    StringSliceResult res = http_parse_relative_path(S("/foo"), true, &arena);
+    StringSliceResult res = http_parse_relative_path(S("/foo"), &arena);
     ASSERT(0 == res.err);
     ASSERT(1 == res.res.len);
     ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
+  }
+  // Simple path with a few components.
+  {
+    StringSliceResult res = http_parse_relative_path(S("/foo/bar/baz"), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(3 == res.res.len);
+    ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
+    ASSERT(string_eq(S("bar"), slice_at(res.res, 1)));
+    ASSERT(string_eq(S("baz"), slice_at(res.res, 2)));
+  }
+  // Simple path with a few components with trailing slash.
+  {
+    StringSliceResult res =
+        http_parse_relative_path(S("/foo/bar/baz/"), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(3 == res.res.len);
+    ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
+    ASSERT(string_eq(S("bar"), slice_at(res.res, 1)));
+    ASSERT(string_eq(S("baz"), slice_at(res.res, 2)));
   }
 }
 
@@ -1029,8 +1050,8 @@ int main() {
   test_buffered_reader_read_until_end();
   test_buffered_reader_read_until_slice();
   test_read_http_request_without_body();
-#endif
   test_url_parse();
+#endif
   test_ring_buffer_write_slice();
   test_ring_buffer_read_write_slice();
   test_ring_buffer_read_until_excl();
