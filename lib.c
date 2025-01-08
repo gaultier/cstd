@@ -357,7 +357,7 @@ string_consume(String haystack, u8 needle) {
   }
 
   res.consumed = true;
-  res.remaining = slice_range(haystack, 1UL, 0UL);
+  res.remaining = slice_range_start(haystack, 1UL);
   return res;
 }
 
@@ -369,7 +369,7 @@ string_consume(String haystack, u8 needle) {
   ASSERT(nullptr != haystack.data);
   ASSERT(nullptr != needle.data);
 
-  String end = slice_range(haystack, haystack.len - needle.len, 0);
+  String end = slice_range_start(haystack, haystack.len - needle.len);
 
   return string_eq(needle, end);
 }
@@ -394,7 +394,7 @@ string_parse_u64(String s) {
     u8 c = slice_at(s, i);
 
     if (!ch_is_numeric(c)) { // End of numbers sequence.
-      res.remaining = slice_range(s, i, 0);
+      res.remaining = slice_range_start(s, i);
       return res;
     }
 
@@ -1127,7 +1127,7 @@ json_decode_string_slice(String s, Arena *arena) {
     }
     i += 1;
 
-    String remaining = slice_range(s, i, 0);
+    String remaining = slice_range_start(s, i);
     i64 end_quote_idx = string_indexof_unescaped_byte(remaining, '"');
     if (-1 == end_quote_idx) {
       res.err = HS_ERR_INVALID_JSON;
@@ -2131,7 +2131,7 @@ buffered_reader_read_until_slice(BufferedReader *br, String needle,
     res.res = slice_range(to_search, 0, (u64)idx + needle.len);
 #if 0
     buffered_reader_put_back(br,
-                             slice_range(to_search, (u64)idx + needle.len, 0));
+                             slice_range_start(to_search, (u64)idx + needle.len));
 #endif
 
     return res;
@@ -2148,7 +2148,7 @@ typedef struct {
 [[maybe_unused]] [[nodiscard]] static Error writer_write_all_sync(Writer *w,
                                                                   String s) {
   for (u64 idx = 0; idx < s.len;) {
-    const String to_write = slice_range(s, idx, 0);
+    const String to_write = slice_range_start(s, idx);
     ssize_t written_n = write(w->fd, to_write.data, to_write.len);
     if (-1 == written_n) {
       return (Error)errno;
@@ -2482,7 +2482,7 @@ url_parse_authority(String s, Arena *arena) {
         return res;
       }
 
-      remaining = slice_range(remaining, (u64)sep_idx + 1, 0);
+      remaining = slice_range_start(remaining, (u64)sep_idx + 1);
     }
   }
 
@@ -2491,13 +2491,13 @@ url_parse_authority(String s, Arena *arena) {
     i64 sep_port_idx = string_indexof_byte(remaining, ':');
     if (-1 != sep_port_idx) {
       res.res.host = slice_range(remaining, 0, (u64)sep_port_idx);
-      remaining = slice_range(remaining, (u64)sep_port_idx + 1, 0);
+      remaining = slice_range_start(remaining, (u64)sep_port_idx + 1);
 
       i64 sep_path_idx = string_indexof_byte(remaining, '/');
       String port = remaining;
       if (-1 != sep_path_idx) {
         port = slice_range(remaining, 0, (u64)sep_path_idx);
-        remaining = slice_range(remaining, (u64)sep_path_idx + 1, 0);
+        remaining = slice_range_start(remaining, (u64)sep_path_idx + 1);
       }
 
       PortResult res_port = url_parse_port(port);
@@ -2569,7 +2569,7 @@ url_parse_authority(String s, Arena *arena) {
   }
   res.res.scheme = scheme;
 
-  remaining = slice_range(remaining, (u64)scheme_sep_idx + 1, 0);
+  remaining = slice_range_start(remaining, (u64)scheme_sep_idx + 1);
 
   // TODO: Be less strict hier.
   if (!string_starts_with(remaining, S("//"))) {
@@ -2582,7 +2582,7 @@ url_parse_authority(String s, Arena *arena) {
   String authority = remaining;
   if (-1 != authority_sep_idx) {
     authority = slice_range(remaining, 0, (u64)authority_sep_idx);
-    remaining = slice_range(remaining, (u64)authority_sep_idx + 1, 0);
+    remaining = slice_range_start(remaining, (u64)authority_sep_idx + 1);
   }
 
   UrlAuthorityResult res_authority = url_parse_authority(authority, arena);
@@ -2785,7 +2785,7 @@ http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
     }
 
     String status_str =
-        slice_range(io_result.res, http1_1_version_needle.len, 0);
+        slice_range_start(io_result.res, http1_1_version_needle.len);
     ParseNumberResult status_parsed = string_parse_u64(status_str);
     if (!status_parsed.present) {
       res.err = HS_ERR_INVALID_HTTP_RESPONSE;
@@ -2897,7 +2897,7 @@ form_data_kv_parse_element(String in, u8 ch_terminator, Arena *arena) {
   }
 
   res.data = dyn_slice(String, data);
-  res.remaining = slice_range(in, i, 0);
+  res.remaining = slice_range_start(in, i);
   return res;
 }
 
