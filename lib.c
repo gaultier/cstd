@@ -362,7 +362,7 @@ string_consume_byte(String haystack, u8 needle) {
 }
 
 [[maybe_unused]] [[nodiscard]] static StringConsumeResult
-string_consume(String haystack, String needle) {
+string_consume_slice(String haystack, String needle) {
   StringConsumeResult res = {0};
   res.remaining = haystack;
 
@@ -2606,7 +2606,7 @@ url_parse_authority(String s, Arena *arena) {
   remaining = slice_range_start(remaining, (u64)scheme_sep_idx + 1);
 
   // TODO: Be less strict hier.
-  StringConsumeResult res_consume = string_consume(remaining, S("//"));
+  StringConsumeResult res_consume = string_consume_slice(remaining, S("//"));
   if (!res_consume.consumed) {
     res.err = EINVAL;
     return res;
