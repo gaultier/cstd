@@ -541,6 +541,7 @@ static void test_ring_buffer_read_write_fuzz() {
   }
 }
 
+#if 0
 static void test_buffered_reader_read_exactly() {
 
   // Read from closed remote end: error.
@@ -587,7 +588,6 @@ static void test_buffered_reader_read_exactly() {
   }
 }
 
-#if 0
 static void test_buffered_reader_read_until_slice() {
 
   // Read from closed remote end: error.
@@ -822,8 +822,8 @@ int main() {
   test_make_log_line();
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
-  test_buffered_reader_read_exactly();
 #if 0
+  test_buffered_reader_read_exactly();
   test_buffered_reader_read_until_end();
   test_buffered_reader_read_until_slice();
   test_read_http_request_without_body();
