@@ -993,6 +993,12 @@ static void test_http_parse_relative_path() {
     StringSliceResult res = url_parse_relative_path(S(""), &arena);
     ASSERT(res.err);
   }
+  // Forbidden characters.
+  {
+    ASSERT(url_parse_relative_path(S("/foo?bar"), &arena).err);
+    ASSERT(url_parse_relative_path(S("/foo:1234"), &arena).err);
+    ASSERT(url_parse_relative_path(S("/foo#bar"), &arena).err);
+  }
   // Must start with slash and it does not.
   {
     StringSliceResult res = url_parse_relative_path(S("foo"), &arena);

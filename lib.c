@@ -2220,9 +2220,13 @@ RESULT(StringSlice) StringSliceResult;
 
 [[maybe_unused]] [[nodiscard]] static StringSliceResult
 url_parse_relative_path(String s, Arena *arena) {
-  ASSERT(-1 == string_indexof_any_byte(s, S("?#:")));
-
   StringSliceResult res = {0};
+
+  if (-1 != string_indexof_any_byte(s, S("?#:"))) {
+    res.err = EINVAL;
+    return res;
+  }
+
   if (!string_starts_with(s, S("/"))) {
     res.err = EINVAL;
     return res;
