@@ -2467,9 +2467,8 @@ RESULT(Url) ParseUrlResult;
 }
 
 static const u64 HTTP_REQUEST_LINES_MAX_COUNT = 512;
-[[nodiscard]] static Error reader_read_headers(BufferedReader *reader,
-                                               DynKeyValue *headers,
-                                               Arena *arena) {
+[[nodiscard]] static Error
+http_read_headers(BufferedReader *reader, DynKeyValue *headers, Arena *arena) {
   dyn_ensure_cap(headers, 30, arena);
 
   for (u64 _i = 0; _i < HTTP_REQUEST_LINES_MAX_COUNT; _i++) {
@@ -2530,7 +2529,7 @@ request_read(BufferedReader *reader, Arena *arena) {
     return req;
   }
 
-  req.err = reader_read_headers(reader, &req.headers, arena);
+  req.err = http_read_headers(reader, &req.headers, arena);
   if (req.err) {
     return req;
   }
@@ -2622,7 +2621,7 @@ http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
     res.status = (u16)status_parsed.n;
   }
 
-  res.err = reader_read_headers(&reader, &res.headers, arena);
+  res.err = http_read_headers(&reader, &res.headers, arena);
   if (res.err) {
     log(LOG_LEVEL_ERROR, "http request failed to read headers", arena,
         L("req.method", req.method), L("req.path_raw", req.path_raw),
