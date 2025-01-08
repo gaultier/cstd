@@ -1393,6 +1393,14 @@ net_socket_enable_reuse(Socket sock);
 [[maybe_unused]] [[nodiscard]] static Error
 net_socket_set_blocking(Socket sock, bool blocking);
 
+typedef struct {
+  Ipv4Address addr;
+  Socket socket;
+  Error err;
+} Ipv4AddressAcceptResult;
+[[maybe_unused]] [[nodiscard]] static Ipv4AddressAcceptResult
+net_tcp_accept(Socket sock);
+
 typedef u64 AioQueue;
 RESULT(AioQueue) AioQueueCreateResult;
 [[maybe_unused]] [[nodiscard]] static AioQueueCreateResult
@@ -1423,7 +1431,7 @@ SLICE(AioEvent);
 net_aio_queue_ctl(AioQueue queue, AioEventSlice events);
 
 [[maybe_unused]] [[nodiscard]] static Error
-net_aio_queue_wait(AioQueue queue, AioEventSlice events, u64 timeout_ms,
+net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
                    Arena arena);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
@@ -1571,6 +1579,26 @@ net_socket_enable_reuse(Socket sock) {
   return 0;
 }
 
+[[maybe_unused]] [[nodiscard]] static Ipv4AddressAcceptResult
+net_tcp_accept(Socket sock) {
+  Ipv4AddressAcceptResult res = {0};
+
+  struct sockaddr_in sockaddrin = {0};
+  socklen_t sockaddrin_len = sizeof(sockaddrin);
+  int sock_client =
+      accept(sock, (struct sockaddr *)&sockaddrin, &sockaddrin_len);
+  if (-1 == sock_client) {
+    res.err = (Error)errno;
+    return res;
+  }
+
+  res.socket = (Socket)sock_client;
+  res.addr.port = ntohs(sockaddrin.sin_port);
+  res.addr.ip = ntohl(sockaddrin.sin_addr.s_addr);
+
+  return res;
+}
+
 #else
 #error "TODO"
 #endif
@@ -1633,7 +1661,7 @@ net_aio_queue_ctl(AioQueue queue, AioEventSlice events) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Error
-net_aio_queue_wait(AioQueue queue, AioEventSlice events, u64 timeout_ms,
+net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
                    Arena arena) {
   struct epoll_event *epoll_events =
       arena_new(&arena, struct epoll_event, events.len);

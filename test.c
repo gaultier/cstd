@@ -836,6 +836,40 @@ static void test_net_socket() {
 
   Writer writer_alice = {0};
   writer_alice.fd = socket_alice;
+
+  AioQueueCreateResult res_queue_create = net_aio_queue_create();
+  ASSERT(0 == res_queue_create.err);
+
+  AioQueue queue = res_queue_create.res;
+  AioEventSlice events = {0};
+  events.len = 1;
+  events.data = arena_new(&arena, AioEvent, 3);
+
+  AioEvent *event_bob = slice_at_ptr(&events, 0);
+  event_bob->socket = socket_bob;
+  event_bob->kind = AIO_EVENT_KIND_IN;
+  event_bob->action = AIO_EVENT_ACTION_KIND_ADD;
+
+#if 0
+  AioEvent *event_alice = slice_at_ptr(&events, 1);
+  event_alice->socket = socket_alice;
+  event_alice->kind = AIO_EVENT_KIND_OUT;
+  event_alice->action = AIO_EVENT_ACTION_KIND_ADD;
+#endif
+
+  ASSERT(0 == net_aio_queue_ctl(queue, events));
+
+  for (;;) {
+    ASSERT(0 == net_aio_queue_wait(queue, events, -1, arena));
+    AioEvent *event = slice_at_ptr(&events, 0);
+    ASSERT(AIO_EVENT_KIND_IN == event->kind);
+    ASSERT(event->socket == event_bob->socket);
+
+    Ipv4AddressAcceptResult res_accept = net_tcp_accept(socket_bob);
+    ASSERT(0 == res_accept.err);
+    break; // TODO: more.
+  }
+
   ASSERT(0 == writer_write_all_sync(&writer_alice, S("hello")));
 
   ASSERT(0 == net_socket_close(socket_alice));
