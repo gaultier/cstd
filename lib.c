@@ -7,7 +7,7 @@
 #define _DEFAULT_SOURCE 1
 #include "sha1.c"
 #include <errno.h>
-#include <fcntl.h>
+#include <fcntl.h> // TODO: Windows.
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdckdint.h>
@@ -15,10 +15,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
+#include <sys/mman.h> // TODO: Windows.
+#include <sys/stat.h> // TODO: Windows.
 #include <time.h>
-#include <unistd.h>
+#include <unistd.h> // TODO: Windows.
 
 #ifndef MIN
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
