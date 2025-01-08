@@ -2452,6 +2452,11 @@ RESULT(Url) ParseUrlResult;
       return res;
     }
     res.res.scheme = slice_range(remaining, 0, (u64)scheme_sep_idx);
+    if (!url_is_scheme_valid(res.res.scheme)) {
+      res.err = EINVAL;
+      return res;
+    }
+
     remaining = slice_range(remaining, (u64)scheme_sep_idx + scheme_sep.len, 0);
   }
 

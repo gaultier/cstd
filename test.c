@@ -761,6 +761,12 @@ static void test_url_parse() {
     ParseUrlResult res = url_parse(S("http://abc:999999"), &arena);
     ASSERT(res.err != 0);
   }
+
+  // Invalid scheme.
+  {
+    ParseUrlResult res = url_parse(S("1abc://a:80/"), &arena);
+    ASSERT(res.err != 0);
+  }
   {
     ParseUrlResult res = url_parse(S("http://a:80"), &arena);
     ASSERT(res.err != 0);
