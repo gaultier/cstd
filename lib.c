@@ -2178,16 +2178,20 @@ typedef struct {
   return 0;
 }
 
-typedef enum { HM_UNKNOWN, HM_GET, HM_POST } HttpMethod;
+typedef enum {
+  HTTP_METHOD_UNKNOWN,
+  HTTP_METHOD_GET,
+  HTTP_METHOD_POST
+} HttpMethod;
 
 [[maybe_unused]]
 String static http_method_to_s(HttpMethod m) {
   switch (m) {
-  case HM_UNKNOWN:
+  case HTTP_METHOD_UNKNOWN:
     return S("unknown");
-  case HM_GET:
+  case HTTP_METHOD_GET:
     return S("GET");
-  case HM_POST:
+  case HTTP_METHOD_POST:
     return S("POST");
   default:
     ASSERT(0);
@@ -2319,6 +2323,7 @@ static void http_push_header(DynKeyValue *headers, String key, String value,
 [[maybe_unused]] [[nodiscard]] static String
 http_request_serialize(HttpRequest req, Arena *arena) {
   DynU8 sb = {0};
+  dyn_ensure_cap(&sb, req.body.len + 128, arena);
   dyn_append_slice(&sb, http_method_to_s(req.method), arena);
   dyn_append_slice(&sb, S(" /"), arena);
 

@@ -1090,6 +1090,18 @@ static void test_url_parse_relative_path() {
   }
 }
 
+static void test_http_request_serialize() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+  {
+    HttpRequest req;
+    req.method = HTTP_METHOD_GET;
+    String s = http_request_serialize(req, &arena);
+    String expected = S("GET / HTTP/1.1\r\n"
+                        "\r\n");
+    ASSERT(string_eq(s, expected));
+  }
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_slice();
@@ -1122,4 +1134,5 @@ int main() {
   test_net_socket();
   test_url_parse_relative_path();
   test_url_parse();
+  test_http_request_serialize();
 }
