@@ -1423,7 +1423,7 @@ SLICE(AioEvent);
 net_aio_queue_ctl(AioQueue queue, AioEventSlice events);
 
 [[maybe_unused]] [[nodiscard]] static Error
-net_aio_queue_wait(AioQueue queue, AioEventSlice events);
+net_aio_queue_wait(AioQueue queue, AioEventSlice events, u64 timeout_ms);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #include <arpa/inet.h>
@@ -1632,7 +1632,15 @@ net_aio_queue_ctl(AioQueue queue, AioEventSlice events) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Error
-net_aio_queue_wait(AioQueue queue, AioEventSlice events);
+net_aio_queue_wait(AioQueue queue, AioEventSlice events, u64 timeout_ms) {
+  int res_epoll =
+      epoll_wait((int)queue, &epoll_events, epoll_events.len, timeout_ms);
+  if (-1 == res_epoll) {
+    return (Error)errno;
+  }
+
+  return 0;
+}
 
 RESULT(u64) IoCountResult;
 RESULT(String) IoResult;
