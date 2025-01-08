@@ -1891,6 +1891,41 @@ ring_buffer_contains(RingBuffer rg, String needle, Arena arena) {
   return -1 != string_indexof_string(dst, needle);
 }
 
+[[maybe_unused]] static void ring_buffer_rewind_write_idx(RingBuffer *rg,
+                                                          u64 len) {
+  if (len <= rg->idx_write) {
+    rg->idx_write -= len;
+  } else {
+    rg->idx_write = rg->data.len - (len - rg->idx_write);
+  }
+  ASSERT(rg->idx_write <= rg->data.len - 1);
+}
+
+[[maybe_unused]] [[nodiscard]] static String
+ring_buffer_read_until(RingBuffer *rg, String needle, Arena *arena) {
+  RingBuffer cpy_rg = *rg;
+  Arena cpy_arena = *arena;
+
+  String res = {0};
+
+  String dst = string_make(ring_buffer_read_space(*rg), arena);
+  ASSERT(ring_buffer_read_slice(rg, dst));
+
+  i64 idx = string_indexof_string(dst, needle);
+  if (-1 == idx) {
+    *rg = cpy_rg;
+    *arena = cpy_arena;
+    return res;
+  }
+
+  res = slice_range(dst, 0, (u64)idx + needle.len);
+
+  String put_back = slice_range(dst, (u64)idx + needle.len, 0);
+  ring_buffer_rewind_write_idx(rg, put_back.len);
+
+  return res;
+}
+
 typedef struct {
   void *ctx;
   ReadFn read_fn;
@@ -2157,6 +2192,13 @@ typedef struct {
   u64 len, cap;
 } DynKeyValue;
 
+typedef enum {
+  HTTP_PARSE_STATE_NONE,
+  HTTP_PARSE_STATE_PARSED_STATUS_LINE,
+  HTTP_PARSE_STATE_PARSED_ALL_HEADERS,
+  HTTP_PARSE_STATE_DONE,
+} HttpParseState;
+
 typedef struct {
   String id;
   String path_raw;
@@ -2167,6 +2209,11 @@ typedef struct {
   String body;
   Error err;
 } HttpRequest;
+
+typedef struct {
+  HttpRequest req;
+  HttpParseState state;
+} HttpRequestParseResult;
 
 typedef struct {
   u16 status;
@@ -2514,6 +2561,35 @@ request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
     return string_parse_u64(h.value);
   }
   return (ParseNumberResult){0};
+}
+
+[[maybe_unused]] [[nodiscard]] static Error
+http_request_parse_next(HttpRequestParseResult *parse, RingBuffer *rg,
+                        Arena *arena) {
+
+  switch (parse->state) {
+  case HTTP_PARSE_STATE_NONE: {
+    if (!ring_buffer_contains(*rg, S("\r\n"), *arena)) {
+      return 0;
+    }
+  } break;
+  case HTTP_PARSE_STATE_PARSED_STATUS_LINE: {
+    if (!ring_buffer_contains(*rg, S("\r\n"), *arena)) {
+      return 0;
+    }
+  } break;
+  case HTTP_PARSE_STATE_PARSED_ALL_HEADERS: {
+    if (!ring_buffer_contains(*rg, S("\r\n"), *arena)) {
+      return 0;
+    }
+  } break;
+  case HTTP_PARSE_STATE_DONE:
+    return 0;
+  default:
+    ASSERT(0);
+  }
+
+  ASSERT(0);
 }
 
 [[maybe_unused]] [[nodiscard]] static HttpRequest
