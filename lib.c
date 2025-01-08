@@ -1370,21 +1370,32 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
   return slice_at(bitfield, idx_byte) & (1 << (idx_bit % 8));
 }
 
-RESULT(int) CreateSocketResult;
+typedef int Socket;
+RESULT(Socket) CreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static CreateSocketResult
 net_create_tcp_socket();
-[[maybe_unused]] [[nodiscard]] static Error net_close_socket(int sock_fd);
-[[maybe_unused]] [[nodiscard]] static Error net_set_nodelay(int sock_fd,
+[[maybe_unused]] [[nodiscard]] static Error net_socket_close(Socket sock);
+[[maybe_unused]] [[nodiscard]] static Error net_set_nodelay(Socket sock,
                                                             bool enabled);
 [[maybe_unused]] [[nodiscard]] static Error
-net_connect_ipv4(int sock_fd, Ipv4Address address);
+net_connect_ipv4(Socket sock, Ipv4Address address);
 typedef struct {
   Ipv4Address address;
-  int socket;
+  Socket socket;
 } Ipv4AddressSocket;
 RESULT(Ipv4AddressSocket) DnsResolveIpv4AddressSocketResult;
 [[maybe_unused]] [[nodiscard]] static DnsResolveIpv4AddressSocketResult
 net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena);
+
+[[maybe_unused]] [[nodiscard]] static Error net_tcp_listen(Socket sock);
+
+[[maybe_unused]] [[nodiscard]] static Error net_tcp_bind_ipv4(Socket sock,
+                                                              Ipv4Address addr);
+[[maybe_unused]] [[nodiscard]] static Error
+net_socket_enable_reuse(Socket sock);
+
+[[maybe_unused]] [[nodiscard]] static Error
+net_socket_set_blocking(Socket sock, bool blocking);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #include <arpa/inet.h>
@@ -1395,7 +1406,7 @@ net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena);
 static CreateSocketResult net_create_tcp_socket() {
   CreateSocketResult res = {0};
 
-  int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+  Socket sock_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (-1 == sock_fd) {
     res.err = (Error)errno;
     return res;
@@ -1406,25 +1417,25 @@ static CreateSocketResult net_create_tcp_socket() {
   return res;
 }
 
-static Error net_close_socket(int sock_fd) { return (Error)close(sock_fd); }
+static Error net_socket_close(Socket sock) { return (Error)close(sock); }
 
-static Error net_set_nodelay(int sock_fd, bool enabled) {
+static Error net_set_nodelay(Socket sock, bool enabled) {
   int opt = enabled;
-  if (-1 == setsockopt(sock_fd, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+  if (-1 == setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
     return (Error)errno;
   }
 
   return 0;
 }
 
-static Error net_connect_ipv4(int sock_fd, Ipv4Address address) {
+static Error net_connect_ipv4(Socket sock, Ipv4Address address) {
   struct sockaddr_in addr = {
       .sin_family = AF_INET,
       .sin_port = htons(address.port),
       .sin_addr = {htonl(address.ip)},
   };
 
-  if (-1 == connect(sock_fd, (struct sockaddr *)&addr, sizeof(addr))) {
+  if (-1 == connect(sock, (struct sockaddr *)&addr, sizeof(addr))) {
     return (Error)errno;
   }
 
@@ -1456,10 +1467,10 @@ net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena) {
       continue;
     }
 
+    // TODO: Use net_connect_ipv4?
     if (-1 == connect(res_create_socket.res, rp->ai_addr, rp->ai_addrlen)) {
       // TODO: EINPROGRESS in case of non-blocking.
-      res.err = (Error)errno;
-      (void)net_close_socket(res_create_socket.res);
+      (void)net_socket_close(res_create_socket.res);
       continue;
     }
 
@@ -1479,6 +1490,56 @@ net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena) {
   }
 
   return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Error
+net_socket_set_blocking(Socket sock, bool blocking) {
+  int flags = fcntl(sock, F_GETFL);
+  if (-1 == flags) {
+    return (Error)errno;
+  }
+
+  if (blocking) {
+    flags &= ~O_NONBLOCK;
+  } else {
+    flags |= O_NONBLOCK;
+  }
+  if (-1 == fcntl(sock, F_SETFL, flags)) {
+    return (Error)errno;
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static Error net_tcp_listen(Socket sock) {
+  if (-1 == listen(sock, 1024)) {
+    return (Error)errno;
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static Error
+net_tcp_bind_ipv4(Socket sock, Ipv4Address addr) {
+  struct sockaddr_in addrin = {0};
+  addrin.sin_family = AF_INET;
+  addrin.sin_port = htons(addr.port);
+  addrin.sin_addr.s_addr = htonl(addr.ip);
+
+  if (-1 == bind(sock, (struct sockaddr *)&addrin, sizeof(addrin))) {
+    return (Error)errno;
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static Error
+net_socket_enable_reuse(Socket sock) {
+  int val = 1;
+  if (-1 == setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val))) {
+    return (Error)errno;
+  }
+  return 0;
 }
 
 #else
@@ -2435,7 +2496,7 @@ http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
   }
 
 end:
-  (void)net_close_socket(sock.socket);
+  (void)net_socket_close(sock.socket);
   return res;
 }
 

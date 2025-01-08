@@ -803,6 +803,45 @@ static void test_read_http_request_without_body() {
 }
 #endif
 
+static void test_net_socket() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+  u16 port = 5678;
+  Socket socket_bob = 0;
+  {
+    CreateSocketResult res_create_socket = net_create_tcp_socket();
+    ASSERT(0 == res_create_socket.err);
+    socket_bob = res_create_socket.res;
+
+    ASSERT(0 == net_socket_enable_reuse(socket_bob));
+    ASSERT(0 == net_socket_set_blocking(socket_bob, false));
+
+    Ipv4Address addr = {0};
+    addr.port = port;
+    ASSERT(0 == net_tcp_bind_ipv4(socket_bob, addr));
+    ASSERT(0 == net_tcp_listen(socket_bob));
+  }
+
+  Socket socket_alice = 0;
+  {
+    DnsResolveIpv4AddressSocketResult res_dns =
+        net_dns_resolve_ipv4_tcp(S("localhost"), port, arena);
+    ASSERT(0 == res_dns.err);
+
+    ASSERT(port == res_dns.res.address.port);
+    ASSERT(0 != res_dns.res.socket);
+    socket_alice = res_dns.res.socket;
+  }
+  ASSERT(0 == net_socket_set_blocking(socket_alice, false));
+
+  Writer writer_alice = {0};
+  writer_alice.fd = socket_alice;
+  ASSERT(0 == writer_write_all_sync(&writer_alice, S("hello")));
+
+  ASSERT(0 == net_socket_close(socket_alice));
+  ASSERT(0 == net_socket_close(socket_bob));
+}
+
 int main() {
   test_string_indexof_slice();
   test_string_trim();
@@ -832,4 +871,5 @@ int main() {
   test_ring_buffer_write_slice();
   test_ring_buffer_read_write_slice();
   test_ring_buffer_read_write_fuzz();
+  test_net_socket();
 }
