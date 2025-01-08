@@ -990,30 +990,32 @@ static void test_http_parse_relative_path() {
 
   // Empty.
   {
-    StringSliceResult res = url_parse_relative_path(S(""), &arena);
-    ASSERT(res.err);
+    StringSliceResult res = url_parse_path_components(S(""), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(0 == res.res.len);
   }
   // Forbidden characters.
   {
-    ASSERT(url_parse_relative_path(S("/foo?bar"), &arena).err);
-    ASSERT(url_parse_relative_path(S("/foo:1234"), &arena).err);
-    ASSERT(url_parse_relative_path(S("/foo#bar"), &arena).err);
+    ASSERT(url_parse_path_components(S("/foo?bar"), &arena).err);
+    ASSERT(url_parse_path_components(S("/foo:1234"), &arena).err);
+    ASSERT(url_parse_path_components(S("/foo#bar"), &arena).err);
   }
   // Must start with slash and it does not.
   {
-    StringSliceResult res = url_parse_relative_path(S("foo"), &arena);
+    StringSliceResult res = url_parse_path_components(S("foo"), &arena);
     ASSERT(res.err);
   }
   // Must start with slash and it does.
   {
-    StringSliceResult res = url_parse_relative_path(S("/foo"), &arena);
+    StringSliceResult res = url_parse_path_components(S("/foo"), &arena);
     ASSERT(0 == res.err);
     ASSERT(1 == res.res.len);
     ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
   }
   // Simple path with a few components.
   {
-    StringSliceResult res = url_parse_relative_path(S("/foo/bar/baz"), &arena);
+    StringSliceResult res =
+        url_parse_path_components(S("/foo/bar/baz"), &arena);
     ASSERT(0 == res.err);
     ASSERT(3 == res.res.len);
     ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
@@ -1022,7 +1024,8 @@ static void test_http_parse_relative_path() {
   }
   // Simple path with a few components with trailing slash.
   {
-    StringSliceResult res = url_parse_relative_path(S("/foo/bar/baz/"), &arena);
+    StringSliceResult res =
+        url_parse_path_components(S("/foo/bar/baz/"), &arena);
     ASSERT(0 == res.err);
     ASSERT(3 == res.res.len);
     ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
