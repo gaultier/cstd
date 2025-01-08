@@ -2478,6 +2478,10 @@ RESULT(u16) PortResult;
     res.err = EINVAL;
     return res;
   }
+  if (port_parse.n > UINT16_MAX) {
+    res.err = EINVAL;
+    return res;
+  }
   res.res = (u16)port_parse.n;
   return res;
 }
