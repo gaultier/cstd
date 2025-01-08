@@ -719,57 +719,57 @@ static void test_url_parse() {
 
   {
     ParseUrlResult res = url_parse(S(""), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
   {
     ParseUrlResult res = url_parse(S("x"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
   {
     ParseUrlResult res = url_parse(S("http:"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
   {
     ParseUrlResult res = url_parse(S("http:/"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
   {
     ParseUrlResult res = url_parse(S("http://"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
   {
     ParseUrlResult res = url_parse(S("://"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
   {
     ParseUrlResult res = url_parse(S("http://a:"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
   {
     ParseUrlResult res = url_parse(S("http://a:/"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
   {
     ParseUrlResult res = url_parse(S("http://a:bc"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
   {
     ParseUrlResult res = url_parse(S("http://abc:0"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
   {
     ParseUrlResult res = url_parse(S("http://abc:999999"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
 
   // Invalid scheme.
   {
     ParseUrlResult res = url_parse(S("1abc://a:80/"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
   }
   {
     ParseUrlResult res = url_parse(S("http://a:80"), &arena);
-    ASSERT(res.err != 0);
+    ASSERT(0 != res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
     ASSERT(0 == res.res.password.len);
