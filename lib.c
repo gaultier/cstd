@@ -2379,6 +2379,7 @@ typedef struct {
   UrlUserInfo user_info;
   String host;
   u16 port;
+  StringSlice path_components;
 } UrlAuthority;
 
 RESULT(UrlAuthority) UrlAuthorityResult;
@@ -2458,24 +2459,12 @@ RESULT(u16) PortResult;
   PortResult res = {0};
 
   ParseNumberResult port_parse = string_parse_u64(s);
-  if (!port_parse.present) { // Empty/invalid port.
-    res.err = EINVAL;
-    return res;
-  }
-  if (port_parse.n > UINT16_MAX) { // Port too big.
-    res.err = EINVAL;
-    return res;
-  }
-  if (0 == port_parse.n) { // Zero port e.g. `http://abc:0`.
-    res.err = EINVAL;
-    return res;
-  }
   res.res = (u16)port_parse.n;
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static UrlAuthorityResult
-url_parse_authority(String s) {
+url_parse_authority(String s, Arena *arena) {
   UrlAuthorityResult res = {0};
 
   String remaining = s;
@@ -2512,6 +2501,18 @@ url_parse_authority(String s) {
       remaining = (String){0};
     }
   }
+  if (slice_is_empty(res.res.host)) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  StringSliceResult res_path_components =
+      url_parse_path_components(remaining, arena);
+  if (res_path_components.err) {
+    res.err = res_path_components.err;
+    return res;
+  }
+  res.res.path_components = res_path_components.res;
 
   return res;
 }
@@ -2570,49 +2571,28 @@ url_parse_authority(String s) {
     remaining = slice_range(remaining, (u64)authority_sep_idx + 1, 0);
   }
 
-  UrlAuthorityResult res_authority = url_parse_authority(authority);
+  UrlAuthorityResult res_authority = url_parse_authority(authority, arena);
   if (res_authority.err) {
     res.err = res_authority.err;
     return res;
   }
   res.res.host = res_authority.res.host;
   res.res.port = res_authority.res.port;
+  res.res.username = res_authority.res.user_info.username;
+  res.res.password = res_authority.res.user_info.password;
 
   // Path, optional.
   // Query parameters, optional.
-  // FIXME: Messy code.
-  {
-    i64 any_sep_idx = string_indexof_any_byte(remaining, S("/?#"));
-    if (-1 == any_sep_idx) {
-      res.err = EINVAL;
-      return res;
-    }
+  if (-1 != authority_sep_idx) {
+    bool is_sep_fragment = slice_at(remaining, authority_sep_idx) == '#';
+    bool is_sep_query_params = slice_at(remaining, authority_sep_idx) == '?';
+    ASSERT(is_sep_fragment || is_sep_query_params);
 
-    bool is_sep_path = slice_at(remaining, any_sep_idx) == '/';
-    bool is_sep_fragment = slice_at(remaining, any_sep_idx) == '#';
-    bool is_sep_query_params = slice_at(remaining, any_sep_idx) == '?';
     if (is_sep_query_params) {
       ASSERT(0 && "TODO");
     }
     if (is_sep_fragment) {
       ASSERT(0 && "TODO");
-    } else if (is_sep_path) {
-      if (any_sep_idx != 0) {
-        res.err = EINVAL;
-        return res;
-      }
-
-      String path_raw = slice_range(remaining, (u64)any_sep_idx + 1, 0);
-      StringSliceResult res_string_slice =
-          url_parse_path_components(path_raw, arena);
-      if (res_string_slice.err) {
-        res.err = res_string_slice.err;
-        return res;
-      }
-      res.res.path_components = res_string_slice.res;
-
-    } else {
-      ASSERT(0);
     }
   }
 
