@@ -399,23 +399,25 @@ string_parse_u64(String s) {
   ParseNumberResult res = {0};
   res.remaining = s;
 
-  // Forbid leading zero(es).
-  if (string_starts_with(s, S("0"))) {
+  // Forbid leading zero(es) if there is more than one digit.
+  if (string_starts_with(s, S("0")) && s.len >= 2 &&
+      ch_is_numeric(slice_at(s, 1))) {
     return res;
   }
 
-  for (u64 i = 0; i < s.len; i++) {
+  u64 i = 0;
+  for (; i < s.len; i++) {
     u8 c = slice_at(s, i);
 
     if (!ch_is_numeric(c)) { // End of numbers sequence.
-      res.remaining = slice_range_start(s, i);
-      return res;
+      break;
     }
 
     res.n *= 10;
     res.n += (u8)slice_at(s, i) - '0';
     res.present = true;
   }
+  res.remaining = slice_range_start(s, i);
   return res;
 }
 
