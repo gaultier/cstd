@@ -829,7 +829,6 @@ static void test_url_parse() {
     ASSERT(0 == res.res.path_components.len);
     ASSERT(80 == res.res.port);
   }
-#if 0
   {
     ParseUrlResult res = url_parse(S("http://a.b.c:80/foo"), &arena);
     ASSERT(0 == res.err);
@@ -872,7 +871,6 @@ static void test_url_parse() {
     String path_component2 = slice_at(res.res.path_components, 2);
     ASSERT(string_eq(S("baz"), path_component2));
   }
-#endif
 }
 
 #if 0

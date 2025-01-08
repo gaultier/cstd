@@ -2517,7 +2517,8 @@ url_parse_authority(String s, Arena *arena) {
       String port = remaining;
       if (-1 != sep_path_idx) {
         port = slice_range(remaining, 0, (u64)sep_path_idx);
-        remaining = slice_range_start(remaining, (u64)sep_path_idx + 1);
+        // Intentionally keep the leading slash here.
+        remaining = slice_range_start(remaining, (u64)sep_path_idx);
       }
 
       PortResult res_port = url_parse_port(port);
@@ -2537,8 +2538,6 @@ url_parse_authority(String s, Arena *arena) {
   }
 
   if (string_starts_with(remaining, S("/"))) {
-    remaining = slice_range(remaining, 1UL, 0UL);
-
     StringSliceResult res_path_components =
         url_parse_path_components(remaining, arena);
     if (res_path_components.err) {
@@ -2615,6 +2614,7 @@ url_parse_authority(String s, Arena *arena) {
   res.res.port = res_authority.res.port;
   res.res.username = res_authority.res.user_info.username;
   res.res.password = res_authority.res.user_info.password;
+  res.res.path_components = res_authority.res.path_components;
 
   // Path, optional.
   // Query parameters, optional.
