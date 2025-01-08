@@ -2220,6 +2220,8 @@ RESULT(StringSlice) StringSliceResult;
 
 [[maybe_unused]] [[nodiscard]] static StringSliceResult
 http_parse_relative_path(String s, Arena *arena) {
+  ASSERT(-1 == string_indexof_any_byte(s, S("?#:")));
+
   StringSliceResult res = {0};
   if (!string_starts_with(s, S("/"))) {
     res.err = EINVAL;
@@ -2228,10 +2230,7 @@ http_parse_relative_path(String s, Arena *arena) {
 
   DynString components = {0};
 
-  SplitIterator split_it_question = string_split(s, '?');
-  String work = string_split_next(&split_it_question).s;
-
-  SplitIterator split_it_slash = string_split(work, '/');
+  SplitIterator split_it_slash = string_split(s, '/');
   for (u64 i = 0; i < s.len; i++) { // Bound.
     SplitResult split = string_split_next(&split_it_slash);
     if (!split.ok) {
