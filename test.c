@@ -1476,7 +1476,7 @@ static void test_http_request_response() {
                              &client_header_idx, client_req, arena);
           ASSERT(0 == writer_write(&client_writer, &client_send, arena).err);
         } else {
-          goto end;
+          goto end; // TODO.
         }
       } else if (event.socket == server_client_socket) {
         ASSERT(AIO_EVENT_KIND_IN == event.kind);
