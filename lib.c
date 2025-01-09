@@ -2788,40 +2788,6 @@ http_read_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
 }
 
 #if 0
-static const u64 HTTP_REQUEST_LINES_MAX_COUNT = 512;
-[[nodiscard]] static Error
-http_read_headers(BufferedReader *reader, DynKeyValue *headers, Arena *arena) {
-  dyn_ensure_cap(headers, 30, arena);
-
-  for (u64 _i = 0; _i < HTTP_REQUEST_LINES_MAX_COUNT; _i++) {
-    const IoResult res_io =
-        buffered_reader_read_until_slice(reader, S("\r\n"), arena);
-
-    if (res_io.err) {
-      return res_io.err;
-    }
-
-    if (slice_is_empty(res_io.res)) {
-      break;
-    }
-
-    SplitIterator it = string_split(res_io.res, ':');
-    SplitResult key = string_split_next(&it);
-    if (!key.ok) {
-      return HS_ERR_INVALID_HTTP_REQUEST;
-    }
-
-    String key_trimmed = string_trim(key.s, ' ');
-
-    String value = it.s; // Remainder.
-    String value_trimmed = string_trim(value, ' ');
-
-    KeyValue header = {.key = key_trimmed, .value = value_trimmed};
-    *dyn_push(headers, arena) = header;
-  }
-  return 0;
-}
-
 [[nodiscard]] static ParseNumberResult
 request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
   ASSERT(!req.err);
@@ -2837,81 +2803,6 @@ request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
   }
   return (ParseNumberResult){0};
 }
-#endif
-
-#if 0
-[[maybe_unused]] [[nodiscard]] static Error
-http_request_parse_next(HttpRequestParse *parse, RingBuffer *rg, Arena *arena) {
-  String nr = S("\r\n");
-
-  switch (parse->state) {
-  case HTTP_PARSE_STATE_NONE: {
-    String line = ring_buffer_read_until_excl(rg, nr, arena);
-    if (slice_is_empty(line)) {
-      return 0;
-    }
-  } break;
-  case HTTP_PARSE_STATE_PARSED_STATUS_LINE: {
-    String line = ring_buffer_read_until_excl(rg, nr, arena);
-    if (slice_is_empty(line)) {
-      return 0;
-    }
-  } break;
-  case HTTP_PARSE_STATE_PARSED_ALL_HEADERS: {
-    String line = ring_buffer_read_until_excl(rg, nr, arena);
-    if (slice_is_empty(line)) {
-      return 0;
-    }
-  } break;
-  case HTTP_PARSE_STATE_DONE:
-    return 0;
-  default:
-    ASSERT(0);
-  }
-
-  ASSERT(0);
-}
-#endif
-
-#if 0
-[[maybe_unused]] [[nodiscard]] static HttpRequest
-request_read(BufferedReader *reader, Arena *arena) {
-  const IoResult status_line =
-      buffered_reader_read_until_slice(reader, S("\r\n"), arena);
-  if (status_line.err) {
-    return (HttpRequest){.err = status_line.err};
-  }
-
-  HttpRequest req = http_parse_status_line(status_line.res, arena);
-  if (req.err) {
-    return req;
-  }
-
-  req.err = http_read_headers(reader, &req.headers, arena);
-  if (req.err) {
-    return req;
-  }
-
-  ParseNumberResult content_length =
-      request_parse_content_length_maybe(req, arena);
-  if (!content_length.present) {
-    req.err = HS_ERR_INVALID_HTTP_REQUEST;
-    return req;
-  }
-
-  if (content_length.present) {
-    IoResult res_io =
-        reader_read_exactly((Reader *)reader, content_length.n, arena);
-    if (res_io.err) {
-      req.err = res_io.err;
-      return req;
-    }
-    req.body = res_io.res;
-  }
-
-  return req;
-}
-
 
 [[maybe_unused]] [[nodiscard]] static HttpResponse
 http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
