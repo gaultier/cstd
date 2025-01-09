@@ -1458,12 +1458,14 @@ RESULT(AioQueue) AioQueueCreateResult;
 net_aio_queue_create();
 
 typedef enum {
+  AIO_EVENT_KIND_NONE = 0,
   AIO_EVENT_KIND_IN = 1,
   AIO_EVENT_KIND_OUT = 2,
   AIO_EVENT_KIND_ERR = 4,
 } AioEventKind;
 
 typedef enum {
+  AIO_EVENT_ACTION_KIND_NONE,
   AIO_EVENT_ACTION_KIND_ADD,
   AIO_EVENT_ACTION_KIND_MOD,
   AIO_EVENT_ACTION_KIND_DEL,
@@ -1473,7 +1475,6 @@ typedef struct {
   Socket socket;
   AioEventKind kind;
   AioEventActionKind action;
-  u64 user_data;
 } AioEvent;
 
 SLICE(AioEvent);
@@ -1692,6 +1693,7 @@ net_aio_queue_ctl(AioQueue queue, AioEventSlice events) {
     case AIO_EVENT_ACTION_KIND_DEL:
       op = EPOLL_CTL_DEL;
       break;
+    case AIO_EVENT_ACTION_KIND_NONE:
     default:
       ASSERT(0);
     }
@@ -1721,6 +1723,11 @@ net_aio_queue_ctl(AioQueue queue, AioEventSlice events) {
 net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
                    Arena arena) {
   IoCountResult res = {0};
+  if (slice_is_empty(events)) {
+    return res;
+  }
+
+  memset(events.data, 0, events.len * sizeof(events.data[0]));
 
   struct epoll_event *epoll_events =
       arena_new(&arena, struct epoll_event, events.len);
@@ -1733,7 +1740,7 @@ net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
   }
   res.res = (u64)res_epoll;
 
-  for (u64 i = 0; i < events.len; i++) {
+  for (u64 i = 0; i < res.res; i++) {
     AioEvent *event = slice_at_ptr(&events, i);
     struct epoll_event epoll_event = epoll_events[i];
     if (epoll_event.events & EPOLLIN) {
