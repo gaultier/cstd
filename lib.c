@@ -1627,6 +1627,10 @@ net_socket_enable_reuse(Socket sock) {
   if (-1 == setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val))) {
     return (Error)errno;
   }
+
+  if (-1 == setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val))) {
+    return (Error)errno;
+  }
   return 0;
 }
 
