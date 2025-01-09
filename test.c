@@ -1528,7 +1528,6 @@ static void test_http_request_response() {
 
         ASSERT(0 == net_aio_queue_ctl(queue, events_change));
         events_change.len = 0;
-        listen_socket = 0;
       } else if (event.socket == client_socket) {
         ASSERT(0 == (AIO_EVENT_KIND_ERR & event.kind));
 
