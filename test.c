@@ -1158,6 +1158,7 @@ static void test_http_parse_response_status_line() {
   }
   // Invalid status code.
   {
+    ASSERT(http_parse_response_status_line(S("HTTP/1.1 99 Created")).err);
     ASSERT(http_parse_response_status_line(S("HTTP/1.1 600 Created")).err);
   }
   // Valid, short.

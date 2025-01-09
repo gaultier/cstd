@@ -2349,7 +2349,7 @@ http_parse_response_status_line(String status_line) {
       res.err = EINVAL;
       return res;
     }
-    if (res_status_code.n > 599) {
+    if (res_status_code.n < 100 || res_status_code.n > 599) {
       res.err = EINVAL;
       return res;
     }
