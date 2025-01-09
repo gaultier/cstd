@@ -1216,9 +1216,23 @@ static void test_http_parse_header() {
     ASSERT(string_eq(res.res.value, S("bar : baz")));
   }
 #endif
-  // Valid.
+  // Valid, one space before the value.
   {
     KeyValueResult res = http_parse_header(S("foo: bar"));
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(res.res.key, S("foo")));
+    ASSERT(string_eq(res.res.value, S("bar")));
+  }
+  // Valid, no space before the value.
+  {
+    KeyValueResult res = http_parse_header(S("foo:bar"));
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(res.res.key, S("foo")));
+    ASSERT(string_eq(res.res.value, S("bar")));
+  }
+  // Valid, multiple spaces before the value.
+  {
+    KeyValueResult res = http_parse_header(S("foo:   bar"));
     ASSERT(0 == res.err);
     ASSERT(string_eq(res.res.key, S("foo")));
     ASSERT(string_eq(res.res.value, S("bar")));
