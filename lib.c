@@ -67,6 +67,12 @@ typedef u32 Error;
     T res;                                                                     \
   }
 
+#define OK(T)                                                                  \
+  typedef struct {                                                             \
+    T res;                                                                     \
+    bool ok;                                                                   \
+  } T##Ok
+
 #define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
 
 #define CLAMP(min, n, max) ((n) < (min) ? (min) : (n) > (max) ? (max) : n)
@@ -145,6 +151,7 @@ typedef struct {
 } String;
 
 RESULT(String) StringResult;
+OK(String);
 
 #define slice_is_empty(s)                                                      \
   (((s).len == 0) ? true : (ASSERT(nullptr != (s).data), false))
@@ -1913,9 +1920,9 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
   return true;
 }
 
-[[maybe_unused]] [[nodiscard]] static String
+[[maybe_unused]] [[nodiscard]] static StringOk
 ring_buffer_read_until_excl(RingBuffer *rg, String needle, Arena *arena) {
-  String res = {0};
+  StringOk res = {0};
   i64 idx = -1;
 
   {
@@ -1933,8 +1940,9 @@ ring_buffer_read_until_excl(RingBuffer *rg, String needle, Arena *arena) {
     }
   }
 
-  res = string_make((u64)idx, arena);
-  ASSERT(ring_buffer_read_slice(rg, res));
+  res.ok = true;
+  res.res = string_make((u64)idx, arena);
+  ASSERT(ring_buffer_read_slice(rg, res.res));
 
   // Read and throw away the needle.
   {
@@ -2728,12 +2736,12 @@ http_read_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
   for (u64 _i = 0; _i < 128; _i++) {
     switch (*state) {
     case HTTP_PARSE_STATE_NONE: {
-      String line = ring_buffer_read_until_excl(rg, nr, arena);
-      if (slice_is_empty(line)) {
+      StringOk line = ring_buffer_read_until_excl(rg, nr, arena);
+      if (!line.ok) {
         return 0;
       }
       HttpResponseStatusLineResult res_status_line =
-          http_parse_response_status_line(line);
+          http_parse_response_status_line(line.res);
       if (res_status_line.err) {
         return res_status_line.err;
       }
@@ -2747,16 +2755,16 @@ http_read_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
       break;
     }
     case HTTP_PARSE_STATE_PARSED_STATUS_LINE: {
-      String line = ring_buffer_read_until_excl(rg, nr, arena);
-      if (slice_is_empty(line)) {
+      StringOk line = ring_buffer_read_until_excl(rg, nr, arena);
+      if (!line.ok) {
         return 0;
       }
-      if (slice_is_empty(line)) {
+      if (slice_is_empty(line.res)) {
         *state = HTTP_PARSE_STATE_PARSED_ALL_HEADERS;
         break;
       }
 
-      KeyValueResult res_kv = http_parse_header(line);
+      KeyValueResult res_kv = http_parse_header(line.res);
       if (res_kv.err) {
         return res_kv.err;
       }

@@ -555,8 +555,9 @@ static void test_ring_buffer_read_until_excl() {
   {
     u64 space_read = ring_buffer_read_space(rg);
     u64 space_write = ring_buffer_write_space(rg);
-    String s = ring_buffer_read_until_excl(&rg, S("\r\n"), &arena);
-    ASSERT(slice_is_empty(s));
+    StringOk s = ring_buffer_read_until_excl(&rg, S("\r\n"), &arena);
+    ASSERT(!s.ok);
+    ASSERT(slice_is_empty(s.res));
 
     // Unmodified.
     ASSERT(ring_buffer_read_space(rg) == space_read);
@@ -564,20 +565,24 @@ static void test_ring_buffer_read_until_excl() {
   }
 
   {
-    String s = ring_buffer_read_until_excl(&rg, S(" "), &arena);
-    ASSERT(string_eq(s, S("The")));
+    StringOk s = ring_buffer_read_until_excl(&rg, S(" "), &arena);
+    ASSERT(s.ok);
+    ASSERT(string_eq(s.res, S("The")));
   }
   {
-    String s = ring_buffer_read_until_excl(&rg, S(" "), &arena);
-    ASSERT(string_eq(s, S("quick")));
+    StringOk s = ring_buffer_read_until_excl(&rg, S(" "), &arena);
+    ASSERT(s.ok);
+    ASSERT(string_eq(s.res, S("quick")));
   }
   {
-    String s = ring_buffer_read_until_excl(&rg, S("lazy "), &arena);
-    ASSERT(string_eq(s, S("brown fox jumps over the ")));
+    StringOk s = ring_buffer_read_until_excl(&rg, S("lazy "), &arena);
+    ASSERT(s.ok);
+    ASSERT(string_eq(s.res, S("brown fox jumps over the ")));
   }
   {
-    String s = ring_buffer_read_until_excl(&rg, S("g"), &arena);
-    ASSERT(string_eq(s, S("do")));
+    StringOk s = ring_buffer_read_until_excl(&rg, S("g"), &arena);
+    ASSERT(s.ok);
+    ASSERT(string_eq(s.res, S("do")));
   }
   ASSERT(0 == ring_buffer_read_space(rg));
 }
