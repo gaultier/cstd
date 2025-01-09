@@ -1477,20 +1477,19 @@ static void test_http_request_response() {
 
   Socket server_client_socket = 0;
   Reader server_client_reader = {0};
-  server_client_reader.read_fn = unix_read;
 
   //  Reader client_reader = reader_make_from_socket(client_socket);
   Writer client_writer = writer_make_from_socket(client_socket);
 
   // RingBuffer client_recv = {.data = string_make(32, &arena)};
   RingBuffer client_send = {.data = string_make(32, &arena)};
-  //  RingBuffer server_recv = {.data = string_make(512, &arena)};
+  RingBuffer server_recv = {.data = string_make(512, &arena)};
   // RingBuffer server_send = {.data = string_make(128, &arena)};
 
   // HttpIOState client_recv_http_io_state = 0;
   HttpIOState client_send_http_io_state = 0;
-  //  HttpIOState server_recv_http_io_state = 0;
-  // HttpIOState server_send_http_io_state = 0;
+  HttpIOState server_recv_http_io_state = 0;
+  //  HttpIOState server_send_http_io_state = 0;
 
   u64 client_header_idx = 0;
   //  u64 server_header_idx = 0;
@@ -1505,6 +1504,8 @@ static void test_http_request_response() {
   server_res.version_minor = 1;
   http_push_header(&server_res.headers, S("Accept"), S("application/json"),
                    &arena);
+
+  HttpRequest server_req = {0};
 
   for (;;) {
     ASSERT(0 == net_aio_queue_wait(queue, events, -1, arena));
@@ -1528,7 +1529,7 @@ static void test_http_request_response() {
         event_client->action = AIO_EVENT_ACTION_KIND_ADD;
 
         server_client_socket = res_accept.socket;
-        server_client_reader.ctx = (void *)(u64)server_client_socket;
+        server_client_reader = reader_make_from_socket(server_client_socket);
 
         AioEvent *event_server_client = slice_at_ptr(&events, 2);
         event_server_client->socket = res_accept.socket;
@@ -1544,15 +1545,28 @@ static void test_http_request_response() {
                              &client_header_idx, client_req, arena);
           ASSERT(0 == writer_write(&client_writer, &client_send, arena).err);
         } else {
-          goto end; // TODO.
+          // goto end; // TODO.
         }
       } else if (event.socket == server_client_socket) {
         ASSERT(AIO_EVENT_KIND_IN == event.kind);
+        if (HTTP_IO_STATE_DONE != server_recv_http_io_state) {
+          ASSERT(0 ==
+                 reader_read(&server_client_reader, &server_recv, arena).err);
+          ASSERT(0 == http_read_request(&server_recv,
+                                        &server_recv_http_io_state, &server_req,
+                                        &arena));
+        } else {
+          goto end; // TODO.
+        }
       }
     }
   }
 
 end:
+
+  ASSERT(HTTP_IO_STATE_DONE == client_send_http_io_state);
+  ASSERT(HTTP_IO_STATE_DONE == server_recv_http_io_state);
+
   // String msg_server_received = string_make(msg_expected.len, &arena);
   // ASSERT(true == ring_buffer_read_slice(&server_recv, msg_server_received));
   // ASSERT(string_eq(msg_server_received, msg_expected));
