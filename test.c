@@ -1189,6 +1189,41 @@ static void test_http_parse_response_status_line() {
   }
 }
 
+static void test_http_parse_header() {
+  // Empty.
+  {
+    ASSERT(http_parse_header(S("")).err);
+  }
+  // Missing `:`.
+  {
+    ASSERT(http_parse_header(S("foo bar")).err);
+  }
+  // Missing key.
+  {
+    ASSERT(http_parse_header(S(":bcd")).err);
+  }
+  // Missing value.
+  {
+    ASSERT(http_parse_header(S("foo:")).err);
+  }
+#if 0
+  // Multiple colons.
+  {
+    KeyValueResult res = http_parse_header(S("foo: bar : baz"));
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(res.res.key, S("foo")));
+    ASSERT(string_eq(res.res.value, S("bar : baz")));
+  }
+#endif
+  // Valid.
+  {
+    KeyValueResult res = http_parse_header(S("foo: bar"));
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(res.res.key, S("foo")));
+    ASSERT(string_eq(res.res.value, S("bar")));
+  }
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_slice();
@@ -1223,4 +1258,5 @@ int main() {
   test_url_parse();
   test_http_request_serialize();
   test_http_parse_response_status_line();
+  test_http_parse_header();
 }

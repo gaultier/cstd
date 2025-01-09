@@ -2212,6 +2212,8 @@ typedef struct {
   String key, value;
 } KeyValue;
 
+RESULT(KeyValue) KeyValueResult;
+
 typedef struct {
   KeyValue *data;
   u64 len, cap;
@@ -2693,6 +2695,32 @@ url_parse_authority(String s, Arena *arena) {
   }
 
   return true;
+}
+
+[[maybe_unused]] [[nodiscard]] static KeyValueResult
+http_parse_header(String s) {
+  KeyValueResult res = {0};
+
+  SplitIterator it = string_split(s, ':');
+  {
+    SplitResult key = string_split_next(&it);
+    if (!key.ok) {
+      res.err = EINVAL;
+      return res;
+    }
+    res.res.key = key.s;
+  }
+
+  {
+    SplitResult value = string_split_next(&it);
+    if (!value.ok) {
+      res.err = EINVAL;
+      return res;
+    }
+    res.res.value = string_trim_left(value.s, ' ');
+  }
+
+  return res;
 }
 
 #if 0
