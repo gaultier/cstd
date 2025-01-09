@@ -1360,6 +1360,153 @@ static void test_http_read_response() {
   }
 }
 
+static void test_http_request_response() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+  u16 port = 5678;
+  Socket socket_server = 0;
+  {
+    CreateSocketResult res_create_socket = net_create_tcp_socket();
+    ASSERT(0 == res_create_socket.err);
+    socket_server = res_create_socket.res;
+
+    ASSERT(0 == net_socket_enable_reuse(socket_server));
+    ASSERT(0 == net_socket_set_blocking(socket_server, false));
+
+    Ipv4Address addr = {0};
+    addr.port = port;
+    ASSERT(0 == net_tcp_bind_ipv4(socket_server, addr));
+    ASSERT(0 == net_tcp_listen(socket_server));
+  }
+
+  Socket socket_client = 0;
+  {
+    DnsResolveIpv4AddressSocketResult res_dns =
+        net_dns_resolve_ipv4_tcp(S("localhost"), port, arena);
+    ASSERT(0 == res_dns.err);
+
+    ASSERT(port == res_dns.res.address.port);
+    ASSERT(0 != res_dns.res.socket);
+    socket_client = res_dns.res.socket;
+  }
+  ASSERT(0 == net_socket_set_blocking(socket_client, false));
+
+  AioQueueCreateResult res_queue_create = net_aio_queue_create();
+  ASSERT(0 == res_queue_create.err);
+
+  AioQueue queue = res_queue_create.res;
+  AioEventSlice events = {0};
+  events.len = 2;
+  events.data = arena_new(&arena, AioEvent, 3);
+
+  {
+    AioEvent *event_server_listen = slice_at_ptr(&events, 0);
+    event_server_listen->socket = socket_server;
+    event_server_listen->kind = AIO_EVENT_KIND_IN;
+    event_server_listen->action = AIO_EVENT_ACTION_KIND_ADD;
+
+    ASSERT(0 == net_aio_queue_ctl(queue, events));
+  }
+
+  Socket socket_server_client = 0;
+  Reader reader_server_client = {0};
+  reader_server_client.read_fn = unix_read;
+
+  RingBuffer client_recv = {.data = string_make(32, &arena)};
+  RingBuffer client_send = {.data = string_make(32, &arena)};
+  RingBuffer server_recv = {.data = string_make(512, &arena)};
+  RingBuffer server_send = {.data = string_make(128, &arena)};
+
+  HttpIOState client_recv_state = 0;
+  HttpIOState client_send_state = 0;
+  HttpIOState server_recv_state = 0;
+  HttpIOState server_send_state = 0;
+
+  u64 client_header_idx = 0;
+  u64 server_header_idx = 0;
+
+  HttpRequest client_req = {0};
+  client_req.method = HTTP_METHOD_GET;
+  http_push_header(&client_req.headers, S("Host"), S("localhost"), &arena);
+
+  HttpResponse server_res = {0};
+  server_res.status = 200;
+  server_res.version_major = 1;
+  server_res.version_minor = 1;
+  http_push_header(&server_res.headers, S("Accept"), S("application/json"),
+                   &arena);
+
+  for (;;) {
+    ASSERT(0 == net_aio_queue_wait(queue, events, -1, arena));
+
+    for (u64 i = 0; i < events.len; i++) {
+      AioEvent event = slice_at(events, i);
+      if (event.socket == socket_server) {
+        ASSERT(0 == i); // Only one event thus far.
+
+        Ipv4AddressAcceptResult res_accept = net_tcp_accept(socket_server);
+        ASSERT(0 == res_accept.err);
+        ASSERT(0 != res_accept.socket);
+
+        events.len = 3;
+        slice_at_ptr(&events, i)->action =
+            AIO_EVENT_ACTION_KIND_DEL; // Stop listening.
+
+        AioEvent *event_client = slice_at_ptr(&events, 1);
+        event_client->socket = socket_client;
+        event_client->kind = AIO_EVENT_KIND_OUT;
+        event_client->action = AIO_EVENT_ACTION_KIND_ADD;
+
+        socket_server_client = res_accept.socket;
+        reader_server_client.ctx = (void *)(u64)socket_server_client;
+
+        AioEvent *event_server_client = slice_at_ptr(&events, 2);
+        event_server_client->socket = res_accept.socket;
+        event_server_client->kind = AIO_EVENT_KIND_IN;
+        event_server_client->action = AIO_EVENT_ACTION_KIND_ADD;
+
+        ASSERT(0 == net_aio_queue_ctl(queue, events));
+        ASSERT(0 == net_socket_close(socket_server)); // Stop listening.
+        socket_server = 0;
+      } else if (event.socket == socket_client) {
+        ASSERT(AIO_EVENT_KIND_OUT == event.kind);
+
+        http_send_request(&client_send, &client_send_state, &client_header_idx,
+                          client_req, arena);
+      } else if (event.socket == socket_server_client) {
+        ASSERT(AIO_EVENT_KIND_IN == event.kind);
+        {
+          Arena tmp = arena;
+          String recv = string_make(ring_buffer_write_space(server_recv), &tmp);
+
+          IoCountResult res_io_count = reader_server_client.read_fn(
+              reader_server_client.ctx, recv.data, recv.len);
+          ASSERT(0 == res_io_count.err);
+          recv.len = res_io_count.res;
+          ASSERT(true == ring_buffer_write_slice(&server_recv, recv));
+        }
+
+        {
+          Arena tmp = arena;
+          String dst = string_make(ring_buffer_read_space(server_recv), &tmp);
+          StringOk ok =
+              ring_buffer_read_until_excl(&server_recv, S("\r\n\r\n"), &tmp);
+          if (ok.ok) {
+            // TODO
+          }
+        }
+      }
+    }
+  }
+
+end:
+  // String msg_server_received = string_make(msg_expected.len, &arena);
+  // ASSERT(true == ring_buffer_read_slice(&server_recv, msg_server_received));
+  // ASSERT(string_eq(msg_server_received, msg_expected));
+  ASSERT(0 == net_socket_close(socket_client));
+  ASSERT(0 == net_socket_close(socket_server_client));
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_slice();
@@ -1383,7 +1530,6 @@ int main() {
   test_buffered_reader_read_exactly();
   test_buffered_reader_read_until_end();
   test_buffered_reader_read_until_slice();
-  test_read_http_request_without_body();
 #endif
   test_ring_buffer_write_slice();
   test_ring_buffer_read_write_slice();
@@ -1396,4 +1542,5 @@ int main() {
   test_http_parse_response_status_line();
   test_http_parse_header();
   test_http_read_response();
+  test_http_request_response();
 }

@@ -1444,9 +1444,9 @@ RESULT(AioQueue) AioQueueCreateResult;
 net_aio_queue_create();
 
 typedef enum {
-  AIO_EVENT_KIND_IN,
-  AIO_EVENT_KIND_OUT,
-  AIO_EVENT_KIND_ERR,
+  AIO_EVENT_KIND_IN = 1,
+  AIO_EVENT_KIND_OUT = 2,
+  AIO_EVENT_KIND_ERR = 4,
 } AioEventKind;
 
 typedef enum {
