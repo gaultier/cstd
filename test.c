@@ -1321,7 +1321,7 @@ static void test_http_read_response() {
                          &rg, S("Authorization: Bearer foo\r\n\r\n")));
       Error err = http_read_response(&rg, &state, &res, &arena);
       ASSERT(0 == err);
-      ASSERT(HTTP_PARSE_STATE_PARSED_ALL_HEADERS == state);
+      ASSERT(HTTP_PARSE_STATE_DONE == state);
       ASSERT(2 == res.headers.len);
       KeyValue kv = slice_at(res.headers, 1);
       ASSERT(string_eq(kv.key, S("Authorization")));
