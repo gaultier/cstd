@@ -609,6 +609,7 @@ typedef struct {
 } DynU8;
 
 DYN(String);
+RESULT(DynString) DynStringResult;
 
 #define dyn_push(s, arena)                                                     \
   (dyn_ensure_cap(s, (s)->len + 1, arena), (s)->data + (s)->len++)
@@ -2272,23 +2273,23 @@ typedef enum {
 } HttpIOState;
 
 typedef struct {
-  String id;
-  DynString path_components;
-  DynKeyValue url_parameters;
-  HttpMethod method;
-  DynKeyValue headers;
-  String body;
-} HttpRequest;
-
-typedef struct {
   String scheme;
   String username, password;
   String host; // Including subdomains.
-  StringSlice path_components;
-  // TODO: DynKeyValue url_parameters;
+  DynString path_components;
+  DynKeyValue parameters;
   u16 port;
   // TODO: fragment.
 } Url;
+
+typedef struct {
+  String id;
+  Url url; // Does not have a scheme, domain, port.
+  HttpMethod method;
+  DynKeyValue headers;
+  u8 version_minor;
+  u8 version_major;
+} HttpRequest;
 
 // `GET /en-US/docs/Web/HTTP/Messages HTTP/1.1`.
 typedef struct {
@@ -2321,7 +2322,6 @@ typedef struct {
   u8 version_minor;
   u16 status;
   DynKeyValue headers;
-  String body;
 } HttpResponse;
 
 RESULT(StringSlice) StringSliceResult;
@@ -2418,22 +2418,22 @@ http_request_write_status_line(RingBuffer *rg, HttpRequest req, Arena arena) {
   dyn_append_slice(&sb, http_method_to_s(req.method), &arena);
   dyn_append_slice(&sb, S(" /"), &arena);
 
-  for (u64 i = 0; i < req.path_components.len; i++) {
-    String path_component = dyn_at(req.path_components, i);
+  for (u64 i = 0; i < req.url.path_components.len; i++) {
+    String path_component = dyn_at(req.url.path_components, i);
     dyn_append_slice(&sb, path_component, &arena);
 
-    if (i < req.path_components.len - 1) {
+    if (i < req.url.path_components.len - 1) {
       *dyn_push(&sb, &arena) = '/';
     }
   }
 
-  if (req.url_parameters.len > 0) {
+  if (req.url.parameters.len > 0) {
     *dyn_push(&sb, &arena) = '?';
-    for (u64 i = 0; i < req.url_parameters.len; i++) {
-      KeyValue param = dyn_at(req.url_parameters, i);
+    for (u64 i = 0; i < req.url.parameters.len; i++) {
+      KeyValue param = dyn_at(req.url.parameters, i);
       url_encode_string(&sb, param.key, param.value, &arena);
 
-      if (i < req.url_parameters.len - 1) {
+      if (i < req.url.parameters.len - 1) {
         *dyn_push(&sb, &arena) = '&';
       }
     }
@@ -2498,16 +2498,16 @@ typedef struct {
   UrlUserInfo user_info;
   String host;
   u16 port;
-  StringSlice path_components;
+  DynString path_components;
 } UrlAuthority;
 
 RESULT(UrlAuthority) UrlAuthorityResult;
 
 RESULT(Url) ParseUrlResult;
 
-[[maybe_unused]] [[nodiscard]] static StringSliceResult
+[[maybe_unused]] [[nodiscard]] static DynStringResult
 url_parse_path_components(String s, Arena *arena) {
-  StringSliceResult res = {0};
+  DynStringResult res = {0};
 
   if (-1 != string_indexof_any_byte(s, S("?#:"))) {
     res.err = EINVAL;
@@ -2539,7 +2539,7 @@ url_parse_path_components(String s, Arena *arena) {
     *dyn_push(&components, arena) = split.s;
   }
 
-  res.res = dyn_slice(StringSlice, components);
+  res.res = components;
   return res;
 }
 
@@ -2638,7 +2638,7 @@ url_parse_authority(String s, Arena *arena) {
   }
 
   if (string_starts_with(remaining, S("/"))) {
-    StringSliceResult res_path_components =
+    DynStringResult res_path_components =
         url_parse_path_components(remaining, arena);
     if (res_path_components.err) {
       res.err = res_path_components.err;
@@ -2783,7 +2783,7 @@ http_parse_request_status_line(String status_line, Arena *arena) {
   remaining = slice_range_start(remaining, (u64)idx_space + 1);
   {
     // FIXME: Support url params, fragments.
-    StringSliceResult res_path = url_parse_path_components(path, arena);
+    DynStringResult res_path = url_parse_path_components(path, arena);
     if (res_path.err) {
       res.err = EINVAL;
       return res;
@@ -2913,6 +2913,66 @@ http_read_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
       }
 
       *dyn_push(&res->headers, arena) = res_kv.res;
+
+      break;
+    }
+    case HTTP_IO_STATE_AFTER_ALL_HEADERS: {
+      // TODO: body.
+      *state = HTTP_IO_STATE_DONE;
+      return 0;
+    }
+    case HTTP_IO_STATE_DONE:
+      return 0;
+    default:
+      ASSERT(0);
+    }
+  }
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static Error
+http_read_request(RingBuffer *rg, HttpIOState *state, HttpRequest *req,
+                  Arena *arena) {
+  String nr = S("\r\n");
+
+  for (u64 _i = 0; _i < 128; _i++) {
+    switch (*state) {
+    case HTTP_IO_STATE_NONE: {
+      StringOk line = ring_buffer_read_until_excl(rg, nr, arena);
+      if (!line.ok) {
+        return 0;
+      }
+      HttpRequestStatusLineResult res_status_line =
+          http_parse_request_status_line(line.res, arena);
+      if (res_status_line.err) {
+        return res_status_line.err;
+      }
+
+      req->method = res_status_line.res.method;
+      req->version_major = res_status_line.res.version_major;
+      req->version_minor = res_status_line.res.version_minor;
+      req->url = res_status_line.res.url;
+
+      *state = HTTP_IO_STATE_AFTER_STATUS_LINE;
+
+      break;
+    }
+    case HTTP_IO_STATE_AFTER_STATUS_LINE: {
+      StringOk line = ring_buffer_read_until_excl(rg, nr, arena);
+      if (!line.ok) {
+        return 0;
+      }
+      if (slice_is_empty(line.res)) {
+        *state = HTTP_IO_STATE_AFTER_ALL_HEADERS;
+        break;
+      }
+
+      KeyValueResult res_kv = http_parse_header(line.res);
+      if (res_kv.err) {
+        return res_kv.err;
+      }
+
+      *dyn_push(&req->headers, arena) = res_kv.res;
 
       break;
     }

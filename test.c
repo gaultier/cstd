@@ -1050,7 +1050,7 @@ static void test_url_parse_relative_path() {
 
   // Empty.
   {
-    StringSliceResult res = url_parse_path_components(S(""), &arena);
+    DynStringResult res = url_parse_path_components(S(""), &arena);
     ASSERT(0 == res.err);
     ASSERT(0 == res.res.len);
   }
@@ -1062,20 +1062,19 @@ static void test_url_parse_relative_path() {
   }
   // Must start with slash and it does not.
   {
-    StringSliceResult res = url_parse_path_components(S("foo"), &arena);
+    DynStringResult res = url_parse_path_components(S("foo"), &arena);
     ASSERT(res.err);
   }
   // Must start with slash and it does.
   {
-    StringSliceResult res = url_parse_path_components(S("/foo"), &arena);
+    DynStringResult res = url_parse_path_components(S("/foo"), &arena);
     ASSERT(0 == res.err);
     ASSERT(1 == res.res.len);
     ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
   }
   // Simple path with a few components.
   {
-    StringSliceResult res =
-        url_parse_path_components(S("/foo/bar/baz"), &arena);
+    DynStringResult res = url_parse_path_components(S("/foo/bar/baz"), &arena);
     ASSERT(0 == res.err);
     ASSERT(3 == res.res.len);
     ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
@@ -1084,8 +1083,7 @@ static void test_url_parse_relative_path() {
   }
   // Simple path with a few components with trailing slash.
   {
-    StringSliceResult res =
-        url_parse_path_components(S("/foo/bar/baz/"), &arena);
+    DynStringResult res = url_parse_path_components(S("/foo/bar/baz/"), &arena);
     ASSERT(0 == res.err);
     ASSERT(3 == res.res.len);
     ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
@@ -1120,7 +1118,7 @@ static void test_http_send_request() {
     HttpRequest req;
     req.method = HTTP_METHOD_POST;
     http_push_header(&req.headers, S("Host"), S("google.com"), &arena);
-    *dyn_push(&req.path_components, &arena) = S("foobar");
+    *dyn_push(&req.url.path_components, &arena) = S("foobar");
 
     RingBuffer rg = {.data = string_make(32, &arena)};
     HttpIOState state = HTTP_IO_STATE_NONE;
