@@ -2272,12 +2272,10 @@ typedef struct {
 #endif
 
 typedef struct {
+  u8 version_major;
+  u8 version_minor;
   u16 status;
   DynKeyValue headers;
-  Error err;
-
-  // TODO: union{file_path,body}?
-  String file_path;
   String body;
 } HttpResponse;
 
@@ -2720,6 +2718,63 @@ http_parse_header(String s) {
   }
 
   return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Error
+http_read_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
+                   Arena *arena) {
+  String nr = S("\r\n");
+
+  switch (*state) {
+  case HTTP_PARSE_STATE_NONE: {
+    String line = ring_buffer_read_until_excl(rg, nr, arena);
+    if (slice_is_empty(line)) {
+      return 0;
+    }
+    HttpResponseStatusLineResult res_status_line =
+        http_parse_response_status_line(line);
+    if (res_status_line.err) {
+      return res_status_line.err;
+    }
+
+    res->status = res_status_line.res.status_code;
+    res->version_major = res_status_line.res.version_major;
+    res->version_minor = res_status_line.res.version_minor;
+
+    *state = HTTP_PARSE_STATE_PARSED_STATUS_LINE;
+
+    return 0;
+  }
+  case HTTP_PARSE_STATE_PARSED_STATUS_LINE: {
+    String line = ring_buffer_read_until_excl(rg, nr, arena);
+    if (slice_is_empty(line)) {
+      return 0;
+    }
+    if (slice_is_empty(line)) {
+      *state = HTTP_PARSE_STATE_PARSED_ALL_HEADERS;
+      return 0;
+    }
+
+    KeyValueResult res_kv = http_parse_header(line);
+    if (res_kv.err) {
+      return res_kv.err;
+    }
+
+    *dyn_push(&res->headers, arena) = res_kv.res;
+
+    return 0;
+  }
+  case HTTP_PARSE_STATE_PARSED_ALL_HEADERS: {
+    // TODO: body.
+    *state = HTTP_PARSE_STATE_DONE;
+    return 0;
+  }
+  case HTTP_PARSE_STATE_DONE:
+    return 0;
+  default:
+    ASSERT(0);
+  }
+  ASSERT(0);
 }
 
 #if 0
