@@ -2228,10 +2228,10 @@ typedef struct {
 } DynKeyValue;
 
 typedef enum {
-  HTTP_PARSE_STATE_NONE,
-  HTTP_PARSE_STATE_AFTER_STATUS_LINE,
-  HTTP_PARSE_STATE_AFTER_ALL_HEADERS,
-  HTTP_PARSE_STATE_DONE,
+  HTTP_IO_STATE_NONE,
+  HTTP_IO_STATE_AFTER_STATUS_LINE,
+  HTTP_IO_STATE_AFTER_ALL_HEADERS,
+  HTTP_IO_STATE_DONE,
 } HttpIOState;
 
 typedef struct {
@@ -2374,49 +2374,52 @@ static void http_push_header(DynKeyValue *headers, String key, String value,
   *dyn_push(headers, arena) = (KeyValue){.key = key, .value = value};
 }
 
-// TODO: Split serializing body?
-[[maybe_unused]] [[nodiscard]] static String
-http_request_serialize(HttpRequest req, Arena *arena) {
+[[maybe_unused]] [[nodiscard]] static bool
+http_request_write_status_line(RingBuffer *rg, HttpRequest req, Arena arena) {
   DynU8 sb = {0};
-  dyn_ensure_cap(&sb, req.body.len + 128, arena);
-  dyn_append_slice(&sb, http_method_to_s(req.method), arena);
-  dyn_append_slice(&sb, S(" /"), arena);
+  dyn_ensure_cap(&sb, 128, &arena);
+  dyn_append_slice(&sb, http_method_to_s(req.method), &arena);
+  dyn_append_slice(&sb, S(" /"), &arena);
 
   for (u64 i = 0; i < req.path_components.len; i++) {
     String path_component = dyn_at(req.path_components, i);
-    dyn_append_slice(&sb, path_component, arena);
+    dyn_append_slice(&sb, path_component, &arena);
 
     if (i < req.path_components.len - 1) {
-      *dyn_push(&sb, arena) = '/';
+      *dyn_push(&sb, &arena) = '/';
     }
   }
 
   if (req.url_parameters.len > 0) {
-    *dyn_push(&sb, arena) = '?';
+    *dyn_push(&sb, &arena) = '?';
     for (u64 i = 0; i < req.url_parameters.len; i++) {
       KeyValue param = dyn_at(req.url_parameters, i);
-      url_encode_string(&sb, param.key, param.value, arena);
+      url_encode_string(&sb, param.key, param.value, &arena);
 
       if (i < req.url_parameters.len - 1) {
-        *dyn_push(&sb, arena) = '&';
+        *dyn_push(&sb, &arena) = '&';
       }
     }
   }
 
-  dyn_append_slice(&sb, S(" HTTP/1.1"), arena);
-  dyn_append_slice(&sb, S("\r\n"), arena);
+  dyn_append_slice(&sb, S(" HTTP/1.1"), &arena);
+  dyn_append_slice(&sb, S("\r\n"), &arena);
 
-  for (u64 i = 0; i < req.headers.len; i++) {
-    KeyValue header = dyn_at(req.headers, i);
-    dyn_append_slice(&sb, header.key, arena);
-    dyn_append_slice(&sb, S(": "), arena);
-    dyn_append_slice(&sb, header.value, arena);
-    dyn_append_slice(&sb, S("\r\n"), arena);
-  }
-  dyn_append_slice(&sb, S("\r\n"), arena);
-  dyn_append_slice(&sb, req.body, arena);
+  String s = dyn_slice(String, sb);
+  return ring_buffer_write_slice(rg, s);
+}
 
-  return dyn_slice(String, sb);
+[[maybe_unused]] [[nodiscard]] static bool
+http_request_write_header(RingBuffer *rg, KeyValue header, Arena arena) {
+  DynU8 sb = {0};
+  dyn_ensure_cap(&sb, 128, &arena);
+  dyn_append_slice(&sb, header.key, &arena);
+  dyn_append_slice(&sb, S(": "), &arena);
+  dyn_append_slice(&sb, header.value, &arena);
+  dyn_append_slice(&sb, S("\r\n"), &arena);
+
+  String s = dyn_slice(String, sb);
+  return ring_buffer_write_slice(rg, s);
 }
 
 // NOTE: Only sanitation for including the string inside an HTML tag e.g.:
@@ -2735,7 +2738,7 @@ http_receive_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
 
   for (u64 _i = 0; _i < 128; _i++) {
     switch (*state) {
-    case HTTP_PARSE_STATE_NONE: {
+    case HTTP_IO_STATE_NONE: {
       StringOk line = ring_buffer_read_until_excl(rg, nr, arena);
       if (!line.ok) {
         return 0;
@@ -2750,17 +2753,17 @@ http_receive_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
       res->version_major = res_status_line.res.version_major;
       res->version_minor = res_status_line.res.version_minor;
 
-      *state = HTTP_PARSE_STATE_AFTER_STATUS_LINE;
+      *state = HTTP_IO_STATE_AFTER_STATUS_LINE;
 
       break;
     }
-    case HTTP_PARSE_STATE_AFTER_STATUS_LINE: {
+    case HTTP_IO_STATE_AFTER_STATUS_LINE: {
       StringOk line = ring_buffer_read_until_excl(rg, nr, arena);
       if (!line.ok) {
         return 0;
       }
       if (slice_is_empty(line.res)) {
-        *state = HTTP_PARSE_STATE_AFTER_ALL_HEADERS;
+        *state = HTTP_IO_STATE_AFTER_ALL_HEADERS;
         break;
       }
 
@@ -2773,12 +2776,12 @@ http_receive_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
 
       break;
     }
-    case HTTP_PARSE_STATE_AFTER_ALL_HEADERS: {
+    case HTTP_IO_STATE_AFTER_ALL_HEADERS: {
       // TODO: body.
-      *state = HTTP_PARSE_STATE_DONE;
+      *state = HTTP_IO_STATE_DONE;
       return 0;
     }
-    case HTTP_PARSE_STATE_DONE:
+    case HTTP_IO_STATE_DONE:
       break;
     default:
       ASSERT(0);
@@ -2787,10 +2790,46 @@ http_receive_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static Error
-http_send_request(RingBuffer *rg, HttpIOState *state, HttpRequest *req,
-                  Arena *arena) {
-  return 0;
+[[maybe_unused]] static void http_send_request(RingBuffer *rg,
+                                               HttpIOState *state,
+                                               u64 *header_idx, HttpRequest req,
+                                               Arena arena) {
+  for (u64 _i = 0; _i < 128; _i++) {
+    switch (*state) {
+    case HTTP_IO_STATE_NONE: {
+      if (!http_request_write_status_line(rg, req, arena)) {
+        return;
+      }
+      *state = HTTP_IO_STATE_AFTER_STATUS_LINE;
+      continue;
+    }
+    case HTTP_IO_STATE_AFTER_STATUS_LINE: {
+      if (*header_idx == req.headers.len) {
+        *state = HTTP_IO_STATE_AFTER_ALL_HEADERS;
+        continue;
+      }
+
+      KeyValue header = dyn_at(req.headers, *header_idx);
+      if (!http_request_write_header(rg, header, arena)) {
+        return;
+      }
+      *header_idx += 1;
+
+      continue;
+    }
+    case HTTP_IO_STATE_AFTER_ALL_HEADERS: {
+      if (!ring_buffer_write_slice(rg, S("\r\n"))) {
+        return;
+      }
+      *state = HTTP_IO_STATE_DONE;
+      continue;
+    }
+    case HTTP_IO_STATE_DONE:
+      break;
+    default:
+      ASSERT(0);
+    }
+  }
 }
 
 #if 0
