@@ -1468,15 +1468,15 @@ static void test_http_request_response() {
   Socket server_socket = 0;
   Reader server_reader = {0};
 
-  //  Reader client_reader = reader_make_from_socket(client_socket);
   Writer client_writer = writer_make_from_socket(client_socket);
+  Reader client_reader = reader_make_from_socket(client_socket);
 
-  // RingBuffer client_recv = {.data = string_make(32, &arena)};
+  RingBuffer client_recv = {.data = string_make(32, &arena)};
   RingBuffer client_send = {.data = string_make(32, &arena)};
   RingBuffer server_recv = {.data = string_make(512, &arena)};
   RingBuffer server_send = {.data = string_make(128, &arena)};
 
-  // HttpIOState client_recv_http_io_state = 0;
+  HttpIOState client_recv_http_io_state = 0;
   HttpIOState client_send_http_io_state = 0;
   HttpIOState server_recv_http_io_state = 0;
   HttpIOState server_send_http_io_state = 0;
@@ -1496,6 +1496,7 @@ static void test_http_request_response() {
                    &arena);
 
   HttpRequest server_req = {0};
+  HttpResponse client_res = {0};
 
   AioEventSlice events_watch = {0};
   events_watch.len = 3;
@@ -1549,7 +1550,15 @@ static void test_http_request_response() {
           }
         } else {
           ASSERT(AIO_EVENT_KIND_IN & event.kind);
-          // goto end; // TODO.
+
+          if (HTTP_IO_STATE_DONE != client_recv_http_io_state) {
+            ASSERT(0 == reader_read(&client_reader, &client_recv, arena).err);
+            ASSERT(0 == http_read_response(&client_recv,
+                                           &client_recv_http_io_state,
+                                           &client_res, &arena));
+          } else {
+            goto end;
+          }
         }
       } else if (event.socket == server_socket) {
         ASSERT(AIO_EVENT_KIND_IN & event.kind);
@@ -1572,8 +1581,6 @@ static void test_http_request_response() {
             http_write_request(&server_send, &server_send_http_io_state,
                                &server_header_idx, server_req, arena);
             ASSERT(0 == writer_write(&client_writer, &client_send, arena).err);
-          } else {
-            goto end; // TODO.
           }
         }
       }
@@ -1583,6 +1590,7 @@ static void test_http_request_response() {
 end:
 
   ASSERT(HTTP_IO_STATE_DONE == client_send_http_io_state);
+  ASSERT(HTTP_IO_STATE_DONE == client_recv_http_io_state);
   ASSERT(HTTP_IO_STATE_DONE == server_recv_http_io_state);
   ASSERT(HTTP_IO_STATE_DONE == server_send_http_io_state);
 
