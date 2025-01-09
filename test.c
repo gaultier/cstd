@@ -1484,15 +1484,15 @@ static void test_http_request_response() {
   // RingBuffer client_recv = {.data = string_make(32, &arena)};
   RingBuffer client_send = {.data = string_make(32, &arena)};
   RingBuffer server_recv = {.data = string_make(512, &arena)};
-  // RingBuffer server_send = {.data = string_make(128, &arena)};
+  RingBuffer server_send = {.data = string_make(128, &arena)};
 
   // HttpIOState client_recv_http_io_state = 0;
   HttpIOState client_send_http_io_state = 0;
   HttpIOState server_recv_http_io_state = 0;
-  //  HttpIOState server_send_http_io_state = 0;
+  HttpIOState server_send_http_io_state = 0;
 
   u64 client_header_idx = 0;
-  //  u64 server_header_idx = 0;
+  u64 server_header_idx = 0;
 
   HttpRequest client_req = {0};
   client_req.method = HTTP_METHOD_GET;
@@ -1513,16 +1513,11 @@ static void test_http_request_response() {
     for (u64 i = 0; i < events.len; i++) {
       AioEvent event = slice_at(events, i);
       if (event.socket == server_socket) {
-        ASSERT(0 == i); // Only one event thus far.
-
         Ipv4AddressAcceptResult res_accept = net_tcp_accept(server_socket);
         ASSERT(0 == res_accept.err);
         ASSERT(0 != res_accept.socket);
 
         events.len = 3;
-        slice_at_ptr(&events, i)->action =
-            AIO_EVENT_ACTION_KIND_DEL; // Stop listening.
-
         AioEvent *event_client = slice_at_ptr(&events, 1);
         event_client->socket = client_socket;
         event_client->kind = AIO_EVENT_KIND_OUT;
@@ -1537,14 +1532,22 @@ static void test_http_request_response() {
         event_server_client->action = AIO_EVENT_ACTION_KIND_ADD;
 
         ASSERT(0 == net_aio_queue_ctl(queue, events));
-        ASSERT(0 == net_socket_close(server_socket)); // Stop listening.
         server_socket = 0;
       } else if (event.socket == client_socket) {
         if (HTTP_IO_STATE_DONE != client_send_http_io_state) {
+          ASSERT(AIO_EVENT_KIND_OUT & event.kind);
+
           http_write_request(&client_send, &client_send_http_io_state,
                              &client_header_idx, client_req, arena);
           ASSERT(0 == writer_write(&client_writer, &client_send, arena).err);
+
+          // Stop subscribing for writing, start subscribing for reading.
+          AioEvent *event_client = slice_at_ptr(&events, i);
+          event_client->kind = AIO_EVENT_KIND_IN;
+          event_client->action = AIO_EVENT_ACTION_KIND_MOD;
+          ASSERT(0 == net_aio_queue_ctl(queue, events));
         } else {
+          ASSERT(AIO_EVENT_KIND_IN & event.kind);
           // goto end; // TODO.
         }
       } else if (event.socket == server_client_socket) {
@@ -1556,7 +1559,13 @@ static void test_http_request_response() {
                                         &server_recv_http_io_state, &server_req,
                                         &arena));
         } else {
-          goto end; // TODO.
+          if (HTTP_IO_STATE_DONE != server_send_http_io_state) {
+            http_write_request(&server_send, &server_send_http_io_state,
+                               &server_header_idx, server_req, arena);
+            ASSERT(0 == writer_write(&client_writer, &client_send, arena).err);
+          } else {
+            goto end; // TODO.
+          }
         }
       }
     }
@@ -1566,12 +1575,14 @@ end:
 
   ASSERT(HTTP_IO_STATE_DONE == client_send_http_io_state);
   ASSERT(HTTP_IO_STATE_DONE == server_recv_http_io_state);
+  ASSERT(HTTP_IO_STATE_DONE == server_send_http_io_state);
 
   // String msg_server_received = string_make(msg_expected.len, &arena);
   // ASSERT(true == ring_buffer_read_slice(&server_recv, msg_server_received));
   // ASSERT(string_eq(msg_server_received, msg_expected));
   ASSERT(0 == net_socket_close(client_socket));
   ASSERT(0 == net_socket_close(server_client_socket));
+  ASSERT(0 == net_socket_close(server_socket));
 }
 
 int main() {
