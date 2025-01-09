@@ -152,6 +152,7 @@ typedef struct {
 
 RESULT(String) StringResult;
 OK(String);
+SLICE(String);
 
 #define slice_is_empty(s)                                                      \
   (((s).len == 0) ? true : (ASSERT(nullptr != (s).data), false))
@@ -379,13 +380,27 @@ string_consume_byte(String haystack, u8 needle) {
 }
 
 [[maybe_unused]] [[nodiscard]] static StringConsumeResult
-string_consume_slice(String haystack, String needle) {
+string_consume_string(String haystack, String needle) {
   StringConsumeResult res = {0};
   res.remaining = haystack;
 
   for (u64 i = 0; i < needle.len; i++) {
     res = string_consume_byte(res.remaining, slice_at(needle, i));
     if (!res.consumed) {
+      return res;
+    }
+  }
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static StringConsumeResult
+string_consume_any_string(String haystack, StringSlice needles) {
+  StringConsumeResult res = {0};
+  res.remaining = haystack;
+
+  for (u64 i = 0; i < needles.len; i++) {
+    res = string_consume_string(res.remaining, slice_at(needles, i));
+    if (res.consumed) {
       return res;
     }
   }
@@ -1065,8 +1080,6 @@ make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count, ...) {
 #error "sendfile(2) not implemented on other OSes than Linux/FreeBSD."
 #endif
 }
-
-SLICE(String);
 
 [[maybe_unused]] [[nodiscard]] static String
 json_encode_string_slice(StringSlice strings, Arena *arena) {
@@ -2319,7 +2332,7 @@ http_parse_response_status_line(String status_line) {
 
   String remaining = status_line;
   {
-    StringConsumeResult consume = string_consume_slice(remaining, S("HTTP/"));
+    StringConsumeResult consume = string_consume_string(remaining, S("HTTP/"));
     if (!consume.consumed) {
       res.err = EINVAL;
       return res;
@@ -2678,7 +2691,7 @@ url_parse_authority(String s, Arena *arena) {
   remaining = slice_range_start(remaining, (u64)scheme_sep_idx + 1);
 
   // TODO: Be less strict hier.
-  StringConsumeResult res_consume = string_consume_slice(remaining, S("//"));
+  StringConsumeResult res_consume = string_consume_string(remaining, S("//"));
   if (!res_consume.consumed) {
     res.err = EINVAL;
     return res;
@@ -2728,6 +2741,109 @@ url_parse_authority(String s, Arena *arena) {
   }
 
   return true;
+}
+
+[[maybe_unused]] [[nodiscard]] static HttpRequestStatusLineResult
+http_parse_request_status_line(String status_line, Arena *arena) {
+  HttpRequestStatusLineResult res = {0};
+
+  String remaining = status_line;
+  {
+    if (string_starts_with(remaining, S("GET"))) {
+      StringConsumeResult consume = string_consume_string(remaining, S("GET"));
+      ASSERT(consume.consumed);
+      remaining = consume.remaining;
+      res.res.method = HTTP_METHOD_GET;
+    } else if (string_starts_with(remaining, S("POST"))) {
+      StringConsumeResult consume = string_consume_string(remaining, S("POST"));
+      ASSERT(consume.consumed);
+      remaining = consume.remaining;
+      res.res.method = HTTP_METHOD_POST;
+    } else {
+      res.err = EINVAL;
+      return res;
+    }
+  }
+
+  {
+    StringConsumeResult consume = string_consume_byte(remaining, ' ');
+    if (!consume.consumed) {
+      res.err = EINVAL;
+      return res;
+    }
+    remaining = consume.remaining;
+  }
+
+  i64 idx_space = string_indexof_byte(remaining, ' ');
+  if (-1 == idx_space) {
+    res.err = EINVAL;
+    return res;
+  }
+  String path = slice_range(remaining, 0, (u64)idx_space);
+  remaining = slice_range_start(remaining, (u64)idx_space + 1);
+  {
+    // FIXME: Support url params, fragments.
+    StringSliceResult res_path = url_parse_path_components(path, arena);
+    if (res_path.err) {
+      res.err = EINVAL;
+      return res;
+    }
+
+    res.res.url.path_components = res_path.res;
+  }
+
+  {
+    StringConsumeResult consume = string_consume_string(remaining, S(" HTTP/"));
+    if (!consume.consumed) {
+      res.err = EINVAL;
+      return res;
+    }
+    remaining = consume.remaining;
+  }
+
+  {
+    ParseNumberResult res_major = string_parse_u64(remaining);
+    if (!res_major.present) {
+      res.err = EINVAL;
+      return res;
+    }
+    if (res_major.n > 3) {
+      res.err = EINVAL;
+      return res;
+    }
+    res.res.version_major = (u8)res_major.n;
+    remaining = res_major.remaining;
+  }
+
+  {
+    StringConsumeResult consume = string_consume_byte(remaining, '.');
+    if (!consume.consumed) {
+      res.err = EINVAL;
+      return res;
+    }
+    remaining = consume.remaining;
+  }
+
+  {
+    ParseNumberResult res_minor = string_parse_u64(remaining);
+    if (!res_minor.present) {
+      res.err = EINVAL;
+      return res;
+    }
+    if (res_minor.n > 9) {
+      res.err = EINVAL;
+      return res;
+    }
+    res.res.version_minor = (u8)res_minor.n;
+    remaining = res_minor.remaining;
+  }
+
+  if (!slice_is_empty(remaining)) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static KeyValueResult
