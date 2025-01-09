@@ -1727,8 +1727,6 @@ net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
     return res;
   }
 
-  memset(events.data, 0, events.len * sizeof(events.data[0]));
-
   struct epoll_event *epoll_events =
       arena_new(&arena, struct epoll_event, events.len);
 
@@ -1742,6 +1740,8 @@ net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
 
   for (u64 i = 0; i < res.res; i++) {
     AioEvent *event = slice_at_ptr(&events, i);
+    *event = (AioEvent){0};
+
     struct epoll_event epoll_event = epoll_events[i];
     if (epoll_event.events & EPOLLIN) {
       event->kind |= AIO_EVENT_KIND_IN;
