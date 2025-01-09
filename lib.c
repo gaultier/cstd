@@ -1698,7 +1698,7 @@ net_aio_queue_ctl(AioQueue queue, AioEventSlice events) {
     if (event.kind & AIO_EVENT_KIND_ERR) {
       epoll_event.events |= EPOLLERR;
     }
-    epoll_event.data.u64 = event.user_data;
+    epoll_event.data.fd = event.socket;
 
     int res_epoll = epoll_ctl((int)queue, op, event.socket, &epoll_event);
     if (-1 == res_epoll) {
@@ -1733,6 +1733,7 @@ net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
     if (epoll_event.events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
       event->kind |= AIO_EVENT_KIND_ERR;
     }
+    event->socket = epoll_event.data.fd;
   }
 
   return 0;
@@ -3046,6 +3047,8 @@ writer_make_from_socket(Socket socket) {
 
 [[maybe_unused]] [[nodiscard]] static IoCountResult
 reader_read(Reader *r, RingBuffer *rg, Arena arena) {
+  ASSERT(nullptr != r->read_fn);
+
   IoCountResult res = {0};
 
   String dst = string_make(ring_buffer_write_space(*rg), &arena);
@@ -3062,6 +3065,8 @@ reader_read(Reader *r, RingBuffer *rg, Arena arena) {
 
 [[maybe_unused]] [[nodiscard]] static IoCountResult
 writer_write(Writer *w, RingBuffer *rg, Arena arena) {
+  ASSERT(nullptr != w->write_fn);
+
   String dst = string_make(ring_buffer_read_space(*rg), &arena);
   ASSERT(true == ring_buffer_read_slice(rg, dst));
 
