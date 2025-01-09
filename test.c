@@ -1250,7 +1250,7 @@ static void test_http_read_response() {
     RingBuffer rg = {.data = string_make(32, &arena)};
     HttpParseState state = HTTP_PARSE_STATE_NONE;
     HttpResponse res = {0};
-    Error err = http_read_response(&rg, &state, &res, &arena);
+    Error err = http_receive_response(&rg, &state, &res, &arena);
     ASSERT(0 == err);
     ASSERT(HTTP_PARSE_STATE_NONE == state);
   }
@@ -1261,7 +1261,7 @@ static void test_http_read_response() {
     HttpResponse res = {0};
 
     ASSERT(true == ring_buffer_write_slice(&rg, S("HTTP/1.")));
-    Error err = http_read_response(&rg, &state, &res, &arena);
+    Error err = http_receive_response(&rg, &state, &res, &arena);
     ASSERT(0 == err);
     ASSERT(HTTP_PARSE_STATE_NONE == state);
     ASSERT(ring_buffer_read_space(rg) == S("HTTP/1.").len);
@@ -1274,7 +1274,7 @@ static void test_http_read_response() {
 
     ASSERT(true ==
            ring_buffer_write_slice(&rg, S("HTTP/1.1 201 Created\r\nHost:")));
-    Error err = http_read_response(&rg, &state, &res, &arena);
+    Error err = http_receive_response(&rg, &state, &res, &arena);
     ASSERT(0 == err);
     ASSERT(HTTP_PARSE_STATE_PARSED_STATUS_LINE == state);
     ASSERT(1 == res.version_major);
@@ -1291,7 +1291,7 @@ static void test_http_read_response() {
     {
       ASSERT(true ==
              ring_buffer_write_slice(&rg, S("HTTP/1.1 201 Created\r\nHost:")));
-      Error err = http_read_response(&rg, &state, &res, &arena);
+      Error err = http_receive_response(&rg, &state, &res, &arena);
       ASSERT(0 == err);
       ASSERT(HTTP_PARSE_STATE_PARSED_STATUS_LINE == state);
       ASSERT(1 == res.version_major);
@@ -1301,13 +1301,13 @@ static void test_http_read_response() {
 
     {
       ASSERT(true == ring_buffer_write_slice(&rg, S("google.com\r")));
-      Error err = http_read_response(&rg, &state, &res, &arena);
+      Error err = http_receive_response(&rg, &state, &res, &arena);
       ASSERT(0 == err);
       ASSERT(HTTP_PARSE_STATE_PARSED_STATUS_LINE == state);
       ASSERT(0 == res.headers.len);
 
       ASSERT(true == ring_buffer_write_slice(&rg, S("\n")));
-      err = http_read_response(&rg, &state, &res, &arena);
+      err = http_receive_response(&rg, &state, &res, &arena);
       ASSERT(0 == err);
       ASSERT(HTTP_PARSE_STATE_PARSED_STATUS_LINE == state);
       ASSERT(1 == res.headers.len);
@@ -1319,7 +1319,7 @@ static void test_http_read_response() {
     {
       ASSERT(true == ring_buffer_write_slice(
                          &rg, S("Authorization: Bearer foo\r\n\r\n")));
-      Error err = http_read_response(&rg, &state, &res, &arena);
+      Error err = http_receive_response(&rg, &state, &res, &arena);
       ASSERT(0 == err);
       ASSERT(HTTP_PARSE_STATE_DONE == state);
       ASSERT(2 == res.headers.len);

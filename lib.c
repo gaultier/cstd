@@ -2729,8 +2729,8 @@ http_parse_header(String s) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Error
-http_read_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
-                   Arena *arena) {
+http_receive_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
+                      Arena *arena) {
   String nr = S("\r\n");
 
   for (u64 _i = 0; _i < 128; _i++) {
