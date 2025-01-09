@@ -969,9 +969,10 @@ static void test_net_socket() {
   events_watch.data = arena_new(&arena, AioEvent, 3);
 
   for (;;) {
-    ASSERT(0 == net_aio_queue_wait(queue, events_watch, -1, arena));
+    IoCountResult res_wait = net_aio_queue_wait(queue, events_watch, -1, arena);
+    ASSERT(0 == res_wait.err);
 
-    for (u64 i = 0; i < events_watch.len; i++) {
+    for (u64 i = 0; i < res_wait.res; i++) {
       AioEvent event = slice_at(events_watch, i);
       ASSERT(0 == (AIO_EVENT_KIND_ERR & event.kind));
 
@@ -1419,7 +1420,7 @@ static void test_http_read_response() {
 static void test_http_request_response() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
 
-  u16 port = 5677;
+  u16 port = CLAMP(3000, (u16)arc4random_uniform(UINT16_MAX), UINT16_MAX);
   Socket listen_socket = 0;
   {
     CreateSocketResult res_create_socket = net_create_tcp_socket();
@@ -1501,9 +1502,10 @@ static void test_http_request_response() {
   events_watch.data = arena_new(&arena, AioEvent, 3);
 
   for (;;) {
-    ASSERT(0 == net_aio_queue_wait(queue, events_watch, -1, arena));
+    IoCountResult res_wait = net_aio_queue_wait(queue, events_watch, -1, arena);
+    ASSERT(0 == res_wait.err);
 
-    for (u64 i = 0; i < events_watch.len; i++) {
+    for (u64 i = 0; i < res_wait.res; i++) {
       AioEvent event = slice_at(events_watch, i);
       if (event.socket == listen_socket) {
         Ipv4AddressAcceptResult res_accept = net_tcp_accept(listen_socket);
@@ -1577,8 +1579,9 @@ end:
   ASSERT(HTTP_IO_STATE_DONE == server_send_http_io_state);
 
   // String msg_server_received = string_make(msg_expected.len, &arena);
-  // ASSERT(true == ring_buffer_read_slice(&server_recv, msg_server_received));
-  // ASSERT(string_eq(msg_server_received, msg_expected));
+  // ASSERT(true == ring_buffer_read_slice(&server_recv,
+  // msg_server_received)); ASSERT(string_eq(msg_server_received,
+  // msg_expected));
   ASSERT(0 == net_socket_close(client_socket));
   ASSERT(0 == net_socket_close(server_socket));
   ASSERT(0 == net_socket_close(listen_socket));

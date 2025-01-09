@@ -1481,7 +1481,9 @@ SLICE(AioEvent);
 [[maybe_unused]] [[nodiscard]] static Error
 net_aio_queue_ctl(AioQueue queue, AioEventSlice events);
 
-[[maybe_unused]] [[nodiscard]] static Error
+RESULT(u64) IoCountResult;
+
+[[maybe_unused]] [[nodiscard]] static IoCountResult
 net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
                    Arena arena);
 
@@ -1636,6 +1638,8 @@ net_socket_enable_reuse(Socket sock) {
 
 [[maybe_unused]] [[nodiscard]] static Ipv4AddressAcceptResult
 net_tcp_accept(Socket sock) {
+  ASSERT(0 != sock);
+
   Ipv4AddressAcceptResult res = {0};
 
   struct sockaddr_in sockaddrin = {0};
@@ -1713,17 +1717,21 @@ net_aio_queue_ctl(AioQueue queue, AioEventSlice events) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static Error
+[[maybe_unused]] [[nodiscard]] static IoCountResult
 net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
                    Arena arena) {
+  IoCountResult res = {0};
+
   struct epoll_event *epoll_events =
       arena_new(&arena, struct epoll_event, events.len);
 
   int res_epoll =
       epoll_wait((int)queue, epoll_events, (int)events.len, (int)timeout_ms);
   if (-1 == res_epoll) {
-    return (Error)errno;
+    res.err = (Error)errno;
+    return res;
   }
+  res.res = (u64)res_epoll;
 
   for (u64 i = 0; i < events.len; i++) {
     AioEvent *event = slice_at_ptr(&events, i);
@@ -1740,11 +1748,10 @@ net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
     event->socket = epoll_event.data.fd;
   }
 
-  return 0;
+  return res;
 }
 #endif
 
-RESULT(u64) IoCountResult;
 RESULT(String) IoResult;
 
 typedef IoCountResult (*ReadFn)(void *self, u8 *buf, size_t buf_len);
