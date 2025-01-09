@@ -1207,7 +1207,6 @@ static void test_http_parse_header() {
   {
     ASSERT(http_parse_header(S("foo:")).err);
   }
-#if 0
   // Multiple colons.
   {
     KeyValueResult res = http_parse_header(S("foo: bar : baz"));
@@ -1215,7 +1214,6 @@ static void test_http_parse_header() {
     ASSERT(string_eq(res.res.key, S("foo")));
     ASSERT(string_eq(res.res.value, S("bar : baz")));
   }
-#endif
   // Valid, one space before the value.
   {
     KeyValueResult res = http_parse_header(S("foo: bar"));

@@ -2701,23 +2701,22 @@ url_parse_authority(String s, Arena *arena) {
 http_parse_header(String s) {
   KeyValueResult res = {0};
 
-  SplitIterator it = string_split(s, ':');
-  {
-    SplitResult key = string_split_next(&it);
-    if (!key.ok) {
-      res.err = EINVAL;
-      return res;
-    }
-    res.res.key = key.s;
+  i64 idx = string_indexof_byte(s, ':');
+  if (-1 == idx) {
+    res.err = EINVAL;
+    return res;
   }
 
-  {
-    SplitResult value = string_split_next(&it);
-    if (!value.ok) {
-      res.err = EINVAL;
-      return res;
-    }
-    res.res.value = string_trim_left(value.s, ' ');
+  res.res.key = slice_range(s, 0, (u64)idx);
+  if (slice_is_empty(res.res.key)) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  res.res.value = string_trim_left(slice_range_start(s, (u64)idx + 1), ' ');
+  if (slice_is_empty(res.res.value)) {
+    res.err = EINVAL;
+    return res;
   }
 
   return res;
