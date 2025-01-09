@@ -1507,6 +1507,8 @@ static void test_http_request_response() {
 
     for (u64 i = 0; i < res_wait.res; i++) {
       AioEvent event = slice_at(events_watch, i);
+      ASSERT(0 == (AIO_EVENT_KIND_ERR & event.kind));
+
       if (event.socket == listen_socket) {
         Ipv4AddressAcceptResult res_accept = net_tcp_accept(listen_socket);
         ASSERT(0 == res_accept.err);
@@ -1529,8 +1531,6 @@ static void test_http_request_response() {
         ASSERT(0 == net_aio_queue_ctl(queue, events_change));
         events_change.len = 0;
       } else if (event.socket == client_socket) {
-        ASSERT(0 == (AIO_EVENT_KIND_ERR & event.kind));
-
         if (HTTP_IO_STATE_DONE != client_send_http_io_state) {
           ASSERT(AIO_EVENT_KIND_OUT & event.kind);
 
@@ -1538,26 +1538,35 @@ static void test_http_request_response() {
                              &client_header_idx, client_req, arena);
           ASSERT(0 == writer_write(&client_writer, &client_send, arena).err);
 
-          // Stop subscribing for writing, start subscribing for reading.
-          events_change.len = 1;
-          AioEvent *event_client = slice_at_ptr(&events_change, 0);
-          event_client->kind = AIO_EVENT_KIND_IN;
-          event_client->action = AIO_EVENT_ACTION_KIND_MOD;
-          ASSERT(0 == net_aio_queue_ctl(queue, events_change));
-          events_change.len = 0;
+          if (HTTP_IO_STATE_DONE == client_send_http_io_state) {
+            // Stop subscribing for writing, start subscribing for reading.
+            events_change.len = 1;
+            AioEvent *event_client = slice_at_ptr(&events_change, 0);
+            event_client->kind = AIO_EVENT_KIND_IN;
+            event_client->action = AIO_EVENT_ACTION_KIND_MOD;
+            ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+            events_change.len = 0;
+          }
         } else {
           ASSERT(AIO_EVENT_KIND_IN & event.kind);
           // goto end; // TODO.
         }
       } else if (event.socket == server_socket) {
-        ASSERT(0 == (AIO_EVENT_KIND_ERR & event.kind));
-
         ASSERT(AIO_EVENT_KIND_IN & event.kind);
         if (HTTP_IO_STATE_DONE != server_recv_http_io_state) {
           ASSERT(0 == reader_read(&server_reader, &server_recv, arena).err);
           ASSERT(0 == http_read_request(&server_recv,
                                         &server_recv_http_io_state, &server_req,
                                         &arena));
+          if (HTTP_IO_STATE_DONE == server_recv_http_io_state) {
+            // Stop subscribing for reading, start subscribing for writing.
+            events_change.len = 1;
+            AioEvent *event_server = slice_at_ptr(&events_change, 0);
+            event_server->kind = AIO_EVENT_KIND_OUT;
+            event_server->action = AIO_EVENT_ACTION_KIND_MOD;
+            ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+            events_change.len = 0;
+          }
         } else {
           if (HTTP_IO_STATE_DONE != server_send_http_io_state) {
             http_write_request(&server_send, &server_send_http_io_state,
