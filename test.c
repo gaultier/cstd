@@ -1237,6 +1237,32 @@ static void test_http_parse_header() {
   }
 }
 
+static void test_http_read_response() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+  // Empty.
+  {
+    RingBuffer rg = {.data = string_make(32, &arena)};
+    HttpParseState state = HTTP_PARSE_STATE_NONE;
+    HttpResponse res = {0};
+    Error err = http_read_response(&rg, &state, &res, &arena);
+    ASSERT(0 == err);
+    ASSERT(HTTP_PARSE_STATE_NONE == state);
+  }
+  // Partial status line.
+  {
+    RingBuffer rg = {.data = string_make(32, &arena)};
+    HttpParseState state = HTTP_PARSE_STATE_NONE;
+    HttpResponse res = {0};
+
+    ASSERT(true == ring_buffer_write_slice(&rg, S("HTTP/1.")));
+    Error err = http_read_response(&rg, &state, &res, &arena);
+    ASSERT(0 == err);
+    ASSERT(HTTP_PARSE_STATE_NONE == state);
+    ASSERT(ring_buffer_read_space(rg) == S("HTTP/1.").len);
+  }
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_slice();
@@ -1272,4 +1298,5 @@ int main() {
   test_http_request_serialize();
   test_http_parse_response_status_line();
   test_http_parse_header();
+  test_http_read_response();
 }
