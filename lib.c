@@ -2259,7 +2259,7 @@ RESULT(HttpRequestStatusLine) HttpRequestStatusLineResult;
 typedef struct {
   u8 version_minor;
   u8 version_major;
-  u16 status_code;
+  u16 status;
 } HttpResponseStatusLine;
 
 RESULT(HttpResponseStatusLine) HttpResponseStatusLineResult;
@@ -2351,7 +2351,7 @@ http_parse_response_status_line(String status_line) {
       res.err = EINVAL;
       return res;
     }
-    res.res.status_code = (u16)res_status_code.n;
+    res.res.status = (u16)res_status_code.n;
     remaining = res_status_code.remaining;
   }
 
@@ -2737,7 +2737,7 @@ http_read_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
       return res_status_line.err;
     }
 
-    res->status = res_status_line.res.status_code;
+    res->status = res_status_line.res.status;
     res->version_major = res_status_line.res.version_major;
     res->version_minor = res_status_line.res.version_minor;
 

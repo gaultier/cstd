@@ -1168,7 +1168,7 @@ static void test_http_parse_response_status_line() {
     ASSERT(0 == res.err);
     ASSERT(2 == res.res.version_major);
     ASSERT(0 == res.res.version_minor);
-    ASSERT(201 == res.res.status_code);
+    ASSERT(201 == res.res.status);
   }
   // Valid, short, 0.9.
   {
@@ -1177,7 +1177,7 @@ static void test_http_parse_response_status_line() {
     ASSERT(0 == res.err);
     ASSERT(0 == res.res.version_major);
     ASSERT(9 == res.res.version_minor);
-    ASSERT(201 == res.res.status_code);
+    ASSERT(201 == res.res.status);
   }
   // Valid, long.
   {
@@ -1186,7 +1186,7 @@ static void test_http_parse_response_status_line() {
     ASSERT(0 == res.err);
     ASSERT(1 == res.res.version_major);
     ASSERT(1 == res.res.version_minor);
-    ASSERT(404 == res.res.status_code);
+    ASSERT(404 == res.res.status);
   }
 }
 
@@ -1260,6 +1260,21 @@ static void test_http_read_response() {
     ASSERT(0 == err);
     ASSERT(HTTP_PARSE_STATE_NONE == state);
     ASSERT(ring_buffer_read_space(rg) == S("HTTP/1.").len);
+  }
+  // Status line and some.
+  {
+    RingBuffer rg = {.data = string_make(32, &arena)};
+    HttpParseState state = HTTP_PARSE_STATE_NONE;
+    HttpResponse res = {0};
+
+    ASSERT(true ==
+           ring_buffer_write_slice(&rg, S("HTTP/1.1 201 Created\r\nHost:")));
+    Error err = http_read_response(&rg, &state, &res, &arena);
+    ASSERT(0 == err);
+    ASSERT(HTTP_PARSE_STATE_PARSED_STATUS_LINE == state);
+    ASSERT(1 == res.version_major);
+    ASSERT(1 == res.version_minor);
+    ASSERT(201 == res.status);
   }
 }
 
