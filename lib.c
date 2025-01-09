@@ -2725,56 +2725,58 @@ http_read_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
                    Arena *arena) {
   String nr = S("\r\n");
 
-  switch (*state) {
-  case HTTP_PARSE_STATE_NONE: {
-    String line = ring_buffer_read_until_excl(rg, nr, arena);
-    if (slice_is_empty(line)) {
+  for (u64 _i = 0; _i < 128; _i++) {
+    switch (*state) {
+    case HTTP_PARSE_STATE_NONE: {
+      String line = ring_buffer_read_until_excl(rg, nr, arena);
+      if (slice_is_empty(line)) {
+        return 0;
+      }
+      HttpResponseStatusLineResult res_status_line =
+          http_parse_response_status_line(line);
+      if (res_status_line.err) {
+        return res_status_line.err;
+      }
+
+      res->status = res_status_line.res.status;
+      res->version_major = res_status_line.res.version_major;
+      res->version_minor = res_status_line.res.version_minor;
+
+      *state = HTTP_PARSE_STATE_PARSED_STATUS_LINE;
+
+      break;
+    }
+    case HTTP_PARSE_STATE_PARSED_STATUS_LINE: {
+      String line = ring_buffer_read_until_excl(rg, nr, arena);
+      if (slice_is_empty(line)) {
+        return 0;
+      }
+      if (slice_is_empty(line)) {
+        *state = HTTP_PARSE_STATE_PARSED_ALL_HEADERS;
+        break;
+      }
+
+      KeyValueResult res_kv = http_parse_header(line);
+      if (res_kv.err) {
+        return res_kv.err;
+      }
+
+      *dyn_push(&res->headers, arena) = res_kv.res;
+
+      break;
+    }
+    case HTTP_PARSE_STATE_PARSED_ALL_HEADERS: {
+      // TODO: body.
+      *state = HTTP_PARSE_STATE_DONE;
       return 0;
     }
-    HttpResponseStatusLineResult res_status_line =
-        http_parse_response_status_line(line);
-    if (res_status_line.err) {
-      return res_status_line.err;
+    case HTTP_PARSE_STATE_DONE:
+      break;
+    default:
+      ASSERT(0);
     }
-
-    res->status = res_status_line.res.status;
-    res->version_major = res_status_line.res.version_major;
-    res->version_minor = res_status_line.res.version_minor;
-
-    *state = HTTP_PARSE_STATE_PARSED_STATUS_LINE;
-
-    return 0;
   }
-  case HTTP_PARSE_STATE_PARSED_STATUS_LINE: {
-    String line = ring_buffer_read_until_excl(rg, nr, arena);
-    if (slice_is_empty(line)) {
-      return 0;
-    }
-    if (slice_is_empty(line)) {
-      *state = HTTP_PARSE_STATE_PARSED_ALL_HEADERS;
-      return 0;
-    }
-
-    KeyValueResult res_kv = http_parse_header(line);
-    if (res_kv.err) {
-      return res_kv.err;
-    }
-
-    *dyn_push(&res->headers, arena) = res_kv.res;
-
-    return 0;
-  }
-  case HTTP_PARSE_STATE_PARSED_ALL_HEADERS: {
-    // TODO: body.
-    *state = HTTP_PARSE_STATE_DONE;
-    return 0;
-  }
-  case HTTP_PARSE_STATE_DONE:
-    return 0;
-  default:
-    ASSERT(0);
-  }
-  ASSERT(0);
+  return 0;
 }
 
 #if 0
