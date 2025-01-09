@@ -957,7 +957,8 @@ static void test_net_socket() {
 
   Socket socket_bob = 0;
   Reader reader_bob = {0};
-  reader_bob.read_fn = unix_read;
+
+  Writer write_alice = writer_make_from_socket(socket_alice);
 
   RingBuffer bob_recv = {0};
   String msg_expected = S("hello world!");
@@ -974,6 +975,8 @@ static void test_net_socket() {
 
     for (u64 i = 0; i < events_watch.len; i++) {
       AioEvent event = slice_at(events_watch, i);
+      ASSERT(0 == (AIO_EVENT_KIND_ERR & event.kind));
+
       if (event.socket == socket_listen) {
         Ipv4AddressAcceptResult res_accept = net_tcp_accept(socket_listen);
         ASSERT(0 == res_accept.err);
@@ -994,8 +997,9 @@ static void test_net_socket() {
         event_bob->action = AIO_EVENT_ACTION_KIND_ADD;
 
         ASSERT(0 == net_aio_queue_ctl(queue, events_change));
-        events_watch.len = 0;
+        events_change.len = 0;
       } else if (event.socket == socket_alice) {
+        ASSERT(AIO_EVENT_KIND_OUT & event.kind);
 
         switch (alice_state) {
         case ALICE_STATE_NONE: {
@@ -1015,7 +1019,6 @@ static void test_net_socket() {
           ASSERT(0);
         }
       } else if (event.socket == socket_bob) {
-        ASSERT(0 == (AIO_EVENT_KIND_ERR & event.kind));
         ASSERT(AIO_EVENT_KIND_IN & event.kind);
 
         if (0 == ring_buffer_write_space(bob_recv)) {
@@ -1039,6 +1042,7 @@ end:
   String msg_bob_received = string_make(msg_expected.len, &arena);
   ASSERT(true == ring_buffer_read_slice(&bob_recv, msg_bob_received));
   ASSERT(string_eq(msg_bob_received, msg_expected));
+
   ASSERT(0 == net_socket_close(socket_alice));
   ASSERT(0 == net_socket_close(socket_bob));
   ASSERT(0 == net_socket_close(socket_listen));
