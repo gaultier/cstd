@@ -1248,7 +1248,7 @@ static void test_http_read_response() {
   // Empty.
   {
     RingBuffer rg = {.data = string_make(32, &arena)};
-    HttpParseState state = HTTP_PARSE_STATE_NONE;
+    HttpIOState state = HTTP_PARSE_STATE_NONE;
     HttpResponse res = {0};
     Error err = http_receive_response(&rg, &state, &res, &arena);
     ASSERT(0 == err);
@@ -1257,7 +1257,7 @@ static void test_http_read_response() {
   // Partial status line.
   {
     RingBuffer rg = {.data = string_make(32, &arena)};
-    HttpParseState state = HTTP_PARSE_STATE_NONE;
+    HttpIOState state = HTTP_PARSE_STATE_NONE;
     HttpResponse res = {0};
 
     ASSERT(true == ring_buffer_write_slice(&rg, S("HTTP/1.")));
@@ -1269,14 +1269,14 @@ static void test_http_read_response() {
   // Status line and some.
   {
     RingBuffer rg = {.data = string_make(32, &arena)};
-    HttpParseState state = HTTP_PARSE_STATE_NONE;
+    HttpIOState state = HTTP_PARSE_STATE_NONE;
     HttpResponse res = {0};
 
     ASSERT(true ==
            ring_buffer_write_slice(&rg, S("HTTP/1.1 201 Created\r\nHost:")));
     Error err = http_receive_response(&rg, &state, &res, &arena);
     ASSERT(0 == err);
-    ASSERT(HTTP_PARSE_STATE_PARSED_STATUS_LINE == state);
+    ASSERT(HTTP_PARSE_STATE_AFTER_STATUS_LINE == state);
     ASSERT(1 == res.version_major);
     ASSERT(1 == res.version_minor);
     ASSERT(201 == res.status);
@@ -1285,7 +1285,7 @@ static void test_http_read_response() {
   // Full.
   {
     RingBuffer rg = {.data = string_make(32, &arena)};
-    HttpParseState state = HTTP_PARSE_STATE_NONE;
+    HttpIOState state = HTTP_PARSE_STATE_NONE;
     HttpResponse res = {0};
 
     {
@@ -1293,7 +1293,7 @@ static void test_http_read_response() {
              ring_buffer_write_slice(&rg, S("HTTP/1.1 201 Created\r\nHost:")));
       Error err = http_receive_response(&rg, &state, &res, &arena);
       ASSERT(0 == err);
-      ASSERT(HTTP_PARSE_STATE_PARSED_STATUS_LINE == state);
+      ASSERT(HTTP_PARSE_STATE_AFTER_STATUS_LINE == state);
       ASSERT(1 == res.version_major);
       ASSERT(1 == res.version_minor);
       ASSERT(201 == res.status);
@@ -1303,13 +1303,13 @@ static void test_http_read_response() {
       ASSERT(true == ring_buffer_write_slice(&rg, S("google.com\r")));
       Error err = http_receive_response(&rg, &state, &res, &arena);
       ASSERT(0 == err);
-      ASSERT(HTTP_PARSE_STATE_PARSED_STATUS_LINE == state);
+      ASSERT(HTTP_PARSE_STATE_AFTER_STATUS_LINE == state);
       ASSERT(0 == res.headers.len);
 
       ASSERT(true == ring_buffer_write_slice(&rg, S("\n")));
       err = http_receive_response(&rg, &state, &res, &arena);
       ASSERT(0 == err);
-      ASSERT(HTTP_PARSE_STATE_PARSED_STATUS_LINE == state);
+      ASSERT(HTTP_PARSE_STATE_AFTER_STATUS_LINE == state);
       ASSERT(1 == res.headers.len);
       KeyValue kv = slice_at(res.headers, 0);
       ASSERT(string_eq(kv.key, S("Host")));

@@ -2229,10 +2229,10 @@ typedef struct {
 
 typedef enum {
   HTTP_PARSE_STATE_NONE,
-  HTTP_PARSE_STATE_PARSED_STATUS_LINE,
-  HTTP_PARSE_STATE_PARSED_ALL_HEADERS,
+  HTTP_PARSE_STATE_AFTER_STATUS_LINE,
+  HTTP_PARSE_STATE_AFTER_ALL_HEADERS,
   HTTP_PARSE_STATE_DONE,
-} HttpParseState;
+} HttpIOState;
 
 typedef struct {
   String id;
@@ -2729,7 +2729,7 @@ http_parse_header(String s) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Error
-http_receive_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
+http_receive_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
                       Arena *arena) {
   String nr = S("\r\n");
 
@@ -2750,17 +2750,17 @@ http_receive_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
       res->version_major = res_status_line.res.version_major;
       res->version_minor = res_status_line.res.version_minor;
 
-      *state = HTTP_PARSE_STATE_PARSED_STATUS_LINE;
+      *state = HTTP_PARSE_STATE_AFTER_STATUS_LINE;
 
       break;
     }
-    case HTTP_PARSE_STATE_PARSED_STATUS_LINE: {
+    case HTTP_PARSE_STATE_AFTER_STATUS_LINE: {
       StringOk line = ring_buffer_read_until_excl(rg, nr, arena);
       if (!line.ok) {
         return 0;
       }
       if (slice_is_empty(line.res)) {
-        *state = HTTP_PARSE_STATE_PARSED_ALL_HEADERS;
+        *state = HTTP_PARSE_STATE_AFTER_ALL_HEADERS;
         break;
       }
 
@@ -2773,7 +2773,7 @@ http_receive_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
 
       break;
     }
-    case HTTP_PARSE_STATE_PARSED_ALL_HEADERS: {
+    case HTTP_PARSE_STATE_AFTER_ALL_HEADERS: {
       // TODO: body.
       *state = HTTP_PARSE_STATE_DONE;
       return 0;
@@ -2784,6 +2784,12 @@ http_receive_response(RingBuffer *rg, HttpParseState *state, HttpResponse *res,
       ASSERT(0);
     }
   }
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static Error
+http_send_request(RingBuffer *rg, HttpIOState *state, HttpRequest *req,
+                  Arena *arena) {
   return 0;
 }
 
