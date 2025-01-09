@@ -109,7 +109,7 @@ typedef u32 Error;
          ('a' <= c && c <= 'f');
 }
 
-[[maybe_unused]] [[nodiscard]] static bool ch_is_alpha(u8 c) {
+[[maybe_unused]] [[nodiscard]] static bool ch_is_alphabetical(u8 c) {
   return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
 }
 
@@ -118,7 +118,7 @@ typedef u32 Error;
 }
 
 [[maybe_unused]] [[nodiscard]] static bool ch_is_alphanumeric(u8 c) {
-  return ch_is_numeric(c) || ch_is_alpha(c);
+  return ch_is_numeric(c) || ch_is_alphabetical(c);
 }
 
 [[maybe_unused]] [[nodiscard]] static u8 ch_from_hex(u8 c) {
@@ -150,6 +150,16 @@ RESULT(String) StringResult;
   (((s).len == 0) ? true : (ASSERT(nullptr != (s).data), false))
 
 #define S(s) ((String){.data = (u8 *)s, .len = sizeof(s) - 1})
+
+[[maybe_unused]] [[nodiscard]] static bool string_is_alphabetical(String s) {
+  for (u64 i = 0; i < s.len; i++) {
+    u8 c = slice_at(s, i);
+    if (!ch_is_alphabetical(c)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 [[maybe_unused]] [[nodiscard]] static String string_trim_left(String s, u8 c) {
   String res = s;
@@ -2207,14 +2217,12 @@ typedef struct {
   u64 len, cap;
 } DynKeyValue;
 
-#if 0
 typedef enum {
   HTTP_PARSE_STATE_NONE,
   HTTP_PARSE_STATE_PARSED_STATUS_LINE,
   HTTP_PARSE_STATE_PARSED_ALL_HEADERS,
   HTTP_PARSE_STATE_DONE,
 } HttpParseState;
-#endif
 
 typedef struct {
   String id;
@@ -2225,7 +2233,34 @@ typedef struct {
   String body;
 } HttpRequest;
 
-RESULT(HttpRequest) HttpRequestParseResult;
+typedef struct {
+  String scheme;
+  String username, password;
+  String host; // Including subdomains.
+  StringSlice path_components;
+  // TODO: DynKeyValue url_parameters;
+  u16 port;
+  // TODO: fragment.
+} Url;
+
+// `GET /en-US/docs/Web/HTTP/Messages HTTP/1.1`.
+typedef struct {
+  HttpMethod method;
+  u8 version_minor;
+  u8 version_major;
+  Url url; // Does not have a scheme, domain, port.
+} HttpRequestStatusLine;
+
+RESULT(HttpRequestStatusLine) HttpRequestStatusLineResult;
+
+// `HTTP/1.1 201 Created`.
+typedef struct {
+  u8 version_minor;
+  u8 version_major;
+  u16 status_code;
+} HttpResponseStatusLine;
+
+RESULT(HttpResponseStatusLine) HttpResponseStatusLineResult;
 
 #if 0
 typedef struct {
@@ -2246,72 +2281,84 @@ typedef struct {
 
 RESULT(StringSlice) StringSliceResult;
 
-#if 0
-[[maybe_unused]] [[nodiscard]] static HttpRequestParseResult
-http_parse_status_line(String status_line, Arena *arena) {
-  HttpRequestParseResult res = {0};
+[[maybe_unused]] [[nodiscard]] static HttpResponseStatusLineResult
+http_parse_response_status_line(String status_line) {
+  HttpResponseStatusLineResult res = {0};
 
-  if (slice_is_empty(status_line)) {
-    res.err = HS_ERR_INVALID_HTTP_REQUEST;
-    return res;
-  }
-
-  SplitIterator it = string_split(status_line, ' ');
-
+  String remaining = status_line;
   {
-    SplitResult method = string_split_next(&it);
-    if (!method.ok) {
-      res.err = HS_ERR_INVALID_HTTP_REQUEST;
+    StringConsumeResult consume = string_consume_slice(remaining, S("HTTP/"));
+    if (!consume.consumed) {
+      res.err = EINVAL;
       return res;
     }
-
-    if (string_eq(method.s, S("GET"))) {
-      res.res.method = HM_GET;
-    } else if (string_eq(method.s, S("POST"))) {
-      res.res.method = HM_POST;
-    } else {
-      // FIXME: More.
-      res.err = HS_ERR_INVALID_HTTP_REQUEST;
-      return res;
-    }
+    remaining = consume.remaining;
   }
 
   {
-    SplitResult path = string_split_next(&it);
-    if (!path.ok) {
-      res.err = HS_ERR_INVALID_HTTP_REQUEST;
+    ParseNumberResult res_major = string_parse_u64(remaining);
+    if (!res_major.present) {
+      res.err = EINVAL;
       return res;
     }
-
-    if (slice_is_empty(path.s)) {
-      res.err = HS_ERR_INVALID_HTTP_REQUEST;
+    if (res_major.n > 3) {
+      res.err = EINVAL;
       return res;
     }
-
-    if (path.s.data[0] != '/') {
-      res.err = HS_ERR_INVALID_HTTP_REQUEST;
-      return res;
-    }
-
-    res.res.path_components = http_parse_relative_path(path.s, true, arena);
+    res.res.version_major = (u8)res_major.n;
+    remaining = res_major.remaining;
   }
 
   {
-    SplitResult http_version = string_split_next(&it);
-    if (!http_version.ok) {
-      res.err = HS_ERR_INVALID_HTTP_REQUEST;
+    StringConsumeResult consume = string_consume_byte(remaining, '.');
+    if (!consume.consumed) {
+      res.err = EINVAL;
       return res;
     }
-
-    if (!string_eq(http_version.s, S("HTTP/1.1"))) {
-      res.err = HS_ERR_INVALID_HTTP_REQUEST;
-      return res;
-    }
+    remaining = consume.remaining;
   }
+
+  {
+    ParseNumberResult res_minor = string_parse_u64(remaining);
+    if (!res_minor.present) {
+      res.err = EINVAL;
+      return res;
+    }
+    if (res_minor.n > 9) {
+      res.err = EINVAL;
+      return res;
+    }
+    res.res.version_minor = (u8)res_minor.n;
+    remaining = res_minor.remaining;
+  }
+
+  {
+    StringConsumeResult consume = string_consume_byte(remaining, ' ');
+    if (!consume.consumed) {
+      res.err = EINVAL;
+      return res;
+    }
+    remaining = consume.remaining;
+  }
+
+  {
+    ParseNumberResult res_status_code = string_parse_u64(remaining);
+    if (!res_status_code.present) {
+      res.err = EINVAL;
+      return res;
+    }
+    if (res_status_code.n > 599) {
+      res.err = EINVAL;
+      return res;
+    }
+    res.res.status_code = (u16)res_status_code.n;
+    remaining = res_status_code.remaining;
+  }
+
+  // TODO: Should we keep the human-readable status code around or validate it?
 
   return res;
 }
-#endif
 
 [[maybe_unused]]
 static void http_push_header(DynKeyValue *headers, String key, String value,
@@ -2407,16 +2454,6 @@ typedef struct {
 } UrlAuthority;
 
 RESULT(UrlAuthority) UrlAuthorityResult;
-
-typedef struct {
-  String scheme;
-  String username, password;
-  String host; // Including subdomains.
-  StringSlice path_components;
-  // TODO: DynKeyValue url_parameters;
-  u16 port;
-  // TODO: fragment.
-} Url;
 
 RESULT(Url) ParseUrlResult;
 
@@ -2571,7 +2608,7 @@ url_parse_authority(String s, Arena *arena) {
   }
 
   u8 first = slice_at(scheme, 0);
-  if (!ch_is_alpha(first)) {
+  if (!ch_is_alphabetical(first)) {
     return false;
   }
 
@@ -2782,6 +2819,7 @@ request_read(BufferedReader *reader, Arena *arena) {
 
   return req;
 }
+
 
 [[maybe_unused]] [[nodiscard]] static HttpResponse
 http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {

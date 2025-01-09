@@ -1116,6 +1116,79 @@ static void test_http_request_serialize() {
   }
 }
 
+static void test_http_parse_response_status_line() {
+  // Empty.
+  {
+    ASSERT(http_parse_response_status_line(S("")).err);
+  }
+  // Missing prefix.
+  {
+    ASSERT(http_parse_response_status_line(S("HTT")).err);
+    ASSERT(http_parse_response_status_line(S("abc")).err);
+    ASSERT(http_parse_response_status_line(S("/1.1")).err);
+  }
+  // Missing slash.
+  {
+    ASSERT(http_parse_response_status_line(S("HTTP1.1 201 Created")).err);
+  }
+  // Missing major version.
+  {
+    ASSERT(http_parse_response_status_line(S("HTTP/.1 201 Created")).err);
+  }
+  // Missing `.`.
+  {
+    ASSERT(http_parse_response_status_line(S("HTTP/11 201 Created")).err);
+  }
+  // Missing minor version.
+  {
+    ASSERT(http_parse_response_status_line(S("HTTP/1. 201 Created")).err);
+  }
+  // Missing status code.
+  {
+    ASSERT(http_parse_response_status_line(S("HTTP/1.1 Created")).err);
+  }
+  // Invalid major version.
+  {
+    ASSERT(http_parse_response_status_line(S("HTTP/abc.1 201 Created")).err);
+    ASSERT(http_parse_response_status_line(S("HTTP/4.1 201 Created")).err);
+  }
+  // Invalid minor version.
+  {
+    ASSERT(http_parse_response_status_line(S("HTTP/1.10 201 Created")).err);
+  }
+  // Invalid status code.
+  {
+    ASSERT(http_parse_response_status_line(S("HTTP/1.1 600 Created")).err);
+  }
+  // Valid, short.
+  {
+    HttpResponseStatusLineResult res =
+        http_parse_response_status_line(S("HTTP/2.0 201"));
+    ASSERT(0 == res.err);
+    ASSERT(2 == res.res.version_major);
+    ASSERT(0 == res.res.version_minor);
+    ASSERT(201 == res.res.status_code);
+  }
+  // Valid, short, 0.9.
+  {
+    HttpResponseStatusLineResult res =
+        http_parse_response_status_line(S("HTTP/0.9 201"));
+    ASSERT(0 == res.err);
+    ASSERT(0 == res.res.version_major);
+    ASSERT(9 == res.res.version_minor);
+    ASSERT(201 == res.res.status_code);
+  }
+  // Valid, long.
+  {
+    HttpResponseStatusLineResult res =
+        http_parse_response_status_line(S("HTTP/1.1 404 Not found"));
+    ASSERT(0 == res.err);
+    ASSERT(1 == res.res.version_major);
+    ASSERT(1 == res.res.version_minor);
+    ASSERT(404 == res.res.status_code);
+  }
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_slice();
@@ -1149,4 +1222,5 @@ int main() {
   test_url_parse_relative_path();
   test_url_parse();
   test_http_request_serialize();
+  test_http_parse_response_status_line();
 }
