@@ -902,8 +902,7 @@ static void test_read_http_request_without_body() {
 
 typedef enum {
   ALICE_STATE_NONE,
-  ALICE_STATE_SENT_HELLO,
-  ALICE_STATE_SENT_WORLD,
+  ALICE_STATE_DONE,
 } AliceState;
 static void test_net_socket() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
@@ -936,7 +935,7 @@ static void test_net_socket() {
   }
   ASSERT(0 == net_socket_set_blocking(socket_alice, false));
 
-  Writer writer_alice = writer_make_from_socket(socket_alice);
+  // Writer writer_alice = writer_make_from_socket(socket_alice);
 
   AioQueueCreateResult res_queue_create = net_aio_queue_create();
   ASSERT(0 == res_queue_create.err);
@@ -955,14 +954,13 @@ static void test_net_socket() {
     ASSERT(0 == net_aio_queue_ctl(queue, events_change));
   }
 
-  Socket socket_bob = 0;
-  Reader reader_bob = {0};
+  Socket bob_socket = 0;
+  Reader bob_reader = {0};
 
-  Writer write_alice = writer_make_from_socket(socket_alice);
+  Writer alice_writer = writer_make_from_socket(socket_alice);
 
-  RingBuffer bob_recv = {0};
-  String msg_expected = S("hello world!");
-  bob_recv.data = string_make(msg_expected.len + 1, &arena);
+  RingBuffer bob_recv = {.data = string_make(4 + 1, &arena)};
+  RingBuffer alice_send = {.data = string_make(4 + 1, &arena)};
 
   AliceState alice_state = ALICE_STATE_NONE;
 
@@ -988,8 +986,8 @@ static void test_net_socket() {
         event_alice->kind = AIO_EVENT_KIND_OUT;
         event_alice->action = AIO_EVENT_ACTION_KIND_ADD;
 
-        socket_bob = res_accept.socket;
-        reader_bob = reader_make_from_socket(socket_bob);
+        bob_socket = res_accept.socket;
+        bob_reader = reader_make_from_socket(bob_socket);
 
         AioEvent *event_bob = slice_at_ptr(&events_change, 1);
         event_bob->socket = res_accept.socket;
@@ -1003,48 +1001,36 @@ static void test_net_socket() {
 
         switch (alice_state) {
         case ALICE_STATE_NONE: {
-          ASSERT(msg_expected.len ==
-                 ring_buffer_write_space(
-                     bob_recv)); // Nothing received by bob yet.
-          ASSERT(0 == writer_write_all_sync(&writer_alice, S("hello")));
-          alice_state = ALICE_STATE_SENT_HELLO;
+          ASSERT(true == ring_buffer_write_slice(&alice_send, S("ping")));
+          ASSERT(0 == writer_write(&alice_writer, &alice_send, arena).err);
+          alice_state = ALICE_STATE_DONE;
         } break;
-        case ALICE_STATE_SENT_HELLO: {
-          ASSERT(0 == writer_write_all_sync(&writer_alice, S(" world!")));
-          alice_state = ALICE_STATE_SENT_WORLD;
-        } break;
-        case ALICE_STATE_SENT_WORLD:
+        case ALICE_STATE_DONE:
           break;
         default:
           ASSERT(0);
         }
-      } else if (event.socket == socket_bob) {
+      } else if (event.socket == bob_socket) {
         ASSERT(AIO_EVENT_KIND_IN & event.kind);
 
-        if (0 == ring_buffer_write_space(bob_recv)) {
+        ASSERT(0 == reader_read(&bob_reader, &bob_recv, arena).err);
+
+        if (4 == ring_buffer_read_space(bob_recv)) {
           goto end; // End of test.
         }
-
-        String recv = string_make(ring_buffer_write_space(bob_recv), &arena);
-
-        IoCountResult res_io_count =
-            reader_bob.read_fn(reader_bob.ctx, recv.data, recv.len);
-        ASSERT(0 == res_io_count.err);
-        recv.len = res_io_count.res;
-        ASSERT(true == ring_buffer_write_slice(&bob_recv, recv));
       }
     }
   }
 
 end:
-  ASSERT(ALICE_STATE_SENT_WORLD == alice_state);
+  ASSERT(ALICE_STATE_DONE == alice_state);
 
-  String msg_bob_received = string_make(msg_expected.len, &arena);
+  String msg_bob_received = string_make(4, &arena);
   ASSERT(true == ring_buffer_read_slice(&bob_recv, msg_bob_received));
-  ASSERT(string_eq(msg_bob_received, msg_expected));
+  ASSERT(string_eq(msg_bob_received, S("ping")));
 
   ASSERT(0 == net_socket_close(socket_alice));
-  ASSERT(0 == net_socket_close(socket_bob));
+  ASSERT(0 == net_socket_close(bob_socket));
   ASSERT(0 == net_socket_close(socket_listen));
 }
 
