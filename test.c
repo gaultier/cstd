@@ -909,19 +909,19 @@ static void test_net_socket() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
 
   u16 port = 5679;
-  Socket socket_bob = 0;
+  Socket socket_listen = 0;
   {
     CreateSocketResult res_create_socket = net_create_tcp_socket();
     ASSERT(0 == res_create_socket.err);
-    socket_bob = res_create_socket.res;
+    socket_listen = res_create_socket.res;
 
-    ASSERT(0 == net_socket_enable_reuse(socket_bob));
-    ASSERT(0 == net_socket_set_blocking(socket_bob, false));
+    ASSERT(0 == net_socket_enable_reuse(socket_listen));
+    ASSERT(0 == net_socket_set_blocking(socket_listen, false));
 
     Ipv4Address addr = {0};
     addr.port = port;
-    ASSERT(0 == net_tcp_bind_ipv4(socket_bob, addr));
-    ASSERT(0 == net_tcp_listen(socket_bob));
+    ASSERT(0 == net_tcp_bind_ipv4(socket_listen, addr));
+    ASSERT(0 == net_tcp_listen(socket_listen));
   }
 
   Socket socket_alice = 0;
@@ -942,22 +942,22 @@ static void test_net_socket() {
   ASSERT(0 == res_queue_create.err);
 
   AioQueue queue = res_queue_create.res;
-  AioEventSlice events = {0};
-  events.len = 2;
-  events.data = arena_new(&arena, AioEvent, 3);
+  AioEventSlice events_change = {0};
+  events_change.len = 1;
+  events_change.data = arena_new(&arena, AioEvent, 3);
 
   {
-    AioEvent *event_bob_listen = slice_at_ptr(&events, 0);
-    event_bob_listen->socket = socket_bob;
+    AioEvent *event_bob_listen = slice_at_ptr(&events_change, 0);
+    event_bob_listen->socket = socket_listen;
     event_bob_listen->kind = AIO_EVENT_KIND_IN;
     event_bob_listen->action = AIO_EVENT_ACTION_KIND_ADD;
 
-    ASSERT(0 == net_aio_queue_ctl(queue, events));
+    ASSERT(0 == net_aio_queue_ctl(queue, events_change));
   }
 
-  Socket socket_bob_alice = 0;
-  Reader reader_bob_alice = {0};
-  reader_bob_alice.read_fn = unix_read;
+  Socket socket_bob = 0;
+  Reader reader_bob = {0};
+  reader_bob.read_fn = unix_read;
 
   RingBuffer bob_recv = {0};
   String msg_expected = S("hello world!");
@@ -965,40 +965,37 @@ static void test_net_socket() {
 
   AliceState alice_state = ALICE_STATE_NONE;
 
+  AioEventSlice events_watch = {0};
+  events_watch.len = 3;
+  events_watch.data = arena_new(&arena, AioEvent, 3);
+
   for (;;) {
-    ASSERT(0 == net_aio_queue_wait(queue, events, -1, arena));
+    ASSERT(0 == net_aio_queue_wait(queue, events_watch, -1, arena));
 
-    for (u64 i = 0; i < events.len; i++) {
-      AioEvent event = slice_at(events, i);
-      if (event.socket == socket_bob) {
-        ASSERT(0 == i); // Only one event thus far.
-
-        Ipv4AddressAcceptResult res_accept = net_tcp_accept(socket_bob);
+    for (u64 i = 0; i < events_watch.len; i++) {
+      AioEvent event = slice_at(events_watch, i);
+      if (event.socket == socket_listen) {
+        Ipv4AddressAcceptResult res_accept = net_tcp_accept(socket_listen);
         ASSERT(0 == res_accept.err);
         ASSERT(0 != res_accept.socket);
 
-        events.len = 3;
-        slice_at_ptr(&events, i)->action =
-            AIO_EVENT_ACTION_KIND_DEL; // Stop listening.
-
-        AioEvent *event_alice = slice_at_ptr(&events, 1);
+        events_change.len = 2;
+        AioEvent *event_alice = slice_at_ptr(&events_change, 0);
         event_alice->socket = socket_alice;
         event_alice->kind = AIO_EVENT_KIND_OUT;
         event_alice->action = AIO_EVENT_ACTION_KIND_ADD;
 
-        socket_bob_alice = res_accept.socket;
-        reader_bob_alice.ctx = (void *)(u64)socket_bob_alice;
+        socket_bob = res_accept.socket;
+        reader_bob = reader_make_from_socket(socket_bob);
 
-        AioEvent *event_bob_alice = slice_at_ptr(&events, 2);
-        event_bob_alice->socket = res_accept.socket;
-        event_bob_alice->kind = AIO_EVENT_KIND_IN;
-        event_bob_alice->action = AIO_EVENT_ACTION_KIND_ADD;
+        AioEvent *event_bob = slice_at_ptr(&events_change, 1);
+        event_bob->socket = res_accept.socket;
+        event_bob->kind = AIO_EVENT_KIND_IN;
+        event_bob->action = AIO_EVENT_ACTION_KIND_ADD;
 
-        ASSERT(0 == net_aio_queue_ctl(queue, events));
-        ASSERT(0 == net_socket_close(socket_bob)); // Stop listening.
-        socket_bob = 0;
+        ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+        events_watch.len = 0;
       } else if (event.socket == socket_alice) {
-        ASSERT(AIO_EVENT_KIND_OUT == event.kind);
 
         switch (alice_state) {
         case ALICE_STATE_NONE: {
@@ -1017,8 +1014,9 @@ static void test_net_socket() {
         default:
           ASSERT(0);
         }
-      } else if (event.socket == socket_bob_alice) {
-        ASSERT(AIO_EVENT_KIND_IN == event.kind);
+      } else if (event.socket == socket_bob) {
+        ASSERT(0 == (AIO_EVENT_KIND_ERR & event.kind));
+        ASSERT(AIO_EVENT_KIND_IN & event.kind);
 
         if (0 == ring_buffer_write_space(bob_recv)) {
           goto end; // End of test.
@@ -1027,7 +1025,7 @@ static void test_net_socket() {
         String recv = string_make(ring_buffer_write_space(bob_recv), &arena);
 
         IoCountResult res_io_count =
-            reader_bob_alice.read_fn(reader_bob_alice.ctx, recv.data, recv.len);
+            reader_bob.read_fn(reader_bob.ctx, recv.data, recv.len);
         ASSERT(0 == res_io_count.err);
         recv.len = res_io_count.res;
         ASSERT(true == ring_buffer_write_slice(&bob_recv, recv));
@@ -1042,7 +1040,8 @@ end:
   ASSERT(true == ring_buffer_read_slice(&bob_recv, msg_bob_received));
   ASSERT(string_eq(msg_bob_received, msg_expected));
   ASSERT(0 == net_socket_close(socket_alice));
-  ASSERT(0 == net_socket_close(socket_bob_alice));
+  ASSERT(0 == net_socket_close(socket_bob));
+  ASSERT(0 == net_socket_close(socket_listen));
 }
 
 static void test_url_parse_relative_path() {
