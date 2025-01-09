@@ -1224,6 +1224,76 @@ static void test_http_parse_response_status_line() {
   }
 }
 
+static void test_http_parse_request_status_line() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+  // Empty.
+  {
+    ASSERT(http_parse_request_status_line(S(""), &arena).err);
+  }
+  // Missing prefix.
+  {
+    ASSERT(http_parse_request_status_line(S("GE"), &arena).err);
+    ASSERT(http_parse_request_status_line(S("abc"), &arena).err);
+    ASSERT(http_parse_request_status_line(S("123 "), &arena).err);
+  }
+  // Missing slash.
+  {
+    ASSERT(http_parse_request_status_line(S("GET HTTP1.1"), &arena).err);
+  }
+  // Missing major version.
+  {
+    ASSERT(http_parse_request_status_line(S("GET / HTTP/.1"), &arena).err);
+  }
+  // Missing `.`.
+  {
+    ASSERT(http_parse_request_status_line(S("GET / HTTP/11"), &arena).err);
+  }
+  // Missing minor version.
+  {
+    ASSERT(http_parse_request_status_line(S("GET / HTTP/1."), &arena).err);
+  }
+  // Invalid major version.
+  {
+    ASSERT(http_parse_request_status_line(S("GET / HTTP/abc.1"), &arena).err);
+    ASSERT(http_parse_request_status_line(S("GET / HTTP/4.1"), &arena).err);
+  }
+  // Invalid minor version.
+  {
+    ASSERT(http_parse_request_status_line(S("GET / HTTP/1.10"), &arena).err);
+  }
+  // Valid, short.
+  {
+    HttpRequestStatusLineResult res =
+        http_parse_request_status_line(S("GET / HTTP/2.0"), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(HTTP_METHOD_GET == res.res.method);
+    ASSERT(2 == res.res.version_major);
+    ASSERT(0 == res.res.version_minor);
+    ASSERT(0 == res.res.url.path_components.len);
+  }
+  // Valid, short, 0.9.
+  {
+    HttpRequestStatusLineResult res =
+        http_parse_request_status_line(S("GET / HTTP/0.9"), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(HTTP_METHOD_GET == res.res.method);
+    ASSERT(0 == res.res.version_major);
+    ASSERT(9 == res.res.version_minor);
+    ASSERT(0 == res.res.url.path_components.len);
+  }
+  // Valid, long.
+  {
+    HttpRequestStatusLineResult res =
+        http_parse_request_status_line(S("GET /foo/bar/baz HTTP/1.1"), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(HTTP_METHOD_GET == res.res.method);
+    ASSERT(1 == res.res.version_major);
+    ASSERT(1 == res.res.version_minor);
+    ASSERT(3 == res.res.url.path_components.len);
+  }
+}
+
 static void test_http_parse_header() {
   // Empty.
   {
@@ -1525,6 +1595,7 @@ int main() {
   test_url_parse();
   test_http_send_request();
   test_http_parse_response_status_line();
+  test_http_parse_request_status_line();
   test_http_parse_header();
   test_http_read_response();
   test_http_request_response();

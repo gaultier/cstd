@@ -2793,7 +2793,7 @@ http_parse_request_status_line(String status_line, Arena *arena) {
   }
 
   {
-    StringConsumeResult consume = string_consume_string(remaining, S(" HTTP/"));
+    StringConsumeResult consume = string_consume_string(remaining, S("HTTP/"));
     if (!consume.consumed) {
       res.err = EINVAL;
       return res;
