@@ -2782,7 +2782,7 @@ http_receive_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
       return 0;
     }
     case HTTP_IO_STATE_DONE:
-      break;
+      return 0;
     default:
       ASSERT(0);
     }
@@ -2825,7 +2825,7 @@ http_receive_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
       continue;
     }
     case HTTP_IO_STATE_DONE:
-      break;
+      return;
     default:
       ASSERT(0);
     }

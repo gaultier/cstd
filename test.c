@@ -1117,22 +1117,38 @@ static void test_http_send_request() {
                         "\r\n");
     ASSERT(string_eq(s, expected));
   }
-#if 0
   {
     HttpRequest req;
     req.method = HTTP_METHOD_POST;
-    req.body = S("hello!");
     http_push_header(&req.headers, S("Host"), S("google.com"), &arena);
     *dyn_push(&req.path_components, &arena) = S("foobar");
 
-    String s = http_request_serialize(req, &arena);
-    String expected = S("POST /foobar HTTP/1.1\r\n"
-                        "Host: google.com\r\n"
-                        "\r\n"
-                        "hello!");
+    RingBuffer rg = {.data = string_make(32, &arena)};
+    HttpIOState state = HTTP_IO_STATE_NONE;
+    u64 header_idx = 0;
+
+    http_send_request(&rg, &state, &header_idx, req, arena);
+    ASSERT(HTTP_IO_STATE_AFTER_STATUS_LINE == state);
+    ASSERT(0 == header_idx);
+
+    {
+      Arena tmp = arena;
+      String s = string_make(ring_buffer_read_space(rg), &tmp);
+      ASSERT(true == ring_buffer_read_slice(&rg, s));
+      ASSERT(string_eq(s, S("POST /foobar HTTP/1.1\r\n")));
+    }
+
+    http_send_request(&rg, &state, &header_idx, req, arena);
+    ASSERT(HTTP_IO_STATE_DONE == state);
+    ASSERT(1 == header_idx);
+
+    String s = string_make(ring_buffer_read_space(rg), &arena);
+    ASSERT(true == ring_buffer_read_slice(&rg, s));
+
+    String expected = S("Host: google.com\r\n"
+                        "\r\n");
     ASSERT(string_eq(s, expected));
   }
-#endif
 }
 
 static void test_http_parse_response_status_line() {
