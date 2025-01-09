@@ -935,8 +935,6 @@ static void test_net_socket() {
   }
   ASSERT(0 == net_socket_set_blocking(socket_alice, false));
 
-  // Writer writer_alice = writer_make_from_socket(socket_alice);
-
   AioQueueCreateResult res_queue_create = net_aio_queue_create();
   ASSERT(0 == res_queue_create.err);
 
@@ -1467,6 +1465,7 @@ static void test_http_request_response() {
 
   Socket server_socket = 0;
   Reader server_reader = {0};
+  Writer server_writer = {0};
 
   Writer client_writer = writer_make_from_socket(client_socket);
   Reader client_reader = reader_make_from_socket(client_socket);
@@ -1523,6 +1522,7 @@ static void test_http_request_response() {
 
         server_socket = res_accept.socket;
         server_reader = reader_make_from_socket(server_socket);
+        server_writer = writer_make_from_socket(server_socket);
 
         AioEvent *event_server_client = slice_at_ptr(&events_change, 1);
         event_server_client->socket = res_accept.socket;
@@ -1581,9 +1581,9 @@ static void test_http_request_response() {
         }
         if (AIO_EVENT_KIND_OUT & event.kind) {
           if (HTTP_IO_STATE_DONE != server_send_http_io_state) {
-            http_write_request(&server_send, &server_send_http_io_state,
-                               &server_header_idx, server_req, arena);
-            ASSERT(0 == writer_write(&client_writer, &client_send, arena).err);
+            http_write_response(&server_send, &server_send_http_io_state,
+                                &server_header_idx, server_res, &arena);
+            ASSERT(0 == writer_write(&server_writer, &server_send, arena).err);
           }
           if (HTTP_IO_STATE_DONE == server_send_http_io_state) {
             // Stop subscribing.
