@@ -1675,16 +1675,14 @@ net_aio_queue_ctl(AioQueue queue, AioEventSlice events) {
     }
 
     struct epoll_event epoll_event = {0};
-    switch (event.kind) {
-    case AIO_EVENT_KIND_IN:
+    if (event.kind & AIO_EVENT_KIND_IN) {
       epoll_event.events |= EPOLLIN;
-      break;
-    case AIO_EVENT_KIND_OUT:
+    }
+    if (event.kind & AIO_EVENT_KIND_OUT) {
       epoll_event.events |= EPOLLOUT;
-      break;
-    case AIO_EVENT_KIND_ERR:
-    default:
-      ASSERT(0);
+    }
+    if (event.kind & AIO_EVENT_KIND_ERR) {
+      epoll_event.events |= EPOLLERR;
     }
     epoll_event.data.u64 = event.user_data;
 
@@ -1731,6 +1729,7 @@ RESULT(u64) IoCountResult;
 RESULT(String) IoResult;
 
 typedef IoCountResult (*ReadFn)(void *self, u8 *buf, size_t buf_len);
+typedef IoCountResult (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
@@ -1739,13 +1738,32 @@ unix_read(void *self, u8 *buf, size_t buf_len) {
   ASSERT(nullptr != self);
 
   int fd = (int)(u64)self;
-  ssize_t n_read = read(fd, buf, buf_len);
+  ssize_t n = read(fd, buf, buf_len);
 
   IoCountResult res = {0};
-  if (n_read < 0) {
+  if (n < 0) {
     res.err = (Error)errno;
   } else {
-    res.res = (u64)n_read;
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+// TODO: Guard with `ifdef`?
+// TODO: Windows?
+[[maybe_unused]] [[nodiscard]] static IoCountResult
+unix_write(void *self, u8 *buf, size_t buf_len) {
+  ASSERT(nullptr != self);
+
+  int fd = (int)(u64)self;
+  ssize_t n = write(fd, buf, buf_len);
+
+  IoCountResult res = {0};
+  if (n < 0) {
+    res.err = (Error)errno;
+  } else {
+    res.res = (u64)n;
   }
 
   return res;
@@ -1962,15 +1980,24 @@ typedef struct {
 
 typedef struct {
   void *ctx;
+  WriteFn write_fn;
+} Writer;
+
+typedef struct {
+  void *ctx;
   ReadFn read_fn;
 
   RingBuffer rg;
 } BufferedReader;
 
-[[maybe_unused]] [[nodiscard]] static int
-buffered_reader_fd(BufferedReader *br) {
-  ASSERT(br->ctx);
-  return (int)(u64)br->ctx;
+[[maybe_unused]] [[nodiscard]] static Socket reader_socket(Reader *r) {
+  ASSERT(r->ctx);
+  return (int)(u64)r->ctx;
+}
+
+[[maybe_unused]] [[nodiscard]] static Socket writer_socket(Writer *w) {
+  ASSERT(w->ctx);
+  return (int)(u64)w->ctx;
 }
 
 [[maybe_unused]] [[nodiscard]] static IoResult
@@ -2175,22 +2202,19 @@ buffered_reader_read_until_slice(BufferedReader *br, String needle,
   return res;
 }
 
-typedef struct {
-  int fd;
-} Writer;
-
 [[maybe_unused]] [[nodiscard]] static Error writer_write_all_sync(Writer *w,
                                                                   String s) {
   for (u64 idx = 0; idx < s.len;) {
     const String to_write = slice_range_start(s, idx);
-    ssize_t written_n = write(w->fd, to_write.data, to_write.len);
-    if (-1 == written_n) {
-      return (Error)errno;
+    IoCountResult res_io_count =
+        w->write_fn(w->ctx, to_write.data, to_write.len);
+    if (res_io_count.err) {
+      return res_io_count.err;
     }
 
-    ASSERT((u64)written_n <= s.len);
+    ASSERT(res_io_count.res <= s.len);
     ASSERT(idx <= s.len);
-    idx += (u64)written_n;
+    idx += res_io_count.res;
     ASSERT(idx <= s.len);
   }
   return 0;
@@ -2732,8 +2756,8 @@ http_parse_header(String s) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Error
-http_receive_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
-                      Arena *arena) {
+http_read_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
+                   Arena *arena) {
   String nr = S("\r\n");
 
   for (u64 _i = 0; _i < 128; _i++) {
@@ -2790,10 +2814,10 @@ http_receive_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
   return 0;
 }
 
-[[maybe_unused]] static void http_send_request(RingBuffer *rg,
-                                               HttpIOState *state,
-                                               u64 *header_idx, HttpRequest req,
-                                               Arena arena) {
+[[maybe_unused]] static void http_write_request(RingBuffer *rg,
+                                                HttpIOState *state,
+                                                u64 *header_idx,
+                                                HttpRequest req, Arena arena) {
   for (u64 _i = 0; _i < 128; _i++) {
     switch (*state) {
     case HTTP_IO_STATE_NONE: {
@@ -2830,6 +2854,42 @@ http_receive_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
       ASSERT(0);
     }
   }
+}
+
+[[maybe_unused]] [[nodiscard]] static Reader
+reader_make_from_socket(Socket socket) {
+  // TODO: Windows.
+  return (Reader){.read_fn = unix_read, .ctx = (void *)(u64)socket};
+}
+
+[[maybe_unused]] [[nodiscard]] static Writer
+writer_make_from_socket(Socket socket) {
+  // TODO: Windows.
+  return (Writer){.write_fn = unix_write, .ctx = (void *)(u64)socket};
+}
+
+[[maybe_unused]] [[nodiscard]] static IoCountResult
+reader_read(Reader *r, RingBuffer *rg, Arena arena) {
+  IoCountResult res = {0};
+
+  String dst = string_make(ring_buffer_write_space(*rg), &arena);
+  res = r->read_fn(r->ctx, dst.data, dst.len);
+
+  if (res.err) {
+    return res;
+  }
+  dst.len = res.res;
+  ASSERT(true == ring_buffer_write_slice(rg, dst));
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static IoCountResult
+writer_write(Writer *w, RingBuffer *rg, Arena arena) {
+  String dst = string_make(ring_buffer_read_space(*rg), &arena);
+  ASSERT(true == ring_buffer_read_slice(rg, dst));
+
+  return w->write_fn(w->ctx, dst.data, dst.len);
 }
 
 #if 0
