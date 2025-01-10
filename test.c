@@ -642,6 +642,16 @@ static void test_url_parse() {
     ASSERT(0 != res.err);
   }
   {
+    ParseUrlResult res = url_parse(S("http://a"), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(S("http"), res.res.scheme));
+    ASSERT(0 == res.res.username.len);
+    ASSERT(0 == res.res.password.len);
+    ASSERT(string_eq(S("a"), res.res.host));
+    ASSERT(0 == res.res.path_components.len);
+    ASSERT(0 == res.res.port);
+  }
+  {
     ParseUrlResult res = url_parse(S("http://a:"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
