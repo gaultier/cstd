@@ -939,9 +939,8 @@ static void test_net_socket() {
   ASSERT(0 == res_queue_create.err);
 
   AioQueue queue = res_queue_create.res;
-  AioEventSlice events_change = {0};
+  AioEventSlice events_change = slice_make(AioEvent, 3, &arena);
   events_change.len = 1;
-  events_change.data = arena_new(&arena, AioEvent, 3);
 
   {
     AioEvent *event_bob_listen = slice_at_ptr(&events_change, 0);
@@ -962,9 +961,7 @@ static void test_net_socket() {
 
   AliceState alice_state = ALICE_STATE_NONE;
 
-  AioEventSlice events_watch = {0};
-  events_watch.len = 3;
-  events_watch.data = arena_new(&arena, AioEvent, 3);
+  AioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
 
   for (;;) {
     IoCountResult res_wait = net_aio_queue_wait(queue, events_watch, -1, arena);
@@ -1450,9 +1447,8 @@ static void test_http_request_response() {
   ASSERT(0 == res_queue_create.err);
 
   AioQueue queue = res_queue_create.res;
-  AioEventSlice events_change = {0};
+  AioEventSlice events_change = slice_make(AioEvent, 3, &arena);
   events_change.len = 1;
-  events_change.data = arena_new(&arena, AioEvent, 3);
 
   {
     AioEvent *event_server_listen = slice_at_ptr(&events_change, 0);
@@ -1497,9 +1493,7 @@ static void test_http_request_response() {
   HttpRequest server_req = {0};
   HttpResponse client_res = {0};
 
-  AioEventSlice events_watch = {0};
-  events_watch.len = 3;
-  events_watch.data = arena_new(&arena, AioEvent, 3);
+  AioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
 
   for (u64 _i = 0; _i <= 128; _i++) {
     IoCountResult res_wait = net_aio_queue_wait(queue, events_watch, -1, arena);

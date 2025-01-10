@@ -100,6 +100,9 @@ typedef u32 Error;
 
 #define slice_at_ptr(s, idx) (AT_PTR((s)->data, (s)->len, idx))
 
+#define slice_make(T, l, arena)                                                \
+  ((T##Slice){.data = arena_new(arena, T, l), .len = l})
+
 #define slice_swap_remove(s, idx)                                              \
   do {                                                                         \
     if ((i64)(idx) >= (i64)((s)->len)) {                                       \
