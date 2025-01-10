@@ -382,6 +382,28 @@ typedef struct {
 } StringPairConsumeAny;
 
 [[maybe_unused]] [[nodiscard]] static StringPairConsumeAny
+string_consume_until_any_byte_incl(String haystack, String needles) {
+  StringPairConsumeAny res = {0};
+
+  for (u64 i = 0; i < needles.len; i++) {
+    u8 needle = slice_at(needles, i);
+    StringPairConsume res_consume =
+        string_consume_until_byte_incl(haystack, needle);
+    if (res_consume.consumed) {
+      res.left = res_consume.left;
+      res.right = res_consume.right;
+      res.consumed = res_consume.consumed;
+      res.matched = needle;
+      return res;
+    }
+  }
+  // Not found.
+  res.left = haystack;
+  res.right = haystack;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static StringPairConsumeAny
 string_consume_until_any_byte_excl(String haystack, String needles) {
   StringPairConsumeAny res = {0};
 
@@ -398,8 +420,8 @@ string_consume_until_any_byte_excl(String haystack, String needles) {
     }
   }
   // Not found.
-  ASSERT(slice_is_empty(res.left));
   res.left = haystack;
+  res.right = haystack;
   return res;
 }
 
@@ -2130,6 +2152,8 @@ typedef struct {
   u64 len, cap;
 } DynKeyValue;
 
+RESULT(DynKeyValue) DynKeyValueResult;
+
 typedef enum {
   HTTP_IO_STATE_NONE,
   HTTP_IO_STATE_AFTER_STATUS_LINE,
@@ -2142,7 +2166,7 @@ typedef struct {
   String username, password;
   String host; // Including subdomains.
   DynString path_components;
-  DynKeyValue parameters;
+  DynKeyValue query_parameters;
   u16 port;
   // TODO: fragment.
 } Url;
@@ -2292,13 +2316,13 @@ http_request_write_status_line(RingBuffer *rg, HttpRequest req, Arena arena) {
     }
   }
 
-  if (req.url.parameters.len > 0) {
+  if (req.url.query_parameters.len > 0) {
     *dyn_push(&sb, &arena) = '?';
-    for (u64 i = 0; i < req.url.parameters.len; i++) {
-      KeyValue param = dyn_at(req.url.parameters, i);
+    for (u64 i = 0; i < req.url.query_parameters.len; i++) {
+      KeyValue param = dyn_at(req.url.query_parameters, i);
       url_encode_string(&sb, param.key, param.value, &arena);
 
-      if (i < req.url.parameters.len - 1) {
+      if (i < req.url.query_parameters.len - 1) {
         *dyn_push(&sb, &arena) = '&';
       }
     }
@@ -2422,6 +2446,28 @@ url_parse_path_components(String s, Arena *arena) {
   }
 
   res.res = components;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static DynKeyValueResult
+url_parse_query_parameters(String s, Arena *arena) {
+  DynKeyValueResult res = {0};
+
+  String remaining = s;
+  {
+    StringConsumeResult res_consume_question = string_consume_byte(s, '?');
+    if (!res_consume_question.consumed) {
+      res.err = EINVAL;
+      return res;
+    }
+    remaining = res_consume_question.remaining;
+  }
+
+  for (u64 _i = 0; _i < s.len; _i++) {
+    (void)remaining;
+    (void)arena;
+  }
+
   return res;
 }
 
@@ -2609,10 +2655,16 @@ url_parse_authority(String s) {
     res.res.path_components = res_path_components.res;
   }
 
-  // Url parameters, optional.
+  // Query parameters, optional.
   if (path_components_and_rem.consumed &&
       path_components_and_rem.matched == '?') {
-    ASSERT(0 && "TODO");
+    DynKeyValueResult res_query =
+        url_parse_query_parameters(path_components_and_rem.right, arena);
+    if (res_query.err) {
+      res.err = res_query.err;
+      return res;
+    }
+    res.res.query_parameters = res_query.res;
   }
 
   // TODO: fragments.
