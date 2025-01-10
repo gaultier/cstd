@@ -370,7 +370,6 @@ string_consume_until_byte_incl(String haystack, u8 needle) {
   res.right = slice_range_start(haystack, (u64)idx + 1);
   res.consumed = true;
 
-  ASSERT(needle == slice_at(res.right, 0));
   return res;
 }
 
@@ -2464,7 +2463,7 @@ url_parse_authority(String s) {
   // User info, optional.
   {
     StringPairConsume user_info_and_rem =
-        string_consume_until_byte_excl(remaining, '@');
+        string_consume_until_byte_incl(remaining, '@');
     remaining = user_info_and_rem.right;
 
     if (user_info_and_rem.consumed) {
@@ -2479,9 +2478,9 @@ url_parse_authority(String s) {
   }
 
   // Host, mandatory.
+  StringPairConsume host_and_rem =
+      string_consume_until_byte_incl(remaining, ':');
   {
-    StringPairConsume host_and_rem =
-        string_consume_until_any_byte_excl(remaining, S(":/?#"));
     remaining = host_and_rem.right;
     res.res.host = host_and_rem.left;
     if (slice_is_empty(res.res.host)) {
@@ -2491,30 +2490,15 @@ url_parse_authority(String s) {
   }
 
   // Port, optional.
-  {
-    StringPairConsume port_and_rem =
-        string_consume_until_any_byte_excl(remaining, S("/?#"));
-    remaining = port_and_rem.right;
-
-    if (!slice_is_empty(port_and_rem.left)) {
-      {
-
-        StringConsumeResult res_consume =
-            string_consume_byte(port_and_rem.left, ':');
-        if (!res_consume.consumed) {
-          res.err = EINVAL;
-          return res;
-        }
-        port_and_rem.left = res_consume.remaining;
-      }
-      PortResult res_port = url_parse_port(port_and_rem.left);
-      if (res_port.err) {
-        res.err = res_port.err;
-        return res;
-      }
-      res.res.port = res_port.res;
+  if (host_and_rem.consumed) {
+    PortResult res_port = url_parse_port(host_and_rem.right);
+    if (res_port.err) {
+      res.err = res_port.err;
+      return res;
     }
+    res.res.port = res_port.res;
   }
+
   if (!slice_is_empty(remaining)) {
     res.err = EINVAL;
     return res;
