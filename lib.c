@@ -2592,18 +2592,16 @@ url_parse_authority(String s) {
     res.res.password = res_authority.res.user_info.password;
   }
 
-#if 0
   StringPairConsumeAny path_components_and_rem =
       string_consume_until_any_byte_excl(remaining, S("?#"));
   remaining = path_components_and_rem.right;
-#endif
 
   // Path, optional.
   if ('/' == authority_and_rem.matched) {
-    ASSERT(!slice_is_empty(remaining));
+    ASSERT(!slice_is_empty(path_components_and_rem.left));
 
     DynStringResult res_path_components =
-        url_parse_path_components(remaining, arena);
+        url_parse_path_components(path_components_and_rem.left, arena);
     if (res_path_components.err) {
       res.err = res_path_components.err;
       return res;
