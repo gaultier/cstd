@@ -2464,8 +2464,22 @@ url_parse_query_parameters(String s, Arena *arena) {
   }
 
   for (u64 _i = 0; _i < s.len; _i++) {
-    (void)remaining;
-    (void)arena;
+    StringPairConsume res_consume_and =
+        string_consume_until_byte_incl(remaining, '&');
+    remaining = res_consume_and.right;
+
+    String kv = res_consume_and.left;
+    StringPairConsume res_consume_eq = string_consume_until_byte_incl(kv, '=');
+    String k = res_consume_eq.left;
+    String v = res_consume_eq.consumed ? res_consume_eq.right : S("");
+
+    if (!slice_is_empty(k)) {
+      *dyn_push(&res.res, arena) = (KeyValue){.key = k, .value = v};
+    }
+
+    if (!res_consume_and.consumed) {
+      break;
+    }
   }
 
   return res;
