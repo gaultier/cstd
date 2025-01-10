@@ -2499,11 +2499,6 @@ url_parse_authority(String s) {
     res.res.port = res_port.res;
   }
 
-  if (!slice_is_empty(remaining)) {
-    res.err = EINVAL;
-    return res;
-  }
-
   return res;
 }
 
@@ -2594,7 +2589,7 @@ url_parse_authority(String s) {
 
     // TODO: url parameters, fragments.
 
-    if (!slice_is_empty(path_components_and_rem.left)) {
+    if (path_components_and_rem.consumed) {
       DynStringResult res_path_components =
           url_parse_path_components(path_components_and_rem.left, arena);
       if (res_path_components.err) {
