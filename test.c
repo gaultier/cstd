@@ -1442,10 +1442,11 @@ end:
   ASSERT(HTTP_IO_STATE_DONE == server_recv_http_io_state);
   ASSERT(HTTP_IO_STATE_DONE == server_send_http_io_state);
 
-  // String msg_server_received = string_make(msg_expected.len, &arena);
-  // ASSERT(true == ring_buffer_read_slice(&server_recv,
-  // msg_server_received)); ASSERT(string_eq(msg_server_received,
-  // msg_expected));
+  ASSERT(client_res.status = server_res.status);
+  ASSERT(client_res.version_major = server_res.version_major);
+  ASSERT(client_res.version_minor = server_res.version_minor);
+  ASSERT(client_res.headers.len = server_res.headers.len);
+
   ASSERT(0 == net_socket_close(client_socket));
   ASSERT(0 == net_socket_close(server_socket));
   ASSERT(0 == net_socket_close(listen_socket));
