@@ -2239,7 +2239,25 @@ http_request_write_status_line(RingBuffer *rg, HttpRequest req, Arena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-http_request_write_header(RingBuffer *rg, KeyValue header, Arena arena) {
+http_response_write_status_line(RingBuffer *rg, HttpResponse res, Arena arena) {
+  DynU8 sb = {0};
+  dyn_ensure_cap(&sb, 128, &arena);
+  dyn_append_slice(&sb, S("HTTP/"), &arena);
+  dynu8_append_u64_to_string(&sb, res.version_major, &arena);
+  dyn_append_slice(&sb, S("."), &arena);
+  dynu8_append_u64_to_string(&sb, res.version_minor, &arena);
+  dyn_append_slice(&sb, S(" "), &arena);
+
+  dynu8_append_u64_to_string(&sb, res.status, &arena);
+
+  dyn_append_slice(&sb, S(" \r\n"), &arena);
+
+  String s = dyn_slice(String, sb);
+  return ring_buffer_write_slice(rg, s);
+}
+
+[[maybe_unused]] [[nodiscard]] static bool
+http_write_header(RingBuffer *rg, KeyValue header, Arena arena) {
   DynU8 sb = {0};
   dyn_ensure_cap(&sb, 128, &arena);
   dyn_append_slice(&sb, header.key, &arena);
@@ -2802,7 +2820,48 @@ http_read_request(RingBuffer *rg, HttpIOState *state, HttpRequest *req,
       }
 
       KeyValue header = dyn_at(req.headers, *header_idx);
-      if (!http_request_write_header(rg, header, arena)) {
+      if (!http_write_header(rg, header, arena)) {
+        return;
+      }
+      *header_idx += 1;
+
+      continue;
+    }
+    case HTTP_IO_STATE_AFTER_ALL_HEADERS: {
+      if (!ring_buffer_write_slice(rg, S("\r\n"))) {
+        return;
+      }
+      *state = HTTP_IO_STATE_DONE;
+      continue;
+    }
+    case HTTP_IO_STATE_DONE:
+      return;
+    default:
+      ASSERT(0);
+    }
+  }
+}
+
+[[maybe_unused]] static void
+http_write_response(RingBuffer *rg, HttpIOState *state, u64 *header_idx,
+                    HttpResponse res, Arena arena) {
+  for (u64 _i = 0; _i < 128; _i++) {
+    switch (*state) {
+    case HTTP_IO_STATE_NONE: {
+      if (!http_response_write_status_line(rg, res, arena)) {
+        return;
+      }
+      *state = HTTP_IO_STATE_AFTER_STATUS_LINE;
+      continue;
+    }
+    case HTTP_IO_STATE_AFTER_STATUS_LINE: {
+      if (*header_idx == res.headers.len) {
+        *state = HTTP_IO_STATE_AFTER_ALL_HEADERS;
+        continue;
+      }
+
+      KeyValue header = dyn_at(res.headers, *header_idx);
+      if (!http_write_header(rg, header, arena)) {
         return;
       }
       *header_idx += 1;

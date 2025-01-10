@@ -1556,7 +1556,8 @@ static void test_http_request_response() {
             ASSERT(0 == http_read_response(&client_recv,
                                            &client_recv_http_io_state,
                                            &client_res, &arena));
-          } else {
+          }
+          if (HTTP_IO_STATE_DONE == client_recv_http_io_state) {
             goto end;
           }
         }
@@ -1582,7 +1583,7 @@ static void test_http_request_response() {
         if (AIO_EVENT_KIND_OUT & event.kind) {
           if (HTTP_IO_STATE_DONE != server_send_http_io_state) {
             http_write_response(&server_send, &server_send_http_io_state,
-                                &server_header_idx, server_res, &arena);
+                                &server_header_idx, server_res, arena);
             ASSERT(0 == writer_write(&server_writer, &server_send, arena).err);
           }
           if (HTTP_IO_STATE_DONE == server_send_http_io_state) {
