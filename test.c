@@ -1204,6 +1204,21 @@ static void test_http_parse_request_status_line() {
     ASSERT(2 == res.res.version_major);
     ASSERT(0 == res.res.version_minor);
     ASSERT(0 == res.res.url.path_components.len);
+    ASSERT(0 == res.res.url.query_parameters.len);
+  }
+  // Valid, short with query parameters.
+  {
+    HttpRequestStatusLineResult res =
+        http_parse_request_status_line(S("GET /?foo=bar& HTTP/2.0"), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(HTTP_METHOD_GET == res.res.method);
+    ASSERT(2 == res.res.version_major);
+    ASSERT(0 == res.res.version_minor);
+    ASSERT(0 == res.res.url.path_components.len);
+    ASSERT(1 == res.res.url.query_parameters.len);
+    KeyValue kv0 = dyn_at(res.res.url.query_parameters, 0);
+    ASSERT(string_eq(kv0.key, S("foo")));
+    ASSERT(string_eq(kv0.value, S("bar")));
   }
   // Valid, short, 0.9.
   {
@@ -1214,16 +1229,21 @@ static void test_http_parse_request_status_line() {
     ASSERT(0 == res.res.version_major);
     ASSERT(9 == res.res.version_minor);
     ASSERT(0 == res.res.url.path_components.len);
+    ASSERT(0 == res.res.url.query_parameters.len);
   }
   // Valid, long.
   {
-    HttpRequestStatusLineResult res =
-        http_parse_request_status_line(S("GET /foo/bar/baz HTTP/1.1"), &arena);
+    HttpRequestStatusLineResult res = http_parse_request_status_line(
+        S("GET /foo/bar/baz?hey HTTP/1.1"), &arena);
     ASSERT(0 == res.err);
     ASSERT(HTTP_METHOD_GET == res.res.method);
     ASSERT(1 == res.res.version_major);
     ASSERT(1 == res.res.version_minor);
     ASSERT(3 == res.res.url.path_components.len);
+    ASSERT(1 == res.res.url.query_parameters.len);
+    KeyValue kv0 = dyn_at(res.res.url.query_parameters, 0);
+    ASSERT(string_eq(kv0.key, S("hey")));
+    ASSERT(string_eq(kv0.value, S("")));
   }
 }
 
