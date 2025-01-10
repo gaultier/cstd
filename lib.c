@@ -335,22 +335,59 @@ string_split_next(SplitIterator *it) {
 
 typedef struct {
   String left, right;
-} StringPair;
+  bool consumed;
+} StringPairConsume;
 
-[[maybe_unused]] [[nodiscard]] static StringPair
+[[maybe_unused]] [[nodiscard]] static StringPairConsume
 string_consume_until_byte_excl(String haystack, u8 needle) {
-  StringPair res = {0};
+  StringPairConsume res = {0};
 
   i64 idx = string_indexof_byte(haystack, needle);
   if (-1 == idx) {
-    res.left = haystack;
+    res.right = haystack;
     return res;
   }
 
   res.left = slice_range(haystack, 0, (u64)idx);
   res.right = slice_range_start(haystack, (u64)idx);
+  res.consumed = true;
 
   ASSERT(needle == slice_at(res.right, 0));
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static StringPairConsume
+string_consume_until_byte_incl(String haystack, u8 needle) {
+  StringPairConsume res = {0};
+
+  i64 idx = string_indexof_byte(haystack, needle);
+  if (-1 == idx) {
+    res.right = haystack;
+    return res;
+  }
+
+  res.left = slice_range(haystack, 0, (u64)idx);
+  res.right = slice_range_start(haystack, (u64)idx + 1);
+  res.consumed = true;
+
+  ASSERT(needle == slice_at(res.right, 0));
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static StringPairConsume
+string_consume_until_any_byte_excl(String haystack, String needles) {
+  StringPairConsume res = {0};
+
+  for (u64 i = 0; i < needles.len; i++) {
+    u8 needle = slice_at(needles, i);
+    res = string_consume_until_byte_excl(haystack, needle);
+    if (res.consumed) {
+      return res;
+    }
+  }
+  // Not found.
+  ASSERT(slice_is_empty(res.left));
+  res.left = haystack;
   return res;
 }
 
@@ -2401,6 +2438,11 @@ RESULT(u16) PortResult;
 [[maybe_unused]] [[nodiscard]] static PortResult url_parse_port(String s) {
   PortResult res = {0};
 
+  // Allowed.
+  if (slice_is_empty(s)) {
+    return res;
+  }
+
   ParseNumberResult port_parse = string_parse_u64(s);
   if (!slice_is_empty(port_parse.remaining)) {
     res.err = EINVAL;
@@ -2415,75 +2457,67 @@ RESULT(u16) PortResult;
 }
 
 [[maybe_unused]] [[nodiscard]] static UrlAuthorityResult
-url_parse_authority(String s, Arena *arena) {
+url_parse_authority(String s) {
   UrlAuthorityResult res = {0};
 
   String remaining = s;
-  // User info.
+  // User info, optional.
   {
-    i64 sep_idx = string_indexof_byte(remaining, '@');
-    if (-1 != sep_idx) {
-      String user_info = slice_range(remaining, 0, (u64)sep_idx);
-      UrlUserInfoResult res_user_info = url_parse_user_info(user_info);
+    StringPairConsume user_info_and_rem =
+        string_consume_until_byte_excl(remaining, '@');
+    remaining = user_info_and_rem.right;
+
+    if (user_info_and_rem.consumed) {
+      UrlUserInfoResult res_user_info =
+          url_parse_user_info(user_info_and_rem.left);
       if (res_user_info.err) {
         res.err = res_user_info.err;
         return res;
       }
-
-      remaining = slice_range_start(remaining, (u64)sep_idx + 1);
+      res.res.user_info = res_user_info.res;
     }
   }
 
-  // Host.
+  // Host, mandatory.
   {
-    i64 sep_port_idx = string_indexof_byte(remaining, ':');
-    if (-1 != sep_port_idx) {
-      res.res.host = slice_range(remaining, 0, (u64)sep_port_idx);
-      remaining = slice_range_start(remaining, (u64)sep_port_idx + 1);
+    StringPairConsume host_and_rem =
+        string_consume_until_any_byte_excl(remaining, S(":/?#"));
+    remaining = host_and_rem.right;
+    res.res.host = host_and_rem.left;
+    if (slice_is_empty(res.res.host)) {
+      res.err = EINVAL;
+      return res;
+    }
+  }
 
-      i64 sep_path_idx = string_indexof_byte(remaining, '/');
-      String port = remaining;
-      if (-1 != sep_path_idx) {
-        port = slice_range(remaining, 0, (u64)sep_path_idx);
-        // Intentionally keep the leading slash here.
-        remaining = slice_range_start(remaining, (u64)sep_path_idx);
+  // Port, optional.
+  {
+    StringPairConsume port_and_rem =
+        string_consume_until_any_byte_excl(remaining, S("/?#"));
+    remaining = port_and_rem.right;
+
+    if (!slice_is_empty(port_and_rem.left)) {
+      {
+
+        StringConsumeResult res_consume =
+            string_consume_byte(port_and_rem.left, ':');
+        if (!res_consume.consumed) {
+          res.err = EINVAL;
+          return res;
+        }
+        port_and_rem.left = res_consume.remaining;
       }
-
-      PortResult res_port = url_parse_port(port);
+      PortResult res_port = url_parse_port(port_and_rem.left);
       if (res_port.err) {
         res.err = res_port.err;
         return res;
       }
       res.res.port = res_port.res;
-    } else {
-      i64 sep_path_idx = string_indexof_byte(remaining, '/');
-      if (-1 != sep_path_idx) {
-        res.res.host = slice_range(remaining, 0, (u64)sep_path_idx);
-        remaining = slice_range_start(remaining, (u64)sep_path_idx);
-      } else {
-        res.res.host = remaining;
-        remaining = (String){0};
-      }
     }
   }
-  if (slice_is_empty(res.res.host)) {
+  if (!slice_is_empty(remaining)) {
     res.err = EINVAL;
     return res;
-  }
-
-  if (string_starts_with(remaining, S("/"))) {
-    StringPair path_components_and_rem =
-        string_consume_until_byte_excl(remaining, '?');
-    ASSERT(!slice_is_empty(path_components_and_rem.left));
-    remaining = path_components_and_rem.right;
-
-    DynStringResult res_path_components =
-        url_parse_path_components(path_components_and_rem.left, arena);
-    if (res_path_components.err) {
-      res.err = res_path_components.err;
-      return res;
-    }
-    res.res.path_components = res_path_components.res;
   }
 
   return res;
@@ -2515,58 +2549,75 @@ url_parse_authority(String s, Arena *arena) {
 
   String remaining = s;
 
-  i64 scheme_sep_idx = string_indexof_byte(remaining, ':');
-  if (-1 == scheme_sep_idx) {
-    res.err = EINVAL;
-    return res;
-  }
-  String scheme = slice_range(remaining, 0, (u64)scheme_sep_idx);
-  if (!url_is_scheme_valid(scheme)) {
-    res.err = EINVAL;
-    return res;
-  }
-  res.res.scheme = scheme;
+  // Scheme, mandatory.
+  {
+    StringPairConsume scheme_and_rem =
+        string_consume_until_byte_incl(remaining, ':');
+    remaining = scheme_and_rem.right;
 
-  remaining = slice_range_start(remaining, (u64)scheme_sep_idx + 1);
+    if (!scheme_and_rem.consumed) {
+      res.err = EINVAL;
+      return res;
+    }
 
+    if (!url_is_scheme_valid(scheme_and_rem.left)) {
+      res.err = EINVAL;
+      return res;
+    }
+    res.res.scheme = scheme_and_rem.left;
+  }
+
+  // Assume `://` as separator between the scheme and authority.
   // TODO: Be less strict hier.
-  StringConsumeResult res_consume = string_consume_string(remaining, S("//"));
-  if (!res_consume.consumed) {
-    res.err = EINVAL;
-    return res;
-  }
-  remaining = res_consume.remaining;
+  {
 
-  i64 authority_sep_idx = string_indexof_any_byte(remaining, S("?#"));
-  String authority = remaining;
-  if (-1 != authority_sep_idx) {
-    authority = slice_range(remaining, 0, (u64)authority_sep_idx);
-    remaining = slice_range_start(remaining, (u64)authority_sep_idx + 1);
+    StringConsumeResult res_consume = string_consume_string(remaining, S("//"));
+    if (!res_consume.consumed) {
+      res.err = EINVAL;
+      return res;
+    }
+    remaining = res_consume.remaining;
   }
 
-  UrlAuthorityResult res_authority = url_parse_authority(authority, arena);
-  if (res_authority.err) {
-    res.err = res_authority.err;
-    return res;
+  // Authority, mandatory.
+  {
+    StringPairConsume authority_and_rem =
+        string_consume_until_any_byte_excl(remaining, S("/?#"));
+    remaining = authority_and_rem.right;
+    if (slice_is_empty(authority_and_rem.left)) {
+      res.err = EINVAL;
+      return res;
+    }
+
+    UrlAuthorityResult res_authority =
+        url_parse_authority(authority_and_rem.left);
+    if (res_authority.err) {
+      res.err = res_authority.err;
+      return res;
+    }
+    res.res.host = res_authority.res.host;
+    res.res.port = res_authority.res.port;
+    res.res.username = res_authority.res.user_info.username;
+    res.res.password = res_authority.res.user_info.password;
+    res.res.path_components = res_authority.res.path_components;
   }
-  res.res.host = res_authority.res.host;
-  res.res.port = res_authority.res.port;
-  res.res.username = res_authority.res.user_info.username;
-  res.res.password = res_authority.res.user_info.password;
-  res.res.path_components = res_authority.res.path_components;
 
   // Path, optional.
-  // Query parameters, optional.
-  if (-1 != authority_sep_idx) {
-    bool is_sep_fragment = slice_at(remaining, authority_sep_idx) == '#';
-    bool is_sep_query_params = slice_at(remaining, authority_sep_idx) == '?';
-    ASSERT(is_sep_fragment || is_sep_query_params);
+  {
+    StringPairConsume path_components_and_rem =
+        string_consume_until_any_byte_excl(remaining, S("?#"));
+    remaining = path_components_and_rem.right;
 
-    if (is_sep_query_params) {
-      ASSERT(0 && "TODO");
-    }
-    if (is_sep_fragment) {
-      ASSERT(0 && "TODO");
+    // TODO: url parameters, fragments.
+
+    if (!slice_is_empty(path_components_and_rem.left)) {
+      DynStringResult res_path_components =
+          url_parse_path_components(path_components_and_rem.left, arena);
+      if (res_path_components.err) {
+        res.err = res_path_components.err;
+        return res;
+      }
+      res.res.path_components = res_path_components.res;
     }
   }
 
