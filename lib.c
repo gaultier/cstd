@@ -2594,6 +2594,51 @@ url_parse_authority(String s) {
   return true;
 }
 
+[[maybe_unused]] [[nodiscard]] static ParseUrlResult
+url_parse_after_authority(String s, Arena *arena) {
+  ParseUrlResult res = {0};
+  String remaining = s;
+
+  StringPairConsumeAny path_components_and_rem =
+      string_consume_until_any_byte_excl(remaining, S("?#"));
+  remaining = path_components_and_rem.right;
+
+  // Path, optional.
+  if (string_starts_with(s, S("/"))) {
+    ASSERT(!slice_is_empty(path_components_and_rem.left));
+
+    DynStringResult res_path_components =
+        url_parse_path_components(path_components_and_rem.left, arena);
+    if (res_path_components.err) {
+      res.err = res_path_components.err;
+      return res;
+    }
+    res.res.path_components = res_path_components.res;
+  }
+
+  // Query parameters, optional.
+  if (path_components_and_rem.consumed &&
+      path_components_and_rem.matched == '?') {
+    DynKeyValueResult res_query =
+        url_parse_query_parameters(path_components_and_rem.right, arena);
+    if (res_query.err) {
+      res.err = res_query.err;
+      return res;
+    }
+    res.res.query_parameters = res_query.res;
+  }
+
+  // TODO: fragments.
+
+  ASSERT(slice_is_empty(res.res.scheme));
+  ASSERT(slice_is_empty(res.res.username));
+  ASSERT(slice_is_empty(res.res.password));
+  ASSERT(slice_is_empty(res.res.host));
+  ASSERT(0 == res.res.port);
+
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static ParseUrlResult url_parse(String s,
                                                                Arena *arena) {
   ParseUrlResult res = {0};
@@ -2652,36 +2697,14 @@ url_parse_authority(String s) {
     res.res.password = res_authority.res.user_info.password;
   }
 
-  StringPairConsumeAny path_components_and_rem =
-      string_consume_until_any_byte_excl(remaining, S("?#"));
-  remaining = path_components_and_rem.right;
-
-  // Path, optional.
-  if ('/' == authority_and_rem.matched) {
-    ASSERT(!slice_is_empty(path_components_and_rem.left));
-
-    DynStringResult res_path_components =
-        url_parse_path_components(path_components_and_rem.left, arena);
-    if (res_path_components.err) {
-      res.err = res_path_components.err;
-      return res;
-    }
-    res.res.path_components = res_path_components.res;
+  ParseUrlResult res_after_authority =
+      url_parse_after_authority(remaining, arena);
+  if (res_after_authority.err) {
+    res.err = res_after_authority.err;
+    return res;
   }
-
-  // Query parameters, optional.
-  if (path_components_and_rem.consumed &&
-      path_components_and_rem.matched == '?') {
-    DynKeyValueResult res_query =
-        url_parse_query_parameters(path_components_and_rem.right, arena);
-    if (res_query.err) {
-      res.err = res_query.err;
-      return res;
-    }
-    res.res.query_parameters = res_query.res;
-  }
-
-  // TODO: fragments.
+  res.res.path_components = res_after_authority.res.path_components;
+  res.res.query_parameters = res_after_authority.res.query_parameters;
 
   return res;
 }
@@ -2734,14 +2757,13 @@ http_parse_request_status_line(String status_line, Arena *arena) {
   String path = slice_range(remaining, 0, (u64)idx_space);
   remaining = slice_range_start(remaining, (u64)idx_space + 1);
   {
-    // FIXME: Support url params, fragments.
-    DynStringResult res_path = url_parse_path_components(path, arena);
-    if (res_path.err) {
+    ParseUrlResult res_url = url_parse_after_authority(path, arena);
+    if (res_url.err) {
       res.err = EINVAL;
       return res;
     }
 
-    res.res.url.path_components = res_path.res;
+    res.res.url = res_url.res;
   }
 
   {
