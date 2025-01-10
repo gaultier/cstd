@@ -2608,7 +2608,14 @@ url_parse_authority(String s) {
     }
     res.res.path_components = res_path_components.res;
   }
-  // TODO: url parameters, fragments.
+
+  // Url parameters, optional.
+  if (path_components_and_rem.consumed &&
+      path_components_and_rem.matched == '?') {
+    ASSERT(0 && "TODO");
+  }
+
+  // TODO: fragments.
 
   return res;
 }
