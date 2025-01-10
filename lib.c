@@ -1222,7 +1222,7 @@ json_decode_string_slice(String s, Arena *arena) {
 
 [[maybe_unused]] [[nodiscard]] static String string_clone(String s,
                                                           Arena *arena) {
-  String res = {.data = arena_new(arena, u8, s.len), .len = s.len};
+  String res = string_make(s.len, arena);
   if (res.data != nullptr) {
     memcpy(res.data, s.data, s.len);
   }
