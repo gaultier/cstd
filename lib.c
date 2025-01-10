@@ -333,6 +333,27 @@ string_split_next(SplitIterator *it) {
   return (i64)res;
 }
 
+typedef struct {
+  String left, right;
+} StringPair;
+
+[[maybe_unused]] [[nodiscard]] static StringPair
+string_consume_until_byte_excl(String haystack, u8 needle) {
+  StringPair res = {0};
+
+  i64 idx = string_indexof_byte(haystack, needle);
+  if (-1 == idx) {
+    res.left = haystack;
+    return res;
+  }
+
+  res.left = slice_range(haystack, 0, (u64)idx);
+  res.right = slice_range_start(haystack, (u64)idx);
+
+  ASSERT(needle == slice_at(res.right, 0));
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static i64
 string_indexof_any_byte(String haystack, String needle) {
   for (i64 i = 0; i < (i64)haystack.len; i++) {
@@ -2451,8 +2472,13 @@ url_parse_authority(String s, Arena *arena) {
   }
 
   if (string_starts_with(remaining, S("/"))) {
+    StringPair path_components_and_rem =
+        string_consume_until_byte_excl(remaining, '?');
+    ASSERT(!slice_is_empty(path_components_and_rem.left));
+    remaining = path_components_and_rem.right;
+
     DynStringResult res_path_components =
-        url_parse_path_components(remaining, arena);
+        url_parse_path_components(path_components_and_rem.left, arena);
     if (res_path_components.err) {
       res.err = res_path_components.err;
       return res;

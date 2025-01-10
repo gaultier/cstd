@@ -737,6 +737,25 @@ static void test_url_parse() {
     String path_component2 = slice_at(res.res.path_components, 2);
     ASSERT(string_eq(S("baz"), path_component2));
   }
+
+  // Url parameters.
+#if 0
+  {
+    ParseUrlResult res = url_parse(S("http://a/?foo"), &arena);
+    ASSERT(0 == res.err);
+    ASSERT(string_eq(S("http"), res.res.scheme));
+    ASSERT(0 == res.res.username.len);
+    ASSERT(0 == res.res.password.len);
+    ASSERT(string_eq(S("a"), res.res.host));
+    ASSERT(0 == res.res.port);
+    ASSERT(0 == res.res.path_components.len);
+    ASSERT(1 == res.res.parameters.len);
+
+    KeyValue kv0 = dyn_at(res.res.parameters, 0);
+    ASSERT(string_eq(kv0.key, S("foo")));
+    ASSERT(string_eq(kv0.value, S("")));
+  }
+#endif
 }
 
 typedef enum {
