@@ -614,145 +614,6 @@ static void test_ring_buffer_read_write_fuzz() {
   }
 }
 
-#if 0
-static void test_buffered_reader_read_exactly() {
-
-  // Read from closed remote end: error.
-  {
-    Arena arena = arena_make_from_virtual_mem(16 * KiB);
-    int fd_pipe[2] = {0};
-    ASSERT(-1 != pipe(fd_pipe));
-    close(fd_pipe[1]);
-
-    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    IoResult res_io = buffered_reader_read_exactly(&br, 128, &arena);
-    ASSERT((Error)EOF == res_io.err);
-
-    close(fd_pipe[0]);
-  }
-
-  {
-    Arena arena = arena_make_from_virtual_mem(16 * KiB);
-    int fd_pipe[2] = {0};
-    ASSERT(-1 != pipe(fd_pipe));
-
-    u8 value[8] = {0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34};
-    ASSERT(write(fd_pipe[1], &value, sizeof(value)) == sizeof(value));
-
-    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    IoResult res_io = buffered_reader_read_exactly(&br, 7, &arena);
-    ASSERT(0 == res_io.err);
-    ASSERT(7 == res_io.res.len);
-    ASSERT(string_eq(res_io.res, S("\x12\x0\x0\x0\x0\x0\x0")));
-
-    close(fd_pipe[0]);
-    close(fd_pipe[1]);
-  }
-  {
-    Arena arena = arena_make_from_virtual_mem(4 * KiB);
-
-    TestMemReadContext ctx = {.s = string_dup(S("hello world!"), &arena)};
-    BufferedReader reader = test_buffered_reader_make(&ctx, &arena);
-    reader.read_fn = test_buffered_reader_read_from_slice_one;
-
-    IoResult res_io = buffered_reader_read_exactly(&reader, 7, &arena);
-    ASSERT(0 == res_io.err);
-    ASSERT(string_eq(S("hello w"), res_io.res));
-  }
-}
-
-static void test_buffered_reader_read_until_slice() {
-
-  // Read from closed remote end: error.
-  {
-    Arena arena = arena_make_from_virtual_mem(4 * KiB);
-    int fd_pipe[2] = {0};
-    ASSERT(-1 != pipe(fd_pipe));
-    close(fd_pipe[1]);
-
-    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"), &arena);
-    ASSERT((Error)EOF == res_io.err);
-
-    close(fd_pipe[0]);
-  }
-
-  // Needle absent.
-  {
-    Arena arena = arena_make_from_virtual_mem(8 * KiB);
-    int fd_pipe[2] = {0};
-    ASSERT(-1 != pipe(fd_pipe));
-
-    String value = S("hello");
-    ASSERT(write(fd_pipe[1], value.data, value.len) == (i64)value.len);
-    close(fd_pipe[1]);
-
-    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"), &arena);
-    ASSERT((Error)EOF == res_io.err);
-    ASSERT(0 == res_io.res.len);
-
-    close(fd_pipe[0]);
-  }
-
-  // Needle present.
-  {
-    Arena arena = arena_make_from_virtual_mem(8 * KiB);
-    int fd_pipe[2] = {0};
-    ASSERT(-1 != pipe(fd_pipe));
-
-    String value = S("hello\r\nbar");
-    ASSERT(write(fd_pipe[1], value.data, value.len) == (i64)value.len);
-
-    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    IoResult res_io = buffered_reader_read_until_slice(&br, S("\r\n"), &arena);
-    ASSERT(0 == res_io.err);
-    ASSERT(5 + 2 == res_io.res.len);
-    ASSERT(value.len == br.buf.len);
-    ASSERT(res_io.res.len == br.buf_idx);
-
-    close(fd_pipe[0]);
-    close(fd_pipe[1]);
-  }
-}
-#endif
-
-#if 0
-static void test_buffered_reader_read_until_end() {
-  Arena arena = arena_make_from_virtual_mem(16 * KiB);
-
-  // Read from closed remote end.
-  {
-    int fd_pipe[2] = {0};
-    ASSERT(-1 != pipe(fd_pipe));
-    close(fd_pipe[1]);
-
-    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    IoResult res_io = buffered_reader_read_until_end(&br, &arena);
-    ASSERT(0 == res_io.err);
-    ASSERT(0 == res_io.res.len);
-
-    close(fd_pipe[0]);
-  }
-
-  {
-    int fd_pipe[2] = {0};
-    ASSERT(-1 != pipe(fd_pipe));
-
-    String value = S("hello");
-    ASSERT(write(fd_pipe[1], value.data, value.len) == (i64)value.len);
-    close(fd_pipe[1]);
-
-    BufferedReader br = buffered_reader_make(fd_pipe[0], &arena);
-    IoResult res_io = buffered_reader_read_until_end(&br, &arena);
-    ASSERT(0 == res_io.err);
-    ASSERT(string_eq(value, res_io.res));
-
-    close(fd_pipe[0]);
-  }
-}
-#endif
-
 static void test_url_parse() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
 
@@ -877,28 +738,6 @@ static void test_url_parse() {
     ASSERT(string_eq(S("baz"), path_component2));
   }
 }
-
-#if 0
-static void test_read_http_request_without_body() {
-  Arena arena = arena_make_from_virtual_mem(8 * KiB);
-
-  String req_slice = S("GET /foo?bar=2 HTTP/1.1\r\nHost: "
-                       "localhost:12345\r\nAccept: */*\r\n\r\n");
-  TestMemReadContext ctx = {.s = string_dup(req_slice, &arena)};
-  BufferedReader reader = test_buffered_reader_make(&ctx, &arena);
-  const HttpRequest req = request_read(&reader, &arena);
-
-  ASSERT(reader.buf_idx == req_slice.len); // Read all.
-  ASSERT(0 == req.err);
-  ASSERT(HM_GET == req.method);
-  ASSERT(string_eq(req.path_raw, S("/foo?bar=2")));
-
-  ASSERT(2 == req.headers.len);
-  ASSERT(string_eq(dyn_at(req.headers, 0).value, S("localhost:12345")));
-  ASSERT(string_eq(dyn_at(req.headers, 1).key, S("Accept")));
-  ASSERT(string_eq(dyn_at(req.headers, 1).value, S("*/*")));
-}
-#endif
 
 typedef enum {
   ALICE_STATE_NONE,
@@ -1631,11 +1470,6 @@ int main() {
   test_make_log_line();
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
-#if 0
-  test_buffered_reader_read_exactly();
-  test_buffered_reader_read_until_end();
-  test_buffered_reader_read_until_slice();
-#endif
   test_ring_buffer_write_slice();
   test_ring_buffer_read_write_slice();
   test_ring_buffer_read_until_excl();
