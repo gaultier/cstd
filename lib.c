@@ -3511,4 +3511,32 @@ http_req_extract_cookie_with_name(HttpRequest req, String cookie_name,
   return res;
 }
 
+typedef struct {
+  void *fixme;
+} EventCallback;
+SLICE(EventCallback);
+
+typedef struct {
+  u128 id;
+  EventCallbackSlice callbacks;
+} EventHandler;
+DYN(EventHandler);
+
+typedef struct {
+  AioQueue queue;
+  DynEventHandler handlers;
+} EventLoop;
+
+[[maybe_unused]] static void event_loop_run(EventLoop *loop) {
+  if (slice_is_empty(loop->handlers)) {
+    return;
+  }
+
+  for (;;) {
+    for (u64 i = 0; i < loop->handlers.len; i++) {
+      EventHandler *h = dyn_at_ptr(&loop->handlers, i);
+    }
+  }
+}
+
 #endif
