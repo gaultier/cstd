@@ -20,26 +20,26 @@
 #include <time.h>
 #include <unistd.h> // TODO: Windows.
 
-#ifndef MIN
-#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#ifndef PG_MIN
+#define PG_MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 
-#ifndef ABS
-#define ABS(a) (((a) < 0) ? (-(a)) : (a))
+#ifndef PG_ABS
+#define PG_ABS(a) (((a) < 0) ? (-(a)) : (a))
 #endif
 
-#ifndef ABS_SUB
-#define ABS_SUB(a, b) (((a) < (b)) ? ((b) - (a)) : ((a) - (b)))
+#ifndef PG_ABS_SUB
+#define PG_ABS_SUB(a, b) (((a) < (b)) ? ((b) - (a)) : ((a) - (b)))
 #endif
 
-#define KiB (1024ULL)
-#define MiB (1024ULL * Ki)
-#define GiB (1024ULL * Mi)
-#define TiB (1024ULL * Gi)
+#define PG_KiB (1024ULL)
+#define PG_MiB (1024ULL * PG_Ki)
+#define PG_GiB (1024ULL * PG_Mi)
+#define PG_TiB (1024ULL * PG_Gi)
 
-#define Microseconds (1000ULL)
-#define Milliseconds (1000ULL * Microseconds)
-#define Seconds (1000ULL * Milliseconds)
+#define PG_Microseconds (1000ULL)
+#define PG_Milliseconds (1000ULL * PG_Microseconds)
+#define PG_Seconds (1000ULL * PG_Milliseconds)
 
 #define DYN(T)                                                                 \
   typedef struct {                                                             \
@@ -627,7 +627,7 @@ typedef enum {
 
 [[maybe_unused]] [[nodiscard]] static StringCompare string_cmp(String a,
                                                                String b) {
-  int cmp = memcmp(a.data, b.data, MIN(a.len, b.len));
+  int cmp = memcmp(a.data, b.data, PG_MIN(a.len, b.len));
   if (cmp < 0) {
     return STRING_CMP_LESS;
   } else if (cmp > 0) {
@@ -1559,8 +1559,8 @@ pg_timer_create(ClockKind clock, u64 ns) {
   res.res = (Timer)ret;
 
   struct itimerspec ts = {0};
-  ts.it_value.tv_sec = ns / Seconds;
-  ts.it_value.tv_nsec = ns % Seconds;
+  ts.it_value.tv_sec = ns / PG_Seconds;
+  ts.it_value.tv_nsec = ns % PG_Seconds;
   ret = timerfd_settime((int)res.res, 0, &ts, nullptr);
   if (-1 == ret) {
     res.err = (Error)errno;
@@ -1588,7 +1588,7 @@ pg_time_ns_now(ClockKind clock) {
     return res;
   }
 
-  res.res = (u64)ts.tv_sec * Seconds + (u64)ts.tv_nsec;
+  res.res = (u64)ts.tv_sec * PG_Seconds + (u64)ts.tv_nsec;
 
   return res;
 }
@@ -1734,7 +1734,7 @@ ring_buffer_write_slice(RingBuffer *rg, String data) {
       return false;
     }
 
-    u64 write_len1 = MIN(can_write1, data.len);
+    u64 write_len1 = PG_MIN(can_write1, data.len);
     ASSERT(rg->idx_write + write_len1 <= rg->data.len);
     ASSERT(write_len1 <= data.len);
     memcpy(rg->data.data + rg->idx_write, data.data, write_len1);
@@ -1778,7 +1778,7 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
     if (data.len > can_read) {
       return false;
     }
-    u64 n_read = MIN(data.len, can_read);
+    u64 n_read = PG_MIN(data.len, can_read);
 
     memcpy(data.data, rg->data.data + rg->idx_read, n_read);
     rg->idx_read += n_read;
@@ -1793,7 +1793,7 @@ ring_buffer_read_slice(RingBuffer *rg, String data) {
       return false;
     }
 
-    u64 read_len1 = MIN(can_read1, data.len);
+    u64 read_len1 = PG_MIN(can_read1, data.len);
     ASSERT(read_len1 <= data.len);
     ASSERT(read_len1 <= rg->data.len);
 
