@@ -1223,9 +1223,16 @@ typedef struct {
 } AioEvent;
 
 SLICE(AioEvent);
+DYN(AioEvent);
 
 [[maybe_unused]] [[nodiscard]] static Error
 net_aio_queue_ctl(AioQueue queue, AioEventSlice events);
+
+[[maybe_unused]] [[nodiscard]] static Error
+net_aio_queue_ctl_one(AioQueue queue, AioEvent event) {
+  AioEventSlice events = {.data = &event, .len = 1};
+  return net_aio_queue_ctl(queue, events);
+}
 
 [[maybe_unused]] [[nodiscard]] static IoCountResult
 net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
