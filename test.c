@@ -417,8 +417,9 @@ static void test_log_entry_quote_value() {
 static void test_make_log_line() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
 
-  String log_line = make_log_line(LOG_LEVEL_DEBUG, S("foobar"), &arena, 2,
-                                  L("num", 42), L("s", S("hello \"world\"")));
+  String log_line =
+      log_make_log_line(LOG_LEVEL_DEBUG, S("foobar"), &arena, 2, L("num", 42),
+                        L("s", S("hello \"world\"")));
 
   String expected_suffix =
       S("\"message\":\"foobar\",\"num\":42,\"s\":\"hello \\\"world\\\"\"}\n");
@@ -1593,6 +1594,13 @@ end:
   ASSERT(0 == net_socket_close(listen_socket));
 }
 
+static void test_log() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+  {
+    Logger logger = log_mak
+  }
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_slice();
@@ -1626,4 +1634,5 @@ int main() {
   test_http_parse_header();
   test_http_read_response();
   test_http_request_response();
+  test_log();
 }

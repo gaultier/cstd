@@ -3188,7 +3188,7 @@ typedef struct {
   LogValue value;
 } LogEntry;
 
-[[maybe_unused]] [[nodiscard]] static Logger logger_make(LogLevel level) {
+[[maybe_unused]] [[nodiscard]] static Logger log_logger_make(LogLevel level) {
   Logger logger = {
       .level = level,
       .writer = writer_make_from_file((File *)stdout), // TODO: Windows
@@ -3271,8 +3271,8 @@ log_level_to_string(LogLevel level) {
     };                                                                         \
     Arena xxx_tmp_arena = *arena;                                              \
     String xxx_log_line =                                                      \
-        make_log_line(level, S(msg), &xxx_tmp_arena,                           \
-                      LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);               \
+        log_make_log_line(level, S(msg), &xxx_tmp_arena,                       \
+                          LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);           \
     w->write_fn(w->ctx, xxx_log_line.data, xxx_log_line.len);                  \
   } while (0)
 
@@ -3382,7 +3382,8 @@ dynu8_append_json_object_key_string_value_u64(DynU8 *sb, String key, u64 value,
 }
 
 [[maybe_unused]] [[nodiscard]] static String
-make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count, ...) {
+log_make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count,
+                  ...) {
   struct timespec monotonic = {0};
   clock_gettime(CLOCK_MONOTONIC, &monotonic);
   u64 monotonic_ns =
