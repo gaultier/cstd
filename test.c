@@ -1596,6 +1596,7 @@ end:
 
 static void test_log() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
+  // Simple log.
   {
     StringBuilder sb = {.arena = &arena};
     Logger logger = log_logger_make(LOG_LEVEL_DEBUG);
@@ -1606,6 +1607,18 @@ static void test_log() {
 
     String out = dyn_slice(String, sb.sb);
     ASSERT(string_starts_with(out, S("{\"level\":\"info\"")));
+  }
+  // Log but the logger level is higher.
+  {
+    StringBuilder sb = {.arena = &arena};
+    Logger logger = log_logger_make(LOG_LEVEL_INFO);
+    logger.writer = writer_make_from_string_builder(&sb);
+
+    logger_log(&logger, LOG_LEVEL_DEBUG, "hello world", arena,
+               L("foo", S("bar")));
+
+    String out = dyn_slice(String, sb.sb);
+    ASSERT(string_is_empty(out));
   }
 }
 
