@@ -1659,6 +1659,8 @@ static void test_timer() {
   ASSERT(0 == res_end.err);
   ASSERT(res_end.res > res_start.res);
   ASSERT(res_end.res - res_start.res < 20 * Milliseconds);
+
+  ASSERT(0 == pg_timer_release(res_timer.res));
 }
 
 int main() {
