@@ -37,7 +37,7 @@
   typedef struct {                                                             \
     T *data;                                                                   \
     u64 len, cap;                                                              \
-  } Dyn##T
+  } T##Dyn
 
 #define SLICE(T)                                                               \
   typedef struct {                                                             \
@@ -70,6 +70,10 @@ typedef int64_t i64;
 typedef u32 Error;
 RESULT(u64) IoCountResult;
 RESULT(u64) u64Result;
+
+PG_DYN(u8);
+SLICE(u8);
+typedef u8Slice String;
 
 #define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -145,11 +149,6 @@ RESULT(u64) u64Result;
 
   ASSERT(false);
 }
-
-typedef struct {
-  u8 *data;
-  u64 len;
-} String;
 
 RESULT(String) StringResult;
 OK(String);
@@ -704,13 +703,8 @@ typedef enum {
 #define dyn_space(T, dyn)                                                      \
   ((T){.data = (dyn)->data + (dyn)->len, .len = (dyn)->cap - (dyn)->len})
 
-typedef struct {
-  u8 *data;
-  u64 len, cap;
-} DynU8;
-
 PG_DYN(String);
-RESULT(DynString) DynStringResult;
+RESULT(StringDyn) StringDynResult;
 
 #define dyn_push(s, arena)                                                     \
   (dyn_ensure_cap(s, (s)->len + 1, arena), (s)->data + (s)->len++)
@@ -740,7 +734,7 @@ RESULT(DynString) DynStringResult;
 
 #define dyn_slice(T, dyn) ((T){.data = dyn.data, .len = dyn.len})
 
-[[maybe_unused]] static void dynu8_append_u64_to_string(DynU8 *dyn, u64 n,
+[[maybe_unused]] static void dynu8_append_u64_to_string(u8Dyn *dyn, u64 n,
                                                         Arena *arena) {
   u8 tmp[30] = {0};
   const int written_count = snprintf((char *)tmp, sizeof(tmp), "%lu", n);
@@ -760,7 +754,7 @@ RESULT(DynString) DynStringResult;
   *(slice_at_ptr(dst, 3)) = (u8)(n >> 0);
 }
 
-[[maybe_unused]] static void dynu8_append_u32(DynU8 *dyn, u32 n, Arena *arena) {
+[[maybe_unused]] static void dynu8_append_u32(u8Dyn *dyn, u32 n, Arena *arena) {
 
   u8 data[sizeof(n)] = {0};
   String s = {.data = data, .len = sizeof(n)};
@@ -770,7 +764,7 @@ RESULT(DynString) DynStringResult;
 
 [[maybe_unused]] [[nodiscard]] static String u64_to_string(u64 n,
                                                            Arena *arena) {
-  DynU8 sb = {0};
+  u8Dyn sb = {0};
   dynu8_append_u64_to_string(&sb, n, arena);
   return dyn_slice(String, sb);
 }
@@ -817,7 +811,7 @@ RESULT(DynString) DynStringResult;
   ASSERT(0);
 }
 
-static void dynu8_append_u8_hex_upper(DynU8 *dyn, u8 n, Arena *arena) {
+static void dynu8_append_u8_hex_upper(u8Dyn *dyn, u8 n, Arena *arena) {
   dyn_ensure_cap(dyn, dyn->len + 2, arena);
   u64 dyn_original_len = dyn->len;
 
@@ -828,7 +822,7 @@ static void dynu8_append_u8_hex_upper(DynU8 *dyn, u8 n, Arena *arena) {
   ASSERT(2 == (dyn->len - dyn_original_len));
 }
 
-[[maybe_unused]] static void dynu8_append_u128_hex(DynU8 *dyn, u128 n,
+[[maybe_unused]] static void dynu8_append_u128_hex(u8Dyn *dyn, u128 n,
                                                    Arena *arena) {
   dyn_ensure_cap(dyn, dyn->len + 32, arena);
   u64 dyn_original_len = dyn->len;
@@ -1036,7 +1030,7 @@ string_indexof_unescaped_byte(String haystack, u8 needle) {
     goto end;
   }
 
-  DynU8 sb = {0};
+  u8Dyn sb = {0};
   dyn_ensure_cap(&sb, (u64)st.st_size, arena);
 
   for (u64 lim = 0; lim < (u64)st.st_size; lim++) {
@@ -1079,13 +1073,13 @@ make_unique_id_u128_string(Arena *arena) {
   u128 id = 0;
   arc4random_buf(&id, sizeof(id));
 
-  DynU8 dyn = {0};
+  u8Dyn dyn = {0};
   dynu8_append_u128_hex(&dyn, id, arena);
 
   return dyn_slice(String, dyn);
 }
 
-[[maybe_unused]] static void url_encode_string(DynU8 *sb, String key,
+[[maybe_unused]] static void url_encode_string(u8Dyn *sb, String key,
                                                String value, Arena *arena) {
   for (u64 i = 0; i < key.len; i++) {
     u8 c = slice_at(key, i);
@@ -1112,7 +1106,7 @@ make_unique_id_u128_string(Arena *arena) {
 
 [[maybe_unused]] [[nodiscard]] static String
 ipv4_address_to_string(Ipv4Address address, Arena *arena) {
-  DynU8 sb = {0};
+  u8Dyn sb = {0};
   dynu8_append_u64_to_string(&sb, (address.ip >> 24) & 0xFF, arena);
   *dyn_push(&sb, arena) = '.';
   dynu8_append_u64_to_string(&sb, (address.ip >> 16) & 0xFF, arena);
@@ -1630,7 +1624,7 @@ unix_write(void *self, u8 *buf, size_t buf_len) {
 }
 
 typedef struct {
-  DynU8 sb;
+  u8Dyn sb;
   Arena *arena;
 } StringBuilder;
 
@@ -1904,7 +1898,7 @@ typedef struct {
   String scheme;
   String username, password;
   String host; // Including subdomains.
-  DynString path_components;
+  StringDyn path_components;
   DynKeyValue query_parameters;
   u16 port;
   // TODO: fragment.
@@ -2039,7 +2033,7 @@ static void http_push_header(DynKeyValue *headers, String key, String value,
 
 [[maybe_unused]] [[nodiscard]] static bool
 http_request_write_status_line(RingBuffer *rg, HttpRequest req, Arena arena) {
-  DynU8 sb = {0};
+  u8Dyn sb = {0};
   dyn_ensure_cap(&sb, 128, &arena);
   dyn_append_slice(&sb, http_method_to_s(req.method), &arena);
   dyn_append_slice(&sb, S(" /"), &arena);
@@ -2074,7 +2068,7 @@ http_request_write_status_line(RingBuffer *rg, HttpRequest req, Arena arena) {
 
 [[maybe_unused]] [[nodiscard]] static bool
 http_response_write_status_line(RingBuffer *rg, HttpResponse res, Arena arena) {
-  DynU8 sb = {0};
+  u8Dyn sb = {0};
   dyn_ensure_cap(&sb, 128, &arena);
   dyn_append_slice(&sb, S("HTTP/"), &arena);
   dynu8_append_u64_to_string(&sb, res.version_major, &arena);
@@ -2092,7 +2086,7 @@ http_response_write_status_line(RingBuffer *rg, HttpResponse res, Arena arena) {
 
 [[maybe_unused]] [[nodiscard]] static bool
 http_write_header(RingBuffer *rg, KeyValue header, Arena arena) {
-  DynU8 sb = {0};
+  u8Dyn sb = {0};
   dyn_ensure_cap(&sb, 128, &arena);
   dyn_append_slice(&sb, header.key, &arena);
   dyn_append_slice(&sb, S(": "), &arena);
@@ -2109,7 +2103,7 @@ http_write_header(RingBuffer *rg, KeyValue header, Arena arena) {
 // etc), more advance sanitation is required.
 [[maybe_unused]] [[nodiscard]] static String html_sanitize(String s,
                                                            Arena *arena) {
-  DynU8 res = {0};
+  u8Dyn res = {0};
   dyn_ensure_cap(&res, s.len, arena);
   for (u64 i = 0; i < s.len; i++) {
     u8 c = slice_at(s, i);
@@ -2148,9 +2142,9 @@ RESULT(UrlAuthority) UrlAuthorityResult;
 
 RESULT(Url) ParseUrlResult;
 
-[[maybe_unused]] [[nodiscard]] static DynStringResult
+[[maybe_unused]] [[nodiscard]] static StringDynResult
 url_parse_path_components(String s, Arena *arena) {
-  DynStringResult res = {0};
+  StringDynResult res = {0};
 
   if (-1 != string_indexof_any_byte(s, S("?#:"))) {
     res.err = EINVAL;
@@ -2166,7 +2160,7 @@ url_parse_path_components(String s, Arena *arena) {
     return res;
   }
 
-  DynString components = {0};
+  StringDyn components = {0};
 
   SplitIterator split_it_slash = string_split_string(s, S("/"));
   for (u64 i = 0; i < s.len; i++) { // Bound.
@@ -2344,7 +2338,7 @@ url_parse_after_authority(String s, Arena *arena) {
   if (string_starts_with(s, S("/"))) {
     ASSERT(!slice_is_empty(path_components_and_rem.left));
 
-    DynStringResult res_path_components =
+    StringDynResult res_path_components =
         url_parse_path_components(path_components_and_rem.left, arena);
     if (res_path_components.err) {
       res.err = res_path_components.err;
@@ -2927,7 +2921,7 @@ typedef struct {
 [[nodiscard]] static FormDataKVElementParseResult
 form_data_kv_parse_element(String in, u8 ch_terminator, Arena *arena) {
   FormDataKVElementParseResult res = {0};
-  DynU8 data = {0};
+  u8Dyn data = {0};
 
   u64 i = 0;
   for (; i < in.len; i++) {
@@ -3089,7 +3083,7 @@ typedef struct {
   return res;
 }
 
-static void html_attributes_to_string(DynKeyValue attributes, DynU8 *sb,
+static void html_attributes_to_string(DynKeyValue attributes, u8Dyn *sb,
                                       Arena *arena) {
   for (u64 i = 0; i < attributes.len; i++) {
     KeyValue attr = dyn_at(attributes, i);
@@ -3105,11 +3099,11 @@ static void html_attributes_to_string(DynKeyValue attributes, DynU8 *sb,
   }
 }
 
-static void html_tags_to_string(DynHtmlElements elements, DynU8 *sb,
+static void html_tags_to_string(DynHtmlElements elements, u8Dyn *sb,
                                 Arena *arena);
-static void html_tag_to_string(HtmlElement e, DynU8 *sb, Arena *arena);
+static void html_tag_to_string(HtmlElement e, u8Dyn *sb, Arena *arena);
 
-static void html_tags_to_string(DynHtmlElements elements, DynU8 *sb,
+static void html_tags_to_string(DynHtmlElements elements, u8Dyn *sb,
                                 Arena *arena) {
   for (u64 i = 0; i < elements.len; i++) {
     HtmlElement e = dyn_at(elements, i);
@@ -3118,7 +3112,7 @@ static void html_tags_to_string(DynHtmlElements elements, DynU8 *sb,
 }
 
 [[maybe_unused]]
-static void html_document_to_string(HtmlDocument doc, DynU8 *sb, Arena *arena) {
+static void html_document_to_string(HtmlDocument doc, u8Dyn *sb, Arena *arena) {
   dyn_append_slice(sb, S("<!DOCTYPE html>"), arena);
 
   dyn_append_slice(sb, S("<html>"), arena);
@@ -3127,7 +3121,7 @@ static void html_document_to_string(HtmlDocument doc, DynU8 *sb, Arena *arena) {
   dyn_append_slice(sb, S("</html>"), arena);
 }
 
-static void html_tag_to_string(HtmlElement e, DynU8 *sb, Arena *arena) {
+static void html_tag_to_string(HtmlElement e, u8Dyn *sb, Arena *arena) {
   static const String tag_to_string[HTML_MAX] = {
       [HTML_NONE] = S("FIXME"),
       [HTML_TITLE] = S("title"),
@@ -3383,7 +3377,7 @@ log_level_to_string(LogLevel level) {
 
 [[maybe_unused]] [[nodiscard]] static String json_escape_string(String entry,
                                                                 Arena *arena) {
-  DynU8 sb = {0};
+  u8Dyn sb = {0};
   *dyn_push(&sb, arena) = '"';
 
   for (u64 i = 0; i < entry.len; i++) {
@@ -3420,7 +3414,7 @@ log_level_to_string(LogLevel level) {
 
 [[maybe_unused]] [[nodiscard]] static String
 json_unescape_string(String entry, Arena *arena) {
-  DynU8 sb = {0};
+  u8Dyn sb = {0};
 
   for (u64 i = 0; i < entry.len; i++) {
     u8 c = slice_at(entry, i);
@@ -3460,7 +3454,7 @@ json_unescape_string(String entry, Arena *arena) {
 }
 
 [[maybe_unused]] static void
-dynu8_append_json_object_key_string_value_string(DynU8 *sb, String key,
+dynu8_append_json_object_key_string_value_string(u8Dyn *sb, String key,
                                                  String value, Arena *arena) {
   String json_key = json_escape_string(key, arena);
   dyn_append_slice(sb, json_key, arena);
@@ -3474,7 +3468,7 @@ dynu8_append_json_object_key_string_value_string(DynU8 *sb, String key,
 }
 
 [[maybe_unused]] static void
-dynu8_append_json_object_key_string_value_u64(DynU8 *sb, String key, u64 value,
+dynu8_append_json_object_key_string_value_u64(u8Dyn *sb, String key, u64 value,
                                               Arena *arena) {
   String json_key = json_escape_string(key, arena);
   dyn_append_slice(sb, json_key, arena);
@@ -3498,7 +3492,7 @@ log_make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count,
   clock_gettime(CLOCK_REALTIME, &now);
   u64 timestamp_ns = (u64)now.tv_sec * 1000'000'000 + (u64)now.tv_nsec;
 
-  DynU8 sb = {0};
+  u8Dyn sb = {0};
   *dyn_push(&sb, arena) = '{';
 
   dynu8_append_json_object_key_string_value_string(
@@ -3540,7 +3534,7 @@ log_make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count,
 
 [[maybe_unused]] [[nodiscard]] static String
 json_encode_string_slice(StringSlice strings, Arena *arena) {
-  DynU8 sb = {0};
+  u8Dyn sb = {0};
   *dyn_push(&sb, arena) = '[';
 
   for (u64 i = 0; i < strings.len; i++) {
@@ -3570,7 +3564,7 @@ json_decode_string_slice(String s, Arena *arena) {
     return res;
   }
 
-  DynString dyn = {0};
+  StringDyn dyn = {0};
   for (u64 i = 1; i < s.len - 2;) {
     i = skip_over_whitespace(s, i);
 
