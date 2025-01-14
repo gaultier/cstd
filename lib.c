@@ -3210,7 +3210,8 @@ typedef struct {
 log_logger_make_stdout_json(LogLevel level) {
   Logger logger = {
       .level = level,
-      .writer = writer_make_from_file((File *)stdout), // TODO: Windows
+      .writer =
+          writer_make_from_file((File *)(u64)STDOUT_FILENO), // TODO: Windows
   };
 
   return logger;
