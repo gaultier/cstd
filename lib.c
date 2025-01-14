@@ -1374,26 +1374,21 @@ json_decode_string_slice(String s, Arena *arena) {
   SHA1Final(hash, &ctx);
 }
 
-typedef struct {
-  Error error;
-  String content;
-} ReadFileResult;
+// TODO: Windows.
+[[maybe_unused]] static StringResult file_read_full(String path, Arena *arena) {
 
-[[maybe_unused]] static ReadFileResult file_read_full(String path,
-                                                      Arena *arena) {
-
-  ReadFileResult res = {0};
+  StringResult res = {0};
   char *path_c = string_to_cstr(path, arena);
 
   int fd = open(path_c, O_RDONLY);
   if (fd < 0) {
-    res.error = (Error)errno;
+    res.err = (Error)errno;
     return res;
   }
 
   struct stat st = {0};
   if (-1 == stat(path_c, &st)) {
-    res.error = (Error)errno;
+    res.err = (Error)errno;
     goto end;
   }
 
@@ -1408,12 +1403,12 @@ typedef struct {
     String space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
     ssize_t read_n = read(fd, space.data, space.len);
     if (-1 == read_n) {
-      res.error = (Error)errno;
+      res.err = (Error)errno;
       goto end;
     }
 
     if (0 == read_n) {
-      res.error = (Error)EINVAL;
+      res.err = (Error)EINVAL;
       goto end;
     }
 
@@ -1424,7 +1419,7 @@ typedef struct {
 
 end:
   close(fd);
-  res.content = dyn_slice(String, sb);
+  res.res = dyn_slice(String, sb);
   return res;
 }
 
