@@ -157,6 +157,8 @@ RESULT(String) StringResult;
 OK(String);
 SLICE(String);
 
+RESULT(StringSlice) StringSliceResult;
+
 #define slice_is_empty(s)                                                      \
   (((s).len == 0) ? true : (ASSERT(nullptr != (s).data), false))
 
@@ -902,264 +904,6 @@ arena_make_from_virtual_mem(u64 size) {
   return (Arena){.start = alloc, .end = (u8 *)alloc + size};
 }
 
-typedef enum {
-  LV_STRING,
-  LV_U64,
-} LogValueKind;
-
-typedef enum {
-  LOG_LEVEL_DEBUG,
-  LOG_LEVEL_INFO,
-  LOG_LEVEL_ERROR,
-  LOG_LEVEL_FATAL,
-} LogLevel;
-
-typedef struct {
-  LogValueKind kind;
-  union {
-    String s;
-    u64 n64;
-    u128 n128;
-  };
-} LogValue;
-
-typedef struct {
-  String key;
-  LogValue value;
-} LogEntry;
-
-[[maybe_unused]] [[nodiscard]] static String
-log_level_to_string(LogLevel level) {
-  switch (level) {
-  case LOG_LEVEL_DEBUG:
-    return S("debug");
-  case LOG_LEVEL_INFO:
-    return S("info");
-  case LOG_LEVEL_ERROR:
-    return S("error");
-  case LOG_LEVEL_FATAL:
-    return S("fatal");
-  default:
-    ASSERT(false);
-  }
-}
-
-[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_int(String k, int v) {
-  return (LogEntry){
-      .key = k,
-      .value.kind = LV_U64,
-      .value.n64 = (u64)v,
-  };
-}
-
-[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_u16(String k, u16 v) {
-  return (LogEntry){
-      .key = k,
-      .value.kind = LV_U64,
-      .value.n64 = (u64)v,
-  };
-}
-
-[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_u32(String k, u32 v) {
-  return (LogEntry){
-      .key = k,
-      .value.kind = LV_U64,
-      .value.n64 = (u64)v,
-  };
-}
-
-[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_u64(String k, u64 v) {
-  return (LogEntry){
-      .key = k,
-      .value.kind = LV_U64,
-      .value.n64 = v,
-  };
-}
-
-[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_slice(String k,
-                                                               String v) {
-  return (LogEntry){
-      .key = k,
-      .value.kind = LV_STRING,
-      .value.s = v,
-  };
-}
-
-#define L(k, v)                                                                \
-  (_Generic((v),                                                               \
-       int: log_entry_int,                                                     \
-       u16: log_entry_u16,                                                     \
-       u32: log_entry_u32,                                                     \
-       u64: log_entry_u64,                                                     \
-       String: log_entry_slice)((S(k)), (v)))
-
-#define LOG_ARGS_COUNT(...)                                                    \
-  (sizeof((LogEntry[]){__VA_ARGS__}) / sizeof(LogEntry))
-#define log(level, msg, arena, ...)                                            \
-  do {                                                                         \
-    Arena xxx_tmp_arena = *arena;                                              \
-    String xxx_log_line =                                                      \
-        make_log_line(level, S(msg), &xxx_tmp_arena,                           \
-                      LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);               \
-    write(1, xxx_log_line.data, xxx_log_line.len);                             \
-  } while (0)
-
-[[maybe_unused]] [[nodiscard]] static String json_escape_string(String entry,
-                                                                Arena *arena) {
-  DynU8 sb = {0};
-  *dyn_push(&sb, arena) = '"';
-
-  for (u64 i = 0; i < entry.len; i++) {
-    u8 c = slice_at(entry, i);
-    if ('"' == c) {
-      *dyn_push(&sb, arena) = '\\';
-      *dyn_push(&sb, arena) = '"';
-    } else if ('\\' == c) {
-      *dyn_push(&sb, arena) = '\\';
-      *dyn_push(&sb, arena) = '\\';
-    } else if ('\b' == c) {
-      *dyn_push(&sb, arena) = '\\';
-      *dyn_push(&sb, arena) = 'b';
-    } else if ('\f' == c) {
-      *dyn_push(&sb, arena) = '\\';
-      *dyn_push(&sb, arena) = 'f';
-    } else if ('\n' == c) {
-      *dyn_push(&sb, arena) = '\\';
-      *dyn_push(&sb, arena) = 'n';
-    } else if ('\r' == c) {
-      *dyn_push(&sb, arena) = '\\';
-      *dyn_push(&sb, arena) = 'r';
-    } else if ('\t' == c) {
-      *dyn_push(&sb, arena) = '\\';
-      *dyn_push(&sb, arena) = 't';
-    } else {
-      *dyn_push(&sb, arena) = c;
-    }
-  }
-  *dyn_push(&sb, arena) = '"';
-
-  return dyn_slice(String, sb);
-}
-
-[[maybe_unused]] [[nodiscard]] static String
-json_unescape_string(String entry, Arena *arena) {
-  DynU8 sb = {0};
-
-  for (u64 i = 0; i < entry.len; i++) {
-    u8 c = slice_at(entry, i);
-    u8 next = i + 1 < entry.len ? slice_at(entry, i + 1) : 0;
-
-    if ('\\' == c) {
-      if ('"' == next) {
-        *dyn_push(&sb, arena) = '"';
-        i += 1;
-      } else if ('\\' == next) {
-        *dyn_push(&sb, arena) = '\\';
-        i += 1;
-      } else if ('b' == next) {
-        *dyn_push(&sb, arena) = '\b';
-        i += 1;
-      } else if ('f' == next) {
-        *dyn_push(&sb, arena) = '\f';
-        i += 1;
-      } else if ('n' == next) {
-        *dyn_push(&sb, arena) = '\n';
-        i += 1;
-      } else if ('r' == next) {
-        *dyn_push(&sb, arena) = '\r';
-        i += 1;
-      } else if ('t' == next) {
-        *dyn_push(&sb, arena) = '\t';
-        i += 1;
-      } else {
-        *dyn_push(&sb, arena) = c;
-      }
-    } else {
-      *dyn_push(&sb, arena) = c;
-    }
-  }
-
-  return dyn_slice(String, sb);
-}
-
-[[maybe_unused]] static void
-dynu8_append_json_object_key_string_value_string(DynU8 *sb, String key,
-                                                 String value, Arena *arena) {
-  String json_key = json_escape_string(key, arena);
-  dyn_append_slice(sb, json_key, arena);
-
-  dyn_append_slice(sb, S(":"), arena);
-
-  String json_value = json_escape_string(value, arena);
-  dyn_append_slice(sb, json_value, arena);
-
-  dyn_append_slice(sb, S(","), arena);
-}
-
-[[maybe_unused]] static void
-dynu8_append_json_object_key_string_value_u64(DynU8 *sb, String key, u64 value,
-                                              Arena *arena) {
-  String json_key = json_escape_string(key, arena);
-  dyn_append_slice(sb, json_key, arena);
-
-  dyn_append_slice(sb, S(":"), arena);
-
-  dynu8_append_u64_to_string(sb, value, arena);
-
-  dyn_append_slice(sb, S(","), arena);
-}
-
-[[maybe_unused]] [[nodiscard]] static String
-make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count, ...) {
-  struct timespec monotonic = {0};
-  clock_gettime(CLOCK_MONOTONIC, &monotonic);
-  u64 monotonic_ns =
-      (u64)monotonic.tv_sec * 1000'000'000 + (u64)monotonic.tv_nsec;
-
-  struct timespec now = {0};
-  clock_gettime(CLOCK_REALTIME, &now);
-  u64 timestamp_ns = (u64)now.tv_sec * 1000'000'000 + (u64)now.tv_nsec;
-
-  DynU8 sb = {0};
-  *dyn_push(&sb, arena) = '{';
-
-  dynu8_append_json_object_key_string_value_string(
-      &sb, S("level"), log_level_to_string(level), arena);
-  dynu8_append_json_object_key_string_value_u64(&sb, S("timestamp_ns"),
-                                                timestamp_ns, arena);
-  dynu8_append_json_object_key_string_value_u64(&sb, S("monotonic_ns"),
-                                                monotonic_ns, arena);
-  dynu8_append_json_object_key_string_value_string(&sb, S("message"), msg,
-                                                   arena);
-
-  va_list argp = {0};
-  va_start(argp, args_count);
-  for (i32 i = 0; i < args_count; i++) {
-    LogEntry entry = va_arg(argp, LogEntry);
-
-    switch (entry.value.kind) {
-    case LV_STRING: {
-      dynu8_append_json_object_key_string_value_string(&sb, entry.key,
-                                                       entry.value.s, arena);
-      break;
-    }
-    case LV_U64:
-      dynu8_append_json_object_key_string_value_u64(&sb, entry.key,
-                                                    entry.value.n64, arena);
-      break;
-    default:
-      ASSERT(0 && "invalid LogValueKind");
-    }
-  }
-  va_end(argp);
-
-  ASSERT(string_ends_with(dyn_slice(String, sb), S(",")));
-  dyn_pop(&sb);
-  dyn_append_slice(&sb, S("}\n"), arena);
-
-  return dyn_slice(String, sb);
-}
-
 [[maybe_unused]] [[nodiscard]] static Error os_sendfile(int fd_in, int fd_out,
                                                         u64 n_bytes) {
 #if defined(__linux__)
@@ -1182,38 +926,6 @@ make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count, ...) {
 #error "sendfile(2) not implemented on other OSes than Linux/FreeBSD."
 #endif
 }
-
-[[maybe_unused]] [[nodiscard]] static String
-json_encode_string_slice(StringSlice strings, Arena *arena) {
-  DynU8 sb = {0};
-  *dyn_push(&sb, arena) = '[';
-
-  for (u64 i = 0; i < strings.len; i++) {
-    String s = dyn_at(strings, i);
-    String encoded = json_escape_string(s, arena);
-    dyn_append_slice(&sb, encoded, arena);
-
-    if (i + 1 < strings.len) {
-      *dyn_push(&sb, arena) = ',';
-    }
-  }
-
-  *dyn_push(&sb, arena) = ']';
-
-  return dyn_slice(String, sb);
-}
-
-typedef struct {
-  Error err;
-  StringSlice string_slice;
-} JsonParseStringStrResult;
-
-typedef enum {
-  HS_ERR_INVALID_HTTP_REQUEST = 0x800,
-  HS_ERR_INVALID_HTTP_RESPONSE = 0x801,
-  HS_ERR_INVALID_FORM_DATA = 0x802,
-  HS_ERR_INVALID_JSON = 0x803,
-} HS_Error;
 
 [[maybe_unused]] [[nodiscard]] static i64
 string_indexof_unescaped_byte(String haystack, u8 needle) {
@@ -1250,72 +962,6 @@ string_indexof_unescaped_byte(String haystack, u8 needle) {
   }
 
   return idx;
-}
-
-[[maybe_unused]] [[nodiscard]] static JsonParseStringStrResult
-json_decode_string_slice(String s, Arena *arena) {
-  JsonParseStringStrResult res = {0};
-  if (s.len < 2) {
-    res.err = HS_ERR_INVALID_JSON;
-    return res;
-  }
-  if ('[' != slice_at(s, 0)) {
-    res.err = HS_ERR_INVALID_JSON;
-    return res;
-  }
-
-  DynString dyn = {0};
-  for (u64 i = 1; i < s.len - 2;) {
-    i = skip_over_whitespace(s, i);
-
-    u8 c = slice_at(s, i);
-    if ('"' != c) { // Opening quote.
-      res.err = HS_ERR_INVALID_JSON;
-      return res;
-    }
-    i += 1;
-
-    String remaining = slice_range_start(s, i);
-    i64 end_quote_idx = string_indexof_unescaped_byte(remaining, '"');
-    if (-1 == end_quote_idx) {
-      res.err = HS_ERR_INVALID_JSON;
-      return res;
-    }
-
-    ASSERT(0 <= end_quote_idx);
-
-    String str = slice_range(s, i, i + (u64)end_quote_idx);
-    String unescaped = json_unescape_string(str, arena);
-    *dyn_push(&dyn, arena) = unescaped;
-
-    i += (u64)end_quote_idx;
-
-    if ('"' != c) { // Closing quote.
-      res.err = HS_ERR_INVALID_JSON;
-      return res;
-    }
-    i += 1;
-
-    i = skip_over_whitespace(s, i);
-    if (i + 1 == s.len) {
-      break;
-    }
-
-    c = slice_at(s, i);
-    if (',' != c) {
-      res.err = HS_ERR_INVALID_JSON;
-      return res;
-    }
-    i += 1;
-  }
-
-  if (']' != slice_at(s, s.len - 1)) {
-    res.err = HS_ERR_INVALID_JSON;
-    return res;
-  }
-
-  res.string_slice = dyn_slice(StringSlice, dyn);
-  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static String string_clone(String s,
@@ -1514,6 +1160,8 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
 }
 
 typedef int Socket;
+typedef int File;
+
 RESULT(Socket) CreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static CreateSocketResult
 net_create_tcp_socket();
@@ -2206,8 +1854,6 @@ typedef struct {
   u16 status;
   DynKeyValue headers;
 } HttpResponse;
-
-RESULT(StringSlice) StringSliceResult;
 
 [[maybe_unused]] [[nodiscard]] static HttpResponseStatusLineResult
 http_parse_response_status_line(String status_line) {
@@ -3001,6 +2647,11 @@ writer_make_from_socket(Socket socket) {
   return (Writer){.write_fn = unix_write, .ctx = (void *)(u64)socket};
 }
 
+[[maybe_unused]] [[nodiscard]] static Writer writer_make_from_file(File *file) {
+  // TODO: Windows.
+  return (Writer){.write_fn = unix_write, .ctx = (void *)file};
+}
+
 [[maybe_unused]] [[nodiscard]] static IoCountResult
 reader_read(Reader *r, RingBuffer *rg, Arena arena) {
   ASSERT(nullptr != r->read_fn);
@@ -3184,14 +2835,14 @@ form_data_kv_parse_element(String in, u8 ch_terminator, Arena *arena) {
       *dyn_push(&data, arena) = ' ';
     } else if ('%' == c) {
       if ((in.len - i) < 2) {
-        res.err = HS_ERR_INVALID_FORM_DATA;
+        res.err = EINVAL;
         return res;
       }
       u8 c1 = in.data[i + 1];
       u8 c2 = in.data[i + 2];
 
       if (!(ch_is_hex_digit(c1) && ch_is_hex_digit(c2))) {
-        res.err = HS_ERR_INVALID_FORM_DATA;
+        res.err = EINVAL;
         return res;
       }
 
@@ -3503,6 +3154,367 @@ http_req_extract_cookie_with_name(HttpRequest req, String cookie_name,
       }
     }
   }
+  return res;
+}
+
+typedef enum {
+  LV_STRING,
+  LV_U64,
+} LogValueKind;
+
+typedef enum {
+  LOG_LEVEL_DEBUG,
+  LOG_LEVEL_INFO,
+  LOG_LEVEL_ERROR,
+  LOG_LEVEL_FATAL,
+} LogLevel;
+
+typedef struct {
+  LogLevel level;
+  Writer writer;
+} Logger;
+
+typedef struct {
+  LogValueKind kind;
+  union {
+    String s;
+    u64 n64;
+    u128 n128;
+  };
+} LogValue;
+
+typedef struct {
+  String key;
+  LogValue value;
+} LogEntry;
+
+[[maybe_unused]] [[nodiscard]] static Logger logger_make(LogLevel level) {
+  Logger logger = {
+      .level = level,
+      .writer = writer_make_from_file((File *)stdout), // TODO: Windows
+  };
+
+  return logger;
+}
+
+[[maybe_unused]] [[nodiscard]] static String
+log_level_to_string(LogLevel level) {
+  switch (level) {
+  case LOG_LEVEL_DEBUG:
+    return S("debug");
+  case LOG_LEVEL_INFO:
+    return S("info");
+  case LOG_LEVEL_ERROR:
+    return S("error");
+  case LOG_LEVEL_FATAL:
+    return S("fatal");
+  default:
+    ASSERT(false);
+  }
+}
+
+[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_int(String k, int v) {
+  return (LogEntry){
+      .key = k,
+      .value.kind = LV_U64,
+      .value.n64 = (u64)v,
+  };
+}
+
+[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_u16(String k, u16 v) {
+  return (LogEntry){
+      .key = k,
+      .value.kind = LV_U64,
+      .value.n64 = (u64)v,
+  };
+}
+
+[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_u32(String k, u32 v) {
+  return (LogEntry){
+      .key = k,
+      .value.kind = LV_U64,
+      .value.n64 = (u64)v,
+  };
+}
+
+[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_u64(String k, u64 v) {
+  return (LogEntry){
+      .key = k,
+      .value.kind = LV_U64,
+      .value.n64 = v,
+  };
+}
+
+[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_slice(String k,
+                                                               String v) {
+  return (LogEntry){
+      .key = k,
+      .value.kind = LV_STRING,
+      .value.s = v,
+  };
+}
+
+#define L(k, v)                                                                \
+  (_Generic((v),                                                               \
+       int: log_entry_int,                                                     \
+       u16: log_entry_u16,                                                     \
+       u32: log_entry_u32,                                                     \
+       u64: log_entry_u64,                                                     \
+       String: log_entry_slice)((S(k)), (v)))
+
+#define LOG_ARGS_COUNT(...)                                                    \
+  (sizeof((LogEntry[]){__VA_ARGS__}) / sizeof(LogEntry))
+#define logger_log(logger, level, msg, arena, ...)                             \
+  do {                                                                         \
+    if (level < logger.level) {                                                \
+      break                                                                    \
+    };                                                                         \
+    Arena xxx_tmp_arena = *arena;                                              \
+    String xxx_log_line =                                                      \
+        make_log_line(level, S(msg), &xxx_tmp_arena,                           \
+                      LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);               \
+    w->write_fn(w->ctx, xxx_log_line.data, xxx_log_line.len);                  \
+  } while (0)
+
+[[maybe_unused]] [[nodiscard]] static String json_escape_string(String entry,
+                                                                Arena *arena) {
+  DynU8 sb = {0};
+  *dyn_push(&sb, arena) = '"';
+
+  for (u64 i = 0; i < entry.len; i++) {
+    u8 c = slice_at(entry, i);
+    if ('"' == c) {
+      *dyn_push(&sb, arena) = '\\';
+      *dyn_push(&sb, arena) = '"';
+    } else if ('\\' == c) {
+      *dyn_push(&sb, arena) = '\\';
+      *dyn_push(&sb, arena) = '\\';
+    } else if ('\b' == c) {
+      *dyn_push(&sb, arena) = '\\';
+      *dyn_push(&sb, arena) = 'b';
+    } else if ('\f' == c) {
+      *dyn_push(&sb, arena) = '\\';
+      *dyn_push(&sb, arena) = 'f';
+    } else if ('\n' == c) {
+      *dyn_push(&sb, arena) = '\\';
+      *dyn_push(&sb, arena) = 'n';
+    } else if ('\r' == c) {
+      *dyn_push(&sb, arena) = '\\';
+      *dyn_push(&sb, arena) = 'r';
+    } else if ('\t' == c) {
+      *dyn_push(&sb, arena) = '\\';
+      *dyn_push(&sb, arena) = 't';
+    } else {
+      *dyn_push(&sb, arena) = c;
+    }
+  }
+  *dyn_push(&sb, arena) = '"';
+
+  return dyn_slice(String, sb);
+}
+
+[[maybe_unused]] [[nodiscard]] static String
+json_unescape_string(String entry, Arena *arena) {
+  DynU8 sb = {0};
+
+  for (u64 i = 0; i < entry.len; i++) {
+    u8 c = slice_at(entry, i);
+    u8 next = i + 1 < entry.len ? slice_at(entry, i + 1) : 0;
+
+    if ('\\' == c) {
+      if ('"' == next) {
+        *dyn_push(&sb, arena) = '"';
+        i += 1;
+      } else if ('\\' == next) {
+        *dyn_push(&sb, arena) = '\\';
+        i += 1;
+      } else if ('b' == next) {
+        *dyn_push(&sb, arena) = '\b';
+        i += 1;
+      } else if ('f' == next) {
+        *dyn_push(&sb, arena) = '\f';
+        i += 1;
+      } else if ('n' == next) {
+        *dyn_push(&sb, arena) = '\n';
+        i += 1;
+      } else if ('r' == next) {
+        *dyn_push(&sb, arena) = '\r';
+        i += 1;
+      } else if ('t' == next) {
+        *dyn_push(&sb, arena) = '\t';
+        i += 1;
+      } else {
+        *dyn_push(&sb, arena) = c;
+      }
+    } else {
+      *dyn_push(&sb, arena) = c;
+    }
+  }
+
+  return dyn_slice(String, sb);
+}
+
+[[maybe_unused]] static void
+dynu8_append_json_object_key_string_value_string(DynU8 *sb, String key,
+                                                 String value, Arena *arena) {
+  String json_key = json_escape_string(key, arena);
+  dyn_append_slice(sb, json_key, arena);
+
+  dyn_append_slice(sb, S(":"), arena);
+
+  String json_value = json_escape_string(value, arena);
+  dyn_append_slice(sb, json_value, arena);
+
+  dyn_append_slice(sb, S(","), arena);
+}
+
+[[maybe_unused]] static void
+dynu8_append_json_object_key_string_value_u64(DynU8 *sb, String key, u64 value,
+                                              Arena *arena) {
+  String json_key = json_escape_string(key, arena);
+  dyn_append_slice(sb, json_key, arena);
+
+  dyn_append_slice(sb, S(":"), arena);
+
+  dynu8_append_u64_to_string(sb, value, arena);
+
+  dyn_append_slice(sb, S(","), arena);
+}
+
+[[maybe_unused]] [[nodiscard]] static String
+make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count, ...) {
+  struct timespec monotonic = {0};
+  clock_gettime(CLOCK_MONOTONIC, &monotonic);
+  u64 monotonic_ns =
+      (u64)monotonic.tv_sec * 1000'000'000 + (u64)monotonic.tv_nsec;
+
+  struct timespec now = {0};
+  clock_gettime(CLOCK_REALTIME, &now);
+  u64 timestamp_ns = (u64)now.tv_sec * 1000'000'000 + (u64)now.tv_nsec;
+
+  DynU8 sb = {0};
+  *dyn_push(&sb, arena) = '{';
+
+  dynu8_append_json_object_key_string_value_string(
+      &sb, S("level"), log_level_to_string(level), arena);
+  dynu8_append_json_object_key_string_value_u64(&sb, S("timestamp_ns"),
+                                                timestamp_ns, arena);
+  dynu8_append_json_object_key_string_value_u64(&sb, S("monotonic_ns"),
+                                                monotonic_ns, arena);
+  dynu8_append_json_object_key_string_value_string(&sb, S("message"), msg,
+                                                   arena);
+
+  va_list argp = {0};
+  va_start(argp, args_count);
+  for (i32 i = 0; i < args_count; i++) {
+    LogEntry entry = va_arg(argp, LogEntry);
+
+    switch (entry.value.kind) {
+    case LV_STRING: {
+      dynu8_append_json_object_key_string_value_string(&sb, entry.key,
+                                                       entry.value.s, arena);
+      break;
+    }
+    case LV_U64:
+      dynu8_append_json_object_key_string_value_u64(&sb, entry.key,
+                                                    entry.value.n64, arena);
+      break;
+    default:
+      ASSERT(0 && "invalid LogValueKind");
+    }
+  }
+  va_end(argp);
+
+  ASSERT(string_ends_with(dyn_slice(String, sb), S(",")));
+  dyn_pop(&sb);
+  dyn_append_slice(&sb, S("}\n"), arena);
+
+  return dyn_slice(String, sb);
+}
+
+[[maybe_unused]] [[nodiscard]] static String
+json_encode_string_slice(StringSlice strings, Arena *arena) {
+  DynU8 sb = {0};
+  *dyn_push(&sb, arena) = '[';
+
+  for (u64 i = 0; i < strings.len; i++) {
+    String s = dyn_at(strings, i);
+    String encoded = json_escape_string(s, arena);
+    dyn_append_slice(&sb, encoded, arena);
+
+    if (i + 1 < strings.len) {
+      *dyn_push(&sb, arena) = ',';
+    }
+  }
+
+  *dyn_push(&sb, arena) = ']';
+
+  return dyn_slice(String, sb);
+}
+
+[[maybe_unused]] [[nodiscard]] static StringSliceResult
+json_decode_string_slice(String s, Arena *arena) {
+  StringSliceResult res = {0};
+  if (s.len < 2) {
+    res.err = EINVAL;
+    return res;
+  }
+  if ('[' != slice_at(s, 0)) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  DynString dyn = {0};
+  for (u64 i = 1; i < s.len - 2;) {
+    i = skip_over_whitespace(s, i);
+
+    u8 c = slice_at(s, i);
+    if ('"' != c) { // Opening quote.
+      res.err = EINVAL;
+      return res;
+    }
+    i += 1;
+
+    String remaining = slice_range_start(s, i);
+    i64 end_quote_idx = string_indexof_unescaped_byte(remaining, '"');
+    if (-1 == end_quote_idx) {
+      res.err = EINVAL;
+      return res;
+    }
+
+    ASSERT(0 <= end_quote_idx);
+
+    String str = slice_range(s, i, i + (u64)end_quote_idx);
+    String unescaped = json_unescape_string(str, arena);
+    *dyn_push(&dyn, arena) = unescaped;
+
+    i += (u64)end_quote_idx;
+
+    if ('"' != c) { // Closing quote.
+      res.err = EINVAL;
+      return res;
+    }
+    i += 1;
+
+    i = skip_over_whitespace(s, i);
+    if (i + 1 == s.len) {
+      break;
+    }
+
+    c = slice_at(s, i);
+    if (',' != c) {
+      res.err = EINVAL;
+      return res;
+    }
+    i += 1;
+  }
+
+  if (']' != slice_at(s, s.len - 1)) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  res.res = dyn_slice(StringSlice, dyn);
   return res;
 }
 
