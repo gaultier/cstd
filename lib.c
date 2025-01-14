@@ -37,6 +37,10 @@
 #define GiB (1024ULL * Mi)
 #define TiB (1024ULL * Gi)
 
+#define Microseconds (1000ULL)
+#define Milliseconds (1000ULL * Microseconds)
+#define Seconds (1000ULL * Milliseconds)
+
 #define DYN(T)                                                                 \
   typedef struct {                                                             \
     T *data;                                                                   \
@@ -73,6 +77,7 @@ typedef int64_t i64;
 
 typedef u32 Error;
 RESULT(u64) IoCountResult;
+RESULT(u64) u64Result;
 
 #define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -1165,6 +1170,19 @@ typedef int Socket;
 typedef int File;
 typedef int Timer;
 
+typedef enum {
+  CLOCK_KIND_MONOTONIC,
+  // TODO: More?
+} ClockKind;
+
+RESULT(Timer) TimerResult;
+
+[[maybe_unused]] [[nodiscard]] static TimerResult
+pg_timer_create(ClockKind clock_kind, u64 ns);
+
+[[maybe_unused]] [[nodiscard]] static u64Result
+pg_time_ns_now(ClockKind clock_kind);
+
 RESULT(Socket) CreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static CreateSocketResult
 net_create_tcp_socket();
@@ -1417,6 +1435,7 @@ net_tcp_accept(Socket sock) {
 
 #if defined(__linux__)
 #include <sys/epoll.h>
+#include <sys/timerfd.h>
 
 [[maybe_unused]] [[nodiscard]] static AioQueueCreateResult aio_queue_create() {
   AioQueueCreateResult res = {0};
@@ -1511,6 +1530,55 @@ aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
     }
     event->socket = epoll_event.data.fd;
   }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static int linux_clock(ClockKind clock_kind) {
+  switch (clock_kind) {
+  case CLOCK_KIND_MONOTONIC:
+    return CLOCK_MONOTONIC;
+  default:
+    ASSERT(0);
+  }
+}
+
+[[maybe_unused]] [[nodiscard]] static TimerResult
+pg_timer_create(ClockKind clock, u64 ns) {
+  TimerResult res = {0};
+
+  int ret = timerfd_create(linux_clock(clock), 0);
+  if (-1 == ret) {
+    res.err = (Error)errno;
+    return res;
+  }
+
+  res.res = (Timer)ret;
+
+  struct itimerspec ts = {0};
+  ts.it_value.tv_sec = ns / Seconds;
+  ts.it_value.tv_sec = ns % Seconds;
+  ret = timerfd_settime((int)res.res, 0, &ts, nullptr);
+  if (-1 == ret) {
+    res.err = (Error)errno;
+    return res;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static u64Result
+pg_time_ns_now(ClockKind clock) {
+  u64Result res = {0};
+
+  struct timespec ts = {0};
+  int ret = clock_gettime(linux_clock(clock), &ts);
+  if (-1 == ret) {
+    res.err = (Error)errno;
+    return res;
+  }
+
+  res.res = (u64)ts.tv_sec * Seconds + (u64)ts.tv_nsec;
 
   return res;
 }

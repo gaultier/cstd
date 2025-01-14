@@ -1622,6 +1622,45 @@ static void test_log() {
   }
 }
 
+static void test_timer() {
+  Arena arena = arena_make_from_virtual_mem(4 * KiB);
+
+  AioQueueCreateResult res_queue_create = aio_queue_create();
+  ASSERT(0 == res_queue_create.err);
+  AioQueue queue = res_queue_create.res;
+
+  TimerResult res_timer =
+      pg_timer_create(CLOCK_KIND_MONOTONIC, 2 * Milliseconds);
+  ASSERT(0 == res_timer.err);
+
+  u64Result res_start = pg_time_ns_now(CLOCK_MONOTONIC);
+  ASSERT(0 == res_start.err);
+
+  {
+    AioEvent event_change = {
+        .timer = res_timer.res,
+        .kind = AIO_EVENT_KIND_IN,
+        .action = AIO_EVENT_ACTION_KIND_ADD,
+    };
+    Error err = aio_queue_ctl_one(queue, event_change);
+    ASSERT(0 == err);
+  }
+
+  AioEventSlice events_watch = slice_make(AioEvent, 1, &arena);
+  for (;;) {
+    IoCountResult res_wait =
+        aio_queue_wait(queue, events_watch, 1 * Seconds, arena);
+    ASSERT(0 == res_wait.err);
+
+    AioEvent event_watch = slice_at(events_watch, 0);
+    ASSERT(0 == (AIO_EVENT_KIND_ERR & event_watch.kind));
+    ASSERT(AIO_EVENT_KIND_IN & event_watch.kind);
+  }
+
+  u64Result res_end = pg_time_ns_now(CLOCK_MONOTONIC);
+  ASSERT(0 == res_end.err);
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_slice();
@@ -1655,5 +1694,6 @@ int main() {
   test_http_parse_header();
   test_http_read_response();
   test_http_request_response();
+  test_timer();
   test_log();
 }
