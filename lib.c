@@ -24,14 +24,6 @@
 #define PG_MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 
-#ifndef PG_ABS
-#define PG_ABS(a) (((a) < 0) ? (-(a)) : (a))
-#endif
-
-#ifndef PG_ABS_SUB
-#define PG_ABS_SUB(a, b) (((a) < (b)) ? ((b) - (a)) : ((a) - (b)))
-#endif
-
 #define PG_KiB (1024ULL)
 #define PG_MiB (1024ULL * PG_Ki)
 #define PG_GiB (1024ULL * PG_Mi)
