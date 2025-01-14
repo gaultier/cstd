@@ -59,8 +59,6 @@ typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
 
-typedef u32 Error;
-
 #define RESULT(T)                                                              \
   typedef struct {                                                             \
     Error err;                                                                 \
@@ -72,6 +70,8 @@ typedef u32 Error;
     T res;                                                                     \
     bool ok;                                                                   \
   } T##Ok
+
+typedef u32 Error;
 
 #define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -210,7 +210,7 @@ SLICE(String);
 
 typedef struct {
   String s;
-  u8 sep;
+  String sep;
 } SplitIterator;
 
 typedef struct {
@@ -218,8 +218,8 @@ typedef struct {
   bool ok;
 } SplitResult;
 
-[[maybe_unused]] [[nodiscard]] static SplitIterator string_split(String s,
-                                                                 u8 sep) {
+[[maybe_unused]] [[nodiscard]] static SplitIterator
+string_split_string(String s, String sep) {
   return (SplitIterator){.s = s, .sep = sep};
 }
 
@@ -246,34 +246,6 @@ typedef struct {
   })
 
 #define slice_range_start(s, start) slice_range(s, start, (s).len)
-
-[[maybe_unused]] [[nodiscard]] static SplitResult
-string_split_next(SplitIterator *it) {
-  if (slice_is_empty(it->s)) {
-    return (SplitResult){0};
-  }
-
-  for (u64 _i = 0; _i < it->s.len; _i++) {
-    const i64 idx = string_indexof_byte(it->s, it->sep);
-    if (-1 == idx) {
-      // Last element.
-      SplitResult res = {.s = it->s, .ok = true};
-      it->s = (String){0};
-      return res;
-    }
-
-    if (idx == 0) { // Multiple contiguous separators.
-      it->s = slice_range_start(it->s, (u64)idx + 1);
-      continue;
-    } else {
-      SplitResult res = {.s = slice_range(it->s, 0, (u64)idx), .ok = true};
-      it->s = slice_range_start(it->s, (u64)idx + 1);
-
-      return res;
-    }
-  }
-  return (SplitResult){0};
-}
 
 [[maybe_unused]] [[nodiscard]] static bool string_eq(String a, String b) {
   if (a.len == 0 && b.len == 0) {
@@ -331,6 +303,34 @@ string_split_next(SplitIterator *it) {
   u64 res = (u64)((u8 *)ptr - haystack.data);
   ASSERT(res < haystack.len);
   return (i64)res;
+}
+
+[[maybe_unused]] [[nodiscard]] static SplitResult
+string_split_next(SplitIterator *it) {
+  if (slice_is_empty(it->s)) {
+    return (SplitResult){0};
+  }
+
+  for (u64 _i = 0; _i < it->s.len; _i++) {
+    i64 idx = string_indexof_string(it->s, it->sep);
+    if (-1 == idx) {
+      // Last element.
+      SplitResult res = {.s = it->s, .ok = true};
+      it->s = (String){0};
+      return res;
+    }
+
+    if (idx == 0) { // Multiple contiguous separators.
+      it->s = slice_range_start(it->s, (u64)idx + it->sep.len);
+      continue;
+    } else {
+      SplitResult res = {.s = slice_range(it->s, 0, (u64)idx), .ok = true};
+      it->s = slice_range_start(it->s, (u64)idx + it->sep.len);
+
+      return res;
+    }
+  }
+  return (SplitResult){0};
 }
 
 typedef struct {
@@ -2156,8 +2156,7 @@ RESULT(DynKeyValue) DynKeyValueResult;
 
 typedef enum {
   HTTP_IO_STATE_NONE,
-  HTTP_IO_STATE_AFTER_STATUS_LINE,
-  HTTP_IO_STATE_AFTER_ALL_HEADERS,
+  HTTP_IO_STATE_AFTER_HEADING,
   HTTP_IO_STATE_DONE,
 } HttpIOState;
 
@@ -2431,7 +2430,7 @@ url_parse_path_components(String s, Arena *arena) {
 
   DynString components = {0};
 
-  SplitIterator split_it_slash = string_split(s, '/');
+  SplitIterator split_it_slash = string_split_string(s, S("/"));
   for (u64 i = 0; i < s.len; i++) { // Bound.
     SplitResult split = string_split_next(&split_it_slash);
     if (!split.ok) {
@@ -2845,123 +2844,115 @@ http_parse_header(String s) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Error
-http_read_response(RingBuffer *rg, HttpIOState *state, HttpResponse *res,
-                   Arena *arena) {
-  String nr = S("\r\n");
+typedef struct {
+  bool done;
+  HttpResponse res;
+  Error err;
+} HttpResponseReadResult;
 
-  for (u64 _i = 0; _i < 128; _i++) {
-    switch (*state) {
-    case HTTP_IO_STATE_NONE: {
-      StringOk line = ring_buffer_read_until_excl(rg, nr, arena);
-      if (!line.ok) {
-        return 0;
-      }
-      HttpResponseStatusLineResult res_status_line =
-          http_parse_response_status_line(line.res);
-      if (res_status_line.err) {
-        return res_status_line.err;
-      }
+typedef struct {
+  bool done;
+  HttpRequest res;
+  Error err;
+} HttpRequestReadResult;
 
-      res->status = res_status_line.res.status;
-      res->version_major = res_status_line.res.version_major;
-      res->version_minor = res_status_line.res.version_minor;
+[[maybe_unused]] [[nodiscard]] static HttpResponseReadResult
+http_read_response(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
+  HttpResponseReadResult res = {0};
+  String sep = S("\r\n\r\n");
 
-      *state = HTTP_IO_STATE_AFTER_STATUS_LINE;
-
-      break;
-    }
-    case HTTP_IO_STATE_AFTER_STATUS_LINE: {
-      StringOk line = ring_buffer_read_until_excl(rg, nr, arena);
-      if (!line.ok) {
-        return 0;
-      }
-      if (slice_is_empty(line.res)) {
-        *state = HTTP_IO_STATE_AFTER_ALL_HEADERS;
-        break;
-      }
-
-      KeyValueResult res_kv = http_parse_header(line.res);
-      if (res_kv.err) {
-        return res_kv.err;
-      }
-
-      *dyn_push(&res->headers, arena) = res_kv.res;
-
-      break;
-    }
-    case HTTP_IO_STATE_AFTER_ALL_HEADERS: {
-      // TODO: body.
-      *state = HTTP_IO_STATE_DONE;
-      return 0;
-    }
-    case HTTP_IO_STATE_DONE:
-      return 0;
-    default:
-      ASSERT(0);
-    }
+  StringOk s = ring_buffer_read_until_excl(rg, sep, arena);
+  if (!s.ok) { // In progress.
+    return res;
   }
-  return 0;
+
+  SplitIterator it = string_split_string(s.res, S("\r\n"));
+  SplitResult res_split = string_split_next(&it);
+  if (!res_split.ok) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  HttpResponseStatusLineResult res_status_line =
+      http_parse_response_status_line(res_split.s);
+  if (res_status_line.err) {
+    res.err = res_status_line.err;
+    return res;
+  }
+
+  res.res.status = res_status_line.res.status;
+  res.res.version_major = res_status_line.res.version_major;
+  res.res.version_minor = res_status_line.res.version_minor;
+
+  for (u64 _i = 0; _i < max_http_headers; _i++) {
+    res_split = string_split_next(&it);
+    if (!res_split.ok) {
+      break;
+    }
+    KeyValueResult res_kv = http_parse_header(res_split.s);
+    if (res_kv.err) {
+      res.err = res_kv.err;
+      return res;
+    }
+
+    *dyn_push(&res.res.headers, arena) = res_kv.res;
+  }
+  if (!slice_is_empty(it.s)) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Error
-http_read_request(RingBuffer *rg, HttpIOState *state, HttpRequest *req,
-                  Arena *arena) {
-  String nr = S("\r\n");
+[[maybe_unused]] [[nodiscard]] static HttpRequestReadResult
+http_read_request(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
+  HttpRequestReadResult res = {0};
+  String sep = S("\r\n\r\n");
 
-  for (u64 _i = 0; _i < 128; _i++) {
-    switch (*state) {
-    case HTTP_IO_STATE_NONE: {
-      StringOk line = ring_buffer_read_until_excl(rg, nr, arena);
-      if (!line.ok) {
-        return 0;
-      }
-      HttpRequestStatusLineResult res_status_line =
-          http_parse_request_status_line(line.res, arena);
-      if (res_status_line.err) {
-        return res_status_line.err;
-      }
-
-      req->method = res_status_line.res.method;
-      req->version_major = res_status_line.res.version_major;
-      req->version_minor = res_status_line.res.version_minor;
-      req->url = res_status_line.res.url;
-
-      *state = HTTP_IO_STATE_AFTER_STATUS_LINE;
-
-      break;
-    }
-    case HTTP_IO_STATE_AFTER_STATUS_LINE: {
-      StringOk line = ring_buffer_read_until_excl(rg, nr, arena);
-      if (!line.ok) {
-        return 0;
-      }
-      if (slice_is_empty(line.res)) {
-        *state = HTTP_IO_STATE_AFTER_ALL_HEADERS;
-        break;
-      }
-
-      KeyValueResult res_kv = http_parse_header(line.res);
-      if (res_kv.err) {
-        return res_kv.err;
-      }
-
-      *dyn_push(&req->headers, arena) = res_kv.res;
-
-      break;
-    }
-    case HTTP_IO_STATE_AFTER_ALL_HEADERS: {
-      // TODO: body.
-      *state = HTTP_IO_STATE_DONE;
-      return 0;
-    }
-    case HTTP_IO_STATE_DONE:
-      return 0;
-    default:
-      ASSERT(0);
-    }
+  StringOk s = ring_buffer_read_until_excl(rg, sep, arena);
+  if (!s.ok) { // In progress.
+    return res;
   }
-  return 0;
+
+  SplitIterator it = string_split_string(s.res, S("\r\n"));
+  SplitResult res_split = string_split_next(&it);
+  if (!res_split.ok) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  HttpRequestStatusLineResult res_status_line =
+      http_parse_request_status_line(res_split.s, arena);
+  if (res_status_line.err) {
+    res.err = res_status_line.err;
+    return res;
+  }
+
+  res.res.method = res_status_line.res.method;
+  res.res.url = res_status_line.res.url;
+  res.res.version_major = res_status_line.res.version_major;
+  res.res.version_minor = res_status_line.res.version_minor;
+
+  for (u64 _i = 0; _i < max_http_headers; _i++) {
+    res_split = string_split_next(&it);
+    if (!res_split.ok) {
+      break;
+    }
+    KeyValueResult res_kv = http_parse_header(res_split.s);
+    if (res_kv.err) {
+      res.err = res_kv.err;
+      return res;
+    }
+
+    *dyn_push(&res.res.headers, arena) = res_kv.res;
+  }
+  if (!slice_is_empty(it.s)) {
+    res.err = EINVAL;
+    return res;
+  }
+
+  return res;
 }
 
 [[maybe_unused]] static void http_write_request(RingBuffer *rg,
@@ -3537,14 +3528,15 @@ http_req_extract_cookie_with_name(HttpRequest req, String cookie_name,
         continue;
       }
 
-      SplitIterator it_semicolon = string_split(h.value, ';');
+      SplitIterator it_semicolon = string_split_string(h.value, S(";"));
       for (u64 j = 0; j < h.value.len; j++) {
         SplitResult split_semicolon = string_split_next(&it_semicolon);
         if (!split_semicolon.ok) {
           break;
         }
 
-        SplitIterator it_equals = string_split(split_semicolon.s, '=');
+        SplitIterator it_equals =
+            string_split_string(split_semicolon.s, S("="));
         SplitResult split_equals_left = string_split_next(&it_equals);
         if (!split_equals_left.ok) {
           break;
