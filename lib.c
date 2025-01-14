@@ -1160,8 +1160,10 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
   return slice_at(bitfield, idx_byte) & (1 << (idx_bit % 8));
 }
 
+// FIXME: Windows.
 typedef int Socket;
 typedef int File;
+typedef int Timer;
 
 RESULT(Socket) CreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static CreateSocketResult
@@ -1217,6 +1219,7 @@ typedef enum {
 
 typedef struct {
   Socket socket;
+  Timer timer;
   AioEventKind kind;
   AioEventActionKind action;
 } AioEvent;
@@ -1429,6 +1432,7 @@ net_tcp_accept(Socket sock) {
 aio_queue_ctl(AioQueue queue, AioEventSlice events) {
   for (u64 i = 0; i < events.len; i++) {
     AioEvent event = slice_at(events, i);
+    ASSERT(event.socket ^ event.timer);
 
     int op = 0;
     switch (event.action) {
@@ -1456,7 +1460,12 @@ aio_queue_ctl(AioQueue queue, AioEventSlice events) {
     if (event.kind & AIO_EVENT_KIND_ERR) {
       epoll_event.events |= EPOLLERR;
     }
-    epoll_event.data.fd = event.socket;
+
+    if (event.socket) {
+      epoll_event.data.fd = event.socket;
+    } else if (event.timer) {
+      epoll_event.data.fd = event.timer;
+    }
 
     int res_epoll = epoll_ctl((int)queue, op, event.socket, &epoll_event);
     if (-1 == res_epoll) {
