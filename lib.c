@@ -295,6 +295,8 @@ string_split_string(String s, String sep) {
     return -1;
   }
 
+  ASSERT(nullptr != haystack.data);
+  ASSERT(nullptr != needle.data);
   void *ptr = memmem(haystack.data, haystack.len, needle.data, needle.len);
   if (nullptr == ptr) {
     return -1;
@@ -2154,12 +2156,6 @@ typedef struct {
 
 RESULT(DynKeyValue) DynKeyValueResult;
 
-typedef enum {
-  HTTP_IO_STATE_NONE,
-  HTTP_IO_STATE_AFTER_HEADING,
-  HTTP_IO_STATE_DONE,
-} HttpIOState;
-
 typedef struct {
   String scheme;
   String username, password;
@@ -2955,87 +2951,41 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
   return res;
 }
 
-[[maybe_unused]] static void http_write_request(RingBuffer *rg,
-                                                HttpIOState *state,
-                                                u64 *header_idx,
-                                                HttpRequest req, Arena arena) {
-  for (u64 _i = 0; _i < 128; _i++) {
-    switch (*state) {
-    case HTTP_IO_STATE_NONE: {
-      if (!http_request_write_status_line(rg, req, arena)) {
-        return;
-      }
-      *state = HTTP_IO_STATE_AFTER_STATUS_LINE;
-      continue;
-    }
-    case HTTP_IO_STATE_AFTER_STATUS_LINE: {
-      if (*header_idx == req.headers.len) {
-        *state = HTTP_IO_STATE_AFTER_ALL_HEADERS;
-        continue;
-      }
+[[maybe_unused]] static Error http_write_request(RingBuffer *rg,
+                                                 HttpRequest res, Arena arena) {
+  if (!http_request_write_status_line(rg, res, arena)) {
+    return (Error)ENOMEM;
+  }
 
-      KeyValue header = dyn_at(req.headers, *header_idx);
-      if (!http_write_header(rg, header, arena)) {
-        return;
-      }
-      *header_idx += 1;
-
-      continue;
-    }
-    case HTTP_IO_STATE_AFTER_ALL_HEADERS: {
-      if (!ring_buffer_write_slice(rg, S("\r\n"))) {
-        return;
-      }
-      *state = HTTP_IO_STATE_DONE;
-      continue;
-    }
-    case HTTP_IO_STATE_DONE:
-      return;
-    default:
-      ASSERT(0);
+  for (u64 i = 0; i < res.headers.len; i++) {
+    KeyValue header = dyn_at(res.headers, i);
+    if (!http_write_header(rg, header, arena)) {
+      return (Error)ENOMEM;
     }
   }
+  if (!ring_buffer_write_slice(rg, S("\r\n"))) {
+    return (Error)ENOMEM;
+  }
+
+  return (Error)0;
 }
 
-[[maybe_unused]] static void
-http_write_response(RingBuffer *rg, HttpIOState *state, u64 *header_idx,
-                    HttpResponse res, Arena arena) {
-  for (u64 _i = 0; _i < 128; _i++) {
-    switch (*state) {
-    case HTTP_IO_STATE_NONE: {
-      if (!http_response_write_status_line(rg, res, arena)) {
-        return;
-      }
-      *state = HTTP_IO_STATE_AFTER_STATUS_LINE;
-      continue;
-    }
-    case HTTP_IO_STATE_AFTER_STATUS_LINE: {
-      if (*header_idx == res.headers.len) {
-        *state = HTTP_IO_STATE_AFTER_ALL_HEADERS;
-        continue;
-      }
-
-      KeyValue header = dyn_at(res.headers, *header_idx);
-      if (!http_write_header(rg, header, arena)) {
-        return;
-      }
-      *header_idx += 1;
-
-      continue;
-    }
-    case HTTP_IO_STATE_AFTER_ALL_HEADERS: {
-      if (!ring_buffer_write_slice(rg, S("\r\n"))) {
-        return;
-      }
-      *state = HTTP_IO_STATE_DONE;
-      continue;
-    }
-    case HTTP_IO_STATE_DONE:
-      return;
-    default:
-      ASSERT(0);
+[[maybe_unused]] static Error
+http_write_response(RingBuffer *rg, HttpResponse res, Arena arena) {
+  if (!http_response_write_status_line(rg, res, arena)) {
+    return (Error)ENOMEM;
+  }
+  for (u64 i = 0; i < res.headers.len; i++) {
+    KeyValue header = dyn_at(res.headers, i);
+    if (!http_write_header(rg, header, arena)) {
+      return (Error)ENOMEM;
     }
   }
+  if (!ring_buffer_write_slice(rg, S("\r\n"))) {
+
+    return (Error)ENOMEM;
+  }
+  return (Error)0;
 }
 
 [[maybe_unused]] [[nodiscard]] static Reader

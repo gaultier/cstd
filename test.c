@@ -44,7 +44,7 @@ static void test_string_trim() {
 
 static void test_string_split() {
   String s = S("hello..world...foobar");
-  SplitIterator it = string_split(s, '.');
+  SplitIterator it = string_split_string(s, S("."));
 
   {
     SplitResult elem = string_split_next(&it);
@@ -1034,14 +1034,8 @@ static void test_http_send_request() {
     req.method = HTTP_METHOD_GET;
 
     RingBuffer rg = {.data = string_make(32, &arena)};
-    HttpIOState state = HTTP_IO_STATE_NONE;
-    u64 header_idx = 0;
 
-    http_write_request(&rg, &state, &header_idx, req, arena);
-
-    ASSERT(HTTP_IO_STATE_DONE == state);
-    ASSERT(0 == header_idx);
-
+    ASSERT(0 == http_write_request(&rg, req, arena));
     String s = string_make(ring_buffer_read_space(rg), &arena);
     ASSERT(true == ring_buffer_read_slice(&rg, s));
 
@@ -1055,29 +1049,20 @@ static void test_http_send_request() {
     http_push_header(&req.headers, S("Host"), S("google.com"), &arena);
     *dyn_push(&req.url.path_components, &arena) = S("foobar");
 
-    RingBuffer rg = {.data = string_make(32, &arena)};
-    HttpIOState state = HTTP_IO_STATE_NONE;
-    u64 header_idx = 0;
-
-    http_write_request(&rg, &state, &header_idx, req, arena);
-    ASSERT(HTTP_IO_STATE_AFTER_STATUS_LINE == state);
-    ASSERT(0 == header_idx);
-
     {
-      Arena tmp = arena;
-      String s = string_make(ring_buffer_read_space(rg), &tmp);
-      ASSERT(true == ring_buffer_read_slice(&rg, s));
-      ASSERT(string_eq(s, S("POST /foobar HTTP/1.1\r\n")));
+      RingBuffer rg = {.data = string_make(32, &arena)};
+      ASSERT(ENOMEM == http_write_request(&rg, req, arena));
     }
 
-    http_write_request(&rg, &state, &header_idx, req, arena);
-    ASSERT(HTTP_IO_STATE_DONE == state);
-    ASSERT(1 == header_idx);
+    RingBuffer rg = {.data = string_make(128, &arena)};
+
+    ASSERT(0 == http_write_request(&rg, req, arena));
 
     String s = string_make(ring_buffer_read_space(rg), &arena);
     ASSERT(true == ring_buffer_read_slice(&rg, s));
 
-    String expected = S("Host: google.com\r\n"
+    String expected = S("POST /foobar HTTP/1.1\r\n"
+                        "Host: google.com\r\n"
                         "\r\n");
     ASSERT(string_eq(s, expected));
   }
@@ -1313,22 +1298,19 @@ static void test_http_read_response() {
     ASSERT(false == res.done);
     ASSERT(ring_buffer_read_space(rg) == S("HTTP/1.").len);
   }
-  // Status line and some.
+  // Status line and some but not full.
   {
     RingBuffer rg = {.data = string_make(32, &arena)};
     ASSERT(true ==
            ring_buffer_write_slice(&rg, S("HTTP/1.1 201 Created\r\nHost:")));
     HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
     ASSERT(0 == res.err);
-    ASSERT(true == res.done);
-    ASSERT(1 == res.res.version_major);
-    ASSERT(1 == res.res.version_minor);
-    ASSERT(201 == res.res.status);
+    ASSERT(false == res.done);
   }
 
   // Full.
   {
-    RingBuffer rg = {.data = string_make(32, &arena)};
+    RingBuffer rg = {.data = string_make(128, &arena)};
 
     {
       ASSERT(true ==
@@ -1431,13 +1413,10 @@ static void test_http_request_response() {
   RingBuffer server_recv = {.data = string_make(512, &arena)};
   RingBuffer server_send = {.data = string_make(128, &arena)};
 
-  HttpIOState client_recv_http_io_state = 0;
-  HttpIOState client_send_http_io_state = 0;
-  HttpIOState server_recv_http_io_state = 0;
-  HttpIOState server_send_http_io_state = 0;
-
-  u64 client_header_idx = 0;
-  u64 server_header_idx = 0;
+  bool client_recv_http_io_done = false;
+  bool client_send_http_io_done = false;
+  bool server_recv_http_io_done = false;
+  bool server_send_http_io_done = false;
 
   HttpRequest client_req = {0};
   client_req.method = HTTP_METHOD_GET;
@@ -1487,60 +1466,60 @@ static void test_http_request_response() {
         events_change.len = 0;
       } else if (event.socket == client_socket) {
         if (AIO_EVENT_KIND_OUT & event.kind) {
-          if (HTTP_IO_STATE_DONE != client_send_http_io_state) {
-            http_write_request(&client_send, &client_send_http_io_state,
-                               &client_header_idx, client_req, arena);
+          if (!client_send_http_io_done) {
+            http_write_request(&client_send, client_req, arena);
             ASSERT(0 == writer_write(&client_writer, &client_send, arena).err);
+            client_send_http_io_done = true;
 
-            if (HTTP_IO_STATE_DONE == client_send_http_io_state) {
-              // Stop subscribing for writing, start subscribing for reading.
-              events_change.len = 1;
-              AioEvent *event_client = slice_at_ptr(&events_change, 0);
-              event_client->socket = client_socket;
-              event_client->kind = AIO_EVENT_KIND_IN;
-              event_client->action = AIO_EVENT_ACTION_KIND_MOD;
-              ASSERT(0 == net_aio_queue_ctl(queue, events_change));
-              events_change.len = 0;
-            }
+            // Stop subscribing for writing, start subscribing for reading.
+            events_change.len = 1;
+            AioEvent *event_client = slice_at_ptr(&events_change, 0);
+            event_client->socket = client_socket;
+            event_client->kind = AIO_EVENT_KIND_IN;
+            event_client->action = AIO_EVENT_ACTION_KIND_MOD;
+            ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+            events_change.len = 0;
           }
         }
         if (AIO_EVENT_KIND_IN & event.kind) {
-          if (HTTP_IO_STATE_DONE != client_recv_http_io_state) {
+          if (!client_recv_http_io_done) {
             ASSERT(0 == reader_read(&client_reader, &client_recv, arena).err);
-            ASSERT(0 == http_read_response(&client_recv,
-                                           &client_recv_http_io_state,
-                                           &client_res, &arena));
-          }
-          if (HTTP_IO_STATE_DONE == client_recv_http_io_state) {
+            HttpResponseReadResult res =
+                http_read_response(&client_recv, 128, &arena);
+            ASSERT(0 == res.err);
+            ASSERT(true == res.done);
+            client_res = res.res;
+            client_recv_http_io_done = true;
             goto end;
           }
         }
       } else if (event.socket == server_socket) {
         if (AIO_EVENT_KIND_IN & event.kind) {
-          if (HTTP_IO_STATE_DONE != server_recv_http_io_state) {
+          if (!server_recv_http_io_done) {
             ASSERT(0 == reader_read(&server_reader, &server_recv, arena).err);
-            ASSERT(0 == http_read_request(&server_recv,
-                                          &server_recv_http_io_state,
-                                          &server_req, &arena));
-            if (HTTP_IO_STATE_DONE == server_recv_http_io_state) {
-              // Stop subscribing for reading, start subscribing for writing.
-              events_change.len = 1;
-              AioEvent *event_server = slice_at_ptr(&events_change, 0);
-              event_server->socket = server_socket;
-              event_server->kind = AIO_EVENT_KIND_OUT;
-              event_server->action = AIO_EVENT_ACTION_KIND_MOD;
-              ASSERT(0 == net_aio_queue_ctl(queue, events_change));
-              events_change.len = 0;
-            }
+            HttpRequestReadResult res =
+                http_read_request(&server_recv, 128, &arena);
+            ASSERT(0 == res.err);
+            ASSERT(true == res.done);
+            server_req = res.res;
+            server_recv_http_io_done = true;
+
+            // Stop subscribing for reading, start subscribing for writing.
+            events_change.len = 1;
+            AioEvent *event_server = slice_at_ptr(&events_change, 0);
+            event_server->socket = server_socket;
+            event_server->kind = AIO_EVENT_KIND_OUT;
+            event_server->action = AIO_EVENT_ACTION_KIND_MOD;
+            ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+            events_change.len = 0;
           }
         }
         if (AIO_EVENT_KIND_OUT & event.kind) {
-          if (HTTP_IO_STATE_DONE != server_send_http_io_state) {
-            http_write_response(&server_send, &server_send_http_io_state,
-                                &server_header_idx, server_res, arena);
+          if (!server_send_http_io_done) {
+            ASSERT(0 == http_write_response(&server_send, server_res, arena));
             ASSERT(0 == writer_write(&server_writer, &server_send, arena).err);
-          }
-          if (HTTP_IO_STATE_DONE == server_send_http_io_state) {
+            server_send_http_io_done = true;
+
             // Stop subscribing.
             events_change.len = 1;
             AioEvent *event_server = slice_at_ptr(&events_change, 0);
@@ -1549,19 +1528,24 @@ static void test_http_request_response() {
             ASSERT(0 == net_aio_queue_ctl(queue, events_change));
             events_change.len = 0;
           }
+        } else {
+          ASSERT(0);
         }
-      } else {
-        ASSERT(0);
       }
     }
   }
 
 end:
 
-  ASSERT(HTTP_IO_STATE_DONE == client_send_http_io_state);
-  ASSERT(HTTP_IO_STATE_DONE == client_recv_http_io_state);
-  ASSERT(HTTP_IO_STATE_DONE == server_recv_http_io_state);
-  ASSERT(HTTP_IO_STATE_DONE == server_send_http_io_state);
+  ASSERT(client_send_http_io_done);
+  ASSERT(client_recv_http_io_done);
+  ASSERT(server_recv_http_io_done);
+  ASSERT(server_send_http_io_done);
+
+  ASSERT(client_req.method = server_req.method);
+  ASSERT(client_req.version_major = server_req.version_major);
+  ASSERT(client_req.version_minor = server_req.version_minor);
+  ASSERT(client_req.headers.len = server_req.headers.len);
 
   ASSERT(client_res.status = server_res.status);
   ASSERT(client_res.version_major = server_res.version_major);
