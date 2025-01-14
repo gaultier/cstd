@@ -33,7 +33,7 @@
 #define PG_Milliseconds (1000ULL * PG_Microseconds)
 #define PG_Seconds (1000ULL * PG_Milliseconds)
 
-#define DYN(T)                                                                 \
+#define PG_DYN(T)                                                              \
   typedef struct {                                                             \
     T *data;                                                                   \
     u64 len, cap;                                                              \
@@ -709,7 +709,7 @@ typedef struct {
   u64 len, cap;
 } DynU8;
 
-DYN(String);
+PG_DYN(String);
 RESULT(DynString) DynStringResult;
 
 #define dyn_push(s, arena)                                                     \
@@ -1072,7 +1072,7 @@ typedef struct {
   u16 port; // Host order.
 } Ipv4Address;
 
-DYN(Ipv4Address);
+PG_DYN(Ipv4Address);
 
 [[maybe_unused]] [[nodiscard]] static String
 make_unique_id_u128_string(Arena *arena) {
@@ -1237,7 +1237,7 @@ typedef struct {
 } AioEvent;
 
 SLICE(AioEvent);
-DYN(AioEvent);
+PG_DYN(AioEvent);
 
 [[maybe_unused]] [[nodiscard]] static Error aio_queue_ctl(AioQueue queue,
                                                           AioEventSlice events);
