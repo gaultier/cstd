@@ -72,6 +72,7 @@ typedef int64_t i64;
   } T##Ok
 
 typedef u32 Error;
+RESULT(u64) IoCountResult;
 
 #define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -1226,8 +1227,6 @@ SLICE(AioEvent);
 [[maybe_unused]] [[nodiscard]] static Error
 net_aio_queue_ctl(AioQueue queue, AioEventSlice events);
 
-RESULT(u64) IoCountResult;
-
 [[maybe_unused]] [[nodiscard]] static IoCountResult
 net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
                    Arena arena);
@@ -1547,6 +1546,20 @@ unix_write(void *self, u8 *buf, size_t buf_len) {
 }
 
 typedef struct {
+  DynU8 sb;
+  Arena *arena;
+} StringBuilder;
+
+[[maybe_unused]] [[nodiscard]] static IoCountResult
+string_builder_write(void *self, u8 *buf, size_t buf_len) {
+  StringBuilder *sb = self;
+  String s = {.data = buf, .len = buf_len};
+  dyn_append_slice(&sb->sb, s, sb->arena);
+
+  return (IoCountResult){.res = buf_len};
+}
+
+typedef struct {
   u64 idx_read, idx_write;
   String data;
 } RingBuffer;
@@ -1762,12 +1775,12 @@ typedef struct {
 
 [[maybe_unused]] [[nodiscard]] static Socket reader_socket(Reader *r) {
   ASSERT(r->ctx);
-  return (int)(u64)r->ctx;
+  return (Socket)(u64)r->ctx;
 }
 
 [[maybe_unused]] [[nodiscard]] static Socket writer_socket(Writer *w) {
   ASSERT(w->ctx);
-  return (int)(u64)w->ctx;
+  return (Socket)(u64)w->ctx;
 }
 
 typedef enum {
@@ -2652,6 +2665,11 @@ writer_make_from_socket(Socket socket) {
   return (Writer){.write_fn = unix_write, .ctx = (void *)file};
 }
 
+[[maybe_unused]] [[nodiscard]] static Writer
+writer_make_from_string_builder(StringBuilder *sb) {
+  return (Writer){.write_fn = string_builder_write, .ctx = (void *)sb};
+}
+
 [[maybe_unused]] [[nodiscard]] static IoCountResult
 reader_read(Reader *r, RingBuffer *rg, Arena arena) {
   ASSERT(nullptr != r->read_fn);
@@ -3264,16 +3282,17 @@ log_level_to_string(LogLevel level) {
 
 #define LOG_ARGS_COUNT(...)                                                    \
   (sizeof((LogEntry[]){__VA_ARGS__}) / sizeof(LogEntry))
-#define logger_log(logger, level, msg, arena, ...)                             \
+#define logger_log(logger, lvl, msg, arena, ...)                               \
   do {                                                                         \
-    if (level < logger.level) {                                                \
-      break                                                                    \
+    if ((logger)->level > (lvl)) {                                             \
+      break;                                                                   \
     };                                                                         \
-    Arena xxx_tmp_arena = *arena;                                              \
+    Arena xxx_tmp_arena = (arena);                                             \
     String xxx_log_line =                                                      \
-        log_make_log_line(level, S(msg), &xxx_tmp_arena,                       \
+        log_make_log_line(lvl, S(msg), &xxx_tmp_arena,                         \
                           LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);           \
-    w->write_fn(w->ctx, xxx_log_line.data, xxx_log_line.len);                  \
+    (logger)->writer.write_fn((logger)->writer.ctx, xxx_log_line.data,         \
+                              xxx_log_line.len);                               \
   } while (0)
 
 [[maybe_unused]] [[nodiscard]] static String json_escape_string(String entry,

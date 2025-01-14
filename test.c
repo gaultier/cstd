@@ -1597,7 +1597,15 @@ end:
 static void test_log() {
   Arena arena = arena_make_from_virtual_mem(4 * KiB);
   {
-    Logger logger = log_mak
+    StringBuilder sb = {.arena = &arena};
+    Logger logger = log_logger_make(LOG_LEVEL_DEBUG);
+    logger.writer = writer_make_from_string_builder(&sb);
+
+    logger_log(&logger, LOG_LEVEL_INFO, "hello world", arena,
+               L("foo", S("bar")));
+
+    String out = dyn_slice(String, sb.sb);
+    ASSERT(string_starts_with(out, S("{\"level\":\"info\"")));
   }
 }
 
