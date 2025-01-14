@@ -1468,6 +1468,8 @@ static void test_http_request_response() {
         if (AIO_EVENT_KIND_OUT & event.kind) {
           if (!client_send_http_io_done) {
             http_write_request(&client_send, client_req, arena);
+            ASSERT(true == ring_buffer_write_slice(&client_send,
+                                                   S("client request body")));
             ASSERT(0 == writer_write(&client_writer, &client_send, arena).err);
             client_send_http_io_done = true;
 
