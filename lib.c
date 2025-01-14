@@ -162,6 +162,10 @@ SLICE(String);
 
 #define S(s) ((String){.data = (u8 *)s, .len = sizeof(s) - 1})
 
+[[maybe_unused]] [[nodiscard]] static bool string_is_empty(String s) {
+  return slice_is_empty(s);
+}
+
 [[maybe_unused]] [[nodiscard]] static bool string_is_alphabetical(String s) {
   for (u64 i = 0; i < s.len; i++) {
     u8 c = slice_at(s, i);
