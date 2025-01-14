@@ -2898,6 +2898,7 @@ http_read_response(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
     return res;
   }
 
+  res.done = true;
   return res;
 }
 
@@ -2948,6 +2949,7 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
     return res;
   }
 
+  res.done = true;
   return res;
 }
 

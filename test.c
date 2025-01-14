@@ -1408,9 +1408,9 @@ static void test_http_request_response() {
   Writer client_writer = writer_make_from_socket(client_socket);
   Reader client_reader = reader_make_from_socket(client_socket);
 
-  RingBuffer client_recv = {.data = string_make(32, &arena)};
-  RingBuffer client_send = {.data = string_make(32, &arena)};
-  RingBuffer server_recv = {.data = string_make(512, &arena)};
+  RingBuffer client_recv = {.data = string_make(128, &arena)};
+  RingBuffer client_send = {.data = string_make(128, &arena)};
+  RingBuffer server_recv = {.data = string_make(128, &arena)};
   RingBuffer server_send = {.data = string_make(128, &arena)};
 
   bool client_recv_http_io_done = false;
@@ -1528,9 +1528,9 @@ static void test_http_request_response() {
             ASSERT(0 == net_aio_queue_ctl(queue, events_change));
             events_change.len = 0;
           }
-        } else {
-          ASSERT(0);
         }
+      } else {
+        ASSERT(0);
       }
     }
   }
