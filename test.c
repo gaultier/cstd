@@ -42,7 +42,7 @@ static void test_string_trim() {
   ASSERT(string_eq(trimmed, S("foo")));
 }
 
-static void test_string_split() {
+static void test_string_split_byte() {
   String s = S("hello..world...foobar");
   SplitIterator it = string_split_string(s, S("."));
 
@@ -62,6 +62,32 @@ static void test_string_split() {
     SplitResult elem = string_split_next(&it);
     ASSERT(true == elem.ok);
     ASSERT(string_eq(elem.s, S("foobar")));
+  }
+
+  ASSERT(false == string_split_next(&it).ok);
+  ASSERT(false == string_split_next(&it).ok);
+}
+
+static void test_string_split_string() {
+  String s = S("hello, world,little, thing !");
+  SplitIterator it = string_split_string(s, S(", "));
+
+  {
+    SplitResult elem = string_split_next(&it);
+    ASSERT(true == elem.ok);
+    ASSERT(string_eq(elem.s, S("hello")));
+  }
+
+  {
+    SplitResult elem = string_split_next(&it);
+    ASSERT(true == elem.ok);
+    ASSERT(string_eq(elem.s, S("world,little")));
+  }
+
+  {
+    SplitResult elem = string_split_next(&it);
+    ASSERT(true == elem.ok);
+    ASSERT(string_eq(elem.s, S("thing !")));
   }
 
   ASSERT(false == string_split_next(&it).ok);
@@ -1563,7 +1589,8 @@ int main() {
   test_slice_range();
   test_string_indexof_slice();
   test_string_trim();
-  test_string_split();
+  test_string_split_byte();
+  test_string_split_string();
   test_dyn_ensure_cap();
   test_string_consume();
   test_string_parse_u64();
