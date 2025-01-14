@@ -1199,8 +1199,7 @@ net_tcp_accept(Socket sock);
 
 typedef u64 AioQueue;
 RESULT(AioQueue) AioQueueCreateResult;
-[[maybe_unused]] [[nodiscard]] static AioQueueCreateResult
-net_aio_queue_create();
+[[maybe_unused]] [[nodiscard]] static AioQueueCreateResult aio_queue_create();
 
 typedef enum {
   AIO_EVENT_KIND_NONE = 0,
@@ -1225,18 +1224,18 @@ typedef struct {
 SLICE(AioEvent);
 DYN(AioEvent);
 
-[[maybe_unused]] [[nodiscard]] static Error
-net_aio_queue_ctl(AioQueue queue, AioEventSlice events);
+[[maybe_unused]] [[nodiscard]] static Error aio_queue_ctl(AioQueue queue,
+                                                          AioEventSlice events);
 
-[[maybe_unused]] [[nodiscard]] static Error
-net_aio_queue_ctl_one(AioQueue queue, AioEvent event) {
+[[maybe_unused]] [[nodiscard]] static Error aio_queue_ctl_one(AioQueue queue,
+                                                              AioEvent event) {
   AioEventSlice events = {.data = &event, .len = 1};
-  return net_aio_queue_ctl(queue, events);
+  return aio_queue_ctl(queue, events);
 }
 
 [[maybe_unused]] [[nodiscard]] static IoCountResult
-net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
-                   Arena arena);
+aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
+               Arena arena);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #include <arpa/inet.h>
@@ -1416,8 +1415,7 @@ net_tcp_accept(Socket sock) {
 #if defined(__linux__)
 #include <sys/epoll.h>
 
-[[maybe_unused]] [[nodiscard]] static AioQueueCreateResult
-net_aio_queue_create() {
+[[maybe_unused]] [[nodiscard]] static AioQueueCreateResult aio_queue_create() {
   AioQueueCreateResult res = {0};
   int queue = epoll_create(1 /* Ignored */);
   if (-1 == queue) {
@@ -1428,7 +1426,7 @@ net_aio_queue_create() {
 }
 
 [[maybe_unused]] [[nodiscard]] static Error
-net_aio_queue_ctl(AioQueue queue, AioEventSlice events) {
+aio_queue_ctl(AioQueue queue, AioEventSlice events) {
   for (u64 i = 0; i < events.len; i++) {
     AioEvent event = slice_at(events, i);
 
@@ -1470,8 +1468,8 @@ net_aio_queue_ctl(AioQueue queue, AioEventSlice events) {
 }
 
 [[maybe_unused]] [[nodiscard]] static IoCountResult
-net_aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
-                   Arena arena) {
+aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
+               Arena arena) {
   IoCountResult res = {0};
   if (slice_is_empty(events)) {
     return res;

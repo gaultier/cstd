@@ -912,7 +912,7 @@ static void test_net_socket() {
   }
   ASSERT(0 == net_socket_set_blocking(socket_alice, false));
 
-  AioQueueCreateResult res_queue_create = net_aio_queue_create();
+  AioQueueCreateResult res_queue_create = aio_queue_create();
   ASSERT(0 == res_queue_create.err);
 
   AioQueue queue = res_queue_create.res;
@@ -925,7 +925,7 @@ static void test_net_socket() {
     event_bob_listen->kind = AIO_EVENT_KIND_IN;
     event_bob_listen->action = AIO_EVENT_ACTION_KIND_ADD;
 
-    ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+    ASSERT(0 == aio_queue_ctl(queue, events_change));
   }
 
   Socket bob_socket = 0;
@@ -941,7 +941,7 @@ static void test_net_socket() {
   AioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
 
   for (;;) {
-    IoCountResult res_wait = net_aio_queue_wait(queue, events_watch, -1, arena);
+    IoCountResult res_wait = aio_queue_wait(queue, events_watch, -1, arena);
     ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
@@ -967,7 +967,7 @@ static void test_net_socket() {
         event_bob->kind = AIO_EVENT_KIND_IN;
         event_bob->action = AIO_EVENT_ACTION_KIND_ADD;
 
-        ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+        ASSERT(0 == aio_queue_ctl(queue, events_change));
         events_change.len = 0;
       } else if (event.socket == socket_alice) {
         ASSERT(AIO_EVENT_KIND_OUT & event.kind);
@@ -1412,7 +1412,7 @@ static void test_http_request_response() {
   }
   ASSERT(0 == net_socket_set_blocking(client_socket, false));
 
-  AioQueueCreateResult res_queue_create = net_aio_queue_create();
+  AioQueueCreateResult res_queue_create = aio_queue_create();
   ASSERT(0 == res_queue_create.err);
 
   AioQueue queue = res_queue_create.res;
@@ -1425,7 +1425,7 @@ static void test_http_request_response() {
     event_server_listen->kind = AIO_EVENT_KIND_IN;
     event_server_listen->action = AIO_EVENT_ACTION_KIND_ADD;
 
-    ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+    ASSERT(0 == aio_queue_ctl(queue, events_change));
   }
 
   Socket server_socket = 0;
@@ -1466,7 +1466,7 @@ static void test_http_request_response() {
   AioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
 
   for (u64 _i = 0; _i <= 128; _i++) {
-    IoCountResult res_wait = net_aio_queue_wait(queue, events_watch, -1, arena);
+    IoCountResult res_wait = aio_queue_wait(queue, events_watch, -1, arena);
     ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
@@ -1493,7 +1493,7 @@ static void test_http_request_response() {
         event_server_client->kind = AIO_EVENT_KIND_IN;
         event_server_client->action = AIO_EVENT_ACTION_KIND_ADD;
 
-        ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+        ASSERT(0 == aio_queue_ctl(queue, events_change));
         events_change.len = 0;
       } else if (event.socket == client_socket) {
         if (AIO_EVENT_KIND_OUT & event.kind) {
@@ -1510,7 +1510,7 @@ static void test_http_request_response() {
             event_client->socket = client_socket;
             event_client->kind = AIO_EVENT_KIND_IN;
             event_client->action = AIO_EVENT_ACTION_KIND_MOD;
-            ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+            ASSERT(0 == aio_queue_ctl(queue, events_change));
             events_change.len = 0;
           }
         }
@@ -1543,7 +1543,7 @@ static void test_http_request_response() {
             event_server->socket = server_socket;
             event_server->kind = AIO_EVENT_KIND_OUT;
             event_server->action = AIO_EVENT_ACTION_KIND_MOD;
-            ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+            ASSERT(0 == aio_queue_ctl(queue, events_change));
             events_change.len = 0;
           }
         }
@@ -1558,7 +1558,7 @@ static void test_http_request_response() {
             AioEvent *event_server = slice_at_ptr(&events_change, 0);
             event_server->socket = server_socket;
             event_server->action = AIO_EVENT_ACTION_KIND_DEL;
-            ASSERT(0 == net_aio_queue_ctl(queue, events_change));
+            ASSERT(0 == aio_queue_ctl(queue, events_change));
             events_change.len = 0;
           }
         }
