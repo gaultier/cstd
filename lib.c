@@ -1180,6 +1180,8 @@ RESULT(Timer) TimerResult;
 [[maybe_unused]] [[nodiscard]] static TimerResult
 pg_timer_create(ClockKind clock_kind, u64 ns);
 
+[[maybe_unused]] [[nodiscard]] static Error pg_timer_release(Timer timer);
+
 [[maybe_unused]] [[nodiscard]] static u64Result
 pg_time_ns_now(ClockKind clock_kind);
 
@@ -1486,7 +1488,8 @@ aio_queue_ctl(AioQueue queue, AioEventSlice events) {
       epoll_event.data.fd = event.timer;
     }
 
-    int res_epoll = epoll_ctl((int)queue, op, event.socket, &epoll_event);
+    int res_epoll =
+        epoll_ctl((int)queue, op, epoll_event.data.fd, &epoll_event);
     if (-1 == res_epoll) {
       return (Error)errno;
     }
@@ -1547,7 +1550,7 @@ aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
 pg_timer_create(ClockKind clock, u64 ns) {
   TimerResult res = {0};
 
-  int ret = timerfd_create(linux_clock(clock), 0);
+  int ret = timerfd_create(linux_clock(clock), TFD_NONBLOCK);
   if (-1 == ret) {
     res.err = (Error)errno;
     return res;
@@ -1557,7 +1560,7 @@ pg_timer_create(ClockKind clock, u64 ns) {
 
   struct itimerspec ts = {0};
   ts.it_value.tv_sec = ns / Seconds;
-  ts.it_value.tv_sec = ns % Seconds;
+  ts.it_value.tv_nsec = ns % Seconds;
   ret = timerfd_settime((int)res.res, 0, &ts, nullptr);
   if (-1 == ret) {
     res.err = (Error)errno;
@@ -1565,6 +1568,13 @@ pg_timer_create(ClockKind clock, u64 ns) {
   }
 
   return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Error pg_timer_release(Timer timer) {
+  if (-1 == close((int)timer)) {
+    return (Error)errno;
+  }
+  return (Error)0;
 }
 
 [[maybe_unused]] [[nodiscard]] static u64Result

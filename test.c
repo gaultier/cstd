@@ -1630,10 +1630,10 @@ static void test_timer() {
   AioQueue queue = res_queue_create.res;
 
   TimerResult res_timer =
-      pg_timer_create(CLOCK_KIND_MONOTONIC, 2 * Milliseconds);
+      pg_timer_create(CLOCK_KIND_MONOTONIC, 10 * Milliseconds);
   ASSERT(0 == res_timer.err);
 
-  u64Result res_start = pg_time_ns_now(CLOCK_MONOTONIC);
+  u64Result res_start = pg_time_ns_now(CLOCK_KIND_MONOTONIC);
   ASSERT(0 == res_start.err);
 
   {
@@ -1647,18 +1647,18 @@ static void test_timer() {
   }
 
   AioEventSlice events_watch = slice_make(AioEvent, 1, &arena);
-  for (;;) {
-    IoCountResult res_wait =
-        aio_queue_wait(queue, events_watch, 1 * Seconds, arena);
-    ASSERT(0 == res_wait.err);
+  IoCountResult res_wait = aio_queue_wait(queue, events_watch, 1'000, arena);
+  ASSERT(0 == res_wait.err);
+  ASSERT(1 == res_wait.res);
 
-    AioEvent event_watch = slice_at(events_watch, 0);
-    ASSERT(0 == (AIO_EVENT_KIND_ERR & event_watch.kind));
-    ASSERT(AIO_EVENT_KIND_IN & event_watch.kind);
-  }
+  AioEvent event_watch = slice_at(events_watch, 0);
+  ASSERT(0 == (AIO_EVENT_KIND_ERR & event_watch.kind));
+  ASSERT(AIO_EVENT_KIND_IN & event_watch.kind);
 
-  u64Result res_end = pg_time_ns_now(CLOCK_MONOTONIC);
+  u64Result res_end = pg_time_ns_now(CLOCK_KIND_MONOTONIC);
   ASSERT(0 == res_end.err);
+  ASSERT(res_end.res > res_start.res);
+  ASSERT(res_end.res - res_start.res < 20 * Milliseconds);
 }
 
 int main() {
