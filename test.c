@@ -1447,6 +1447,10 @@ static void test_http_request_response() {
   HttpRequest client_req = {0};
   client_req.method = HTTP_METHOD_GET;
   http_push_header(&client_req.headers, S("Host"), S("localhost"), &arena);
+  *dyn_push(&client_req.url.query_parameters, &arena) = (KeyValue){
+      .key = S("uploaded"),
+      .value = u64_to_string(123456, &arena),
+  };
 
   HttpResponse server_res = {0};
   server_res.status = 200;
@@ -1574,6 +1578,10 @@ end:
   ASSERT(client_req.version_major = server_req.version_major);
   ASSERT(client_req.version_minor = server_req.version_minor);
   ASSERT(client_req.headers.len = server_req.headers.len);
+  ASSERT(1 == server_req.url.query_parameters.len);
+  KeyValue query0 = slice_at(server_req.url.query_parameters, 0);
+  ASSERT(string_eq(query0.key, S("uploaded")));
+  ASSERT(string_eq(query0.value, S("123456")));
 
   ASSERT(client_res.status = server_res.status);
   ASSERT(client_res.version_major = server_res.version_major);
