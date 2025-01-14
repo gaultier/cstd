@@ -3206,7 +3206,8 @@ typedef struct {
   LogValue value;
 } LogEntry;
 
-[[maybe_unused]] [[nodiscard]] static Logger log_logger_make(LogLevel level) {
+[[maybe_unused]] [[nodiscard]] static Logger
+log_logger_make_stdout_json(LogLevel level) {
   Logger logger = {
       .level = level,
       .writer = writer_make_from_file((File *)stdout), // TODO: Windows

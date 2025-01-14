@@ -1599,7 +1599,7 @@ static void test_log() {
   // Simple log.
   {
     StringBuilder sb = {.arena = &arena};
-    Logger logger = log_logger_make(LOG_LEVEL_DEBUG);
+    Logger logger = log_logger_make_stdout_json(LOG_LEVEL_DEBUG);
     logger.writer = writer_make_from_string_builder(&sb);
 
     logger_log(&logger, LOG_LEVEL_INFO, "hello world", arena,
@@ -1611,7 +1611,7 @@ static void test_log() {
   // Log but the logger level is higher.
   {
     StringBuilder sb = {.arena = &arena};
-    Logger logger = log_logger_make(LOG_LEVEL_INFO);
+    Logger logger = log_logger_make_stdout_json(LOG_LEVEL_INFO);
     logger.writer = writer_make_from_string_builder(&sb);
 
     logger_log(&logger, LOG_LEVEL_DEBUG, "hello world", arena,
