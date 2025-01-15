@@ -1437,7 +1437,6 @@ pg_net_tcp_accept(PgSocket sock) {
 #endif
 
 #if defined(__linux__)
-#define _POSIX_C_SOURCE 200809L
 #include <sys/epoll.h>
 #include <sys/sendfile.h>
 #include <sys/timerfd.h>
