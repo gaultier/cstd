@@ -3704,6 +3704,12 @@ struct PgEventLoopHandle {
   u64 os_handle;
   PgAioEventKind event_kind;
 
+  PgRing ring_write;
+  PgRing ring_read;
+
+  PgReader reader;
+  PgWriter writer;
+
   PgEventLoopOnTcpConnect on_connect;
   PgEventLoopOnClose on_close;
   PgEventLoopOnRead on_read;
@@ -3972,16 +3978,19 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
           pg_event_loop_find_handle(loop, event_watch.os_handle);
       PG_ASSERT(handle);
 
-      PgError err = 0;
+      PgError err_event_watch = 0;
       if (PG_AIO_EVENT_KIND_ERR & event_watch.kind) {
         // TODO: Ask os to give a precise error.
-        err = PG_ERR_INVALID_VALUE; // FIXME.
+        err_event_watch = PG_ERR_INVALID_VALUE; // FIXME.
       }
+
+      // Socket connect.
       if ((PG_AIO_EVENT_KIND_OUT & event_watch.kind) &&
           (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
           (PG_EVENT_LOOP_HANDLE_STATE_CONNECTING == handle->state) &&
           handle->on_connect) {
-        handle->on_connect(loop, handle->os_handle, handle->ctx, err);
+        handle->on_connect(loop, handle->os_handle, handle->ctx,
+                           err_event_watch);
         handle->state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTED;
 
         // Stop listening for 'connect'.
@@ -3994,11 +4003,50 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
         }
       }
 
+      // Socket listen.
       if ((PG_AIO_EVENT_KIND_IN & event_watch.kind) &&
           (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
           (PG_EVENT_LOOP_HANDLE_STATE_LISTENING == handle->state) &&
           handle->on_connect) {
-        handle->on_connect(loop, handle->os_handle, handle->ctx, err);
+        handle->on_connect(loop, handle->os_handle, handle->ctx,
+                           err_event_watch);
+      }
+
+      // Socket read.
+      if ((PG_AIO_EVENT_KIND_IN & event_watch.kind) &&
+          (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
+          (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state) &&
+          handle->on_read) {
+        {
+          PgArena arena_tmp = *loop->arena;
+          Pgu64Result res_read =
+              pg_reader_read(&handle->reader, &handle->ring_read, arena_tmp);
+
+          PgError err_read = 0;
+          PgString data = {0};
+          if (res_read.err) {
+            err_read = res_read.err;
+          } else {
+            data = pg_string_make(res_read.res, &arena_tmp);
+            PG_ASSERT(true == pg_ring_read_slice(&handle->ring_read, data));
+          }
+
+          handle->on_read(loop, handle->os_handle, handle->ctx, err_read, data);
+        }
+      }
+
+      // Socket write.
+      if ((PG_AIO_EVENT_KIND_OUT & event_watch.kind) &&
+          (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
+          (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state) &&
+          handle->on_write) {
+        {
+          PgArena arena_tmp = *loop->arena;
+          Pgu64Result res_write =
+              pg_writer_write(&handle->writer, &handle->ring_write, arena_tmp);
+
+          handle->on_write(loop, handle->os_handle, handle->ctx, res_write.err);
+        }
       }
     }
 
@@ -4059,6 +4107,35 @@ static PgError pg_event_loop_read_stop(PgEventLoop *loop, u64 os_handle) {
       .os_handle = handle->os_handle,
       .kind = handle->event_kind,
       .action = event_kind_before == 0 ? PG_AIO_EVENT_ACTION_DEL
+                                       : PG_AIO_EVENT_ACTION_MOD,
+  };
+  return pg_aio_queue_ctl_one(loop->queue, event_change);
+}
+
+[[nodiscard]] [[maybe_unused]]
+static PgError pg_event_loop_write(PgEventLoop *loop, u64 os_handle,
+                                   PgString data, PgEventLoopOnWrite on_write) {
+
+  PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
+  if (!handle) {
+    return PG_ERR_INVALID_VALUE;
+  }
+  if (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET != handle->kind) {
+    return PG_ERR_INVALID_VALUE;
+  }
+
+  if (!pg_ring_write_slice(&handle->ring_write, data)) {
+    return PG_ERR_OUT_OF_MEMORY;
+  }
+
+  PgAioEventKind event_kind_before = handle->event_kind;
+  handle->event_kind |= PG_AIO_EVENT_KIND_OUT;
+  handle->on_write = on_write;
+
+  PgAioEvent event_change = {
+      .os_handle = handle->os_handle,
+      .kind = handle->event_kind,
+      .action = event_kind_before == 0 ? PG_AIO_EVENT_ACTION_ADD
                                        : PG_AIO_EVENT_ACTION_MOD,
   };
   return pg_aio_queue_ctl_one(loop->queue, event_change);
