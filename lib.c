@@ -1171,8 +1171,8 @@ pg_net_connect_ipv4(PgSocket sock, PgIpv4Address address);
 typedef struct {
   PgIpv4Address address;
   PgSocket socket;
-} Ipv4AddressSocket;
-PG_RESULT(Ipv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
+} PgIpv4AddressSocket;
+PG_RESULT(PgIpv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
 [[maybe_unused]] [[nodiscard]] static PgDnsResolveIpv4AddressSocketResult
 pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena);
 
@@ -1190,8 +1190,8 @@ typedef struct {
   PgIpv4Address addr;
   PgSocket socket;
   PgError err;
-} Ipv4AddressAcceptResult;
-[[maybe_unused]] [[nodiscard]] static Ipv4AddressAcceptResult
+} PgIpv4AddressAcceptResult;
+[[maybe_unused]] [[nodiscard]] static PgIpv4AddressAcceptResult
 pg_net_tcp_accept(PgSocket sock);
 
 typedef u64 AioQueue;
@@ -1385,11 +1385,11 @@ pg_net_socket_enable_reuse(PgSocket sock) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static Ipv4AddressAcceptResult
+[[maybe_unused]] [[nodiscard]] static PgIpv4AddressAcceptResult
 pg_net_tcp_accept(PgSocket sock) {
   PG_ASSERT(0 != sock);
 
-  Ipv4AddressAcceptResult res = {0};
+  PgIpv4AddressAcceptResult res = {0};
 
   struct sockaddr_in sockaddrin = {0};
   socklen_t sockaddrin_len = sizeof(sockaddrin);
@@ -2791,7 +2791,7 @@ request_parse_content_length_maybe(HttpRequest req, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static HttpResponse
-http_client_request(Ipv4AddressSocket sock, HttpRequest req, PgArena *arena) {
+http_client_request(PgIpv4AddressSocket sock, HttpRequest req, PgArena *arena) {
   HttpResponse res = {0};
 
   if (!PG_SLICE_IS_EMPTY(req.path_raw)) {

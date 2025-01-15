@@ -955,7 +955,7 @@ static void test_net_socket() {
       PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
 
       if (event.socket == socket_listen) {
-        Ipv4AddressAcceptResult res_accept = pg_net_tcp_accept(socket_listen);
+        PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(socket_listen);
         PG_ASSERT(0 == res_accept.err);
         PG_ASSERT(0 != res_accept.socket);
 
@@ -1493,7 +1493,7 @@ static void test_http_request_response() {
       PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
 
       if (event.socket == listen_socket) {
-        Ipv4AddressAcceptResult res_accept = pg_net_tcp_accept(listen_socket);
+        PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(listen_socket);
         PG_ASSERT(0 == res_accept.err);
         PG_ASSERT(0 != res_accept.socket);
 
