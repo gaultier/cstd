@@ -385,11 +385,11 @@ typedef struct {
   PgString left, right;
   bool consumed;
   u8 matched;
-} StringPairConsumeAny;
+} PgStringPairConsumeAny;
 
-[[maybe_unused]] [[nodiscard]] static StringPairConsumeAny
+[[maybe_unused]] [[nodiscard]] static PgStringPairConsumeAny
 pg_string_consume_until_any_byte_incl(PgString haystack, PgString needles) {
-  StringPairConsumeAny res = {0};
+  PgStringPairConsumeAny res = {0};
 
   for (u64 i = 0; i < needles.len; i++) {
     u8 needle = PG_SLICE_AT(needles, i);
@@ -409,9 +409,9 @@ pg_string_consume_until_any_byte_incl(PgString haystack, PgString needles) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static StringPairConsumeAny
+[[maybe_unused]] [[nodiscard]] static PgStringPairConsumeAny
 pg_string_consume_until_any_byte_excl(PgString haystack, PgString needles) {
-  StringPairConsumeAny res = {0};
+  PgStringPairConsumeAny res = {0};
 
   for (u64 i = 0; i < needles.len; i++) {
     u8 needle = PG_SLICE_AT(needles, i);
@@ -2340,7 +2340,7 @@ url_parse_after_authority(PgString s, Arena *arena) {
   PgUrlResult res = {0};
   PgString remaining = s;
 
-  StringPairConsumeAny path_components_and_rem =
+  PgStringPairConsumeAny path_components_and_rem =
       pg_string_consume_until_any_byte_excl(remaining, PG_S("?#"));
   remaining = path_components_and_rem.right;
 
@@ -2418,7 +2418,7 @@ url_parse_after_authority(PgString s, Arena *arena) {
   }
 
   // Authority, mandatory.
-  StringPairConsumeAny authority_and_rem =
+  PgStringPairConsumeAny authority_and_rem =
       pg_string_consume_until_any_byte_excl(remaining, PG_S("/?#"));
   remaining = authority_and_rem.right;
   {
