@@ -1141,58 +1141,58 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
 }
 
 // FIXME: Windows.
-typedef int Socket;
-typedef int File;
-typedef int Timer;
+typedef int PgSocket;
+typedef int PgFile;
+typedef int PgTimer;
 
 typedef enum {
   CLOCK_KIND_MONOTONIC,
   // TODO: More?
-} ClockKind;
+} PgClockKind;
 
-PG_RESULT(Timer) PgTimerResult;
+PG_RESULT(PgTimer) PgTimerResult;
 
 [[maybe_unused]] [[nodiscard]] static PgTimerResult
-pg_timer_create(ClockKind clock_kind, u64 ns);
+pg_timer_create(PgClockKind clock_kind, u64 ns);
 
-[[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(Timer timer);
+[[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(PgTimer timer);
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_time_ns_now(ClockKind clock_kind);
+pg_time_ns_now(PgClockKind clock_kind);
 
-PG_RESULT(Socket) PgCreateSocketResult;
+PG_RESULT(PgSocket) PgCreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static PgCreateSocketResult
 net_create_tcp_socket();
-[[maybe_unused]] [[nodiscard]] static PgError net_socket_close(Socket sock);
-[[maybe_unused]] [[nodiscard]] static PgError net_set_nodelay(Socket sock,
+[[maybe_unused]] [[nodiscard]] static PgError net_socket_close(PgSocket sock);
+[[maybe_unused]] [[nodiscard]] static PgError net_set_nodelay(PgSocket sock,
                                                               bool enabled);
 [[maybe_unused]] [[nodiscard]] static PgError
-net_connect_ipv4(Socket sock, PgIpv4Address address);
+net_connect_ipv4(PgSocket sock, PgIpv4Address address);
 typedef struct {
   PgIpv4Address address;
-  Socket socket;
+  PgSocket socket;
 } Ipv4AddressSocket;
 PG_RESULT(Ipv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
 [[maybe_unused]] [[nodiscard]] static PgDnsResolveIpv4AddressSocketResult
 net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena);
 
-[[maybe_unused]] [[nodiscard]] static PgError net_tcp_listen(Socket sock);
+[[maybe_unused]] [[nodiscard]] static PgError net_tcp_listen(PgSocket sock);
 
 [[maybe_unused]] [[nodiscard]] static PgError
-net_tcp_bind_ipv4(Socket sock, PgIpv4Address addr);
+net_tcp_bind_ipv4(PgSocket sock, PgIpv4Address addr);
 [[maybe_unused]] [[nodiscard]] static PgError
-net_socket_enable_reuse(Socket sock);
+net_socket_enable_reuse(PgSocket sock);
 
 [[maybe_unused]] [[nodiscard]] static PgError
-net_socket_set_blocking(Socket sock, bool blocking);
+net_socket_set_blocking(PgSocket sock, bool blocking);
 
 typedef struct {
   PgIpv4Address addr;
-  Socket socket;
+  PgSocket socket;
   PgError err;
 } Ipv4AddressAcceptResult;
 [[maybe_unused]] [[nodiscard]] static Ipv4AddressAcceptResult
-net_tcp_accept(Socket sock);
+net_tcp_accept(PgSocket sock);
 
 typedef u64 AioQueue;
 PG_RESULT(AioQueue) PgAioQueueCreateResult;
@@ -1213,8 +1213,8 @@ typedef enum {
 } PgAioEventAction;
 
 typedef struct {
-  Socket socket;
-  Timer timer;
+  PgSocket socket;
+  PgTimer timer;
   PgAioEventKind kind;
   PgAioEventAction action;
 } PgAioEvent;
@@ -1244,7 +1244,7 @@ aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 static PgCreateSocketResult net_create_tcp_socket() {
   PgCreateSocketResult res = {0};
 
-  Socket sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+  PgSocket sock_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (-1 == sock_fd) {
     res.err = (PgError)errno;
     return res;
@@ -1255,9 +1255,9 @@ static PgCreateSocketResult net_create_tcp_socket() {
   return res;
 }
 
-static PgError net_socket_close(Socket sock) { return (PgError)close(sock); }
+static PgError net_socket_close(PgSocket sock) { return (PgError)close(sock); }
 
-static PgError net_set_nodelay(Socket sock, bool enabled) {
+static PgError net_set_nodelay(PgSocket sock, bool enabled) {
   int opt = enabled;
   if (-1 == setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
     return (PgError)errno;
@@ -1266,7 +1266,7 @@ static PgError net_set_nodelay(Socket sock, bool enabled) {
   return 0;
 }
 
-static PgError net_connect_ipv4(Socket sock, PgIpv4Address address) {
+static PgError net_connect_ipv4(PgSocket sock, PgIpv4Address address) {
   struct sockaddr_in addr = {
       .sin_family = AF_INET,
       .sin_port = htons(address.port),
@@ -1332,7 +1332,7 @@ net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-net_socket_set_blocking(Socket sock, bool blocking) {
+net_socket_set_blocking(PgSocket sock, bool blocking) {
   int flags = fcntl(sock, F_GETFL);
   if (-1 == flags) {
     return (PgError)errno;
@@ -1350,7 +1350,7 @@ net_socket_set_blocking(Socket sock, bool blocking) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgError net_tcp_listen(Socket sock) {
+[[maybe_unused]] [[nodiscard]] static PgError net_tcp_listen(PgSocket sock) {
   if (-1 == listen(sock, 1024)) {
     return (PgError)errno;
   }
@@ -1359,7 +1359,7 @@ net_socket_set_blocking(Socket sock, bool blocking) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-net_tcp_bind_ipv4(Socket sock, PgIpv4Address addr) {
+net_tcp_bind_ipv4(PgSocket sock, PgIpv4Address addr) {
   struct sockaddr_in addrin = {0};
   addrin.sin_family = AF_INET;
   addrin.sin_port = htons(addr.port);
@@ -1373,7 +1373,7 @@ net_tcp_bind_ipv4(Socket sock, PgIpv4Address addr) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-net_socket_enable_reuse(Socket sock) {
+net_socket_enable_reuse(PgSocket sock) {
   int val = 1;
   if (-1 == setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val))) {
     return (PgError)errno;
@@ -1386,7 +1386,7 @@ net_socket_enable_reuse(Socket sock) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Ipv4AddressAcceptResult
-net_tcp_accept(Socket sock) {
+net_tcp_accept(PgSocket sock) {
   PG_ASSERT(0 != sock);
 
   Ipv4AddressAcceptResult res = {0};
@@ -1400,7 +1400,7 @@ net_tcp_accept(Socket sock) {
     return res;
   }
 
-  res.socket = (Socket)sock_client;
+  res.socket = (PgSocket)sock_client;
   res.addr.port = ntohs(sockaddrin.sin_port);
   res.addr.ip = ntohl(sockaddrin.sin_addr.s_addr);
 
@@ -1514,7 +1514,7 @@ aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static int linux_clock(ClockKind clock_kind) {
+[[maybe_unused]] [[nodiscard]] static int linux_clock(PgClockKind clock_kind) {
   switch (clock_kind) {
   case CLOCK_KIND_MONOTONIC:
     return CLOCK_MONOTONIC;
@@ -1524,7 +1524,7 @@ aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgTimerResult
-pg_timer_create(ClockKind clock, u64 ns) {
+pg_timer_create(PgClockKind clock, u64 ns) {
   PgTimerResult res = {0};
 
   int ret = timerfd_create(linux_clock(clock), TFD_NONBLOCK);
@@ -1533,7 +1533,7 @@ pg_timer_create(ClockKind clock, u64 ns) {
     return res;
   }
 
-  res.res = (Timer)ret;
+  res.res = (PgTimer)ret;
 
   struct itimerspec ts = {0};
   ts.it_value.tv_sec = ns / PG_Seconds;
@@ -1547,7 +1547,7 @@ pg_timer_create(ClockKind clock, u64 ns) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(Timer timer) {
+[[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(PgTimer timer) {
   if (-1 == close((int)timer)) {
     return (PgError)errno;
   }
@@ -1555,7 +1555,7 @@ pg_timer_create(ClockKind clock, u64 ns) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_time_ns_now(ClockKind clock) {
+pg_time_ns_now(PgClockKind clock) {
   Pgu64Result res = {0};
 
   struct timespec ts = {0};
@@ -1842,14 +1842,14 @@ typedef struct {
   WriteFn write_fn;
 } Writer;
 
-[[maybe_unused]] [[nodiscard]] static Socket reader_socket(Reader *r) {
+[[maybe_unused]] [[nodiscard]] static PgSocket reader_socket(Reader *r) {
   PG_ASSERT(r->ctx);
-  return (Socket)(u64)r->ctx;
+  return (PgSocket)(u64)r->ctx;
 }
 
-[[maybe_unused]] [[nodiscard]] static Socket writer_socket(Writer *w) {
+[[maybe_unused]] [[nodiscard]] static PgSocket writer_socket(Writer *w) {
   PG_ASSERT(w->ctx);
-  return (Socket)(u64)w->ctx;
+  return (PgSocket)(u64)w->ctx;
 }
 
 typedef enum {
@@ -2724,18 +2724,18 @@ http_write_response(RingBuffer *rg, HttpResponse res, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Reader
-reader_make_from_socket(Socket socket) {
+reader_make_from_socket(PgSocket socket) {
   // TODO: Windows.
   return (Reader){.read_fn = unix_read, .ctx = (void *)(u64)socket};
 }
 
 [[maybe_unused]] [[nodiscard]] static Writer
-writer_make_from_socket(Socket socket) {
+writer_make_from_socket(PgSocket socket) {
   // TODO: Windows.
   return (Writer){.write_fn = unix_write, .ctx = (void *)(u64)socket};
 }
 
-[[maybe_unused]] [[nodiscard]] static Writer writer_make_from_file(File *file) {
+[[maybe_unused]] [[nodiscard]] static Writer writer_make_from_file(PgFile *file) {
   // TODO: Windows.
   return (Writer){.write_fn = unix_write, .ctx = (void *)file};
 }
@@ -3289,7 +3289,7 @@ log_logger_make_stdout_json(LogLevel level) {
   Logger logger = {
       .level = level,
       .writer =
-          writer_make_from_file((File *)(u64)STDOUT_FILENO), // TODO: Windows
+          writer_make_from_file((PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
   };
 
   return logger;

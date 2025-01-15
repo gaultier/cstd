@@ -891,7 +891,7 @@ static void test_net_socket() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   u16 port = 5679;
-  Socket socket_listen = 0;
+  PgSocket socket_listen = 0;
   {
     PgCreateSocketResult res_create_socket = net_create_tcp_socket();
     PG_ASSERT(0 == res_create_socket.err);
@@ -906,7 +906,7 @@ static void test_net_socket() {
     PG_ASSERT(0 == net_tcp_listen(socket_listen));
   }
 
-  Socket socket_alice = 0;
+  PgSocket socket_alice = 0;
   {
     PgDnsResolveIpv4AddressSocketResult res_dns =
         net_dns_resolve_ipv4_tcp(PG_S("localhost"), port, arena);
@@ -934,7 +934,7 @@ static void test_net_socket() {
     PG_ASSERT(0 == aio_queue_ctl(queue, events_change));
   }
 
-  Socket bob_socket = 0;
+  PgSocket bob_socket = 0;
   Reader bob_reader = {0};
 
   Writer alice_writer = writer_make_from_socket(socket_alice);
@@ -1403,7 +1403,7 @@ static void test_http_request_response() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   u16 port = PG_CLAMP(3000, (u16)arc4random_uniform(UINT16_MAX), UINT16_MAX);
-  Socket listen_socket = 0;
+  PgSocket listen_socket = 0;
   {
     PgCreateSocketResult res_create_socket = net_create_tcp_socket();
     PG_ASSERT(0 == res_create_socket.err);
@@ -1418,7 +1418,7 @@ static void test_http_request_response() {
     PG_ASSERT(0 == net_tcp_listen(listen_socket));
   }
 
-  Socket client_socket = 0;
+  PgSocket client_socket = 0;
   {
     PgDnsResolveIpv4AddressSocketResult res_dns =
         net_dns_resolve_ipv4_tcp(PG_S("localhost"), port, arena);
@@ -1446,7 +1446,7 @@ static void test_http_request_response() {
     PG_ASSERT(0 == aio_queue_ctl(queue, events_change));
   }
 
-  Socket server_socket = 0;
+  PgSocket server_socket = 0;
   Reader server_reader = {0};
   Writer server_writer = {0};
 
