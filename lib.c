@@ -6,7 +6,7 @@
 #define _XOPEN_SOURCE 700
 #define _DEFAULT_SOURCE 1
 #include "sha1.c"
-#include <errno.h>
+#include <errno.h> // TODO: Windows.
 #include <fcntl.h> // TODO: Windows.
 #include <stdarg.h>
 #include <stdbool.h>
@@ -17,8 +17,7 @@
 #include <string.h>
 #include <sys/mman.h> // TODO: Windows.
 #include <sys/stat.h> // TODO: Windows.
-#include <time.h>
-#include <unistd.h> // TODO: Windows.
+#include <unistd.h>   // TODO: Windows.
 
 #ifndef PG_MIN
 #define PG_MIN(a, b) (((a) < (b)) ? (a) : (b))
