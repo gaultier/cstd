@@ -1132,7 +1132,7 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool pg_bitfield_get(PgString bitfield,
-                                                        u64 idx_bit) {
+                                                           u64 idx_bit) {
   PG_ASSERT(idx_bit < bitfield.len * 8);
 
   u64 idx_byte = idx_bit / 8;
@@ -1163,9 +1163,10 @@ pg_time_ns_now(PgClockKind clock_kind);
 PG_RESULT(PgSocket) PgCreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static PgCreateSocketResult
 pg_net_create_tcp_socket();
-[[maybe_unused]] [[nodiscard]] static PgError pg_net_socket_close(PgSocket sock);
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_close(PgSocket sock);
 [[maybe_unused]] [[nodiscard]] static PgError pg_net_set_nodelay(PgSocket sock,
-                                                              bool enabled);
+                                                                 bool enabled);
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_connect_ipv4(PgSocket sock, PgIpv4Address address);
 typedef struct {
@@ -1196,7 +1197,8 @@ pg_net_tcp_accept(PgSocket sock);
 
 typedef u64 PgAioQueue;
 PG_RESULT(PgAioQueue) PgAioQueueCreateResult;
-[[maybe_unused]] [[nodiscard]] static PgAioQueueCreateResult pg_aio_queue_create();
+[[maybe_unused]] [[nodiscard]] static PgAioQueueCreateResult
+pg_aio_queue_create();
 
 typedef enum {
   PG_AIO_EVENT_KIND_NONE = 0,
@@ -1233,7 +1235,7 @@ pg_aio_queue_ctl_one(PgAioQueue queue, PgAioEvent event) {
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
-               PgArena arena);
+                  PgArena arena);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #include <arpa/inet.h>
@@ -1255,7 +1257,9 @@ static PgCreateSocketResult pg_net_create_tcp_socket() {
   return res;
 }
 
-static PgError pg_net_socket_close(PgSocket sock) { return (PgError)close(sock); }
+static PgError pg_net_socket_close(PgSocket sock) {
+  return (PgError)close(sock);
+}
 
 static PgError pg_net_set_nodelay(PgSocket sock, bool enabled) {
   int opt = enabled;
@@ -1477,7 +1481,7 @@ pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events) {
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
-               PgArena arena) {
+                  PgArena arena) {
   Pgu64Result res = {0};
   if (PG_SLICE_IS_EMPTY(events)) {
     return res;
@@ -1514,7 +1518,8 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static int pg_linux_clock(PgClockKind clock_kind) {
+[[maybe_unused]] [[nodiscard]] static int
+pg_linux_clock(PgClockKind clock_kind) {
   switch (clock_kind) {
   case PG_CLOCK_KIND_MONOTONIC:
     return CLOCK_MONOTONIC;
@@ -1578,8 +1583,8 @@ typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
-[[maybe_unused]] [[nodiscard]] static Pgu64Result pg_unix_read(void *self, u8 *buf,
-                                                            size_t buf_len) {
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_unix_read(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
 
   int fd = (int)(u64)self;
@@ -1633,8 +1638,7 @@ typedef struct {
   PgString data;
 } RingBuffer;
 
-[[maybe_unused]] [[nodiscard]] static u64
-pg_ring_write_space(RingBuffer rg) {
+[[maybe_unused]] [[nodiscard]] static u64 pg_ring_write_space(RingBuffer rg) {
   if (rg.idx_write == rg.idx_read) { // Empty.
     return rg.data.len - 1;
   } else if (rg.idx_write < rg.idx_read) { // Easy case.
@@ -1657,8 +1661,7 @@ pg_ring_write_space(RingBuffer rg) {
   PG_ASSERT(0);
 }
 
-[[maybe_unused]] [[nodiscard]] static u64
-pg_ring_read_space(RingBuffer rg) {
+[[maybe_unused]] [[nodiscard]] static u64 pg_ring_read_space(RingBuffer rg) {
   if (rg.idx_write == rg.idx_read) { // Empty.
     return 0;
   } else if (rg.idx_read < rg.idx_write) { // Easy case.
@@ -1673,8 +1676,8 @@ pg_ring_read_space(RingBuffer rg) {
   PG_ASSERT(0);
 }
 
-[[maybe_unused]] [[nodiscard]] static bool
-pg_ring_write_slice(RingBuffer *rg, PgString data) {
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_write_slice(RingBuffer *rg,
+                                                               PgString data) {
   PG_ASSERT(nullptr != rg->data.data);
   PG_ASSERT(rg->idx_read <= rg->data.len);
   PG_ASSERT(rg->idx_write <= rg->data.len);
@@ -1736,8 +1739,8 @@ pg_ring_write_slice(RingBuffer *rg, PgString data) {
   return true;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool
-pg_ring_read_slice(RingBuffer *rg, PgString data) {
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_read_slice(RingBuffer *rg,
+                                                              PgString data) {
   PG_ASSERT(nullptr != rg->data.data);
   PG_ASSERT(rg->idx_read <= rg->data.len);
   PG_ASSERT(rg->idx_write <= rg->data.len);
@@ -1878,19 +1881,16 @@ typedef struct {
 
 PG_RESULT(PgKeyValue) PgKeyValueResult;
 
-typedef struct {
-  PgKeyValue *data;
-  u64 len, cap;
-} DynKeyValue;
+PG_DYN(PgKeyValue) PgKeyValueDyn;
 
-PG_RESULT(DynKeyValue) PgDynKeyValueResult;
+PG_RESULT(PgKeyValueDyn) PgDynKeyValueResult;
 
 typedef struct {
   PgString scheme;
   PgString username, password;
   PgString host; // Including subdomains.
   PgStringDyn path_components;
-  DynKeyValue query_parameters;
+  PgKeyValueDyn query_parameters;
   u16 port;
   // TODO: fragment.
 } Url;
@@ -1899,7 +1899,7 @@ typedef struct {
   PgString id;
   Url url; // Does not have a scheme, domain, port.
   PgHttpMethod method;
-  DynKeyValue headers;
+  PgKeyValueDyn headers;
   u8 version_minor;
   u8 version_major;
 } PgHttpRequest;
@@ -1934,7 +1934,7 @@ typedef struct {
   u8 version_major;
   u8 version_minor;
   u16 status;
-  DynKeyValue headers;
+  PgKeyValueDyn headers;
 } PgHttpResponse;
 
 [[maybe_unused]] [[nodiscard]] static PgHttpResponseStatusLineResult
@@ -2017,13 +2017,14 @@ pg_http_parse_response_status_line(PgString status_line) {
 }
 
 [[maybe_unused]]
-static void pg_http_push_header(DynKeyValue *headers, PgString key, PgString value,
-                             PgArena *arena) {
+static void pg_http_push_header(PgKeyValueDyn *headers, PgString key,
+                                PgString value, PgArena *arena) {
   *PG_DYN_PUSH(headers, arena) = (PgKeyValue){.key = key, .value = value};
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_http_request_write_status_line(RingBuffer *rg, PgHttpRequest req, PgArena arena) {
+pg_http_request_write_status_line(RingBuffer *rg, PgHttpRequest req,
+                                  PgArena arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
   PG_DYN_APPEND_SLICE(&sb, pg_http_method_to_string(req.method), &arena);
@@ -2059,7 +2060,7 @@ pg_http_request_write_status_line(RingBuffer *rg, PgHttpRequest req, PgArena are
 
 [[maybe_unused]] [[nodiscard]] static bool
 pg_http_response_write_status_line(RingBuffer *rg, PgHttpResponse res,
-                                PgArena arena) {
+                                   PgArena arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
   PG_DYN_APPEND_SLICE(&sb, PG_S("HTTP/"), &arena);
@@ -2735,7 +2736,8 @@ pg_writer_make_from_socket(PgSocket socket) {
   return (PgWriter){.write_fn = pg_unix_write, .ctx = (void *)(u64)socket};
 }
 
-[[maybe_unused]] [[nodiscard]] static PgWriter pg_writer_make_from_file(PgFile *file) {
+[[maybe_unused]] [[nodiscard]] static PgWriter
+pg_writer_make_from_file(PgFile *file) {
   // TODO: Windows.
   return (PgWriter){.write_fn = pg_unix_write, .ctx = (void *)file};
 }
@@ -3040,7 +3042,7 @@ typedef struct {
 
 struct HtmlElement {
   HtmlKind kind;
-  DynKeyValue attributes;
+  PgKeyValueDyn attributes;
   union {
     DynHtmlElements children;
     PgString text; // Only for `HTML_TEXT`, `HTML_LEGEND`, `HTML_TITLE`,
@@ -3082,7 +3084,7 @@ typedef struct {
   return res;
 }
 
-static void html_attributes_to_string(DynKeyValue attributes, Pgu8Dyn *sb,
+static void html_attributes_to_string(PgKeyValueDyn attributes, Pgu8Dyn *sb,
                                       PgArena *arena) {
   for (u64 i = 0; i < attributes.len; i++) {
     PgKeyValue attr = PG_DYN_AT(attributes, i);
@@ -3213,7 +3215,7 @@ static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, PgArena *arena) {
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_http_req_extract_cookie_with_name(PgHttpRequest req, PgString cookie_name,
-                                  PgArena *arena) {
+                                     PgArena *arena) {
   PgString res = {0};
   {
     for (u64 i = 0; i < req.headers.len; i++) {
@@ -3288,8 +3290,8 @@ typedef struct {
 log_logger_make_stdout_json(LogLevel level) {
   Logger logger = {
       .level = level,
-      .writer =
-          pg_writer_make_from_file((PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
+      .writer = pg_writer_make_from_file(
+          (PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
   };
 
   return logger;
