@@ -95,9 +95,9 @@ typedef Pgu8Slice PgString;
   (((i64)(idx) >= (i64)(len)) ? (__builtin_trap(), &(arr)[0])                  \
                               : (PG_ASSERT(nullptr != (arr)), (&(arr)[idx])))
 
-#define AT(arr, len, idx) (*PG_C_ARRAY_AT_PTR(arr, len, idx))
+#define PG_C_ARRAY_AT(arr, len, idx) (*PG_C_ARRAY_AT_PTR(arr, len, idx))
 
-#define slice_at(s, idx) (AT((s).data, (s).len, idx))
+#define slice_at(s, idx) (PG_C_ARRAY_AT((s).data, (s).len, idx))
 
 #define slice_at_ptr(s, idx) (PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx))
 
@@ -110,7 +110,7 @@ typedef Pgu8Slice PgString;
       __builtin_trap();                                                        \
     }                                                                          \
     *(PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx)) =                                      \
-        AT((s)->data, (s)->len, (s)->len - 1);                                 \
+        PG_C_ARRAY_AT((s)->data, (s)->len, (s)->len - 1);                                 \
     (s)->len -= 1;                                                             \
   } while (0)
 
@@ -180,7 +180,7 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
 
   for (u64 s_i = 0; s_i < s.len; s_i++) {
     PG_ASSERT(s.data != nullptr);
-    if (AT(s.data, s.len, s_i) != c) {
+    if (PG_C_ARRAY_AT(s.data, s.len, s_i) != c) {
       return res;
     }
 
@@ -196,7 +196,7 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
 
   for (i64 s_i = (i64)s.len - 1; s_i >= 0; s_i--) {
     PG_ASSERT(s.data != nullptr);
-    if (AT(s.data, s.len, s_i) != c) {
+    if (PG_C_ARRAY_AT(s.data, s.len, s_i) != c) {
       return res;
     }
 
@@ -600,7 +600,7 @@ arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
     memcpy(res, s.data, s.len);
   }
 
-  PG_ASSERT(0 == AT(res, s.len + 1, s.len));
+  PG_ASSERT(0 == PG_C_ARRAY_AT(res, s.len + 1, s.len));
 
   return res;
 }
@@ -720,11 +720,11 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define dyn_last_ptr(s) PG_C_ARRAY_AT_PTR((s)->data, (s)->len, (s)->len - 1)
 
-#define dyn_last(s) AT((s).data, (s).len, (s).len - 1)
+#define dyn_last(s) PG_C_ARRAY_AT((s).data, (s).len, (s).len - 1)
 
 #define dyn_at_ptr(s, idx) PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx)
 
-#define dyn_at(s, idx) AT((s).data, (s).len, idx)
+#define dyn_at(s, idx) PG_C_ARRAY_AT((s).data, (s).len, idx)
 
 #define dyn_append_slice(dst, src, arena)                                      \
   do {                                                                         \
