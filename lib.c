@@ -2087,8 +2087,8 @@ pg_http_write_header(PgRing *rg, PgKeyValue header, PgArena arena) {
 // `<div>...ESCAPED_STRING..</div>`.
 // To include the string inside other context (e.g. JS, CSS, HTML attributes,
 // etc), more advance sanitation is required.
-[[maybe_unused]] [[nodiscard]] static PgString html_sanitize(PgString s,
-                                                             PgArena *arena) {
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_html_sanitize(PgString s, PgArena *arena) {
   Pgu8Dyn res = {0};
   PG_DYN_ENSURE_CAP(&res, s.len, arena);
   for (u64 i = 0; i < s.len; i++) {
@@ -2909,7 +2909,7 @@ typedef struct {
 
 [[nodiscard]] static PgFormDataKVElementParseResult
 pg_form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
-                           PgArena *arena) {
+                              PgArena *arena) {
   PgFormDataKVElementParseResult res = {0};
   Pgu8Dyn data = {0};
 
@@ -3035,8 +3035,9 @@ struct PgHtmlElement {
   PgKeyValueDyn attributes;
   union {
     DynHtmlElements children;
-    PgString text; // Only for `PG_HTML_TEXT`, `PG_HTML_LEGEND`, `PG_HTML_TITLE`,
-                   // `PG_HTML_SCRIPT`, `PG_HTML_STYLE`, `PG_HTML_BUTTON`.
+    PgString
+        text; // Only for `PG_HTML_TEXT`, `PG_HTML_LEGEND`, `PG_HTML_TITLE`,
+              // `PG_HTML_SCRIPT`, `PG_HTML_STYLE`, `PG_HTML_BUTTON`.
   };
 };
 
@@ -3045,8 +3046,8 @@ typedef struct {
   PgHtmlElement head;
 } PgHtmlDocument;
 
-[[maybe_unused]] [[nodiscard]] static PgHtmlDocument html_make(PgString title,
-                                                             PgArena *arena) {
+[[maybe_unused]] [[nodiscard]] static PgHtmlDocument
+pg_html_make(PgString title, PgArena *arena) {
   PgHtmlDocument res = {0};
 
   {
@@ -3074,8 +3075,8 @@ typedef struct {
   return res;
 }
 
-static void html_attributes_to_string(PgKeyValueDyn attributes, Pgu8Dyn *sb,
-                                      PgArena *arena) {
+static void pg_html_attributes_to_string(PgKeyValueDyn attributes, Pgu8Dyn *sb,
+                                         PgArena *arena) {
   for (u64 i = 0; i < attributes.len; i++) {
     PgKeyValue attr = PG_DYN_AT(attributes, i);
     PG_ASSERT(-1 == pg_string_indexof_string(attr.key, PG_S("\"")));
@@ -3090,30 +3091,31 @@ static void html_attributes_to_string(PgKeyValueDyn attributes, Pgu8Dyn *sb,
   }
 }
 
-static void html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
-                                PgArena *arena);
-static void html_tag_to_string(PgHtmlElement e, Pgu8Dyn *sb, PgArena *arena);
+static void pg_html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
+                                   PgArena *arena);
+static void pg_html_tag_to_string(PgHtmlElement e, Pgu8Dyn *sb, PgArena *arena);
 
-static void html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
-                                PgArena *arena) {
+static void pg_html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
+                                   PgArena *arena) {
   for (u64 i = 0; i < elements.len; i++) {
     PgHtmlElement e = PG_DYN_AT(elements, i);
-    html_tag_to_string(e, sb, arena);
+    pg_html_tag_to_string(e, sb, arena);
   }
 }
 
 [[maybe_unused]]
-static void html_document_to_string(PgHtmlDocument doc, Pgu8Dyn *sb,
-                                    PgArena *arena) {
+static void pg_html_document_to_string(PgHtmlDocument doc, Pgu8Dyn *sb,
+                                       PgArena *arena) {
   PG_DYN_APPEND_SLICE(sb, PG_S("<!DOCTYPE html>"), arena);
 
   PG_DYN_APPEND_SLICE(sb, PG_S("<html>"), arena);
-  html_tag_to_string(doc.head, sb, arena);
-  html_tag_to_string(doc.body, sb, arena);
+  pg_html_tag_to_string(doc.head, sb, arena);
+  pg_html_tag_to_string(doc.body, sb, arena);
   PG_DYN_APPEND_SLICE(sb, PG_S("</html>"), arena);
 }
 
-static void html_tag_to_string(PgHtmlElement e, Pgu8Dyn *sb, PgArena *arena) {
+static void pg_html_tag_to_string(PgHtmlElement e, Pgu8Dyn *sb,
+                                  PgArena *arena) {
   static const PgString tag_to_string[PG_HTML_MAX] = {
       [PG_HTML_NONE] = PG_S("FIXME"),
       [PG_HTML_TITLE] = PG_S("title"),
@@ -3140,7 +3142,7 @@ static void html_tag_to_string(PgHtmlElement e, Pgu8Dyn *sb, PgArena *arena) {
 
   *PG_DYN_PUSH(sb, arena) = '<';
   PG_DYN_APPEND_SLICE(sb, tag_to_string[e.kind], arena);
-  html_attributes_to_string(e.attributes, sb, arena);
+  pg_html_attributes_to_string(e.attributes, sb, arena);
   *PG_DYN_PUSH(sb, arena) = '>';
 
   switch (e.kind) {
@@ -3171,7 +3173,7 @@ static void html_tag_to_string(PgHtmlElement e, Pgu8Dyn *sb, PgArena *arena) {
   case PG_HTML_SPAN:
     [[fallthrough]];
   case PG_HTML_BODY:
-    html_tags_to_string(e.children, sb, arena);
+    pg_html_tags_to_string(e.children, sb, arena);
     break;
 
   // Only cases where `.text` is valid.
