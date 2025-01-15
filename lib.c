@@ -4012,8 +4012,6 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
           (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
           (PG_EVENT_LOOP_HANDLE_STATE_CONNECTING == handle->state) &&
           handle->on_connect) {
-        handle->on_connect(loop, handle->os_handle, handle->ctx,
-                           err_event_watch);
         handle->state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTED;
 
         // Stop listening for 'connect'.
@@ -4024,6 +4022,8 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
           };
           PG_ASSERT(0 == pg_aio_queue_ctl_one(loop->queue, event_change));
         }
+        handle->on_connect(loop, handle->os_handle, handle->ctx,
+                           err_event_watch);
       }
 
       // Socket listen.

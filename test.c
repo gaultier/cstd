@@ -1702,6 +1702,40 @@ static void test_timer() {
   PG_ASSERT(0 == pg_timer_release(res_timer.res));
 }
 
+static void test_event_loop_connect_on_client_read(PgEventLoop *loop,
+                                                   u64 os_handle, void *ctx,
+                                                   PgError err, PgString data) {
+  PG_ASSERT(nullptr != loop);
+  PG_ASSERT(0 != os_handle);
+  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(0 == err);
+
+  u64 *client_state = (u64 *)ctx;
+  PG_ASSERT(2 == *client_state);
+  *client_state += 1;
+
+  PG_ASSERT(pg_string_eq(data, PG_S("ping")));
+
+  PG_ASSERT(0 == pg_event_loop_read_stop(loop, os_handle));
+  PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
+  pg_event_loop_stop(loop);
+}
+
+static void test_event_loop_connect_on_server_write(PgEventLoop *loop,
+                                                    u64 os_handle, void *ctx,
+                                                    PgError err) {
+  PG_ASSERT(nullptr != loop);
+  PG_ASSERT(0 != os_handle);
+  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(0 == err);
+
+  u64 *server_state = (u64 *)ctx;
+  PG_ASSERT(3 == *server_state);
+  *server_state += 2;
+
+  PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
+}
+
 static void test_event_loop_connect_on_client_connect(PgEventLoop *loop,
                                                       u64 os_handle, void *ctx,
                                                       PgError err) {
@@ -1714,10 +1748,8 @@ static void test_event_loop_connect_on_client_connect(PgEventLoop *loop,
   PG_ASSERT(1 == *client_state);
   *client_state += 1;
 
-  // TODO: read start.
-
-  PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
-  pg_event_loop_stop(loop);
+  PG_ASSERT(0 == pg_event_loop_read_start(
+                     loop, os_handle, test_event_loop_connect_on_client_read));
 }
 
 static void test_event_loop_connect_on_server_connect(PgEventLoop *loop,
@@ -1738,12 +1770,8 @@ static void test_event_loop_connect_on_server_connect(PgEventLoop *loop,
     return;
   }
 
-  // TODO: queue read/write.
-
-  // Stop listening.
-  PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
-  // Close client socket.
-  PG_ASSERT(0 == pg_event_loop_handle_close(loop, res_accept.res));
+  PG_ASSERT(0 == pg_event_loop_write(loop, os_handle, PG_S("ping"),
+                                     test_event_loop_connect_on_server_write));
 }
 
 static void test_event_loop_connect() {
@@ -1780,8 +1808,8 @@ static void test_event_loop_connect() {
 
   PG_ASSERT(0 == pg_event_loop_run(&loop, 10));
 
-  PG_ASSERT(2 == client_state);
-  PG_ASSERT(3 == server_state);
+  PG_ASSERT(3 == client_state);
+  PG_ASSERT(4 == server_state);
 }
 
 int main() {
