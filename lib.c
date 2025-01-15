@@ -39,7 +39,7 @@
     u64 len, cap;                                                              \
   } T##Dyn
 
-#define SLICE(T)                                                               \
+#define PG_SLICE(T)                                                            \
   typedef struct {                                                             \
     T *data;                                                                   \
     u64 len;                                                                   \
@@ -71,7 +71,7 @@ typedef u32 Error;
 PG_RESULT(u64) u64Result;
 
 PG_DYN(u8);
-SLICE(u8);
+PG_SLICE(u8);
 typedef u8Slice String;
 
 #define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
@@ -151,7 +151,7 @@ typedef u8Slice String;
 
 PG_RESULT(String) StringResult;
 OK(String);
-SLICE(String);
+PG_SLICE(String);
 
 PG_RESULT(StringSlice) StringSliceResult;
 
@@ -1229,7 +1229,7 @@ typedef struct {
   AioEventActionKind action;
 } AioEvent;
 
-SLICE(AioEvent);
+PG_SLICE(AioEvent);
 PG_DYN(AioEvent);
 
 [[maybe_unused]] [[nodiscard]] static Error aio_queue_ctl(AioQueue queue,
