@@ -102,7 +102,7 @@ typedef Pgu8Slice PgString;
 #define PG_SLICE_AT_PTR(s, idx) (PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx))
 
 #define PG_SLICE_MAKE(T, l, arena)                                             \
-  ((T##Slice){.data = arena_new(arena, T, l), .len = l})
+  ((T##Slice){.data = pg_arena_new(arena, T, l), .len = l})
 
 #define PG_SLICE_SWAP_REMOVE(s, idx)                                           \
   do {                                                                         \
@@ -556,7 +556,7 @@ typedef struct {
 
 __attribute((malloc, alloc_size(2, 4), alloc_align(3)))
 [[maybe_unused]] [[nodiscard]] static void *
-arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
+pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   PG_ASSERT(a->start != nullptr);
 
   const u64 padding = (-(u64)a->start & (align - 1));
@@ -577,19 +577,19 @@ arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   return memset(res, 0, count * size);
 }
 
-#define arena_new(a, t, n) (t *)arena_alloc(a, sizeof(t), _Alignof(t), n)
+#define pg_arena_new(a, t, n) (t *)pg_arena_alloc(a, sizeof(t), _Alignof(t), n)
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_make(u64 len,
                                                               PgArena *arena) {
   PgString res = {0};
   res.len = len;
-  res.data = arena_new(arena, u8, len);
+  res.data = pg_arena_new(arena, u8, len);
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static char *pg_string_to_cstr(PgString s,
                                                               PgArena *arena) {
-  char *res = (char *)arena_new(arena, u8, s.len + 1);
+  char *res = (char *)pg_arena_new(arena, u8, s.len + 1);
   if (NULL != s.data) {
     memcpy(res, s.data, s.len);
   }
@@ -670,13 +670,13 @@ typedef enum {
 
   if (nullptr ==
       replica.data) { // First allocation ever for this dynamic array.
-    replica.data = arena_alloc(a, size, align, new_cap);
+    replica.data = pg_arena_alloc(a, size, align, new_cap);
   } else if ((u64)a->start == array_end) { // Optimization.
     // This is the case of growing the array which is at the end of the arena.
     // In that case we can simply bump the arena pointer and avoid any copies.
-    (void)arena_alloc(a, size, 1 /* Force no padding */, new_cap - replica.cap);
+    (void)pg_arena_alloc(a, size, 1 /* Force no padding */, new_cap - replica.cap);
   } else { // General case.
-    void *data = arena_alloc(a, size, align, new_cap);
+    void *data = pg_arena_alloc(a, size, align, new_cap);
 
     // Import check to avoid overlapping memory ranges in memcpy.
     PG_ASSERT(data != replica.data);
@@ -858,7 +858,7 @@ static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgArena
-arena_make_from_virtual_mem(u64 size) {
+pg_arena_make_from_virtual_mem(u64 size) {
   u64 page_size = (u64)sysconf(_SC_PAGE_SIZE); // FIXME
   u64 alloc_real_size = round_up_multiple_of(size, page_size);
   PG_ASSERT(0 == alloc_real_size % page_size);
@@ -1494,7 +1494,7 @@ aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
   }
 
   struct epoll_event *epoll_events =
-      arena_new(&arena, struct epoll_event, events.len);
+      pg_arena_new(&arena, struct epoll_event, events.len);
 
   int res_epoll =
       epoll_wait((int)queue, epoll_events, (int)events.len, (int)timeout_ms);
@@ -1833,8 +1833,8 @@ ring_buffer_read_until_excl(RingBuffer *rg, PgString needle, PgArena *arena) {
 
   // Read and throw away the needle.
   {
-    PgArena arena_tmp = *arena;
-    PgString dst_needle = pg_string_make(needle.len, &arena_tmp);
+    PgArena pg_arena_tmp = *arena;
+    PgString dst_needle = pg_string_make(needle.len, &pg_arena_tmp);
     PG_ASSERT(ring_buffer_read_slice(rg, dst_needle));
     PG_ASSERT(pg_string_eq(needle, dst_needle));
   }

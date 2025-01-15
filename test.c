@@ -100,31 +100,31 @@ static void test_string_split_string() {
 }
 
 static void test_dyn_ensure_cap() {
-  u64 arena_cap = 4 * PG_KiB;
+  u64 pg_arena_cap = 4 * PG_KiB;
 
   // Trigger the optimization when the last allocation in the arena gets
   // extended.
   {
-    PgArena arena = arena_make_from_virtual_mem(arena_cap);
+    PgArena arena = pg_arena_make_from_virtual_mem(pg_arena_cap);
 
     Pgu8Dyn dyn = {0};
     *dyn_push(&dyn, &arena) = 1;
     PG_ASSERT(1 == dyn.len);
     PG_ASSERT(2 == dyn.cap);
 
-    u64 arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(2 == arena_size_expected);
-    PG_ASSERT(dyn.cap == arena_size_expected);
+    u64 pg_arena_size_expected = pg_arena_cap - ((u64)arena.end - (u64)arena.start);
+    PG_ASSERT(2 == pg_arena_size_expected);
+    PG_ASSERT(dyn.cap == pg_arena_size_expected);
 
     u64 desired_cap = 13;
     dyn_ensure_cap(&dyn, desired_cap, &arena);
     PG_ASSERT(16 == dyn.cap);
-    arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(16 == arena_size_expected);
+    pg_arena_size_expected = pg_arena_cap - ((u64)arena.end - (u64)arena.start);
+    PG_ASSERT(16 == pg_arena_size_expected);
   }
   // General case.
   {
-    PgArena arena = arena_make_from_virtual_mem(arena_cap);
+    PgArena arena = pg_arena_make_from_virtual_mem(pg_arena_cap);
 
     Pgu8Dyn dyn = {0};
     *dyn_push(&dyn, &arena) = 1;
@@ -135,28 +135,28 @@ static void test_dyn_ensure_cap() {
     *dyn_push(&dummy, &arena) = 2;
     *dyn_push(&dummy, &arena) = 3;
 
-    u64 arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(2 + 2 == arena_size_expected);
+    u64 pg_arena_size_expected = pg_arena_cap - ((u64)arena.end - (u64)arena.start);
+    PG_ASSERT(2 + 2 == pg_arena_size_expected);
 
     // This triggers a new allocation.
     *dyn_push(&dummy, &arena) = 4;
     PG_ASSERT(3 == dummy.len);
     PG_ASSERT(4 == dummy.cap);
 
-    arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(2 + 4 == arena_size_expected);
+    pg_arena_size_expected = pg_arena_cap - ((u64)arena.end - (u64)arena.start);
+    PG_ASSERT(2 + 4 == pg_arena_size_expected);
 
     u64 desired_cap = 13;
     dyn_ensure_cap(&dyn, desired_cap, &arena);
     PG_ASSERT(16 == dyn.cap);
 
-    arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(16 + 6 == arena_size_expected);
+    pg_arena_size_expected = pg_arena_cap - ((u64)arena.end - (u64)arena.start);
+    PG_ASSERT(16 + 6 == pg_arena_size_expected);
   }
 }
 
 static void test_slice_range() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   // Empty slice.
   {
@@ -304,7 +304,7 @@ static void test_sha1() {
 }
 
 static void test_slice_swap_remove() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   {
     PgString s = pg_string_dup(PG_S("hello world!"), &arena);
     PG_SLICE_SWAP_REMOVE(&s, 4);
@@ -313,7 +313,7 @@ static void test_slice_swap_remove() {
 }
 
 static void test_dynu8_append_u8_hex_upper() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   {
     Pgu8Dyn sb = {0};
@@ -326,7 +326,7 @@ static void test_dynu8_append_u8_hex_upper() {
 }
 
 static void test_ipv4_address_to_string() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   {
     Ipv4Address address = {
         .ip = (192UL << 24) | (168UL << 16) | (1UL << 8) | (56UL << 0),
@@ -339,7 +339,7 @@ static void test_ipv4_address_to_string() {
 }
 
 static void test_url_encode() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   {
     Pgu8Dyn sb = {0};
     url_encode_string(&sb, PG_S("日本語"), PG_S("123"), &arena);
@@ -389,7 +389,7 @@ static void test_string_indexof_any_byte() {
 }
 
 static void test_log_entry_quote_value() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   // Nothing to escape.
   {
     PgString s = PG_S("hello");
@@ -420,7 +420,7 @@ static void test_log_entry_quote_value() {
 }
 
 static void test_make_log_line() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   PgString log_line =
       log_make_log_line(LOG_LEVEL_DEBUG, PG_S("foobar"), &arena, 2,
@@ -472,7 +472,7 @@ static void test_bitfield() {
 }
 
 static void test_ring_buffer_write_slice() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   // Write to empty ring buffer.
   {
@@ -536,7 +536,7 @@ static void test_ring_buffer_write_slice() {
 }
 
 static void test_ring_buffer_read_write_slice() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   // Read from an empty ring buffer.
   {
@@ -580,7 +580,7 @@ static void test_ring_buffer_read_write_slice() {
 }
 
 static void test_ring_buffer_read_until_excl() {
-  PgArena arena = arena_make_from_virtual_mem(8 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(8 * PG_KiB);
   RingBuffer rg = {.data = pg_string_make(4 * PG_KiB, &arena)};
   PG_ASSERT(ring_buffer_write_slice(
       &rg, PG_S("The quick brown fox jumps over the lazy dog")));
@@ -621,20 +621,20 @@ static void test_ring_buffer_read_until_excl() {
 }
 
 static void test_ring_buffer_read_write_fuzz() {
-  PgArena arena_ring = arena_make_from_virtual_mem(4 * PG_KiB);
-  RingBuffer rg = {.data = pg_string_make(4 * PG_KiB, &arena_ring)};
+  PgArena pg_arena_ring = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  RingBuffer rg = {.data = pg_string_make(4 * PG_KiB, &pg_arena_ring)};
 
   u64 ROUNDS = 1024;
-  PgArena arena_strings = arena_make_from_virtual_mem(ROUNDS * 8 * PG_KiB);
+  PgArena pg_arena_strings = pg_arena_make_from_virtual_mem(ROUNDS * 8 * PG_KiB);
 
   // TODO: Random seed for reproducability?
   for (u64 i = 0; i < ROUNDS; i++) {
     PgString from = pg_string_make(arc4random_uniform((u32)rg.data.len + 1),
-                                   &arena_strings);
+                                   &pg_arena_strings);
     arc4random_buf(from.data, from.len);
 
     PgString to = pg_string_make(arc4random_uniform((u32)rg.data.len + 1),
-                                 &arena_strings);
+                                 &pg_arena_strings);
     arc4random_buf(to.data, to.len);
 
     bool ok_write = ring_buffer_write_slice(&rg, from);
@@ -648,7 +648,7 @@ static void test_ring_buffer_read_write_fuzz() {
 }
 
 static void test_url_parse() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   {
     PgUrlResult res = url_parse(PG_S(""), &arena);
@@ -888,7 +888,7 @@ typedef enum {
   ALICE_STATE_DONE,
 } AliceState;
 static void test_net_socket() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   u16 port = 5679;
   Socket socket_listen = 0;
@@ -1014,7 +1014,7 @@ end:
 }
 
 static void test_url_parse_relative_path() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   // Empty.
   {
@@ -1063,7 +1063,7 @@ static void test_url_parse_relative_path() {
 }
 
 static void test_http_send_request() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   {
     HttpRequest req;
     req.method = HTTP_METHOD_GET;
@@ -1182,7 +1182,7 @@ static void test_http_parse_response_status_line() {
 }
 
 static void test_http_parse_request_status_line() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   // Empty.
   {
@@ -1325,7 +1325,7 @@ static void test_http_parse_header() {
 }
 
 static void test_http_read_response() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   // Empty.
   {
@@ -1400,7 +1400,7 @@ static void test_http_read_response() {
 }
 
 static void test_http_request_response() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   u16 port = PG_CLAMP(3000, (u16)arc4random_uniform(UINT16_MAX), UINT16_MAX);
   Socket listen_socket = 0;
@@ -1619,7 +1619,7 @@ end:
 }
 
 static void test_log() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   // Simple log.
   {
     StringBuilder sb = {.arena = &arena};
@@ -1647,7 +1647,7 @@ static void test_log() {
 }
 
 static void test_timer() {
-  PgArena arena = arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   PgAioQueueCreateResult res_queue_create = aio_queue_create();
   PG_ASSERT(0 == res_queue_create.err);
