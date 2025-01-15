@@ -1105,7 +1105,7 @@ typedef u64 PgAioQueue;
 PG_RESULT(PgAioQueue) PgAioQueueResult;
 [[maybe_unused]] [[nodiscard]] static PgAioQueueResult pg_aio_queue_create();
 
-typedef enum {
+typedef enum : u32 {
   PG_AIO_EVENT_KIND_NONE = 0,
   PG_AIO_EVENT_KIND_IN = 1,
   PG_AIO_EVENT_KIND_OUT = 2,
@@ -3676,10 +3676,19 @@ typedef enum {
 } PgEventLoopHandleKind;
 
 typedef struct PgEventLoop PgEventLoop;
+
 typedef void (*PgEventLoopOnTcpConnect)(PgEventLoop *loop, u64 os_handle,
                                         void *ctx, PgError err);
+
 typedef struct PgEventLoopHandle PgEventLoopHandle;
+
 typedef void (*PgEventLoopOnClose)(PgEventLoopHandle *handle);
+
+typedef void (*PgEventLoopOnRead)(PgEventLoop *loop, u64 os_handle, void *ctx,
+                                  PgError err, PgString data);
+
+typedef void (*PgEventLoopOnWrite)(PgEventLoop *loop, u64 os_handle, void *ctx,
+                                   PgError err);
 
 typedef enum {
   PG_EVENT_LOOP_HANDLE_STATE_NONE,
@@ -3693,8 +3702,12 @@ struct PgEventLoopHandle {
   PgEventLoopHandleKind kind;
   PgEventLoopHandleState state;
   u64 os_handle;
+  PgAioEventKind event_kind;
+
   PgEventLoopOnTcpConnect on_connect;
   PgEventLoopOnClose on_close;
+  PgEventLoopOnRead on_read;
+  PgEventLoopOnWrite on_write;
   void *ctx;
 };
 
@@ -3787,6 +3800,7 @@ static PgError pg_event_loop_tcp_connect(PgEventLoop *loop, u64 os_handle,
   if (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET != handle->kind) {
     return PG_ERR_INVALID_VALUE;
   }
+
   handle->on_connect = on_connect;
 
   PgSocket socket = (PgSocket)os_handle;
@@ -3796,12 +3810,15 @@ static PgError pg_event_loop_tcp_connect(PgEventLoop *loop, u64 os_handle,
   }
 
   handle->state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTING;
+  PgAioEventKind event_kind_before = handle->event_kind;
+  // Needed to be notified on a successful `connect`.
+  handle->event_kind |= PG_AIO_EVENT_KIND_OUT;
 
   PgAioEvent event = {
       .os_handle = os_handle,
-      .kind = PG_AIO_EVENT_KIND_OUT, // Needed to be notified on a successful
-                                     // `connect`.
-      .action = PG_AIO_EVENT_ACTION_ADD,
+      .kind = handle->event_kind,
+      .action = event_kind_before == 0 ? PG_AIO_EVENT_ACTION_ADD
+                                       : PG_AIO_EVENT_ACTION_MOD,
   };
   return pg_aio_queue_ctl_one(loop->queue, event);
 }
@@ -3830,6 +3847,7 @@ static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, u64 os_handle,
   if (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET != handle->kind) {
     return PG_ERR_INVALID_VALUE;
   }
+
   handle->on_connect = on_connect;
 
   PgError err = pg_net_tcp_listen((PgSocket)os_handle, backlog);
@@ -3838,12 +3856,15 @@ static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, u64 os_handle,
   }
 
   handle->state = PG_EVENT_LOOP_HANDLE_STATE_LISTENING;
+  PgAioEventKind event_kind_before = handle->event_kind;
+  // Needed to be notified on a client connection.
+  handle->event_kind |= PG_AIO_EVENT_KIND_IN;
 
   PgAioEvent event = {
       .os_handle = os_handle,
-      .kind =
-          PG_AIO_EVENT_KIND_IN, // Needed to be notified on a client connection.
-      .action = PG_AIO_EVENT_ACTION_ADD,
+      .kind = handle->event_kind,
+      .action = event_kind_before == 0 ? PG_AIO_EVENT_ACTION_ADD
+                                       : PG_AIO_EVENT_ACTION_MOD,
   };
   return pg_aio_queue_ctl_one(loop->queue, event);
 }
@@ -3986,4 +4007,60 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
   return 0;
 }
 
+[[nodiscard]] [[maybe_unused]]
+static PgError pg_event_loop_read_start(PgEventLoop *loop, u64 os_handle,
+                                        PgEventLoopOnRead on_read) {
+
+  PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
+  if (!handle) {
+    return PG_ERR_INVALID_VALUE;
+  }
+  if (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET != handle->kind) {
+    return PG_ERR_INVALID_VALUE;
+  }
+  if (PG_EVENT_LOOP_HANDLE_STATE_NONE == handle->state ||
+      PG_EVENT_LOOP_HANDLE_STATE_CONNECTING == handle->state ||
+      PG_EVENT_LOOP_HANDLE_STATE_CLOSING == handle->state) {
+    return PG_ERR_INVALID_VALUE;
+  }
+
+  handle->on_read = on_read;
+  PgAioEventKind event_kind_before = handle->event_kind;
+  handle->event_kind |= PG_AIO_EVENT_KIND_IN;
+
+  PgAioEvent event_change = {
+      .os_handle = handle->os_handle,
+      .kind = handle->event_kind,
+      .action = event_kind_before == 0 ? PG_AIO_EVENT_ACTION_ADD
+                                       : PG_AIO_EVENT_ACTION_MOD,
+  };
+  return pg_aio_queue_ctl_one(loop->queue, event_change);
+}
+
+[[nodiscard]] [[maybe_unused]]
+static PgError pg_event_loop_read_stop(PgEventLoop *loop, u64 os_handle) {
+
+  PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
+  if (!handle) {
+    return PG_ERR_INVALID_VALUE;
+  }
+  if (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET != handle->kind) {
+    return PG_ERR_INVALID_VALUE;
+  }
+
+  if (0 == handle->event_kind) {
+    return 0;
+  }
+
+  PgAioEventKind event_kind_before = handle->event_kind;
+  handle->event_kind = handle->event_kind & ~PG_AIO_EVENT_KIND_IN;
+
+  PgAioEvent event_change = {
+      .os_handle = handle->os_handle,
+      .kind = handle->event_kind,
+      .action = event_kind_before == 0 ? PG_AIO_EVENT_ACTION_DEL
+                                       : PG_AIO_EVENT_ACTION_MOD,
+  };
+  return pg_aio_queue_ctl_one(loop->queue, event_change);
+}
 #endif
