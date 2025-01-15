@@ -636,19 +636,19 @@ pg_string_cmp(PgString a, PgString b) {
 }
 
 [[maybe_unused]] static void PG_DYN_GROW(void *slice, u64 size, u64 align,
-                                      u64 count, PgArena *a) {
+                                         u64 count, PgArena *a) {
   PG_ASSERT(nullptr != slice);
 
   struct {
     void *data;
     u64 len;
     u64 cap;
-  } replica;
+  } PgReplica;
 
-  memcpy(&replica, slice, sizeof(replica));
-  PG_ASSERT(replica.cap < count);
+  memcpy(&PgReplica, slice, sizeof(PgReplica));
+  PG_ASSERT(PgReplica.cap < count);
 
-  u64 new_cap = replica.cap == 0 ? 2 : replica.cap;
+  u64 new_cap = PgReplica.cap == 0 ? 2 : PgReplica.cap;
   for (u64 i = 0; i < 64; i++) {
     if (new_cap < count) {
       PG_ASSERT(new_cap < UINT64_MAX / 2);
@@ -659,57 +659,58 @@ pg_string_cmp(PgString a, PgString b) {
   }
   PG_ASSERT(new_cap >= 2);
   PG_ASSERT(new_cap >= count);
-  PG_ASSERT(new_cap > replica.cap);
+  PG_ASSERT(new_cap > PgReplica.cap);
 
   u64 array_end = 0;
   u64 array_bytes_count = 0;
-  PG_ASSERT(false == ckd_mul(&array_bytes_count, size, replica.cap));
-  PG_ASSERT(false == ckd_add(&array_end, (u64)replica.data, array_bytes_count));
-  PG_ASSERT((u64)replica.data <= array_end);
+  PG_ASSERT(false == ckd_mul(&array_bytes_count, size, PgReplica.cap));
+  PG_ASSERT(false ==
+            ckd_add(&array_end, (u64)PgReplica.data, array_bytes_count));
+  PG_ASSERT((u64)PgReplica.data <= array_end);
   PG_ASSERT(array_end < (u64)a->end);
 
   if (nullptr ==
-      replica.data) { // First allocation ever for this dynamic array.
-    replica.data = pg_arena_alloc(a, size, align, new_cap);
+      PgReplica.data) { // First allocation ever for this dynamic array.
+    PgReplica.data = pg_arena_alloc(a, size, align, new_cap);
   } else if ((u64)a->start == array_end) { // Optimization.
     // This is the case of growing the array which is at the end of the arena.
     // In that case we can simply bump the arena pointer and avoid any copies.
     (void)pg_arena_alloc(a, size, 1 /* Force no padding */,
-                         new_cap - replica.cap);
+                         new_cap - PgReplica.cap);
   } else { // General case.
     void *data = pg_arena_alloc(a, size, align, new_cap);
 
     // Import check to avoid overlapping memory ranges in memcpy.
-    PG_ASSERT(data != replica.data);
+    PG_ASSERT(data != PgReplica.data);
 
-    memcpy(data, replica.data, array_bytes_count);
-    replica.data = data;
+    memcpy(data, PgReplica.data, array_bytes_count);
+    PgReplica.data = data;
   }
-  replica.cap = new_cap;
+  PgReplica.cap = new_cap;
 
   PG_ASSERT(nullptr != slice);
-  memcpy(slice, &replica, sizeof(replica));
+  memcpy(slice, &PgReplica, sizeof(PgReplica));
 }
 
-#define PG_DYN_ENSURE_CAP(dyn, new_cap, arena)                                    \
+#define PG_DYN_ENSURE_CAP(dyn, new_cap, arena)                                 \
   ((dyn)->cap < (new_cap))                                                     \
-      ? PG_DYN_GROW(dyn, sizeof(*(dyn)->data), _Alignof((dyn)->data[0]), new_cap, \
-                 arena),                                                       \
+      ? PG_DYN_GROW(dyn, sizeof(*(dyn)->data), _Alignof((dyn)->data[0]),       \
+                    new_cap, arena),                                           \
       0 : 0
 
-#define PG_DYN_SPACE(T, dyn)                                                      \
+#define PG_DYN_SPACE(T, dyn)                                                   \
   ((T){.data = (dyn)->data + (dyn)->len, .len = (dyn)->cap - (dyn)->len})
 
 PG_DYN(PgString) PgStringDyn;
 PG_RESULT(PgStringDyn) PgStringDynResult;
 
-#define PG_DYN_PUSH(s, arena)                                                     \
+#define PG_DYN_PUSH(s, arena)                                                  \
   (PG_DYN_ENSURE_CAP(s, (s)->len + 1, arena), (s)->data + (s)->len++)
 
-#define PG_DYN_POP(s)                                                             \
+#define PG_DYN_POP(s)                                                          \
   do {                                                                         \
     PG_ASSERT((s)->len > 0);                                                   \
-    memset(PG_DYN_LAST_PTR(s), 0, sizeof((s)->data[(s)->len - 1]));               \
+    memset(PG_DYN_LAST_PTR(s), 0, sizeof((s)->data[(s)->len - 1]));            \
     (s)->len -= 1;                                                             \
   } while (0)
 
@@ -721,11 +722,11 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define PG_DYN_AT(s, idx) PG_C_ARRAY_AT((s).data, (s).len, idx)
 
-#define PG_DYN_APPEND_SLICE(dst, src, arena)                                      \
+#define PG_DYN_APPEND_SLICE(dst, src, arena)                                   \
   do {                                                                         \
-    PG_DYN_ENSURE_CAP(dst, (dst)->len + (src).len, arena);                        \
+    PG_DYN_ENSURE_CAP(dst, (dst)->len + (src).len, arena);                     \
     for (u64 _iii = 0; _iii < src.len; _iii++) {                               \
-      *PG_DYN_PUSH(dst, arena) = PG_SLICE_AT(src, _iii);                          \
+      *PG_DYN_PUSH(dst, arena) = PG_SLICE_AT(src, _iii);                       \
     }                                                                          \
   } while (0)
 
