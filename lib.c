@@ -2801,7 +2801,7 @@ pg_http_client_request(PgIpv4AddressSocket sock, PgHttpRequest req, PgArena *are
   }
 
   PgString pg_http_request_serialized = pg_http_request_serialize(req, arena);
-  log(LOG_LEVEL_DEBUG, "http request", arena, L("ip", sock.address.ip),
+  log(PG_LOG_LEVEL_DEBUG, "http request", arena, L("ip", sock.address.ip),
       L("port", sock.address.port), L("serialized", pg_http_request_serialized));
 
   // TODO: should not be an assert but a returned error.
@@ -2854,7 +2854,7 @@ pg_http_client_request(PgIpv4AddressSocket sock, PgHttpRequest req, PgArena *are
 
   res.err = pg_http_read_headers(&reader, &res.headers, arena);
   if (res.err) {
-    log(LOG_LEVEL_ERROR, "http request failed to read headers", arena,
+    log(PG_LOG_LEVEL_ERROR, "http request failed to read headers", arena,
         L("req.method", req.method), L("req.path_raw", req.path_raw),
         L("err", res.err));
     goto end;
@@ -3250,10 +3250,10 @@ typedef enum {
 } PgLogValueKind;
 
 typedef enum {
-  LOG_LEVEL_DEBUG,
-  LOG_LEVEL_INFO,
-  LOG_LEVEL_ERROR,
-  LOG_LEVEL_FATAL,
+  PG_LOG_LEVEL_DEBUG,
+  PG_LOG_LEVEL_INFO,
+  PG_LOG_LEVEL_ERROR,
+  PG_LOG_LEVEL_FATAL,
 } PgLogLevel;
 
 typedef struct {
@@ -3276,7 +3276,7 @@ typedef struct {
 } PgLogEntry;
 
 [[maybe_unused]] [[nodiscard]] static PgLogger
-log_logger_make_stdout_json(PgLogLevel level) {
+pg_log_logger_make_stdout_json(PgLogLevel level) {
   PgLogger logger = {
       .level = level,
       .writer = pg_writer_make_from_file(
@@ -3287,22 +3287,22 @@ log_logger_make_stdout_json(PgLogLevel level) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-log_level_to_string(PgLogLevel level) {
+pg_log_level_to_string(PgLogLevel level) {
   switch (level) {
-  case LOG_LEVEL_DEBUG:
+  case PG_LOG_LEVEL_DEBUG:
     return PG_S("debug");
-  case LOG_LEVEL_INFO:
+  case PG_LOG_LEVEL_INFO:
     return PG_S("info");
-  case LOG_LEVEL_ERROR:
+  case PG_LOG_LEVEL_ERROR:
     return PG_S("error");
-  case LOG_LEVEL_FATAL:
+  case PG_LOG_LEVEL_FATAL:
     return PG_S("fatal");
   default:
     PG_ASSERT(false);
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry log_entry_int(PgString k,
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_entry_int(PgString k,
                                                              int v) {
   return (PgLogEntry){
       .key = k,
@@ -3311,7 +3311,7 @@ log_level_to_string(PgLogLevel level) {
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry log_entry_u16(PgString k,
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_entry_u16(PgString k,
                                                              u16 v) {
   return (PgLogEntry){
       .key = k,
@@ -3320,7 +3320,7 @@ log_level_to_string(PgLogLevel level) {
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry log_entry_u32(PgString k,
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_entry_u32(PgString k,
                                                              u32 v) {
   return (PgLogEntry){
       .key = k,
@@ -3329,7 +3329,7 @@ log_level_to_string(PgLogLevel level) {
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry log_entry_u64(PgString k,
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_entry_u64(PgString k,
                                                              u64 v) {
   return (PgLogEntry){
       .key = k,
@@ -3338,7 +3338,7 @@ log_level_to_string(PgLogLevel level) {
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry log_entry_slice(PgString k,
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_entry_slice(PgString k,
                                                                PgString v) {
   return (PgLogEntry){
       .key = k,
@@ -3349,23 +3349,23 @@ log_level_to_string(PgLogLevel level) {
 
 #define L(k, v)                                                                \
   (_Generic((v),                                                               \
-       int: log_entry_int,                                                     \
-       u16: log_entry_u16,                                                     \
-       u32: log_entry_u32,                                                     \
-       u64: log_entry_u64,                                                     \
-       PgString: log_entry_slice)((PG_S(k)), (v)))
+       int: pg_log_entry_int,                                                     \
+       u16: pg_log_entry_u16,                                                     \
+       u32: pg_log_entry_u32,                                                     \
+       u64: pg_log_entry_u64,                                                     \
+       PgString: pg_log_entry_slice)((PG_S(k)), (v)))
 
-#define LOG_ARGS_COUNT(...)                                                    \
+#define PG_LOG_ARGS_COUNT(...)                                                    \
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
-#define logger_log(logger, lvl, msg, arena, ...)                               \
+#define pg_log(logger, lvl, msg, arena, ...)                               \
   do {                                                                         \
     if ((logger)->level > (lvl)) {                                             \
       break;                                                                   \
     };                                                                         \
     PgArena xxx_tmp_arena = (arena);                                           \
     PgString xxx_log_line =                                                    \
-        log_make_log_line(lvl, PG_S(msg), &xxx_tmp_arena,                      \
-                          LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);           \
+        pg_log_make_log_line(lvl, PG_S(msg), &xxx_tmp_arena,                      \
+                          PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);           \
     (logger)->writer.write_fn((logger)->writer.ctx, xxx_log_line.data,         \
                               xxx_log_line.len);                               \
   } while (0)
@@ -3480,7 +3480,7 @@ pg_string_builder_append_json_object_key_string_value_u64(Pgu8Dyn *sb,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena, i32 args_count,
+pg_log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena, i32 args_count,
                   ...) {
   struct timespec monotonic = {0};
   clock_gettime(CLOCK_MONOTONIC, &monotonic);
@@ -3495,7 +3495,7 @@ log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena, i32 args_count
   *PG_DYN_PUSH(&sb, arena) = '{';
 
   pg_string_builder_append_json_object_key_string_value_string(
-      &sb, PG_S("level"), log_level_to_string(level), arena);
+      &sb, PG_S("level"), pg_log_level_to_string(level), arena);
   pg_string_builder_append_json_object_key_string_value_u64(
       &sb, PG_S("timestamp_ns"), timestamp_ns, arena);
   pg_string_builder_append_json_object_key_string_value_u64(

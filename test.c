@@ -422,15 +422,15 @@ static void test_log_entry_quote_value() {
 static void test_make_log_line() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
-  PgString log_line =
-      log_make_log_line(LOG_LEVEL_DEBUG, PG_S("foobar"), &arena, 2,
+  PgString pg_log_line =
+      pg_log_make_log_line(PG_LOG_LEVEL_DEBUG, PG_S("foobar"), &arena, 2,
                         L("num", 42), L("s", PG_S("hello \"world\"")));
 
   PgString expected_suffix = PG_S(
       "\"message\":\"foobar\",\"num\":42,\"s\":\"hello \\\"world\\\"\"}\n");
   PG_ASSERT(pg_string_starts_with(
-      log_line, PG_S("{\"level\":\"debug\",\"timestamp_ns\":")));
-  PG_ASSERT(pg_string_ends_with(log_line, expected_suffix));
+      pg_log_line, PG_S("{\"level\":\"debug\",\"timestamp_ns\":")));
+  PG_ASSERT(pg_string_ends_with(pg_log_line, expected_suffix));
 }
 
 static void test_u8x4_be_to_u32_and_back() {
@@ -1623,10 +1623,10 @@ static void test_log() {
   // Simple log.
   {
     StringBuilder sb = {.arena = &arena};
-    PgLogger logger = log_logger_make_stdout_json(LOG_LEVEL_DEBUG);
+    PgLogger logger = pg_log_logger_make_stdout_json(PG_LOG_LEVEL_DEBUG);
     logger.writer = pg_writer_make_from_string_builder(&sb);
 
-    logger_log(&logger, LOG_LEVEL_INFO, "hello world", arena,
+    pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world", arena,
                L("foo", PG_S("bar")));
 
     PgString out = PG_DYN_SLICE(PgString, sb.sb);
@@ -1635,10 +1635,10 @@ static void test_log() {
   // PgLog but the logger level is higher.
   {
     StringBuilder sb = {.arena = &arena};
-    PgLogger logger = log_logger_make_stdout_json(LOG_LEVEL_INFO);
+    PgLogger logger = pg_log_logger_make_stdout_json(PG_LOG_LEVEL_INFO);
     logger.writer = pg_writer_make_from_string_builder(&sb);
 
-    logger_log(&logger, LOG_LEVEL_DEBUG, "hello world", arena,
+    pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world", arena,
                L("foo", PG_S("bar")));
 
     PgString out = PG_DYN_SLICE(PgString, sb.sb);
