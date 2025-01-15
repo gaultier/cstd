@@ -1636,9 +1636,9 @@ pg_string_builder_write(void *self, u8 *buf, size_t buf_len) {
 typedef struct {
   u64 idx_read, idx_write;
   PgString data;
-} RingBuffer;
+} PgRing;
 
-[[maybe_unused]] [[nodiscard]] static u64 pg_ring_write_space(RingBuffer rg) {
+[[maybe_unused]] [[nodiscard]] static u64 pg_ring_write_space(PgRing rg) {
   if (rg.idx_write == rg.idx_read) { // Empty.
     return rg.data.len - 1;
   } else if (rg.idx_write < rg.idx_read) { // Easy case.
@@ -1661,7 +1661,7 @@ typedef struct {
   PG_ASSERT(0);
 }
 
-[[maybe_unused]] [[nodiscard]] static u64 pg_ring_read_space(RingBuffer rg) {
+[[maybe_unused]] [[nodiscard]] static u64 pg_ring_read_space(PgRing rg) {
   if (rg.idx_write == rg.idx_read) { // Empty.
     return 0;
   } else if (rg.idx_read < rg.idx_write) { // Easy case.
@@ -1676,7 +1676,7 @@ typedef struct {
   PG_ASSERT(0);
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_ring_write_slice(RingBuffer *rg,
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_write_slice(PgRing *rg,
                                                                PgString data) {
   PG_ASSERT(nullptr != rg->data.data);
   PG_ASSERT(rg->idx_read <= rg->data.len);
@@ -1739,7 +1739,7 @@ typedef struct {
   return true;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_ring_read_slice(RingBuffer *rg,
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_read_slice(PgRing *rg,
                                                               PgString data) {
   PG_ASSERT(nullptr != rg->data.data);
   PG_ASSERT(rg->idx_read <= rg->data.len);
@@ -1801,12 +1801,12 @@ typedef struct {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringOk
-pg_ring_read_until_excl(RingBuffer *rg, PgString needle, PgArena *arena) {
+pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
   PgStringOk res = {0};
   i64 idx = -1;
 
   {
-    RingBuffer cpy_rg = *rg;
+    PgRing cpy_rg = *rg;
     PgArena cpy_arena = *arena;
 
     PgString dst = pg_string_make(pg_ring_read_space(*rg), arena);
@@ -1923,13 +1923,6 @@ typedef struct {
 
 PG_RESULT(PgHttpResponseStatusLine) PgHttpResponseStatusLineResult;
 
-#if 0
-typedef struct {
-  PgHttpRequest req;
-  PgHttpParseState state;
-} PgHttpRequestParse;
-#endif
-
 typedef struct {
   u8 version_major;
   u8 version_minor;
@@ -2023,7 +2016,7 @@ static void pg_http_push_header(PgKeyValueDyn *headers, PgString key,
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_http_request_write_status_line(RingBuffer *rg, PgHttpRequest req,
+pg_http_request_write_status_line(PgRing *rg, PgHttpRequest req,
                                   PgArena arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
@@ -2059,7 +2052,7 @@ pg_http_request_write_status_line(RingBuffer *rg, PgHttpRequest req,
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_http_response_write_status_line(RingBuffer *rg, PgHttpResponse res,
+pg_http_response_write_status_line(PgRing *rg, PgHttpResponse res,
                                    PgArena arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
@@ -2078,7 +2071,7 @@ pg_http_response_write_status_line(RingBuffer *rg, PgHttpResponse res,
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_http_write_header(RingBuffer *rg, PgKeyValue header, PgArena arena) {
+pg_http_write_header(PgRing *rg, PgKeyValue header, PgArena arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
   PG_DYN_APPEND_SLICE(&sb, header.key, &arena);
@@ -2587,7 +2580,7 @@ typedef struct {
 } PgHttpRequestReadResult;
 
 [[maybe_unused]] [[nodiscard]] static PgHttpResponseReadResult
-pg_http_read_response(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
+pg_http_read_response(PgRing *rg, u64 max_http_headers, PgArena *arena) {
   PgHttpResponseReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
@@ -2637,7 +2630,7 @@ pg_http_read_response(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
-pg_http_read_request(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
+pg_http_read_request(PgRing *rg, u64 max_http_headers, PgArena *arena) {
   PgHttpRequestReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
@@ -2688,7 +2681,7 @@ pg_http_read_request(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
 }
 
 [[maybe_unused]] static PgError
-pg_http_write_request(RingBuffer *rg, PgHttpRequest res, PgArena arena) {
+pg_http_write_request(PgRing *rg, PgHttpRequest res, PgArena arena) {
   if (!pg_http_request_write_status_line(rg, res, arena)) {
     return (PgError)ENOMEM;
   }
@@ -2707,7 +2700,7 @@ pg_http_write_request(RingBuffer *rg, PgHttpRequest res, PgArena arena) {
 }
 
 [[maybe_unused]] static PgError
-pg_http_write_response(RingBuffer *rg, PgHttpResponse res, PgArena arena) {
+pg_http_write_response(PgRing *rg, PgHttpResponse res, PgArena arena) {
   if (!pg_http_response_write_status_line(rg, res, arena)) {
     return (PgError)ENOMEM;
   }
@@ -2748,7 +2741,7 @@ pg_writer_make_from_string_builder(StringBuilder *sb) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_reader_read(PgReader *r, RingBuffer *rg, PgArena arena) {
+pg_reader_read(PgReader *r, PgRing *rg, PgArena arena) {
   PG_ASSERT(nullptr != r->read_fn);
 
   Pgu64Result res = {0};
@@ -2766,7 +2759,7 @@ pg_reader_read(PgReader *r, RingBuffer *rg, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_write(PgWriter *w, RingBuffer *rg, PgArena arena) {
+pg_writer_write(PgWriter *w, PgRing *rg, PgArena arena) {
   PG_ASSERT(nullptr != w->write_fn);
 
   PgString dst = pg_string_make(pg_ring_read_space(*rg), &arena);

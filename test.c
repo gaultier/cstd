@@ -476,7 +476,7 @@ static void test_ring_buffer_write_slice() {
 
   // Write to empty ring buffer.
   {
-    RingBuffer rg = {.data = pg_string_make(12, &arena)};
+    PgRing rg = {.data = pg_string_make(12, &arena)};
     PG_ASSERT(pg_ring_write_space(rg) == rg.data.len - 1);
     PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello")));
     PG_ASSERT(5 == rg.idx_write);
@@ -497,7 +497,7 @@ static void test_ring_buffer_write_slice() {
   }
   // Write to full ring buffer.
   {
-    RingBuffer rg = {
+    PgRing rg = {
         .data = pg_string_make(12, &arena),
         .idx_write = 1,
         .idx_read = 2,
@@ -509,7 +509,7 @@ static void test_ring_buffer_write_slice() {
   }
   // Write to ring buffer, easy case.
   {
-    RingBuffer rg = {
+    PgRing rg = {
         .data = pg_string_make(12, &arena),
         .idx_read = 1,
         .idx_write = 2,
@@ -522,7 +522,7 @@ static void test_ring_buffer_write_slice() {
 
   // Write to ring buffer, hard case.
   {
-    RingBuffer rg = {
+    PgRing rg = {
         .data = pg_string_make(12, &arena),
         .idx_read = 2,
         .idx_write = 3,
@@ -540,7 +540,7 @@ static void test_ring_buffer_read_write_slice() {
 
   // Read from an empty ring buffer.
   {
-    RingBuffer rg = {.data = pg_string_make(12, &arena)};
+    PgRing rg = {.data = pg_string_make(12, &arena)};
     PG_ASSERT(0 == pg_ring_read_space(rg));
     PG_ASSERT(true == pg_ring_read_slice(&rg, (PgString){0}));
 
@@ -550,7 +550,7 @@ static void test_ring_buffer_read_write_slice() {
 
   // Write to empty ring buffer, then read part of it.
   {
-    RingBuffer rg = {.data = pg_string_make(12, &arena)};
+    PgRing rg = {.data = pg_string_make(12, &arena)};
     PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello")));
     PG_ASSERT(5 == rg.idx_write);
     PG_ASSERT(5 == pg_ring_read_space(rg));
@@ -581,7 +581,7 @@ static void test_ring_buffer_read_write_slice() {
 
 static void test_ring_buffer_read_until_excl() {
   PgArena arena = pg_arena_make_from_virtual_mem(8 * PG_KiB);
-  RingBuffer rg = {.data = pg_string_make(4 * PG_KiB, &arena)};
+  PgRing rg = {.data = pg_string_make(4 * PG_KiB, &arena)};
   PG_ASSERT(pg_ring_write_slice(
       &rg, PG_S("The quick brown fox jumps over the lazy dog")));
 
@@ -622,7 +622,7 @@ static void test_ring_buffer_read_until_excl() {
 
 static void test_ring_buffer_read_write_fuzz() {
   PgArena pg_arena_ring = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-  RingBuffer rg = {.data = pg_string_make(4 * PG_KiB, &pg_arena_ring)};
+  PgRing rg = {.data = pg_string_make(4 * PG_KiB, &pg_arena_ring)};
 
   u64 ROUNDS = 1024;
   PgArena pg_arena_strings = pg_arena_make_from_virtual_mem(ROUNDS * 8 * PG_KiB);
@@ -939,8 +939,8 @@ static void test_net_socket() {
 
   PgWriter alice_writer = pg_writer_make_from_socket(socket_alice);
 
-  RingBuffer bob_recv = {.data = pg_string_make(4 + 1, &arena)};
-  RingBuffer alice_send = {.data = pg_string_make(4 + 1, &arena)};
+  PgRing bob_recv = {.data = pg_string_make(4 + 1, &arena)};
+  PgRing alice_send = {.data = pg_string_make(4 + 1, &arena)};
 
   AliceState alice_state = ALICE_STATE_NONE;
 
@@ -1068,7 +1068,7 @@ static void test_http_send_request() {
     PgHttpRequest req;
     req.method = HTTP_METHOD_GET;
 
-    RingBuffer rg = {.data = pg_string_make(32, &arena)};
+    PgRing rg = {.data = pg_string_make(32, &arena)};
 
     PG_ASSERT(0 == pg_http_write_request(&rg, req, arena));
     PgString s = pg_string_make(pg_ring_read_space(rg), &arena);
@@ -1085,11 +1085,11 @@ static void test_http_send_request() {
     *PG_DYN_PUSH(&req.url.path_components, &arena) = PG_S("foobar");
 
     {
-      RingBuffer rg = {.data = pg_string_make(32, &arena)};
+      PgRing rg = {.data = pg_string_make(32, &arena)};
       PG_ASSERT(ENOMEM == pg_http_write_request(&rg, req, arena));
     }
 
-    RingBuffer rg = {.data = pg_string_make(128, &arena)};
+    PgRing rg = {.data = pg_string_make(128, &arena)};
 
     PG_ASSERT(0 == pg_http_write_request(&rg, req, arena));
 
@@ -1329,14 +1329,14 @@ static void test_http_read_response() {
 
   // Empty.
   {
-    RingBuffer rg = {.data = pg_string_make(32, &arena)};
+    PgRing rg = {.data = pg_string_make(32, &arena)};
     PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(false == res.done);
   }
   // Partial status line.
   {
-    RingBuffer rg = {.data = pg_string_make(32, &arena)};
+    PgRing rg = {.data = pg_string_make(32, &arena)};
     PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S("HTTP/1.")));
     PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
     PG_ASSERT(0 == res.err);
@@ -1345,7 +1345,7 @@ static void test_http_read_response() {
   }
   // Status line and some but not full.
   {
-    RingBuffer rg = {.data = pg_string_make(32, &arena)};
+    PgRing rg = {.data = pg_string_make(32, &arena)};
     PG_ASSERT(true == pg_ring_write_slice(
                           &rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
     PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
@@ -1355,7 +1355,7 @@ static void test_http_read_response() {
 
   // Full.
   {
-    RingBuffer rg = {.data = pg_string_make(128, &arena)};
+    PgRing rg = {.data = pg_string_make(128, &arena)};
 
     {
       PG_ASSERT(true == pg_ring_write_slice(
@@ -1453,10 +1453,10 @@ static void test_http_request_response() {
   PgWriter client_writer = pg_writer_make_from_socket(client_socket);
   PgReader client_reader = pg_reader_make_from_socket(client_socket);
 
-  RingBuffer client_recv = {.data = pg_string_make(128, &arena)};
-  RingBuffer client_send = {.data = pg_string_make(128, &arena)};
-  RingBuffer server_recv = {.data = pg_string_make(128, &arena)};
-  RingBuffer server_send = {.data = pg_string_make(128, &arena)};
+  PgRing client_recv = {.data = pg_string_make(128, &arena)};
+  PgRing client_send = {.data = pg_string_make(128, &arena)};
+  PgRing server_recv = {.data = pg_string_make(128, &arena)};
+  PgRing server_send = {.data = pg_string_make(128, &arena)};
 
   bool client_recv_http_io_done = false;
   bool client_send_http_io_done = false;
