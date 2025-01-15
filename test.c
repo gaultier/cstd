@@ -900,7 +900,7 @@ static void test_net_socket() {
   u16 port = 5679;
   PgSocket socket_listen = 0;
   {
-    PgCreateSocketResult res_create_socket = pg_net_create_tcp_socket();
+    PgSocketResult res_create_socket = pg_net_create_tcp_socket();
     PG_ASSERT(0 == res_create_socket.err);
     socket_listen = res_create_socket.res;
 
@@ -910,7 +910,7 @@ static void test_net_socket() {
     PgIpv4Address addr = {0};
     addr.port = port;
     PG_ASSERT(0 == pg_net_tcp_bind_ipv4(socket_listen, addr));
-    PG_ASSERT(0 == pg_net_tcp_listen(socket_listen));
+    PG_ASSERT(0 == pg_net_tcp_listen(socket_listen, 1));
   }
 
   PgSocket socket_alice = 0;
@@ -925,7 +925,7 @@ static void test_net_socket() {
   }
   PG_ASSERT(0 == pg_net_socket_set_blocking(socket_alice, false));
 
-  PgAioQueueCreateResult res_queue_create = pg_aio_queue_create();
+  PgAioQueueResult res_queue_create = pg_aio_queue_create();
   PG_ASSERT(0 == res_queue_create.err);
 
   PgAioQueue queue = res_queue_create.res;
@@ -1420,7 +1420,7 @@ static void test_http_request_response() {
   u16 port = (u16)pg_rand_u32(3000, UINT16_MAX);
   PgSocket listen_socket = 0;
   {
-    PgCreateSocketResult res_create_socket = pg_net_create_tcp_socket();
+    PgSocketResult res_create_socket = pg_net_create_tcp_socket();
     PG_ASSERT(0 == res_create_socket.err);
     listen_socket = res_create_socket.res;
 
@@ -1430,7 +1430,7 @@ static void test_http_request_response() {
     PgIpv4Address addr = {0};
     addr.port = port;
     PG_ASSERT(0 == pg_net_tcp_bind_ipv4(listen_socket, addr));
-    PG_ASSERT(0 == pg_net_tcp_listen(listen_socket));
+    PG_ASSERT(0 == pg_net_tcp_listen(listen_socket, 1));
   }
 
   PgSocket client_socket = 0;
@@ -1445,7 +1445,7 @@ static void test_http_request_response() {
   }
   PG_ASSERT(0 == pg_net_socket_set_blocking(client_socket, false));
 
-  PgAioQueueCreateResult res_queue_create = pg_aio_queue_create();
+  PgAioQueueResult res_queue_create = pg_aio_queue_create();
   PG_ASSERT(0 == res_queue_create.err);
 
   PgAioQueue queue = res_queue_create.res;
@@ -1664,7 +1664,7 @@ static void test_log() {
 static void test_timer() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
-  PgAioQueueCreateResult res_queue_create = pg_aio_queue_create();
+  PgAioQueueResult res_queue_create = pg_aio_queue_create();
   PG_ASSERT(0 == res_queue_create.err);
   PgAioQueue queue = res_queue_create.res;
 
@@ -1702,6 +1702,47 @@ static void test_timer() {
   PG_ASSERT(0 == pg_timer_release(res_timer.res));
 }
 
+static void test_event_loop_connect_on_client_connect(void *ctx, PgError err) {
+  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(0 == err);
+}
+
+static void test_event_loop_connect_on_server_connect(void *ctx, PgError err) {
+  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(0 == err);
+}
+
+static void test_event_loop_connect() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+
+  PgEventLoopResult res_loop = pg_event_loop_make();
+  PG_ASSERT(0 == res_loop.err);
+  PgEventLoop loop = res_loop.res;
+
+  PgIpv4Address addr = {.port = (u16)pg_rand_u32(3000, UINT16_MAX)};
+
+  Pgu64Result res_client = pg_event_loop_tcp_init(&loop, &arena);
+  PG_ASSERT(0 == res_client.err);
+  u64 client_handle = res_client.res;
+
+  Pgu64Result res_server = pg_event_loop_tcp_init(&loop, &arena);
+  PG_ASSERT(0 == res_server.err);
+  u64 server_handle = res_server.res;
+
+  {
+    PG_ASSERT(0 == pg_event_loop_tcp_connect(
+                       &loop, client_handle, addr,
+                       test_event_loop_connect_on_client_connect));
+  }
+
+  {
+    PG_ASSERT(0 == pg_event_loop_tcp_bind(&loop, server_handle, addr));
+    PG_ASSERT(0 == pg_event_loop_tcp_listen(
+                       &loop, server_handle, 1,
+                       test_event_loop_connect_on_server_connect));
+  }
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_string();
@@ -1737,4 +1778,5 @@ int main() {
   test_http_request_response();
   test_timer();
   test_log();
+  test_event_loop_connect();
 }
