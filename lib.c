@@ -1213,34 +1213,34 @@ PG_RESULT(AioQueue) PgAioQueueCreateResult;
 [[maybe_unused]] [[nodiscard]] static PgAioQueueCreateResult aio_queue_create();
 
 typedef enum {
-  AIO_EVENT_KIND_NONE = 0,
-  AIO_EVENT_KIND_IN = 1,
-  AIO_EVENT_KIND_OUT = 2,
-  AIO_EVENT_KIND_ERR = 4,
-} AioEventKind;
+  PG_AIO_EVENT_KIND_NONE = 0,
+  PG_AIO_EVENT_KIND_IN = 1,
+  PG_AIO_EVENT_KIND_OUT = 2,
+  PG_AIO_EVENT_KIND_ERR = 4,
+} PgAioEventKind;
 
 typedef enum {
-  AIO_EVENT_ACTION_KIND_NONE,
-  AIO_EVENT_ACTION_KIND_ADD,
-  AIO_EVENT_ACTION_KIND_MOD,
-  AIO_EVENT_ACTION_KIND_DEL,
-} AioEventActionKind;
+  PG_AIO_EVENT_ACTION_NONE,
+  PG_AIO_EVENT_ACTION_ADD,
+  PG_AIO_EVENT_ACTION_MOD,
+  PG_AIO_EVENT_ACTION_DEL,
+} PgAioEventAction;
 
 typedef struct {
   Socket socket;
   Timer timer;
-  AioEventKind kind;
-  AioEventActionKind action;
-} AioEvent;
+  PgAioEventKind kind;
+  PgAioEventAction action;
+} PgAioEvent;
 
-PG_SLICE(AioEvent) PgAioEventSlice;
-PG_DYN(AioEvent) PgAioEventDyn;
+PG_SLICE(PgAioEvent) PgAioEventSlice;
+PG_DYN(PgAioEvent) PgAioEventDyn;
 
 [[maybe_unused]] [[nodiscard]] static PgError
 aio_queue_ctl(AioQueue queue, PgAioEventSlice events);
 
 [[maybe_unused]] [[nodiscard]] static PgError
-aio_queue_ctl_one(AioQueue queue, AioEvent event) {
+aio_queue_ctl_one(AioQueue queue, PgAioEvent event) {
   PgAioEventSlice events = {.data = &event, .len = 1};
   return aio_queue_ctl(queue, events);
 }
@@ -1442,33 +1442,33 @@ aio_queue_create() {
 [[maybe_unused]] [[nodiscard]] static PgError
 aio_queue_ctl(AioQueue queue, PgAioEventSlice events) {
   for (u64 i = 0; i < events.len; i++) {
-    AioEvent event = slice_at(events, i);
+    PgAioEvent event = slice_at(events, i);
     ASSERT(event.socket ^ event.timer);
 
     int op = 0;
     switch (event.action) {
-    case AIO_EVENT_ACTION_KIND_ADD:
+    case PG_AIO_EVENT_ACTION_ADD:
       op = EPOLL_CTL_ADD;
       break;
-    case AIO_EVENT_ACTION_KIND_MOD:
+    case PG_AIO_EVENT_ACTION_MOD:
       op = EPOLL_CTL_MOD;
       break;
-    case AIO_EVENT_ACTION_KIND_DEL:
+    case PG_AIO_EVENT_ACTION_DEL:
       op = EPOLL_CTL_DEL;
       break;
-    case AIO_EVENT_ACTION_KIND_NONE:
+    case PG_AIO_EVENT_ACTION_NONE:
     default:
       ASSERT(0);
     }
 
     struct epoll_event epoll_event = {0};
-    if (event.kind & AIO_EVENT_KIND_IN) {
+    if (event.kind & PG_AIO_EVENT_KIND_IN) {
       epoll_event.events |= EPOLLIN;
     }
-    if (event.kind & AIO_EVENT_KIND_OUT) {
+    if (event.kind & PG_AIO_EVENT_KIND_OUT) {
       epoll_event.events |= EPOLLOUT;
     }
-    if (event.kind & AIO_EVENT_KIND_ERR) {
+    if (event.kind & PG_AIO_EVENT_KIND_ERR) {
       epoll_event.events |= EPOLLERR;
     }
 
@@ -1508,18 +1508,18 @@ aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
   res.res = (u64)res_epoll;
 
   for (u64 i = 0; i < res.res; i++) {
-    AioEvent *event = slice_at_ptr(&events, i);
-    *event = (AioEvent){0};
+    PgAioEvent *event = slice_at_ptr(&events, i);
+    *event = (PgAioEvent){0};
 
     struct epoll_event epoll_event = epoll_events[i];
     if (epoll_event.events & EPOLLIN) {
-      event->kind |= AIO_EVENT_KIND_IN;
+      event->kind |= PG_AIO_EVENT_KIND_IN;
     }
     if (epoll_event.events & EPOLLOUT) {
-      event->kind |= AIO_EVENT_KIND_OUT;
+      event->kind |= PG_AIO_EVENT_KIND_OUT;
     }
     if (epoll_event.events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
-      event->kind |= AIO_EVENT_KIND_ERR;
+      event->kind |= PG_AIO_EVENT_KIND_ERR;
     }
     event->socket = epoll_event.data.fd;
   }
@@ -3561,9 +3561,9 @@ json_encode_string_slice(PgStringSlice strings, Arena *arena) {
   return dyn_slice(PgString, sb);
 }
 
-[[maybe_unused]] [[nodiscard]] static StringSliceResult
+[[maybe_unused]] [[nodiscard]] static PgStringSliceResult
 json_decode_string_slice(PgString s, Arena *arena) {
-  StringSliceResult res = {0};
+  PgStringSliceResult res = {0};
   if (s.len < 2) {
     res.err = EINVAL;
     return res;

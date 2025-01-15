@@ -915,14 +915,14 @@ static void test_net_socket() {
   ASSERT(0 == res_queue_create.err);
 
   AioQueue queue = res_queue_create.res;
-  PgAioEventSlice events_change = slice_make(AioEvent, 3, &arena);
+  PgAioEventSlice events_change = slice_make(PgAioEvent, 3, &arena);
   events_change.len = 1;
 
   {
-    AioEvent *event_bob_listen = slice_at_ptr(&events_change, 0);
+    PgAioEvent *event_bob_listen = slice_at_ptr(&events_change, 0);
     event_bob_listen->socket = socket_listen;
-    event_bob_listen->kind = AIO_EVENT_KIND_IN;
-    event_bob_listen->action = AIO_EVENT_ACTION_KIND_ADD;
+    event_bob_listen->kind = PG_AIO_EVENT_KIND_IN;
+    event_bob_listen->action = PG_AIO_EVENT_ACTION_ADD;
 
     ASSERT(0 == aio_queue_ctl(queue, events_change));
   }
@@ -937,15 +937,15 @@ static void test_net_socket() {
 
   AliceState alice_state = ALICE_STATE_NONE;
 
-  PgAioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
+  PgAioEventSlice events_watch = slice_make(PgAioEvent, 3, &arena);
 
   for (;;) {
     Pgu64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
     ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
-      AioEvent event = slice_at(events_watch, i);
-      ASSERT(0 == (AIO_EVENT_KIND_ERR & event.kind));
+      PgAioEvent event = slice_at(events_watch, i);
+      ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
 
       if (event.socket == socket_listen) {
         Ipv4AddressAcceptResult res_accept = net_tcp_accept(socket_listen);
@@ -953,23 +953,23 @@ static void test_net_socket() {
         ASSERT(0 != res_accept.socket);
 
         events_change.len = 2;
-        AioEvent *event_alice = slice_at_ptr(&events_change, 0);
+        PgAioEvent *event_alice = slice_at_ptr(&events_change, 0);
         event_alice->socket = socket_alice;
-        event_alice->kind = AIO_EVENT_KIND_OUT;
-        event_alice->action = AIO_EVENT_ACTION_KIND_ADD;
+        event_alice->kind = PG_AIO_EVENT_KIND_OUT;
+        event_alice->action = PG_AIO_EVENT_ACTION_ADD;
 
         bob_socket = res_accept.socket;
         bob_reader = reader_make_from_socket(bob_socket);
 
-        AioEvent *event_bob = slice_at_ptr(&events_change, 1);
+        PgAioEvent *event_bob = slice_at_ptr(&events_change, 1);
         event_bob->socket = res_accept.socket;
-        event_bob->kind = AIO_EVENT_KIND_IN;
-        event_bob->action = AIO_EVENT_ACTION_KIND_ADD;
+        event_bob->kind = PG_AIO_EVENT_KIND_IN;
+        event_bob->action = PG_AIO_EVENT_ACTION_ADD;
 
         ASSERT(0 == aio_queue_ctl(queue, events_change));
         events_change.len = 0;
       } else if (event.socket == socket_alice) {
-        ASSERT(AIO_EVENT_KIND_OUT & event.kind);
+        ASSERT(PG_AIO_EVENT_KIND_OUT & event.kind);
 
         switch (alice_state) {
         case ALICE_STATE_NONE: {
@@ -983,7 +983,7 @@ static void test_net_socket() {
           ASSERT(0);
         }
       } else if (event.socket == bob_socket) {
-        ASSERT(AIO_EVENT_KIND_IN & event.kind);
+        ASSERT(PG_AIO_EVENT_KIND_IN & event.kind);
 
         ASSERT(0 == reader_read(&bob_reader, &bob_recv, arena).err);
 
@@ -1417,14 +1417,14 @@ static void test_http_request_response() {
   ASSERT(0 == res_queue_create.err);
 
   AioQueue queue = res_queue_create.res;
-  PgAioEventSlice events_change = slice_make(AioEvent, 3, &arena);
+  PgAioEventSlice events_change = slice_make(PgAioEvent, 3, &arena);
   events_change.len = 1;
 
   {
-    AioEvent *event_server_listen = slice_at_ptr(&events_change, 0);
+    PgAioEvent *event_server_listen = slice_at_ptr(&events_change, 0);
     event_server_listen->socket = listen_socket;
-    event_server_listen->kind = AIO_EVENT_KIND_IN;
-    event_server_listen->action = AIO_EVENT_ACTION_KIND_ADD;
+    event_server_listen->kind = PG_AIO_EVENT_KIND_IN;
+    event_server_listen->action = PG_AIO_EVENT_ACTION_ADD;
 
     ASSERT(0 == aio_queue_ctl(queue, events_change));
   }
@@ -1464,15 +1464,15 @@ static void test_http_request_response() {
   HttpRequest server_req = {0};
   HttpResponse client_res = {0};
 
-  PgAioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
+  PgAioEventSlice events_watch = slice_make(PgAioEvent, 3, &arena);
 
   for (u64 _i = 0; _i <= 128; _i++) {
     Pgu64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
     ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
-      AioEvent event = slice_at(events_watch, i);
-      ASSERT(0 == (AIO_EVENT_KIND_ERR & event.kind));
+      PgAioEvent event = slice_at(events_watch, i);
+      ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
 
       if (event.socket == listen_socket) {
         Ipv4AddressAcceptResult res_accept = net_tcp_accept(listen_socket);
@@ -1480,24 +1480,24 @@ static void test_http_request_response() {
         ASSERT(0 != res_accept.socket);
 
         events_change.len = 2;
-        AioEvent *event_client = slice_at_ptr(&events_change, 0);
+        PgAioEvent *event_client = slice_at_ptr(&events_change, 0);
         event_client->socket = client_socket;
-        event_client->kind = AIO_EVENT_KIND_OUT;
-        event_client->action = AIO_EVENT_ACTION_KIND_ADD;
+        event_client->kind = PG_AIO_EVENT_KIND_OUT;
+        event_client->action = PG_AIO_EVENT_ACTION_ADD;
 
         server_socket = res_accept.socket;
         server_reader = reader_make_from_socket(server_socket);
         server_writer = writer_make_from_socket(server_socket);
 
-        AioEvent *event_server_client = slice_at_ptr(&events_change, 1);
+        PgAioEvent *event_server_client = slice_at_ptr(&events_change, 1);
         event_server_client->socket = res_accept.socket;
-        event_server_client->kind = AIO_EVENT_KIND_IN;
-        event_server_client->action = AIO_EVENT_ACTION_KIND_ADD;
+        event_server_client->kind = PG_AIO_EVENT_KIND_IN;
+        event_server_client->action = PG_AIO_EVENT_ACTION_ADD;
 
         ASSERT(0 == aio_queue_ctl(queue, events_change));
         events_change.len = 0;
       } else if (event.socket == client_socket) {
-        if (AIO_EVENT_KIND_OUT & event.kind) {
+        if (PG_AIO_EVENT_KIND_OUT & event.kind) {
           if (!client_send_http_io_done) {
             http_write_request(&client_send, client_req, arena);
             ASSERT(true == ring_buffer_write_slice(&client_send,
@@ -1507,15 +1507,15 @@ static void test_http_request_response() {
 
             // Stop subscribing for writing, start subscribing for reading.
             events_change.len = 1;
-            AioEvent *event_client = slice_at_ptr(&events_change, 0);
+            PgAioEvent *event_client = slice_at_ptr(&events_change, 0);
             event_client->socket = client_socket;
-            event_client->kind = AIO_EVENT_KIND_IN;
-            event_client->action = AIO_EVENT_ACTION_KIND_MOD;
+            event_client->kind = PG_AIO_EVENT_KIND_IN;
+            event_client->action = PG_AIO_EVENT_ACTION_MOD;
             ASSERT(0 == aio_queue_ctl(queue, events_change));
             events_change.len = 0;
           }
         }
-        if (AIO_EVENT_KIND_IN & event.kind) {
+        if (PG_AIO_EVENT_KIND_IN & event.kind) {
           if (!client_recv_http_io_done) {
             ASSERT(0 == reader_read(&client_reader, &client_recv, arena).err);
             HttpResponseReadResult res =
@@ -1528,7 +1528,7 @@ static void test_http_request_response() {
           }
         }
       } else if (event.socket == server_socket) {
-        if (AIO_EVENT_KIND_IN & event.kind) {
+        if (PG_AIO_EVENT_KIND_IN & event.kind) {
           if (!server_recv_http_io_done) {
             ASSERT(0 == reader_read(&server_reader, &server_recv, arena).err);
             HttpRequestReadResult res =
@@ -1540,15 +1540,15 @@ static void test_http_request_response() {
 
             // Stop subscribing for reading, start subscribing for writing.
             events_change.len = 1;
-            AioEvent *event_server = slice_at_ptr(&events_change, 0);
+            PgAioEvent *event_server = slice_at_ptr(&events_change, 0);
             event_server->socket = server_socket;
-            event_server->kind = AIO_EVENT_KIND_OUT;
-            event_server->action = AIO_EVENT_ACTION_KIND_MOD;
+            event_server->kind = PG_AIO_EVENT_KIND_OUT;
+            event_server->action = PG_AIO_EVENT_ACTION_MOD;
             ASSERT(0 == aio_queue_ctl(queue, events_change));
             events_change.len = 0;
           }
         }
-        if (AIO_EVENT_KIND_OUT & event.kind) {
+        if (PG_AIO_EVENT_KIND_OUT & event.kind) {
           if (!server_send_http_io_done) {
             ASSERT(0 == http_write_response(&server_send, server_res, arena));
             ASSERT(0 == writer_write(&server_writer, &server_send, arena).err);
@@ -1556,9 +1556,9 @@ static void test_http_request_response() {
 
             // Stop subscribing.
             events_change.len = 1;
-            AioEvent *event_server = slice_at_ptr(&events_change, 0);
+            PgAioEvent *event_server = slice_at_ptr(&events_change, 0);
             event_server->socket = server_socket;
-            event_server->action = AIO_EVENT_ACTION_KIND_DEL;
+            event_server->action = PG_AIO_EVENT_ACTION_DEL;
             ASSERT(0 == aio_queue_ctl(queue, events_change));
             events_change.len = 0;
           }
@@ -1638,23 +1638,23 @@ static void test_timer() {
   ASSERT(0 == res_start.err);
 
   {
-    AioEvent event_change = {
+    PgAioEvent event_change = {
         .timer = res_timer.res,
-        .kind = AIO_EVENT_KIND_IN,
-        .action = AIO_EVENT_ACTION_KIND_ADD,
+        .kind = PG_AIO_EVENT_KIND_IN,
+        .action = PG_AIO_EVENT_ACTION_ADD,
     };
     PgError err = aio_queue_ctl_one(queue, event_change);
     ASSERT(0 == err);
   }
 
-  PgAioEventSlice events_watch = slice_make(AioEvent, 1, &arena);
+  PgAioEventSlice events_watch = slice_make(PgAioEvent, 1, &arena);
   Pgu64Result res_wait = aio_queue_wait(queue, events_watch, 1'000, arena);
   ASSERT(0 == res_wait.err);
   ASSERT(1 == res_wait.res);
 
-  AioEvent event_watch = slice_at(events_watch, 0);
-  ASSERT(0 == (AIO_EVENT_KIND_ERR & event_watch.kind));
-  ASSERT(AIO_EVENT_KIND_IN & event_watch.kind);
+  PgAioEvent event_watch = slice_at(events_watch, 0);
+  ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event_watch.kind));
+  ASSERT(PG_AIO_EVENT_KIND_IN & event_watch.kind);
 
   Pgu64Result res_end = pg_time_ns_now(CLOCK_KIND_MONOTONIC);
   ASSERT(0 == res_end.err);
