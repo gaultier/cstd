@@ -1,6 +1,6 @@
 #include "lib.c"
 
-static void test_string_indexof_slice() {
+static void test_string_indexof_string() {
   // Empty haystack.
   {
     PG_ASSERT(-1 == pg_string_indexof_string((PgString){0}, PG_S("fox")));
@@ -39,6 +39,10 @@ static void test_string_indexof_slice() {
   {
     PG_ASSERT(-1 ==
               pg_string_indexof_string(PG_S("hello world"), PG_S("worldly")));
+  }
+
+  {
+    PG_ASSERT(0 == pg_string_indexof_string(PG_S("/"), PG_S("/")));
   }
 }
 
@@ -1700,7 +1704,7 @@ static void test_timer() {
 
 int main() {
   test_slice_range();
-  test_string_indexof_slice();
+  test_string_indexof_string();
   test_string_trim();
   test_string_split_byte();
   test_string_split_string();

@@ -1,10 +1,15 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
+
+#if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
+#define PG_OS_UNIX
+#endif
+
+#ifdef PG_OS_UNIX
 #define _POSIX_C_SOURCE 200809L
-#define __XSI_VISIBLE 600
-#define __BSD_VISIBLE 1
-#define _XOPEN_SOURCE 700
 #define _DEFAULT_SOURCE 1
+#endif
+
 #include "sha1.c"
 #include <stdarg.h>
 #include <stdbool.h>
@@ -12,7 +17,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #ifndef PG_MIN
 #define PG_MIN(a, b) (((a) < (b)) ? (a) : (b))
@@ -298,14 +302,25 @@ pg_string_indexof_string(PgString haystack, PgString needle) {
 
   PG_ASSERT(nullptr != haystack.data);
   PG_ASSERT(nullptr != needle.data);
-  void *ptr = memmem(haystack.data, haystack.len, needle.data, needle.len);
-  if (nullptr == ptr) {
-    return -1;
+  u64 j = 0;
+  u8 needle_first = PG_SLICE_AT(needle, 0);
+
+  for (u64 _i = 0; _i < haystack.len - needle.len - 1; _i++) {
+    PgString remaining = PG_SLICE_RANGE_START(haystack, j);
+    i64 idx = pg_string_indexof_byte(remaining, needle_first);
+    if (-1 == idx) {
+      return -1;
+    }
+
+    PgString found_maybe =
+        PG_SLICE_RANGE(remaining, (u64)idx, (u64)idx + needle.len);
+    if (pg_string_eq(needle, found_maybe)) {
+      return (i64)j + idx;
+    }
+    j += (u64)idx + needle.len;
   }
 
-  u64 res = (u64)((u8 *)ptr - haystack.data);
-  PG_ASSERT(res < haystack.len);
-  return (i64)res;
+  return -1;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringOk
@@ -1022,6 +1037,7 @@ typedef int PgTimer;
 
 typedef enum {
   PG_CLOCK_KIND_MONOTONIC,
+  PG_CLOCK_KIND_REALTIME,
   // TODO: More?
 } PgClockKind;
 
@@ -1421,6 +1437,7 @@ pg_net_tcp_accept(PgSocket sock) {
 #endif
 
 #if defined(__linux__)
+#define _POSIX_C_SOURCE 200809L
 #include <sys/epoll.h>
 #include <sys/sendfile.h>
 #include <sys/timerfd.h>
@@ -1541,6 +1558,8 @@ pg_linux_clock(PgClockKind clock_kind) {
   switch (clock_kind) {
   case PG_CLOCK_KIND_MONOTONIC:
     return CLOCK_MONOTONIC;
+  case PG_CLOCK_KIND_REALTIME:
+    return CLOCK_REALTIME;
   default:
     PG_ASSERT(0);
   }
@@ -3512,14 +3531,9 @@ pg_string_builder_append_json_object_key_string_value_u64(Pgu8Dyn *sb,
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena,
                      i32 args_count, ...) {
-  struct timespec monotonic = {0};
-  clock_gettime(CLOCK_MONOTONIC, &monotonic);
-  u64 monotonic_ns =
-      (u64)monotonic.tv_sec * 1000'000'000 + (u64)monotonic.tv_nsec;
-
-  struct timespec now = {0};
-  clock_gettime(CLOCK_REALTIME, &now);
-  u64 timestamp_ns = (u64)now.tv_sec * 1000'000'000 + (u64)now.tv_nsec;
+  Pgu64Result res_monotonic_ns = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
+  Pgu64Result res_timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME);
+  // Ignore clock errors.
 
   Pgu8Dyn sb = {0};
   *PG_DYN_PUSH(&sb, arena) = '{';
@@ -3527,9 +3541,9 @@ pg_log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena,
   pg_string_builder_append_json_object_key_string_value_string(
       &sb, PG_S("level"), pg_log_level_to_string(level), arena);
   pg_string_builder_append_json_object_key_string_value_u64(
-      &sb, PG_S("timestamp_ns"), timestamp_ns, arena);
+      &sb, PG_S("timestamp_ns"), res_timestamp_ns.res, arena);
   pg_string_builder_append_json_object_key_string_value_u64(
-      &sb, PG_S("monotonic_ns"), monotonic_ns, arena);
+      &sb, PG_S("monotonic_ns"), res_monotonic_ns.res, arena);
   pg_string_builder_append_json_object_key_string_value_string(
       &sb, PG_S("message"), msg, arena);
 
