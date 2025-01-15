@@ -1578,7 +1578,7 @@ typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
-[[maybe_unused]] [[nodiscard]] static Pgu64Result unix_read(void *self, u8 *buf,
+[[maybe_unused]] [[nodiscard]] static Pgu64Result pg_unix_read(void *self, u8 *buf,
                                                             size_t buf_len) {
   PG_ASSERT(nullptr != self);
 
@@ -1598,7 +1598,7 @@ typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-unix_write(void *self, u8 *buf, size_t buf_len) {
+pg_unix_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
 
   int fd = (int)(u64)self;
@@ -2726,18 +2726,18 @@ http_write_response(RingBuffer *rg, HttpResponse res, PgArena arena) {
 [[maybe_unused]] [[nodiscard]] static Reader
 reader_make_from_socket(PgSocket socket) {
   // TODO: Windows.
-  return (Reader){.read_fn = unix_read, .ctx = (void *)(u64)socket};
+  return (Reader){.read_fn = pg_unix_read, .ctx = (void *)(u64)socket};
 }
 
 [[maybe_unused]] [[nodiscard]] static Writer
 writer_make_from_socket(PgSocket socket) {
   // TODO: Windows.
-  return (Writer){.write_fn = unix_write, .ctx = (void *)(u64)socket};
+  return (Writer){.write_fn = pg_unix_write, .ctx = (void *)(u64)socket};
 }
 
 [[maybe_unused]] [[nodiscard]] static Writer writer_make_from_file(PgFile *file) {
   // TODO: Windows.
-  return (Writer){.write_fn = unix_write, .ctx = (void *)file};
+  return (Writer){.write_fn = pg_unix_write, .ctx = (void *)file};
 }
 
 [[maybe_unused]] [[nodiscard]] static Writer
