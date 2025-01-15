@@ -2908,7 +2908,7 @@ typedef struct {
 } PgFormDataKVElementParseResult;
 
 [[nodiscard]] static PgFormDataKVElementParseResult
-form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
+pg_form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
                            PgArena *arena) {
   PgFormDataKVElementParseResult res = {0};
   Pgu8Dyn data = {0};
@@ -2950,13 +2950,13 @@ form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
 }
 
 [[nodiscard]] static PgFormDataKVParseResult
-form_data_kv_parse(PgString in, PgArena *arena) {
+pg_form_data_kv_parse(PgString in, PgArena *arena) {
   PgFormDataKVParseResult res = {0};
 
   PgString remaining = in;
 
   PgFormDataKVElementParseResult key_parsed =
-      form_data_kv_parse_element(remaining, '=', arena);
+      pg_form_data_kv_parse_element(remaining, '=', arena);
   if (key_parsed.err) {
     res.err = key_parsed.err;
     return res;
@@ -2966,7 +2966,7 @@ form_data_kv_parse(PgString in, PgArena *arena) {
   remaining = key_parsed.remaining;
 
   PgFormDataKVElementParseResult value_parsed =
-      form_data_kv_parse_element(remaining, '&', arena);
+      pg_form_data_kv_parse_element(remaining, '&', arena);
   if (value_parsed.err) {
     res.err = value_parsed.err;
     return res;
@@ -2978,7 +2978,7 @@ form_data_kv_parse(PgString in, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFormDataParseResult
-form_data_parse(PgString in, PgArena *arena) {
+pg_form_data_parse(PgString in, PgArena *arena) {
   PgFormDataParseResult res = {0};
 
   PgString remaining = in;
@@ -2988,7 +2988,7 @@ form_data_parse(PgString in, PgArena *arena) {
       break;
     }
 
-    PgFormDataKVParseResult kv = form_data_kv_parse(remaining, arena);
+    PgFormDataKVParseResult kv = pg_form_data_kv_parse(remaining, arena);
     if (kv.err) {
       res.err = kv.err;
       return res;
@@ -3002,26 +3002,26 @@ form_data_parse(PgString in, PgArena *arena) {
 }
 
 typedef enum {
-  HTML_NONE,
-  HTML_TITLE,
-  HTML_SPAN,
-  HTML_INPUT,
-  HTML_BUTTON,
-  HTML_LINK,
-  HTML_META,
-  HTML_HEAD,
-  HTML_BODY,
-  HTML_DIV,
-  HTML_OL,
-  HTML_LI,
-  HTML_TEXT,
-  HTML_FORM,
-  HTML_FIELDSET,
-  HTML_LABEL,
-  HTML_SCRIPT,
-  HTML_STYLE,
-  HTML_LEGEND,
-  HTML_MAX, // Pseudo.
+  PG_HTML_NONE,
+  PG_HTML_TITLE,
+  PG_HTML_SPAN,
+  PG_HTML_INPUT,
+  PG_HTML_BUTTON,
+  PG_HTML_LINK,
+  PG_HTML_META,
+  PG_HTML_HEAD,
+  PG_HTML_BODY,
+  PG_HTML_DIV,
+  PG_HTML_OL,
+  PG_HTML_LI,
+  PG_HTML_TEXT,
+  PG_HTML_FORM,
+  PG_HTML_FIELDSET,
+  PG_HTML_LABEL,
+  PG_HTML_SCRIPT,
+  PG_HTML_STYLE,
+  PG_HTML_LEGEND,
+  PG_HTML_MAX, // Pseudo.
 } HtmlKind;
 
 typedef struct HtmlElement HtmlElement;
@@ -3035,8 +3035,8 @@ struct HtmlElement {
   PgKeyValueDyn attributes;
   union {
     DynHtmlElements children;
-    PgString text; // Only for `HTML_TEXT`, `HTML_LEGEND`, `HTML_TITLE`,
-                   // `HTML_SCRIPT`, `HTML_STYLE`, `HTML_BUTTON`.
+    PgString text; // Only for `PG_HTML_TEXT`, `PG_HTML_LEGEND`, `PG_HTML_TITLE`,
+                   // `PG_HTML_SCRIPT`, `PG_HTML_STYLE`, `PG_HTML_BUTTON`.
   };
 };
 
@@ -3051,9 +3051,9 @@ typedef struct {
 
   {
 
-    HtmlElement tag_head = {.kind = HTML_HEAD};
+    HtmlElement tag_head = {.kind = PG_HTML_HEAD};
     {
-      HtmlElement tag_meta = {.kind = HTML_META};
+      HtmlElement tag_meta = {.kind = PG_HTML_META};
       {
         *PG_DYN_PUSH(&tag_meta.attributes, arena) =
             (PgKeyValue){.key = PG_S("charset"), .value = PG_S("utf-8")};
@@ -3061,13 +3061,13 @@ typedef struct {
       *PG_DYN_PUSH(&tag_head.children, arena) = tag_meta;
     }
     {
-      HtmlElement tag_title = {.kind = HTML_TITLE, .text = title};
+      HtmlElement tag_title = {.kind = PG_HTML_TITLE, .text = title};
       *PG_DYN_PUSH(&tag_head.children, arena) = tag_title;
     }
 
     res.head = tag_head;
 
-    HtmlElement tag_body = {.kind = HTML_BODY};
+    HtmlElement tag_body = {.kind = PG_HTML_BODY};
     res.body = tag_body;
   }
 
@@ -3114,29 +3114,29 @@ static void html_document_to_string(HtmlDocument doc, Pgu8Dyn *sb,
 }
 
 static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, PgArena *arena) {
-  static const PgString tag_to_string[HTML_MAX] = {
-      [HTML_NONE] = PG_S("FIXME"),
-      [HTML_TITLE] = PG_S("title"),
-      [HTML_SPAN] = PG_S("span"),
-      [HTML_INPUT] = PG_S("input"),
-      [HTML_BUTTON] = PG_S("button"),
-      [HTML_LINK] = PG_S("link"),
-      [HTML_META] = PG_S("meta"),
-      [HTML_HEAD] = PG_S("head"),
-      [HTML_BODY] = PG_S("body"),
-      [HTML_DIV] = PG_S("div"),
-      [HTML_TEXT] = PG_S("span"),
-      [HTML_FORM] = PG_S("form"),
-      [HTML_FIELDSET] = PG_S("fieldset"),
-      [HTML_LABEL] = PG_S("label"),
-      [HTML_SCRIPT] = PG_S("script"),
-      [HTML_STYLE] = PG_S("style"),
-      [HTML_LEGEND] = PG_S("legend"),
-      [HTML_OL] = PG_S("ol"),
-      [HTML_LI] = PG_S("li"),
+  static const PgString tag_to_string[PG_HTML_MAX] = {
+      [PG_HTML_NONE] = PG_S("FIXME"),
+      [PG_HTML_TITLE] = PG_S("title"),
+      [PG_HTML_SPAN] = PG_S("span"),
+      [PG_HTML_INPUT] = PG_S("input"),
+      [PG_HTML_BUTTON] = PG_S("button"),
+      [PG_HTML_LINK] = PG_S("link"),
+      [PG_HTML_META] = PG_S("meta"),
+      [PG_HTML_HEAD] = PG_S("head"),
+      [PG_HTML_BODY] = PG_S("body"),
+      [PG_HTML_DIV] = PG_S("div"),
+      [PG_HTML_TEXT] = PG_S("span"),
+      [PG_HTML_FORM] = PG_S("form"),
+      [PG_HTML_FIELDSET] = PG_S("fieldset"),
+      [PG_HTML_LABEL] = PG_S("label"),
+      [PG_HTML_SCRIPT] = PG_S("script"),
+      [PG_HTML_STYLE] = PG_S("style"),
+      [PG_HTML_LEGEND] = PG_S("legend"),
+      [PG_HTML_OL] = PG_S("ol"),
+      [PG_HTML_LI] = PG_S("li"),
   };
 
-  PG_ASSERT(!(HTML_NONE == e.kind || HTML_MAX == e.kind));
+  PG_ASSERT(!(PG_HTML_NONE == e.kind || PG_HTML_MAX == e.kind));
 
   *PG_DYN_PUSH(sb, arena) = '<';
   PG_DYN_APPEND_SLICE(sb, tag_to_string[e.kind], arena);
@@ -3145,54 +3145,54 @@ static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, PgArena *arena) {
 
   switch (e.kind) {
   // Cases of tag without any children and no closing tag.
-  case HTML_LINK:
+  case PG_HTML_LINK:
     [[fallthrough]];
-  case HTML_META:
+  case PG_HTML_META:
     PG_ASSERT(0 == e.children.len);
     return;
 
   // 'Normal' tags.
-  case HTML_OL:
+  case PG_HTML_OL:
     [[fallthrough]];
-  case HTML_LI:
+  case PG_HTML_LI:
     [[fallthrough]];
-  case HTML_HEAD:
+  case PG_HTML_HEAD:
     [[fallthrough]];
-  case HTML_DIV:
+  case PG_HTML_DIV:
     [[fallthrough]];
-  case HTML_FORM:
+  case PG_HTML_FORM:
     [[fallthrough]];
-  case HTML_FIELDSET:
+  case PG_HTML_FIELDSET:
     [[fallthrough]];
-  case HTML_LABEL:
+  case PG_HTML_LABEL:
     [[fallthrough]];
-  case HTML_INPUT:
+  case PG_HTML_INPUT:
     [[fallthrough]];
-  case HTML_SPAN:
+  case PG_HTML_SPAN:
     [[fallthrough]];
-  case HTML_BODY:
+  case PG_HTML_BODY:
     html_tags_to_string(e.children, sb, arena);
     break;
 
   // Only cases where `.text` is valid.
-  case HTML_BUTTON:
+  case PG_HTML_BUTTON:
     [[fallthrough]];
-  case HTML_SCRIPT:
+  case PG_HTML_SCRIPT:
     [[fallthrough]];
-  case HTML_STYLE:
+  case PG_HTML_STYLE:
     [[fallthrough]];
-  case HTML_LEGEND:
+  case PG_HTML_LEGEND:
     [[fallthrough]];
-  case HTML_TITLE:
+  case PG_HTML_TITLE:
     [[fallthrough]];
-  case HTML_TEXT:
+  case PG_HTML_TEXT:
     PG_DYN_APPEND_SLICE(sb, e.text, arena);
     break;
 
   // Invalid cases.
-  case HTML_NONE:
+  case PG_HTML_NONE:
     [[fallthrough]];
-  case HTML_MAX:
+  case PG_HTML_MAX:
     [[fallthrough]];
   default:
     PG_ASSERT(0);
