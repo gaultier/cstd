@@ -13,27 +13,32 @@ static void test_string_indexof_slice() {
 
   // Not found.
   {
-    PG_ASSERT(-1 == pg_string_indexof_string(PG_S("hello world"), PG_S("foobar")));
+    PG_ASSERT(-1 ==
+              pg_string_indexof_string(PG_S("hello world"), PG_S("foobar")));
   }
 
   // Found, one occurence.
   {
-    PG_ASSERT(6 == pg_string_indexof_string(PG_S("hello world"), PG_S("world")));
+    PG_ASSERT(6 ==
+              pg_string_indexof_string(PG_S("hello world"), PG_S("world")));
   }
 
   // Found, first occurence.
   {
-    PG_ASSERT(6 == pg_string_indexof_string(PG_S("world hello hell"), PG_S("hell")));
+    PG_ASSERT(6 ==
+              pg_string_indexof_string(PG_S("world hello hell"), PG_S("hell")));
   }
 
   // Found, second occurence.
   {
-    PG_ASSERT(10 == pg_string_indexof_string(PG_S("hello fox foxy"), PG_S("foxy")));
+    PG_ASSERT(10 ==
+              pg_string_indexof_string(PG_S("hello fox foxy"), PG_S("foxy")));
   }
 
   // Almost found, prefix matches.
   {
-    PG_ASSERT(-1 == pg_string_indexof_string(PG_S("hello world"), PG_S("worldly")));
+    PG_ASSERT(-1 ==
+              pg_string_indexof_string(PG_S("hello world"), PG_S("worldly")));
   }
 }
 
@@ -47,21 +52,21 @@ static void test_string_split_byte() {
   PgSplitIterator it = pg_string_split_string(s, PG_S("."));
 
   {
-    PgSplitResult elem = pg_string_split_next(&it);
+    PgStringOk elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
-    PG_ASSERT(pg_string_eq(elem.s, PG_S("hello")));
+    PG_ASSERT(pg_string_eq(elem.res, PG_S("hello")));
   }
 
   {
-    PgSplitResult elem = pg_string_split_next(&it);
+    PgStringOk elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
-    PG_ASSERT(pg_string_eq(elem.s, PG_S("world")));
+    PG_ASSERT(pg_string_eq(elem.res, PG_S("world")));
   }
 
   {
-    PgSplitResult elem = pg_string_split_next(&it);
+    PgStringOk elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
-    PG_ASSERT(pg_string_eq(elem.s, PG_S("foobar")));
+    PG_ASSERT(pg_string_eq(elem.res, PG_S("foobar")));
   }
 
   PG_ASSERT(false == pg_string_split_next(&it).ok);
@@ -73,21 +78,21 @@ static void test_string_split_string() {
   PgSplitIterator it = pg_string_split_string(s, PG_S(", "));
 
   {
-    PgSplitResult elem = pg_string_split_next(&it);
+    PgStringOk elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
-    PG_ASSERT(pg_string_eq(elem.s, PG_S("hello")));
+    PG_ASSERT(pg_string_eq(elem.res, PG_S("hello")));
   }
 
   {
-    PgSplitResult elem = pg_string_split_next(&it);
+    PgStringOk elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
-    PG_ASSERT(pg_string_eq(elem.s, PG_S("world,little")));
+    PG_ASSERT(pg_string_eq(elem.res, PG_S("world,little")));
   }
 
   {
-    PgSplitResult elem = pg_string_split_next(&it);
+    PgStringOk elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
-    PG_ASSERT(pg_string_eq(elem.s, PG_S("thing !")));
+    PG_ASSERT(pg_string_eq(elem.res, PG_S("thing !")));
   }
 
   PG_ASSERT(false == pg_string_split_next(&it).ok);
@@ -418,13 +423,13 @@ static void test_make_log_line() {
   Arena arena = arena_make_from_virtual_mem(4 * PG_KiB);
 
   PgString log_line =
-      log_make_log_line(LOG_LEVEL_DEBUG, PG_S("foobar"), &arena, 2, L("num", 42),
-                        L("s", PG_S("hello \"world\"")));
+      log_make_log_line(LOG_LEVEL_DEBUG, PG_S("foobar"), &arena, 2,
+                        L("num", 42), L("s", PG_S("hello \"world\"")));
 
-  PgString expected_suffix =
-      PG_S("\"message\":\"foobar\",\"num\":42,\"s\":\"hello \\\"world\\\"\"}\n");
-  PG_ASSERT(pg_string_starts_with(log_line,
-                            PG_S("{\"level\":\"debug\",\"timestamp_ns\":")));
+  PgString expected_suffix = PG_S(
+      "\"message\":\"foobar\",\"num\":42,\"s\":\"hello \\\"world\\\"\"}\n");
+  PG_ASSERT(pg_string_starts_with(
+      log_line, PG_S("{\"level\":\"debug\",\"timestamp_ns\":")));
   PG_ASSERT(pg_string_ends_with(log_line, expected_suffix));
 }
 
@@ -435,9 +440,9 @@ static void test_u8x4_be_to_u32_and_back() {
     PgString s = {.data = data, .len = sizeof(n)};
     u32_to_u8x4_be(n, &s);
     PG_ASSERT(pg_string_eq(s, PG_S("\x07"
-                          "\x5b"
-                          "\x0cd"
-                          "\x15")));
+                                   "\x5b"
+                                   "\x0cd"
+                                   "\x15")));
 
     PG_ASSERT(n == u8x4_be_to_u32(s));
   }
@@ -446,7 +451,7 @@ static void test_u8x4_be_to_u32_and_back() {
 static void test_bitfield() {
   {
     PgString bitfield = PG_S("\x3"
-                          "\x2");
+                             "\x2");
     PG_ASSERT(bitfield_get(bitfield, 0));
     PG_ASSERT(bitfield_get(bitfield, 1));
     PG_ASSERT(!bitfield_get(bitfield, 2));
@@ -486,7 +491,8 @@ static void test_ring_buffer_write_slice() {
     PG_ASSERT(ring_buffer_write_space(rg) == 0);
 
     PG_ASSERT(0 == rg.idx_read);
-    PG_ASSERT(pg_string_eq(PG_S("hello world"),
+    PG_ASSERT(
+        pg_string_eq(PG_S("hello world"),
                      (PgString){.data = rg.data.data, .len = rg.idx_write}));
   }
   // Write to full ring buffer.
@@ -623,12 +629,12 @@ static void test_ring_buffer_read_write_fuzz() {
 
   // TODO: Random seed for reproducability?
   for (u64 i = 0; i < ROUNDS; i++) {
-    PgString from =
-        pg_string_make(arc4random_uniform((u32)rg.data.len + 1), &arena_strings);
+    PgString from = pg_string_make(arc4random_uniform((u32)rg.data.len + 1),
+                                   &arena_strings);
     arc4random_buf(from.data, from.len);
 
-    PgString to =
-        pg_string_make(arc4random_uniform((u32)rg.data.len + 1), &arena_strings);
+    PgString to = pg_string_make(arc4random_uniform((u32)rg.data.len + 1),
+                                 &arena_strings);
     arc4random_buf(to.data, to.len);
 
     bool ok_write = ring_buffer_write_slice(&rg, from);
@@ -852,7 +858,8 @@ static void test_url_parse() {
     PG_ASSERT(pg_string_eq(kv1.value, PG_S("world")));
   }
   {
-    PgUrlResult res = url_parse(PG_S("http://a/?foo=bar&hello=world&a="), &arena);
+    PgUrlResult res =
+        url_parse(PG_S("http://a/?foo=bar&hello=world&a="), &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(pg_string_eq(PG_S("http"), res.res.scheme));
     PG_ASSERT(0 == res.res.username.len);
@@ -1068,7 +1075,7 @@ static void test_http_send_request() {
     PG_ASSERT(true == ring_buffer_read_slice(&rg, s));
 
     PgString expected = PG_S("GET / HTTP/1.1\r\n"
-                          "\r\n");
+                             "\r\n");
     PG_ASSERT(pg_string_eq(s, expected));
   }
   {
@@ -1090,8 +1097,8 @@ static void test_http_send_request() {
     PG_ASSERT(true == ring_buffer_read_slice(&rg, s));
 
     PgString expected = PG_S("POST /foobar HTTP/1.1\r\n"
-                          "Host: google.com\r\n"
-                          "\r\n");
+                             "Host: google.com\r\n"
+                             "\r\n");
     PG_ASSERT(pg_string_eq(s, expected));
   }
 }
@@ -1129,17 +1136,21 @@ static void test_http_parse_response_status_line() {
   }
   // Invalid major version.
   {
-    PG_ASSERT(http_parse_response_status_line(PG_S("HTTP/abc.1 201 Created")).err);
-    PG_ASSERT(http_parse_response_status_line(PG_S("HTTP/4.1 201 Created")).err);
+    PG_ASSERT(
+        http_parse_response_status_line(PG_S("HTTP/abc.1 201 Created")).err);
+    PG_ASSERT(
+        http_parse_response_status_line(PG_S("HTTP/4.1 201 Created")).err);
   }
   // Invalid minor version.
   {
-    PG_ASSERT(http_parse_response_status_line(PG_S("HTTP/1.10 201 Created")).err);
+    PG_ASSERT(
+        http_parse_response_status_line(PG_S("HTTP/1.10 201 Created")).err);
   }
   // Invalid status code.
   {
     PG_ASSERT(http_parse_response_status_line(PG_S("HTTP/1.1 99 Created")).err);
-    PG_ASSERT(http_parse_response_status_line(PG_S("HTTP/1.1 600 Created")).err);
+    PG_ASSERT(
+        http_parse_response_status_line(PG_S("HTTP/1.1 600 Created")).err);
   }
   // Valid, short.
   {
@@ -1189,24 +1200,30 @@ static void test_http_parse_request_status_line() {
   }
   // Missing major version.
   {
-    PG_ASSERT(http_parse_request_status_line(PG_S("GET / HTTP/.1"), &arena).err);
+    PG_ASSERT(
+        http_parse_request_status_line(PG_S("GET / HTTP/.1"), &arena).err);
   }
   // Missing `.`.
   {
-    PG_ASSERT(http_parse_request_status_line(PG_S("GET / HTTP/11"), &arena).err);
+    PG_ASSERT(
+        http_parse_request_status_line(PG_S("GET / HTTP/11"), &arena).err);
   }
   // Missing minor version.
   {
-    PG_ASSERT(http_parse_request_status_line(PG_S("GET / HTTP/1."), &arena).err);
+    PG_ASSERT(
+        http_parse_request_status_line(PG_S("GET / HTTP/1."), &arena).err);
   }
   // Invalid major version.
   {
-    PG_ASSERT(http_parse_request_status_line(PG_S("GET / HTTP/abc.1"), &arena).err);
-    PG_ASSERT(http_parse_request_status_line(PG_S("GET / HTTP/4.1"), &arena).err);
+    PG_ASSERT(
+        http_parse_request_status_line(PG_S("GET / HTTP/abc.1"), &arena).err);
+    PG_ASSERT(
+        http_parse_request_status_line(PG_S("GET / HTTP/4.1"), &arena).err);
   }
   // Invalid minor version.
   {
-    PG_ASSERT(http_parse_request_status_line(PG_S("GET / HTTP/1.10"), &arena).err);
+    PG_ASSERT(
+        http_parse_request_status_line(PG_S("GET / HTTP/1.10"), &arena).err);
   }
   // Valid, short.
   {
@@ -1329,8 +1346,8 @@ static void test_http_read_response() {
   // Status line and some but not full.
   {
     RingBuffer rg = {.data = pg_string_make(32, &arena)};
-    PG_ASSERT(true ==
-           ring_buffer_write_slice(&rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
+    PG_ASSERT(true == ring_buffer_write_slice(
+                          &rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
     HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(false == res.done);
@@ -1341,8 +1358,8 @@ static void test_http_read_response() {
     RingBuffer rg = {.data = pg_string_make(128, &arena)};
 
     {
-      PG_ASSERT(true ==
-             ring_buffer_write_slice(&rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
+      PG_ASSERT(true == ring_buffer_write_slice(
+                            &rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
       HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
       PG_ASSERT(0 == res.err);
       PG_ASSERT(false == res.done);
@@ -1362,7 +1379,7 @@ static void test_http_read_response() {
 
     {
       PG_ASSERT(true == ring_buffer_write_slice(
-                         &rg, PG_S("Authorization: Bearer foo\r\n\r\n")));
+                            &rg, PG_S("Authorization: Bearer foo\r\n\r\n")));
       HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
       PG_ASSERT(0 == res.err);
       PG_ASSERT(true == res.done);
@@ -1448,7 +1465,8 @@ static void test_http_request_response() {
 
   HttpRequest client_req = {0};
   client_req.method = HTTP_METHOD_GET;
-  http_push_header(&client_req.headers, PG_S("Host"), PG_S("localhost"), &arena);
+  http_push_header(&client_req.headers, PG_S("Host"), PG_S("localhost"),
+                   &arena);
   *dyn_push(&client_req.url.query_parameters, &arena) = (KeyValue){
       .key = PG_S("uploaded"),
       .value = u64_to_string(123456, &arena),
@@ -1458,8 +1476,8 @@ static void test_http_request_response() {
   server_res.status = 200;
   server_res.version_major = 1;
   server_res.version_minor = 1;
-  http_push_header(&server_res.headers, PG_S("Accept"), PG_S("application/json"),
-                   &arena);
+  http_push_header(&server_res.headers, PG_S("Accept"),
+                   PG_S("application/json"), &arena);
 
   HttpRequest server_req = {0};
   HttpResponse client_res = {0};
@@ -1500,9 +1518,10 @@ static void test_http_request_response() {
         if (PG_AIO_EVENT_KIND_OUT & event.kind) {
           if (!client_send_http_io_done) {
             http_write_request(&client_send, client_req, arena);
-            PG_ASSERT(true == ring_buffer_write_slice(&client_send,
-                                                   PG_S("client request body")));
-            PG_ASSERT(0 == writer_write(&client_writer, &client_send, arena).err);
+            PG_ASSERT(true == ring_buffer_write_slice(
+                                  &client_send, PG_S("client request body")));
+            PG_ASSERT(0 ==
+                      writer_write(&client_writer, &client_send, arena).err);
             client_send_http_io_done = true;
 
             // Stop subscribing for writing, start subscribing for reading.
@@ -1517,7 +1536,8 @@ static void test_http_request_response() {
         }
         if (PG_AIO_EVENT_KIND_IN & event.kind) {
           if (!client_recv_http_io_done) {
-            PG_ASSERT(0 == reader_read(&client_reader, &client_recv, arena).err);
+            PG_ASSERT(0 ==
+                      reader_read(&client_reader, &client_recv, arena).err);
             HttpResponseReadResult res =
                 http_read_response(&client_recv, 128, &arena);
             PG_ASSERT(0 == res.err);
@@ -1530,7 +1550,8 @@ static void test_http_request_response() {
       } else if (event.socket == server_socket) {
         if (PG_AIO_EVENT_KIND_IN & event.kind) {
           if (!server_recv_http_io_done) {
-            PG_ASSERT(0 == reader_read(&server_reader, &server_recv, arena).err);
+            PG_ASSERT(0 ==
+                      reader_read(&server_reader, &server_recv, arena).err);
             HttpRequestReadResult res =
                 http_read_request(&server_recv, 128, &arena);
             PG_ASSERT(0 == res.err);
@@ -1550,8 +1571,10 @@ static void test_http_request_response() {
         }
         if (PG_AIO_EVENT_KIND_OUT & event.kind) {
           if (!server_send_http_io_done) {
-            PG_ASSERT(0 == http_write_response(&server_send, server_res, arena));
-            PG_ASSERT(0 == writer_write(&server_writer, &server_send, arena).err);
+            PG_ASSERT(0 ==
+                      http_write_response(&server_send, server_res, arena));
+            PG_ASSERT(0 ==
+                      writer_write(&server_writer, &server_send, arena).err);
             server_send_http_io_done = true;
 
             // Stop subscribing.

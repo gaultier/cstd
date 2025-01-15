@@ -86,12 +86,12 @@ typedef Pgu8Slice PgString;
   // TODO
 }
 
-#define PG_ASSERT(x)                                                              \
+#define PG_ASSERT(x)                                                           \
   (x) ? (0)                                                                    \
       : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),                \
          __builtin_trap(), 0)
 
-#define PG_C_ARRAY_AT_PTR(arr, len, idx)                                                  \
+#define PG_C_ARRAY_AT_PTR(arr, len, idx)                                       \
   (((i64)(idx) >= (i64)(len)) ? (__builtin_trap(), &(arr)[0])                  \
                               : (PG_ASSERT(nullptr != (arr)), (&(arr)[idx])))
 
@@ -101,16 +101,16 @@ typedef Pgu8Slice PgString;
 
 #define PG_SLICE_AT_PTR(s, idx) (PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx))
 
-#define PG_SLICE_MAKE(T, l, arena)                                                \
+#define PG_SLICE_MAKE(T, l, arena)                                             \
   ((T##Slice){.data = arena_new(arena, T, l), .len = l})
 
-#define PG_SLICE_SWAP_REMOVE(s, idx)                                              \
+#define PG_SLICE_SWAP_REMOVE(s, idx)                                           \
   do {                                                                         \
     if ((i64)(idx) >= (i64)((s)->len)) {                                       \
       __builtin_trap();                                                        \
     }                                                                          \
-    *(PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx)) =                                      \
-        PG_C_ARRAY_AT((s)->data, (s)->len, (s)->len - 1);                                 \
+    *(PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx)) =                           \
+        PG_C_ARRAY_AT((s)->data, (s)->len, (s)->len - 1);                      \
     (s)->len -= 1;                                                             \
   } while (0)
 
@@ -155,7 +155,7 @@ PG_SLICE(PgString) PgStringSlice;
 
 PG_RESULT(PgStringSlice) PgStringSliceResult;
 
-#define PG_SLICE_IS_EMPTY(s)                                                      \
+#define PG_SLICE_IS_EMPTY(s)                                                   \
   (((s).len == 0) ? true : (PG_ASSERT(nullptr != (s).data), false))
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
@@ -164,7 +164,8 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
   return PG_SLICE_IS_EMPTY(s);
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_string_is_alphabetical(PgString s) {
+[[maybe_unused]] [[nodiscard]] static bool
+pg_string_is_alphabetical(PgString s) {
   for (u64 i = 0; i < s.len; i++) {
     u8 c = PG_SLICE_AT(s, i);
     if (!pg_character_is_alphabetical(c)) {
@@ -175,7 +176,7 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_left(PgString s,
-                                                                u8 c) {
+                                                                   u8 c) {
   PgString res = s;
 
   for (u64 s_i = 0; s_i < s.len; s_i++) {
@@ -191,7 +192,7 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_right(PgString s,
-                                                                 u8 c) {
+                                                                    u8 c) {
   PgString res = s;
 
   for (i64 s_i = (i64)s.len - 1; s_i >= 0; s_i--) {
@@ -205,7 +206,8 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString pg_string_trim(PgString s, u8 c) {
+[[maybe_unused]] [[nodiscard]] static PgString pg_string_trim(PgString s,
+                                                              u8 c) {
   PgString res = pg_string_trim_left(s, c);
   res = pg_string_trim_right(res, c);
 
@@ -217,18 +219,13 @@ typedef struct {
   PgString sep;
 } PgSplitIterator;
 
-typedef struct {
-  PgString s;
-  bool ok;
-} PgSplitResult;
-
 [[maybe_unused]] [[nodiscard]] static PgSplitIterator
 pg_string_split_string(PgString s, PgString sep) {
   return (PgSplitIterator){.s = s, .sep = sep};
 }
 
-[[maybe_unused]] [[nodiscard]] static i64 pg_string_indexof_byte(PgString haystack,
-                                                              u8 needle) {
+[[maybe_unused]] [[nodiscard]] static i64
+pg_string_indexof_byte(PgString haystack, u8 needle) {
   if (PG_SLICE_IS_EMPTY(haystack)) {
     return -1;
   }
@@ -241,18 +238,20 @@ pg_string_split_string(PgString s, PgString sep) {
   return res - haystack.data;
 }
 
-#define PG_SLICE_RANGE(s, start, end)                                             \
+#define PG_SLICE_RANGE(s, start, end)                                          \
   ((typeof((s))){                                                              \
       .data = (s).len == PG_CLAMP(0, start, (s).len)                           \
                   ? nullptr                                                    \
-                  : PG_C_ARRAY_AT_PTR((s).data, (s).len, PG_CLAMP(0, start, (s).len)),    \
+                  : PG_C_ARRAY_AT_PTR((s).data, (s).len,                       \
+                                      PG_CLAMP(0, start, (s).len)),            \
       .len =                                                                   \
           PG_SUB_SAT(PG_CLAMP(0, end, (s).len), PG_CLAMP(0, start, (s).len)),  \
   })
 
 #define PG_SLICE_RANGE_START(s, start) PG_SLICE_RANGE(s, start, (s).len)
 
-[[maybe_unused]] [[nodiscard]] static bool pg_string_eq(PgString a, PgString b) {
+[[maybe_unused]] [[nodiscard]] static bool pg_string_eq(PgString a,
+                                                        PgString b) {
   if (a.len == 0 && b.len == 0) {
     return true;
   }
@@ -312,17 +311,17 @@ pg_string_indexof_string(PgString haystack, PgString needle) {
   return (i64)res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgSplitResult
+[[maybe_unused]] [[nodiscard]] static PgStringOk
 pg_string_split_next(PgSplitIterator *it) {
   if (PG_SLICE_IS_EMPTY(it->s)) {
-    return (PgSplitResult){0};
+    return (PgStringOk){0};
   }
 
   for (u64 _i = 0; _i < it->s.len; _i++) {
     i64 idx = pg_string_indexof_string(it->s, it->sep);
     if (-1 == idx) {
       // Last element.
-      PgSplitResult res = {.s = it->s, .ok = true};
+      PgStringOk res = {.res = it->s, .ok = true};
       it->s = (PgString){0};
       return res;
     }
@@ -331,13 +330,13 @@ pg_string_split_next(PgSplitIterator *it) {
       it->s = PG_SLICE_RANGE_START(it->s, (u64)idx + it->sep.len);
       continue;
     } else {
-      PgSplitResult res = {.s = PG_SLICE_RANGE(it->s, 0, (u64)idx), .ok = true};
+      PgStringOk res = {.res = PG_SLICE_RANGE(it->s, 0, (u64)idx), .ok = true};
       it->s = PG_SLICE_RANGE_START(it->s, (u64)idx + it->sep.len);
 
       return res;
     }
   }
-  return (PgSplitResult){0};
+  return (PgStringOk){0};
 }
 
 typedef struct {
@@ -447,8 +446,8 @@ pg_string_indexof_any_byte(PgString haystack, PgString needle) {
   return -1;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_string_starts_with(PgString haystack,
-                                                              PgString needle) {
+[[maybe_unused]] [[nodiscard]] static bool
+pg_string_starts_with(PgString haystack, PgString needle) {
   if (haystack.len == 0 || haystack.len < needle.len) {
     return false;
   }
@@ -509,8 +508,8 @@ pg_string_consume_any_string(PgString haystack, PgStringSlice needles) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_string_ends_with(PgString haystack,
-                                                            PgString needle) {
+[[maybe_unused]] [[nodiscard]] static bool
+pg_string_ends_with(PgString haystack, PgString needle) {
   if (haystack.len == 0 || haystack.len < needle.len) {
     return false;
   }
@@ -586,7 +585,7 @@ arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
 #define arena_new(a, t, n) (t *)arena_alloc(a, sizeof(t), _Alignof(t), n)
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_make(u64 len,
-                                                           Arena *arena) {
+                                                              Arena *arena) {
   PgString res = {0};
   res.len = len;
   res.data = arena_new(arena, u8, len);
@@ -594,7 +593,7 @@ arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
 }
 
 [[maybe_unused]] [[nodiscard]] static char *pg_string_to_cstr(PgString s,
-                                                           Arena *arena) {
+                                                              Arena *arena) {
   char *res = (char *)arena_new(arena, u8, s.len + 1);
   if (NULL != s.data) {
     memcpy(res, s.data, s.len);
@@ -619,7 +618,7 @@ typedef enum {
 } StringCompare;
 
 [[maybe_unused]] [[nodiscard]] static StringCompare pg_string_cmp(PgString a,
-                                                               PgString b) {
+                                                                  PgString b) {
   int cmp = memcmp(a.data, b.data, PG_MIN(a.len, b.len));
   if (cmp < 0) {
     return STRING_CMP_LESS;
@@ -713,7 +712,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define dyn_pop(s)                                                             \
   do {                                                                         \
-    PG_ASSERT((s)->len > 0);                                                      \
+    PG_ASSERT((s)->len > 0);                                                   \
     memset(dyn_last_ptr(s), 0, sizeof((s)->data[(s)->len - 1]));               \
     (s)->len -= 1;                                                             \
   } while (0)
@@ -730,7 +729,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
   do {                                                                         \
     dyn_ensure_cap(dst, (dst)->len + (src).len, arena);                        \
     for (u64 _iii = 0; _iii < src.len; _iii++) {                               \
-      *dyn_push(dst, arena) = PG_SLICE_AT(src, _iii);                             \
+      *dyn_push(dst, arena) = PG_SLICE_AT(src, _iii);                          \
     }                                                                          \
   } while (0)
 
@@ -844,7 +843,7 @@ static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_dup(PgString src,
-                                                          Arena *arena) {
+                                                             Arena *arena) {
   PgString dst = pg_string_make(src.len, arena);
   memcpy(dst.data, src.data, src.len);
 
@@ -887,7 +886,8 @@ arena_make_from_virtual_mem(u64 size) {
   u64 page_guard_after = (u64)0;
   PG_ASSERT(false == ckd_add(&page_guard_after, (u64)alloc, alloc_real_size));
   PG_ASSERT((u64)alloc + alloc_real_size == page_guard_after);
-  PG_ASSERT(page_guard_before + page_size + alloc_real_size == page_guard_after);
+  PG_ASSERT(page_guard_before + page_size + alloc_real_size ==
+            page_guard_after);
 
   PG_ASSERT(0 == mprotect((void *)page_guard_before, page_size, PROT_NONE));
   PG_ASSERT(0 == mprotect((void *)page_guard_after, page_size, PROT_NONE));
@@ -960,7 +960,7 @@ pg_string_indexof_unescaped_byte(PgString haystack, u8 needle) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_clone(PgString s,
-                                                            Arena *arena) {
+                                                               Arena *arena) {
   PgString res = pg_string_make(s.len, arena);
   if (res.data != nullptr) {
     memcpy(res.data, s.data, s.len);
@@ -1304,9 +1304,10 @@ net_dns_resolve_ipv4_tcp(PgString host, u16 port, Arena arena) {
   hints.ai_protocol = IPPROTO_TCP;
 
   struct addrinfo *addr_info = nullptr;
-  int res_getaddrinfo = getaddrinfo(
-      pg_string_to_cstr(host, &arena),
-      pg_string_to_cstr(u64_to_string(port, &arena), &arena), &hints, &addr_info);
+  int res_getaddrinfo =
+      getaddrinfo(pg_string_to_cstr(host, &arena),
+                  pg_string_to_cstr(u64_to_string(port, &arena), &arena),
+                  &hints, &addr_info);
   if (res_getaddrinfo != 0) {
     res.err = EINVAL;
     return res;
@@ -1957,7 +1958,8 @@ http_parse_response_status_line(PgString status_line) {
 
   PgString remaining = status_line;
   {
-    StringConsumeResult consume = pg_string_consume_string(remaining, PG_S("HTTP/"));
+    StringConsumeResult consume =
+        pg_string_consume_string(remaining, PG_S("HTTP/"));
     if (!consume.consumed) {
       res.err = EINVAL;
       return res;
@@ -2169,16 +2171,16 @@ url_parse_path_components(PgString s, Arena *arena) {
 
   PgSplitIterator split_it_slash = pg_string_split_string(s, PG_S("/"));
   for (u64 i = 0; i < s.len; i++) { // Bound.
-    PgSplitResult split = pg_string_split_next(&split_it_slash);
+    PgStringOk split = pg_string_split_next(&split_it_slash);
     if (!split.ok) {
       break;
     }
 
-    if (PG_SLICE_IS_EMPTY(split.s)) {
+    if (PG_SLICE_IS_EMPTY(split.res)) {
       continue;
     }
 
-    *dyn_push(&components, arena) = split.s;
+    *dyn_push(&components, arena) = split.res;
   }
 
   res.res = components;
@@ -2205,7 +2207,8 @@ url_parse_query_parameters(PgString s, Arena *arena) {
     remaining = res_consume_and.right;
 
     PgString kv = res_consume_and.left;
-    StringPairConsume res_consume_eq = pg_string_consume_until_byte_incl(kv, '=');
+    StringPairConsume res_consume_eq =
+        pg_string_consume_until_byte_incl(kv, '=');
     PgString k = res_consume_eq.left;
     PgString v = res_consume_eq.consumed ? res_consume_eq.right : PG_S("");
 
@@ -2323,7 +2326,8 @@ url_is_scheme_valid(PgString scheme) {
 
   for (u64 i = 0; i < scheme.len; i++) {
     u8 c = PG_SLICE_AT(scheme, i);
-    if (!(pg_character_is_alphanumeric(c) || c == '+' || c == '-' || c == '.')) {
+    if (!(pg_character_is_alphanumeric(c) || c == '+' || c == '-' ||
+          c == '.')) {
       return false;
     }
   }
@@ -2404,7 +2408,8 @@ url_parse_after_authority(PgString s, Arena *arena) {
   // TODO: Be less strict hier.
   {
 
-    StringConsumeResult res_consume = pg_string_consume_string(remaining, PG_S("//"));
+    StringConsumeResult res_consume =
+        pg_string_consume_string(remaining, PG_S("//"));
     if (!res_consume.consumed) {
       res.err = EINVAL;
       return res;
@@ -2461,12 +2466,14 @@ http_parse_request_status_line(PgString status_line, Arena *arena) {
   PgString remaining = status_line;
   {
     if (pg_string_starts_with(remaining, PG_S("GET"))) {
-      StringConsumeResult consume = pg_string_consume_string(remaining, PG_S("GET"));
+      StringConsumeResult consume =
+          pg_string_consume_string(remaining, PG_S("GET"));
       PG_ASSERT(consume.consumed);
       remaining = consume.remaining;
       res.res.method = HTTP_METHOD_GET;
     } else if (pg_string_starts_with(remaining, PG_S("POST"))) {
-      StringConsumeResult consume = pg_string_consume_string(remaining, PG_S("POST"));
+      StringConsumeResult consume =
+          pg_string_consume_string(remaining, PG_S("POST"));
       PG_ASSERT(consume.consumed);
       remaining = consume.remaining;
       res.res.method = HTTP_METHOD_POST;
@@ -2503,7 +2510,8 @@ http_parse_request_status_line(PgString status_line, Arena *arena) {
   }
 
   {
-    StringConsumeResult consume = pg_string_consume_string(remaining, PG_S("HTTP/"));
+    StringConsumeResult consume =
+        pg_string_consume_string(remaining, PG_S("HTTP/"));
     if (!consume.consumed) {
       res.err = EINVAL;
       return res;
@@ -2572,7 +2580,8 @@ http_parse_header(PgString s) {
     return res;
   }
 
-  res.res.value = pg_string_trim_left(PG_SLICE_RANGE_START(s, (u64)idx + 1), ' ');
+  res.res.value =
+      pg_string_trim_left(PG_SLICE_RANGE_START(s, (u64)idx + 1), ' ');
   if (PG_SLICE_IS_EMPTY(res.res.value)) {
     res.err = EINVAL;
     return res;
@@ -2604,14 +2613,14 @@ http_read_response(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
   }
 
   PgSplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
-  PgSplitResult res_split = pg_string_split_next(&it);
+  PgStringOk res_split = pg_string_split_next(&it);
   if (!res_split.ok) {
     res.err = EINVAL;
     return res;
   }
 
   PgHttpResponseStatusLineResult res_status_line =
-      http_parse_response_status_line(res_split.s);
+      http_parse_response_status_line(res_split.res);
   if (res_status_line.err) {
     res.err = res_status_line.err;
     return res;
@@ -2626,7 +2635,7 @@ http_read_response(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
     if (!res_split.ok) {
       break;
     }
-    PgKeyValueResult res_kv = http_parse_header(res_split.s);
+    PgKeyValueResult res_kv = http_parse_header(res_split.res);
     if (res_kv.err) {
       res.err = res_kv.err;
       return res;
@@ -2654,14 +2663,14 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
   }
 
   PgSplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
-  PgSplitResult res_split = pg_string_split_next(&it);
+  PgStringOk res_split = pg_string_split_next(&it);
   if (!res_split.ok) {
     res.err = EINVAL;
     return res;
   }
 
   PgHttpRequestStatusLineResult res_status_line =
-      http_parse_request_status_line(res_split.s, arena);
+      http_parse_request_status_line(res_split.res, arena);
   if (res_status_line.err) {
     res.err = res_status_line.err;
     return res;
@@ -2677,7 +2686,7 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
     if (!res_split.ok) {
       break;
     }
-    PgKeyValueResult res_kv = http_parse_header(res_split.s);
+    PgKeyValueResult res_kv = http_parse_header(res_split.res);
     if (res_kv.err) {
       res.err = res_kv.err;
       return res;
@@ -2924,7 +2933,8 @@ typedef struct {
 } FormDataKVElementParseResult;
 
 [[nodiscard]] static FormDataKVElementParseResult
-form_data_kv_parse_element(PgString in, u8 pg_character_terminator, Arena *arena) {
+form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
+                           Arena *arena) {
   FormDataKVElementParseResult res = {0};
   Pgu8Dyn data = {0};
 
@@ -2947,7 +2957,8 @@ form_data_kv_parse_element(PgString in, u8 pg_character_terminator, Arena *arena
         return res;
       }
 
-      u8 utf8_character = pg_character_from_hex(c1) * 16 + pg_character_from_hex(c2);
+      u8 utf8_character =
+          pg_character_from_hex(c1) * 16 + pg_character_from_hex(c2);
       *dyn_push(&data, arena) = utf8_character;
       i += 2; // Consume 2 characters.
     } else if (pg_character_terminator == c) {
@@ -3234,24 +3245,24 @@ http_req_extract_cookie_with_name(HttpRequest req, PgString cookie_name,
 
       PgSplitIterator it_semicolon = pg_string_split_string(h.value, PG_S(";"));
       for (u64 j = 0; j < h.value.len; j++) {
-        PgSplitResult split_semicolon = pg_string_split_next(&it_semicolon);
+        PgStringOk split_semicolon = pg_string_split_next(&it_semicolon);
         if (!split_semicolon.ok) {
           break;
         }
 
         PgSplitIterator it_equals =
-            pg_string_split_string(split_semicolon.s, PG_S("="));
-        PgSplitResult split_equals_left = pg_string_split_next(&it_equals);
+            pg_string_split_string(split_semicolon.res, PG_S("="));
+        PgStringOk split_equals_left = pg_string_split_next(&it_equals);
         if (!split_equals_left.ok) {
           break;
         }
-        if (!pg_string_eq(split_equals_left.s, cookie_name)) {
+        if (!pg_string_eq(split_equals_left.res, cookie_name)) {
           // Could be: `; Secure;`
           continue;
         }
-        PgSplitResult split_equals_right = pg_string_split_next(&it_equals);
-        if (!PG_SLICE_IS_EMPTY(split_equals_right.s)) {
-          return split_equals_right.s;
+        PgStringOk split_equals_right = pg_string_split_next(&it_equals);
+        if (!PG_SLICE_IS_EMPTY(split_equals_right.res)) {
+          return split_equals_right.res;
         }
       }
     }
@@ -3379,7 +3390,7 @@ log_level_to_string(LogLevel level) {
     };                                                                         \
     Arena xxx_tmp_arena = (arena);                                             \
     PgString xxx_log_line =                                                    \
-        log_make_log_line(lvl, PG_S(msg), &xxx_tmp_arena,                         \
+        log_make_log_line(lvl, PG_S(msg), &xxx_tmp_arena,                      \
                           LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);           \
     (logger)->writer.write_fn((logger)->writer.ctx, xxx_log_line.data,         \
                               xxx_log_line.len);                               \
