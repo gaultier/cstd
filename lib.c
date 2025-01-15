@@ -14,7 +14,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h> // TODO: Windows.
-#include <sys/stat.h> // TODO: Windows.
 #include <unistd.h>   // TODO: Windows.
 
 #ifndef PG_MIN
@@ -1177,6 +1176,7 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/stat.h>
 
 [[maybe_unused]] static PgStringResult pg_file_read_full(PgString path,
                                                          PgArena *arena) {
