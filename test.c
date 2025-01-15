@@ -1807,7 +1807,7 @@ static void test_event_loop_on_server_connect(PgEventLoop *loop, u64 os_handle,
 }
 
 static void test_event_loop() {
-  PgArena arena = pg_arena_make_from_virtual_mem(12 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(256 * PG_KiB);
 
   PgEventLoopResult res_loop = pg_event_loop_make_loop(&arena);
   PG_ASSERT(0 == res_loop.err);

@@ -1110,7 +1110,7 @@ typedef u64 PgAioQueue;
 PG_RESULT(PgAioQueue) PgAioQueueResult;
 [[maybe_unused]] [[nodiscard]] static PgAioQueueResult pg_aio_queue_create();
 
-typedef enum : u32 {
+typedef enum : u8 {
   PG_AIO_EVENT_KIND_NONE = 0,
   PG_AIO_EVENT_KIND_IN = 1,
   PG_AIO_EVENT_KIND_OUT = 2,
@@ -3703,7 +3703,7 @@ pg_make_unique_id_u128_string(PgArena *arena) {
   return PG_DYN_SLICE(PgString, dyn);
 }
 
-typedef enum {
+typedef enum : u8 {
   PG_EVENT_LOOP_HANDLE_KIND_NONE,
   PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET,
   // TODO: More.
@@ -3724,7 +3724,7 @@ typedef void (*PgEventLoopOnRead)(PgEventLoop *loop, u64 os_handle, void *ctx,
 typedef void (*PgEventLoopOnWrite)(PgEventLoop *loop, u64 os_handle, void *ctx,
                                    PgError err);
 
-typedef enum {
+typedef enum : u8 {
   PG_EVENT_LOOP_HANDLE_STATE_NONE,
   PG_EVENT_LOOP_HANDLE_STATE_CONNECTING,
   PG_EVENT_LOOP_HANDLE_STATE_CONNECTED,
@@ -3735,9 +3735,9 @@ typedef enum {
 struct PgEventLoopHandle {
   PgEventLoopHandleKind kind;
   PgEventLoopHandleState state;
-  u64 os_handle;
-  PgAioEventKind event_kind;
   bool event_in_os_queue;
+  PgAioEventKind event_kind;
+  u64 os_handle;
 
   PgRing ring_write;
   PgRing ring_read;
@@ -3779,6 +3779,7 @@ static PgEventLoopResult pg_event_loop_make_loop(PgArena *arena) {
     res.res.queue = res_queue.res;
   }
   res.res.arena = arena;
+  PG_DYN_ENSURE_CAP(&res.res.handles, 1024, arena);
 
   return res;
 }
