@@ -3760,14 +3760,14 @@ PG_SLICE(PgEventLoopHandle) PgEventLoopHandleSlice;
 struct PgEventLoop {
   PgEventLoopHandleDyn handles;
   PgAioQueue queue;
-  PgArena *arena;
+  PgArena arena;
   bool running;
 };
 
 PG_RESULT(PgEventLoop) PgEventLoopResult;
 
 [[nodiscard]] [[maybe_unused]]
-static PgEventLoopResult pg_event_loop_make_loop(PgArena *arena) {
+static PgEventLoopResult pg_event_loop_make_loop(PgArena arena) {
   PgEventLoopResult res = {0};
   {
     PgAioQueueResult res_queue = pg_aio_queue_create();
@@ -3779,7 +3779,7 @@ static PgEventLoopResult pg_event_loop_make_loop(PgArena *arena) {
     res.res.queue = res_queue.res;
   }
   res.res.arena = arena;
-  PG_DYN_ENSURE_CAP(&res.res.handles, 1024, arena);
+  PG_DYN_ENSURE_CAP(&res.res.handles, 1024, &res.res.arena);
 
   return res;
 }
@@ -3839,7 +3839,7 @@ static Pgu64Result pg_event_loop_tcp_init(PgEventLoop *loop, void *ctx) {
     }
   }
 
-  *PG_DYN_PUSH(&loop->handles, loop->arena) =
+  *PG_DYN_PUSH(&loop->handles, &loop->arena) =
       pg_event_loop_make_tcp_handle(res_socket.res, ctx);
 
   res.res = (u64)res_socket.res;
@@ -3960,7 +3960,7 @@ static Pgu64Result pg_event_loop_tcp_accept(PgEventLoop *loop, u64 os_handle) {
   client_handle.state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTED;
   client_handle.ctx = handle->ctx;
 
-  *PG_DYN_PUSH(&loop->handles, loop->arena) = client_handle;
+  *PG_DYN_PUSH(&loop->handles, &loop->arena) = client_handle;
 
   res.res = (u64)client_socket;
   return res;
@@ -4020,11 +4020,11 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
   loop->running = true;
 
   PgAioEventSlice events_watch =
-      PG_SLICE_MAKE(PgAioEvent, loop->handles.len, loop->arena);
+      PG_SLICE_MAKE(PgAioEvent, loop->handles.len, &loop->arena);
 
   while (loop->running) {
     Pgu64Result res_wait =
-        pg_aio_queue_wait(loop->queue, events_watch, timeout_ms, *loop->arena);
+        pg_aio_queue_wait(loop->queue, events_watch, timeout_ms, loop->arena);
     if (res_wait.err) {
       return res_wait.err;
     }
@@ -4080,7 +4080,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
           (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
           (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state)) {
         {
-          PgArena arena_tmp = *loop->arena;
+          PgArena arena_tmp = loop->arena;
           Pgu64Result res_read =
               pg_reader_read(&handle->reader, &handle->ring_read, arena_tmp);
 
@@ -4106,7 +4106,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
           (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state) &&
           pg_ring_read_space(handle->ring_write) > 0) {
         {
-          PgArena arena_tmp = *loop->arena;
+          PgArena arena_tmp = loop->arena;
           Pgu64Result res_write =
               pg_writer_write(&handle->writer, &handle->ring_write, arena_tmp);
 
