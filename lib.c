@@ -3711,6 +3711,7 @@ struct PgEventLoopHandle {
   PgEventLoopHandleState state;
   u64 os_handle;
   PgAioEventKind event_kind;
+  bool event_in_os_queue;
 
   PgRing ring_write;
   PgRing ring_read;
@@ -3839,15 +3840,16 @@ static PgError pg_event_loop_tcp_connect(PgEventLoop *loop, u64 os_handle,
   }
 
   handle->state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTING;
-  PgAioEventKind event_kind_before = handle->event_kind;
   // Needed to be notified on a successful `connect`.
   handle->event_kind |= PG_AIO_EVENT_KIND_OUT;
+  bool event_in_os_queue_before = handle->event_in_os_queue;
+  handle->event_in_os_queue = true;
 
   PgAioEvent event = {
       .os_handle = os_handle,
       .kind = handle->event_kind,
-      .action = event_kind_before == 0 ? PG_AIO_EVENT_ACTION_ADD
-                                       : PG_AIO_EVENT_ACTION_MOD,
+      .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
+                                         : PG_AIO_EVENT_ACTION_ADD,
   };
   return pg_aio_queue_ctl_one(loop->queue, event);
 }
@@ -3885,15 +3887,16 @@ static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, u64 os_handle,
   }
 
   handle->state = PG_EVENT_LOOP_HANDLE_STATE_LISTENING;
-  PgAioEventKind event_kind_before = handle->event_kind;
   // Needed to be notified on a client connection.
   handle->event_kind |= PG_AIO_EVENT_KIND_IN;
+  bool event_in_os_queue_before = handle->event_in_os_queue;
+  handle->event_in_os_queue = true;
 
   PgAioEvent event = {
       .os_handle = os_handle,
       .kind = handle->event_kind,
-      .action = event_kind_before == 0 ? PG_AIO_EVENT_ACTION_ADD
-                                       : PG_AIO_EVENT_ACTION_MOD,
+      .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
+                                         : PG_AIO_EVENT_ACTION_ADD,
   };
   return pg_aio_queue_ctl_one(loop->queue, event);
 }
@@ -4015,10 +4018,16 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
         handle->state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTED;
 
         // Stop listening for 'connect'.
+        handle->event_kind = handle->event_kind & ~PG_AIO_EVENT_KIND_OUT;
+        bool event_in_os_queue_before = handle->event_in_os_queue;
+        handle->event_in_os_queue = true;
+
         if (PG_EVENT_LOOP_HANDLE_STATE_CLOSING != handle->state) {
           PgAioEvent event_change = {
               .os_handle = handle->os_handle,
-              .action = PG_AIO_EVENT_ACTION_DEL,
+              .kind = handle->event_kind,
+              .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
+                                                 : PG_AIO_EVENT_ACTION_ADD,
           };
           PG_ASSERT(0 == pg_aio_queue_ctl_one(loop->queue, event_change));
         }
@@ -4123,14 +4132,15 @@ static PgError pg_event_loop_read_stop(PgEventLoop *loop, u64 os_handle) {
     return 0;
   }
 
-  PgAioEventKind event_kind_before = handle->event_kind;
   handle->event_kind = handle->event_kind & ~PG_AIO_EVENT_KIND_IN;
+  bool event_in_os_queue_before = handle->event_in_os_queue;
+  handle->event_in_os_queue = true;
 
   PgAioEvent event_change = {
       .os_handle = handle->os_handle,
       .kind = handle->event_kind,
-      .action = event_kind_before == 0 ? PG_AIO_EVENT_ACTION_DEL
-                                       : PG_AIO_EVENT_ACTION_MOD,
+      .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
+                                         : PG_AIO_EVENT_ACTION_ADD,
   };
   return pg_aio_queue_ctl_one(loop->queue, event_change);
 }
@@ -4151,15 +4161,16 @@ static PgError pg_event_loop_write(PgEventLoop *loop, u64 os_handle,
     return PG_ERR_OUT_OF_MEMORY;
   }
 
-  PgAioEventKind event_kind_before = handle->event_kind;
   handle->event_kind |= PG_AIO_EVENT_KIND_OUT;
   handle->on_write = on_write;
+  bool event_in_os_queue_before = handle->event_in_os_queue;
+  handle->event_in_os_queue = true;
 
   PgAioEvent event_change = {
       .os_handle = handle->os_handle,
       .kind = handle->event_kind,
-      .action = event_kind_before == 0 ? PG_AIO_EVENT_ACTION_ADD
-                                       : PG_AIO_EVENT_ACTION_MOD,
+      .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
+                                         : PG_AIO_EVENT_ACTION_ADD,
   };
   return pg_aio_queue_ctl_one(loop->queue, event_change);
 }
