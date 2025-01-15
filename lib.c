@@ -459,14 +459,9 @@ pg_string_starts_with(PgString haystack, PgString needle) {
   return pg_string_eq(needle, start);
 }
 
-typedef struct {
-  bool consumed;
-  PgString remaining;
-} StringConsumeResult;
-
-[[maybe_unused]] [[nodiscard]] static StringConsumeResult
+[[maybe_unused]] [[nodiscard]] static PgStringOk
 pg_string_consume_byte(PgString haystack, u8 needle) {
-  StringConsumeResult res = {0};
+  PgStringOk res = {0};
 
   if (haystack.len == 0) {
     return res;
@@ -475,33 +470,33 @@ pg_string_consume_byte(PgString haystack, u8 needle) {
     return res;
   }
 
-  res.consumed = true;
-  res.remaining = PG_SLICE_RANGE_START(haystack, 1UL);
+  res.ok = true;
+  res.res = PG_SLICE_RANGE_START(haystack, 1UL); // Remaining.
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static StringConsumeResult
+[[maybe_unused]] [[nodiscard]] static PgStringOk
 pg_string_consume_string(PgString haystack, PgString needle) {
-  StringConsumeResult res = {0};
-  res.remaining = haystack;
+  PgStringOk res = {0};
+  res.res = haystack;
 
   for (u64 i = 0; i < needle.len; i++) {
-    res = pg_string_consume_byte(res.remaining, PG_SLICE_AT(needle, i));
-    if (!res.consumed) {
+    res = pg_string_consume_byte(res.res, PG_SLICE_AT(needle, i));
+    if (!res.ok) {
       return res;
     }
   }
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static StringConsumeResult
+[[maybe_unused]] [[nodiscard]] static PgStringOk
 pg_string_consume_any_string(PgString haystack, PgStringSlice needles) {
-  StringConsumeResult res = {0};
-  res.remaining = haystack;
+  PgStringOk res = {0};
+  res.res = haystack;
 
   for (u64 i = 0; i < needles.len; i++) {
-    res = pg_string_consume_string(res.remaining, PG_SLICE_AT(needles, i));
-    if (res.consumed) {
+    res = pg_string_consume_string(res.res, PG_SLICE_AT(needles, i));
+    if (res.ok) {
       return res;
     }
   }
@@ -1958,13 +1953,12 @@ http_parse_response_status_line(PgString status_line) {
 
   PgString remaining = status_line;
   {
-    StringConsumeResult consume =
-        pg_string_consume_string(remaining, PG_S("HTTP/"));
-    if (!consume.consumed) {
+    PgStringOk consume = pg_string_consume_string(remaining, PG_S("HTTP/"));
+    if (!consume.ok) {
       res.err = EINVAL;
       return res;
     }
-    remaining = consume.remaining;
+    remaining = consume.res;
   }
 
   {
@@ -1982,12 +1976,12 @@ http_parse_response_status_line(PgString status_line) {
   }
 
   {
-    StringConsumeResult consume = pg_string_consume_byte(remaining, '.');
-    if (!consume.consumed) {
+    PgStringOk consume = pg_string_consume_byte(remaining, '.');
+    if (!consume.ok) {
       res.err = EINVAL;
       return res;
     }
-    remaining = consume.remaining;
+    remaining = consume.res;
   }
 
   {
@@ -2005,12 +1999,12 @@ http_parse_response_status_line(PgString status_line) {
   }
 
   {
-    StringConsumeResult consume = pg_string_consume_byte(remaining, ' ');
-    if (!consume.consumed) {
+    PgStringOk consume = pg_string_consume_byte(remaining, ' ');
+    if (!consume.ok) {
       res.err = EINVAL;
       return res;
     }
-    remaining = consume.remaining;
+    remaining = consume.res;
   }
 
   {
@@ -2193,12 +2187,12 @@ url_parse_query_parameters(PgString s, Arena *arena) {
 
   PgString remaining = s;
   {
-    StringConsumeResult res_consume_question = pg_string_consume_byte(s, '?');
-    if (!res_consume_question.consumed) {
+    PgStringOk res_consume_question = pg_string_consume_byte(s, '?');
+    if (!res_consume_question.ok) {
       res.err = EINVAL;
       return res;
     }
-    remaining = res_consume_question.remaining;
+    remaining = res_consume_question.res;
   }
 
   for (u64 _i = 0; _i < s.len; _i++) {
@@ -2408,13 +2402,12 @@ url_parse_after_authority(PgString s, Arena *arena) {
   // TODO: Be less strict hier.
   {
 
-    StringConsumeResult res_consume =
-        pg_string_consume_string(remaining, PG_S("//"));
-    if (!res_consume.consumed) {
+    PgStringOk res_consume = pg_string_consume_string(remaining, PG_S("//"));
+    if (!res_consume.ok) {
       res.err = EINVAL;
       return res;
     }
-    remaining = res_consume.remaining;
+    remaining = res_consume.res;
   }
 
   // Authority, mandatory.
@@ -2466,16 +2459,14 @@ http_parse_request_status_line(PgString status_line, Arena *arena) {
   PgString remaining = status_line;
   {
     if (pg_string_starts_with(remaining, PG_S("GET"))) {
-      StringConsumeResult consume =
-          pg_string_consume_string(remaining, PG_S("GET"));
-      PG_ASSERT(consume.consumed);
-      remaining = consume.remaining;
+      PgStringOk consume = pg_string_consume_string(remaining, PG_S("GET"));
+      PG_ASSERT(consume.ok);
+      remaining = consume.res;
       res.res.method = HTTP_METHOD_GET;
     } else if (pg_string_starts_with(remaining, PG_S("POST"))) {
-      StringConsumeResult consume =
-          pg_string_consume_string(remaining, PG_S("POST"));
-      PG_ASSERT(consume.consumed);
-      remaining = consume.remaining;
+      PgStringOk consume = pg_string_consume_string(remaining, PG_S("POST"));
+      PG_ASSERT(consume.ok);
+      remaining = consume.res;
       res.res.method = HTTP_METHOD_POST;
     } else {
       res.err = EINVAL;
@@ -2484,12 +2475,12 @@ http_parse_request_status_line(PgString status_line, Arena *arena) {
   }
 
   {
-    StringConsumeResult consume = pg_string_consume_byte(remaining, ' ');
-    if (!consume.consumed) {
+    PgStringOk consume = pg_string_consume_byte(remaining, ' ');
+    if (!consume.ok) {
       res.err = EINVAL;
       return res;
     }
-    remaining = consume.remaining;
+    remaining = consume.res;
   }
 
   i64 idx_space = pg_string_indexof_byte(remaining, ' ');
@@ -2510,13 +2501,12 @@ http_parse_request_status_line(PgString status_line, Arena *arena) {
   }
 
   {
-    StringConsumeResult consume =
-        pg_string_consume_string(remaining, PG_S("HTTP/"));
-    if (!consume.consumed) {
+    PgStringOk consume = pg_string_consume_string(remaining, PG_S("HTTP/"));
+    if (!consume.ok) {
       res.err = EINVAL;
       return res;
     }
-    remaining = consume.remaining;
+    remaining = consume.res;
   }
 
   {
@@ -2534,12 +2524,12 @@ http_parse_request_status_line(PgString status_line, Arena *arena) {
   }
 
   {
-    StringConsumeResult consume = pg_string_consume_byte(remaining, '.');
-    if (!consume.consumed) {
+    PgStringOk consume = pg_string_consume_byte(remaining, '.');
+    if (!consume.ok) {
       res.err = EINVAL;
       return res;
     }
-    remaining = consume.remaining;
+    remaining = consume.res;
   }
 
   {

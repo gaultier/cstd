@@ -198,17 +198,17 @@ static void test_slice_range() {
 
 static void test_string_consume() {
   {
-    StringConsumeResult res = pg_string_consume_byte(PG_S(""), '{');
-    PG_ASSERT(!res.consumed);
+    PgStringOk res = pg_string_consume_byte(PG_S(""), '{');
+    PG_ASSERT(!res.ok);
   }
   {
-    StringConsumeResult res = pg_string_consume_byte(PG_S("[1,2]"), '{');
-    PG_ASSERT(!res.consumed);
+    PgStringOk res = pg_string_consume_byte(PG_S("[1,2]"), '{');
+    PG_ASSERT(!res.ok);
   }
   {
-    StringConsumeResult res = pg_string_consume_byte(PG_S("[1,2]"), '[');
-    PG_ASSERT(res.consumed);
-    PG_ASSERT(pg_string_eq(PG_S("1,2]"), res.remaining));
+    PgStringOk res = pg_string_consume_byte(PG_S("[1,2]"), '[');
+    PG_ASSERT(res.ok);
+    PG_ASSERT(pg_string_eq(PG_S("1,2]"), res.res));
   }
 }
 
