@@ -80,16 +80,16 @@ typedef Pgu8Slice PgString;
 
 #define PG_SUB_SAT(a, b) ((a) > (b) ? ((a) - (b)) : 0)
 
-[[maybe_unused]] static void print_stacktrace(const char *file, int line,
-                                              const char *function) {
+[[maybe_unused]] static void pg_stacktrace_print(const char *file, int line,
+                                                 const char *function) {
   fprintf(stderr, "%s:%d:%s\n", file, line, function);
   // TODO
 }
 
 #define ASSERT(x)                                                              \
   (x) ? (0)                                                                    \
-      : (print_stacktrace(__FILE__, __LINE__, __FUNCTION__), __builtin_trap(), \
-         0)
+      : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),                \
+         __builtin_trap(), 0)
 
 #define AT_PTR(arr, len, idx)                                                  \
   (((i64)(idx) >= (i64)(len)) ? (__builtin_trap(), &(arr)[0])                  \
@@ -243,10 +243,11 @@ string_split_string(PgString s, PgString sep) {
 
 #define slice_range(s, start, end)                                             \
   ((typeof((s))){                                                              \
-      .data = (s).len == PG_CLAMP(0, start, (s).len)                              \
+      .data = (s).len == PG_CLAMP(0, start, (s).len)                           \
                   ? nullptr                                                    \
-                  : AT_PTR((s).data, (s).len, PG_CLAMP(0, start, (s).len)),       \
-      .len = PG_SUB_SAT(PG_CLAMP(0, end, (s).len), PG_CLAMP(0, start, (s).len)),        \
+                  : AT_PTR((s).data, (s).len, PG_CLAMP(0, start, (s).len)),    \
+      .len =                                                                   \
+          PG_SUB_SAT(PG_CLAMP(0, end, (s).len), PG_CLAMP(0, start, (s).len)),  \
   })
 
 #define slice_range_start(s, start) slice_range(s, start, (s).len)
