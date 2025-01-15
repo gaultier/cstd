@@ -2885,35 +2885,32 @@ end:
 
 typedef struct {
   PgString key, value;
-} FormDataKV;
+} PgFormDataKV;
 
-typedef struct {
-  FormDataKV *data;
-  u64 len, cap;
-} DynFormData;
+PG_DYN(PgFormDataKV) PgFormDataKVDyn;
 
 typedef struct {
   // NOTE: Repeated keys are allowed, that's how 'arrays' are encoded.
-  DynFormData form;
+  PgFormDataKVDyn form;
   PgError err;
-} FormDataParseResult;
+} PgFormDataParseResult;
 
 typedef struct {
-  FormDataKV kv;
+  PgFormDataKV kv;
   PgError err;
   PgString remaining;
-} FormDataKVParseResult;
+} PgFormDataKVParseResult;
 
 typedef struct {
   PgString data;
   PgError err;
   PgString remaining;
-} FormDataKVElementParseResult;
+} PgFormDataKVElementParseResult;
 
-[[nodiscard]] static FormDataKVElementParseResult
+[[nodiscard]] static PgFormDataKVElementParseResult
 form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
                            PgArena *arena) {
-  FormDataKVElementParseResult res = {0};
+  PgFormDataKVElementParseResult res = {0};
   Pgu8Dyn data = {0};
 
   u64 i = 0;
@@ -2952,13 +2949,13 @@ form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
   return res;
 }
 
-[[nodiscard]] static FormDataKVParseResult form_data_kv_parse(PgString in,
-                                                              PgArena *arena) {
-  FormDataKVParseResult res = {0};
+[[nodiscard]] static PgFormDataKVParseResult
+form_data_kv_parse(PgString in, PgArena *arena) {
+  PgFormDataKVParseResult res = {0};
 
   PgString remaining = in;
 
-  FormDataKVElementParseResult key_parsed =
+  PgFormDataKVElementParseResult key_parsed =
       form_data_kv_parse_element(remaining, '=', arena);
   if (key_parsed.err) {
     res.err = key_parsed.err;
@@ -2968,7 +2965,7 @@ form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
 
   remaining = key_parsed.remaining;
 
-  FormDataKVElementParseResult value_parsed =
+  PgFormDataKVElementParseResult value_parsed =
       form_data_kv_parse_element(remaining, '&', arena);
   if (value_parsed.err) {
     res.err = value_parsed.err;
@@ -2980,9 +2977,9 @@ form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static FormDataParseResult
+[[maybe_unused]] [[nodiscard]] static PgFormDataParseResult
 form_data_parse(PgString in, PgArena *arena) {
-  FormDataParseResult res = {0};
+  PgFormDataParseResult res = {0};
 
   PgString remaining = in;
 
@@ -2991,7 +2988,7 @@ form_data_parse(PgString in, PgArena *arena) {
       break;
     }
 
-    FormDataKVParseResult kv = form_data_kv_parse(remaining, arena);
+    PgFormDataKVParseResult kv = form_data_kv_parse(remaining, arena);
     if (kv.err) {
       res.err = kv.err;
       return res;
