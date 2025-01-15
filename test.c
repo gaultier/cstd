@@ -394,17 +394,17 @@ static void test_log_entry_quote_value() {
   {
     PgString s = PG_S("hello");
     PgString expected = PG_S("\"hello\"");
-    PG_ASSERT(pg_string_eq(expected, json_escape_string(s, &arena)));
+    PG_ASSERT(pg_string_eq(expected, pg_json_escape_string(s, &arena)));
   }
   {
     PgString s = PG_S("{\"id\": 1}");
     PgString expected = PG_S("\"{\\\"id\\\": 1}\"");
-    PG_ASSERT(pg_string_eq(expected, json_escape_string(s, &arena)));
+    PG_ASSERT(pg_string_eq(expected, pg_json_escape_string(s, &arena)));
   }
   {
     PgString s = PG_S("192.168.1.2:12345");
     PgString expected = PG_S("\"192.168.1.2:12345\"");
-    PG_ASSERT(pg_string_eq(expected, json_escape_string(s, &arena)));
+    PG_ASSERT(pg_string_eq(expected, pg_json_escape_string(s, &arena)));
   }
   {
     u8 backslash = 0x5c;
@@ -415,7 +415,7 @@ static void test_log_entry_quote_value() {
     u8 data_expected[] = {double_quote, backslash,    backslash,
                           backslash,    double_quote, double_quote};
     PgString expected = {.data = data_expected, .len = sizeof(data_expected)};
-    PG_ASSERT(pg_string_eq(expected, json_escape_string(s, &arena)));
+    PG_ASSERT(pg_string_eq(expected, pg_json_escape_string(s, &arena)));
   }
 }
 

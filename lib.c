@@ -3371,7 +3371,7 @@ pg_log_level_to_string(PgLogLevel level) {
   } while (0)
 
 [[maybe_unused]] [[nodiscard]] static PgString
-json_escape_string(PgString entry, PgArena *arena) {
+pg_json_escape_string(PgString entry, PgArena *arena) {
   Pgu8Dyn sb = {0};
   *PG_DYN_PUSH(&sb, arena) = '"';
 
@@ -3408,7 +3408,7 @@ json_escape_string(PgString entry, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-json_unescape_string(PgString entry, PgArena *arena) {
+pg_json_unescape_string(PgString entry, PgArena *arena) {
   Pgu8Dyn sb = {0};
 
   for (u64 i = 0; i < entry.len; i++) {
@@ -3453,13 +3453,13 @@ pg_string_builder_append_json_object_key_string_value_string(Pgu8Dyn *sb,
                                                              PgString key,
                                                              PgString value,
                                                              PgArena *arena) {
-  PgString json_key = json_escape_string(key, arena);
-  PG_DYN_APPEND_SLICE(sb, json_key, arena);
+  PgString pg_json_key = pg_json_escape_string(key, arena);
+  PG_DYN_APPEND_SLICE(sb, pg_json_key, arena);
 
   PG_DYN_APPEND_SLICE(sb, PG_S(":"), arena);
 
-  PgString json_value = json_escape_string(value, arena);
-  PG_DYN_APPEND_SLICE(sb, json_value, arena);
+  PgString pg_json_value = pg_json_escape_string(value, arena);
+  PG_DYN_APPEND_SLICE(sb, pg_json_value, arena);
 
   PG_DYN_APPEND_SLICE(sb, PG_S(","), arena);
 }
@@ -3469,8 +3469,8 @@ pg_string_builder_append_json_object_key_string_value_u64(Pgu8Dyn *sb,
                                                           PgString key,
                                                           u64 value,
                                                           PgArena *arena) {
-  PgString json_key = json_escape_string(key, arena);
-  PG_DYN_APPEND_SLICE(sb, json_key, arena);
+  PgString pg_json_key = pg_json_escape_string(key, arena);
+  PG_DYN_APPEND_SLICE(sb, pg_json_key, arena);
 
   PG_DYN_APPEND_SLICE(sb, PG_S(":"), arena);
 
@@ -3532,13 +3532,13 @@ pg_log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena, i32 args_co
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-json_encode_string_slice(PgStringSlice strings, PgArena *arena) {
+pg_json_encode_string_slice(PgStringSlice strings, PgArena *arena) {
   Pgu8Dyn sb = {0};
   *PG_DYN_PUSH(&sb, arena) = '[';
 
   for (u64 i = 0; i < strings.len; i++) {
     PgString s = PG_DYN_AT(strings, i);
-    PgString encoded = json_escape_string(s, arena);
+    PgString encoded = pg_json_escape_string(s, arena);
     PG_DYN_APPEND_SLICE(&sb, encoded, arena);
 
     if (i + 1 < strings.len) {
@@ -3552,7 +3552,7 @@ json_encode_string_slice(PgStringSlice strings, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringSliceResult
-json_decode_string_slice(PgString s, PgArena *arena) {
+pg_json_decode_string_slice(PgString s, PgArena *arena) {
   PgStringSliceResult res = {0};
   if (s.len < 2) {
     res.err = EINVAL;
@@ -3584,7 +3584,7 @@ json_decode_string_slice(PgString s, PgArena *arena) {
     PG_ASSERT(0 <= end_quote_idx);
 
     PgString str = PG_SLICE_RANGE(s, i, i + (u64)end_quote_idx);
-    PgString unescaped = json_unescape_string(str, arena);
+    PgString unescaped = pg_json_unescape_string(str, arena);
     *PG_DYN_PUSH(&dyn, arena) = unescaped;
 
     i += (u64)end_quote_idx;
