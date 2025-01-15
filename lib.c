@@ -958,17 +958,6 @@ typedef struct {
 
 PG_DYN(PgIpv4Address) PgIpv4AddressDyn;
 
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_make_unique_id_u128_string(PgArena *arena) {
-  u128 id = 0;
-  arc4random_buf(&id, sizeof(id));
-
-  Pgu8Dyn dyn = {0};
-  pg_string_builder_append_u128_hex(&dyn, id, arena);
-
-  return PG_DYN_SLICE(PgString, dyn);
-}
-
 [[maybe_unused]] static void pg_url_encode_string(Pgu8Dyn *sb, PgString key,
                                                   PgString value,
                                                   PgArena *arena) {
@@ -1048,6 +1037,10 @@ pg_time_ns_now(PgClockKind clock_kind);
 
 [[nodiscard]] [[maybe_unused]] static PgStringResult
 pg_file_read_full(PgString path, PgArena *arena);
+
+[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min, u32 max);
+[[maybe_unused]] static void pg_rand_string_mut(PgString s);
+[[nodiscard]] [[maybe_unused]] static u128 pg_rand_u128();
 
 [[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size();
 [[maybe_unused]] [[nodiscard]] static PgArena
@@ -1143,6 +1136,22 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min, u32 max) {
+  u32 res = arc4random_uniform(max);
+  res = PG_CLAMP(min, res, max);
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static u128 pg_rand_u128() {
+  u128 res = 0;
+  arc4random_buf(&res, sizeof(res));
+  return res;
+}
+
+[[maybe_unused]] static void pg_rand_string_mut(PgString s) {
+  arc4random_buf(s.data, s.len);
+}
 
 [[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size() {
   i64 ret = sysconf(_SC_PAGE_SIZE);
@@ -3634,6 +3643,16 @@ pg_json_decode_string_slice(PgString s, PgArena *arena) {
 
   res.res = PG_DYN_SLICE(PgStringSlice, dyn);
   return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_make_unique_id_u128_string(PgArena *arena) {
+  u128 id = pg_rand_u128();
+
+  Pgu8Dyn dyn = {0};
+  pg_string_builder_append_u128_hex(&dyn, id, arena);
+
+  return PG_DYN_SLICE(PgString, dyn);
 }
 
 #endif
