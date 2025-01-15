@@ -69,8 +69,8 @@ typedef int64_t i64;
 
 typedef u32 PgError;
 #define PG_ERR_OK ((u32)0)
-#define PG_ERR_INVALID_VALUE ((u32)1)
-#define PG_ERR_OUT_OF_MEMORY ((u32)2)
+#define PG_ERR_INVALID_VALUE ((u32)0x701)
+#define PG_ERR_OUT_OF_MEMORY ((u32)0x702)
 
 PG_RESULT(u64) Pgu64Result;
 
