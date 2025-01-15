@@ -3022,16 +3022,16 @@ typedef enum {
   PG_HTML_STYLE,
   PG_HTML_LEGEND,
   PG_HTML_MAX, // Pseudo.
-} HtmlKind;
+} PgHtmlKind;
 
-typedef struct HtmlElement HtmlElement;
+typedef struct PgHtmlElement PgHtmlElement;
 typedef struct {
-  HtmlElement *data;
+  PgHtmlElement *data;
   u64 len, cap;
 } DynHtmlElements;
 
-struct HtmlElement {
-  HtmlKind kind;
+struct PgHtmlElement {
+  PgHtmlKind kind;
   PgKeyValueDyn attributes;
   union {
     DynHtmlElements children;
@@ -3041,19 +3041,19 @@ struct HtmlElement {
 };
 
 typedef struct {
-  HtmlElement body;
-  HtmlElement head;
-} HtmlDocument;
+  PgHtmlElement body;
+  PgHtmlElement head;
+} PgHtmlDocument;
 
-[[maybe_unused]] [[nodiscard]] static HtmlDocument html_make(PgString title,
+[[maybe_unused]] [[nodiscard]] static PgHtmlDocument html_make(PgString title,
                                                              PgArena *arena) {
-  HtmlDocument res = {0};
+  PgHtmlDocument res = {0};
 
   {
 
-    HtmlElement tag_head = {.kind = PG_HTML_HEAD};
+    PgHtmlElement tag_head = {.kind = PG_HTML_HEAD};
     {
-      HtmlElement tag_meta = {.kind = PG_HTML_META};
+      PgHtmlElement tag_meta = {.kind = PG_HTML_META};
       {
         *PG_DYN_PUSH(&tag_meta.attributes, arena) =
             (PgKeyValue){.key = PG_S("charset"), .value = PG_S("utf-8")};
@@ -3061,13 +3061,13 @@ typedef struct {
       *PG_DYN_PUSH(&tag_head.children, arena) = tag_meta;
     }
     {
-      HtmlElement tag_title = {.kind = PG_HTML_TITLE, .text = title};
+      PgHtmlElement tag_title = {.kind = PG_HTML_TITLE, .text = title};
       *PG_DYN_PUSH(&tag_head.children, arena) = tag_title;
     }
 
     res.head = tag_head;
 
-    HtmlElement tag_body = {.kind = PG_HTML_BODY};
+    PgHtmlElement tag_body = {.kind = PG_HTML_BODY};
     res.body = tag_body;
   }
 
@@ -3092,18 +3092,18 @@ static void html_attributes_to_string(PgKeyValueDyn attributes, Pgu8Dyn *sb,
 
 static void html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
                                 PgArena *arena);
-static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, PgArena *arena);
+static void html_tag_to_string(PgHtmlElement e, Pgu8Dyn *sb, PgArena *arena);
 
 static void html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
                                 PgArena *arena) {
   for (u64 i = 0; i < elements.len; i++) {
-    HtmlElement e = PG_DYN_AT(elements, i);
+    PgHtmlElement e = PG_DYN_AT(elements, i);
     html_tag_to_string(e, sb, arena);
   }
 }
 
 [[maybe_unused]]
-static void html_document_to_string(HtmlDocument doc, Pgu8Dyn *sb,
+static void html_document_to_string(PgHtmlDocument doc, Pgu8Dyn *sb,
                                     PgArena *arena) {
   PG_DYN_APPEND_SLICE(sb, PG_S("<!DOCTYPE html>"), arena);
 
@@ -3113,7 +3113,7 @@ static void html_document_to_string(HtmlDocument doc, Pgu8Dyn *sb,
   PG_DYN_APPEND_SLICE(sb, PG_S("</html>"), arena);
 }
 
-static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, PgArena *arena) {
+static void html_tag_to_string(PgHtmlElement e, Pgu8Dyn *sb, PgArena *arena) {
   static const PgString tag_to_string[PG_HTML_MAX] = {
       [PG_HTML_NONE] = PG_S("FIXME"),
       [PG_HTML_TITLE] = PG_S("title"),
