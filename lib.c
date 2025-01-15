@@ -3816,7 +3816,6 @@ static PgEventLoopHandle pg_event_loop_make_timer_handle(PgTimer timer,
                                                          void *ctx) {
   PgEventLoopHandle res = {0};
   res.kind = PG_EVENT_LOOP_HANDLE_KIND_TIMER;
-  res.reader = pg_reader_make_from_file((PgFile)timer);
   res.os_handle = (u64)timer;
   res.ctx = ctx;
 
