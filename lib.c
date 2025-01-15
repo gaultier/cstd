@@ -61,7 +61,7 @@ typedef int64_t i64;
     T res;                                                                     \
   }
 
-#define OK(T)                                                                  \
+#define PG_OK(T)                                                               \
   typedef struct {                                                             \
     T res;                                                                     \
     bool ok;                                                                   \
@@ -150,7 +150,7 @@ typedef u8Slice String;
 }
 
 PG_RESULT(String) StringResult;
-OK(String);
+PG_OK(String);
 PG_SLICE(String);
 
 PG_RESULT(StringSlice) StringSliceResult;
