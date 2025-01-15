@@ -1109,7 +1109,7 @@ pg_make_unique_id_u128_string(PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
+pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
   Pgu8Dyn sb = {0};
   pg_string_builder_append_u64_to_string(&sb, (address.ip >> 24) & 0xFF, arena);
   *PG_DYN_PUSH(&sb, arena) = '.';

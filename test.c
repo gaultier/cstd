@@ -333,7 +333,7 @@ static void test_ipv4_address_to_string() {
         .port = 6881,
     };
 
-    PgString s = ipv4_address_to_string(address, &arena);
+    PgString s = pg_net_ipv4_address_to_string(address, &arena);
     PG_ASSERT(pg_string_eq(s, PG_S("192.168.1.56:6881")));
   }
 }
