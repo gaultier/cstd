@@ -3324,7 +3324,7 @@ typedef struct {
 } PgLogEntry;
 
 [[maybe_unused]] [[nodiscard]] static PgLogger
-pg_log_logger_make_stdout_json(PgLogLevel level) {
+pg_log_make_logger_stdout_json(PgLogLevel level) {
   PgLogger logger = {
       .level = level,
       .writer = pg_writer_make_from_file(

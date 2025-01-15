@@ -1638,7 +1638,7 @@ static void test_log() {
   // Simple log.
   {
     StringBuilder sb = {.arena = &arena};
-    PgLogger logger = pg_log_logger_make_stdout_json(PG_LOG_LEVEL_DEBUG);
+    PgLogger logger = pg_log_make_logger_stdout_json(PG_LOG_LEVEL_DEBUG);
     logger.writer = pg_writer_make_from_string_builder(&sb);
 
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world", arena,
@@ -1650,7 +1650,7 @@ static void test_log() {
   // PgLog but the logger level is higher.
   {
     StringBuilder sb = {.arena = &arena};
-    PgLogger logger = pg_log_logger_make_stdout_json(PG_LOG_LEVEL_INFO);
+    PgLogger logger = pg_log_make_logger_stdout_json(PG_LOG_LEVEL_INFO);
     logger.writer = pg_writer_make_from_string_builder(&sb);
 
     pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world", arena,
