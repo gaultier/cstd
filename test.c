@@ -255,35 +255,35 @@ static void test_string_parse_u64() {
 
 static void test_string_cmp() {
   {
-    StringCompare cmp = pg_string_cmp(PG_S("a"), PG_S("aa"));
+    PgStringCompare cmp = pg_string_cmp(PG_S("a"), PG_S("aa"));
     PG_ASSERT(STRING_CMP_LESS == cmp);
   }
   {
-    StringCompare cmp = pg_string_cmp(PG_S(""), PG_S("a"));
+    PgStringCompare cmp = pg_string_cmp(PG_S(""), PG_S("a"));
     PG_ASSERT(STRING_CMP_LESS == cmp);
   }
   {
-    StringCompare cmp = pg_string_cmp(PG_S(""), PG_S(""));
+    PgStringCompare cmp = pg_string_cmp(PG_S(""), PG_S(""));
     PG_ASSERT(STRING_CMP_EQ == cmp);
   }
   {
-    StringCompare cmp = pg_string_cmp(PG_S("a"), PG_S("a"));
+    PgStringCompare cmp = pg_string_cmp(PG_S("a"), PG_S("a"));
     PG_ASSERT(STRING_CMP_EQ == cmp);
   }
   {
-    StringCompare cmp = pg_string_cmp(PG_S("a"), PG_S("b"));
+    PgStringCompare cmp = pg_string_cmp(PG_S("a"), PG_S("b"));
     PG_ASSERT(STRING_CMP_LESS == cmp);
   }
   {
-    StringCompare cmp = pg_string_cmp(PG_S("b"), PG_S("aa"));
+    PgStringCompare cmp = pg_string_cmp(PG_S("b"), PG_S("aa"));
     PG_ASSERT(STRING_CMP_GREATER == cmp);
   }
   {
-    StringCompare cmp = pg_string_cmp(PG_S("b"), PG_S("a"));
+    PgStringCompare cmp = pg_string_cmp(PG_S("b"), PG_S("a"));
     PG_ASSERT(STRING_CMP_GREATER == cmp);
   }
   {
-    StringCompare cmp = pg_string_cmp(PG_S("announce"), PG_S("comment"));
+    PgStringCompare cmp = pg_string_cmp(PG_S("announce"), PG_S("comment"));
     PG_ASSERT(STRING_CMP_LESS == cmp);
   }
 }

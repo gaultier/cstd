@@ -610,10 +610,10 @@ typedef enum {
   STRING_CMP_LESS = -1,
   STRING_CMP_EQ = 0,
   STRING_CMP_GREATER = 1,
-} StringCompare;
+} PgStringCompare;
 
-[[maybe_unused]] [[nodiscard]] static StringCompare pg_string_cmp(PgString a,
-                                                                  PgString b) {
+[[maybe_unused]] [[nodiscard]] static PgStringCompare
+pg_string_cmp(PgString a, PgString b) {
   int cmp = memcmp(a.data, b.data, PG_MIN(a.len, b.len));
   if (cmp < 0) {
     return STRING_CMP_LESS;
@@ -632,7 +632,7 @@ typedef enum {
   if (a.len > b.len) {
     return STRING_CMP_GREATER;
   }
-  __builtin_unreachable();
+  PG_ASSERT(0);
 }
 
 [[maybe_unused]] static void dyn_grow(void *slice, u64 size, u64 align,
@@ -674,7 +674,8 @@ typedef enum {
   } else if ((u64)a->start == array_end) { // Optimization.
     // This is the case of growing the array which is at the end of the arena.
     // In that case we can simply bump the arena pointer and avoid any copies.
-    (void)pg_arena_alloc(a, size, 1 /* Force no padding */, new_cap - replica.cap);
+    (void)pg_arena_alloc(a, size, 1 /* Force no padding */,
+                         new_cap - replica.cap);
   } else { // General case.
     void *data = pg_arena_alloc(a, size, align, new_cap);
 
@@ -2068,7 +2069,8 @@ http_request_write_status_line(RingBuffer *rg, HttpRequest req, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-http_response_write_status_line(RingBuffer *rg, HttpResponse res, PgArena arena) {
+http_response_write_status_line(RingBuffer *rg, HttpResponse res,
+                                PgArena arena) {
   Pgu8Dyn sb = {0};
   dyn_ensure_cap(&sb, 128, &arena);
   dyn_append_slice(&sb, PG_S("HTTP/"), &arena);
@@ -3378,7 +3380,7 @@ log_level_to_string(LogLevel level) {
     if ((logger)->level > (lvl)) {                                             \
       break;                                                                   \
     };                                                                         \
-    PgArena xxx_tmp_arena = (arena);                                             \
+    PgArena xxx_tmp_arena = (arena);                                           \
     PgString xxx_log_line =                                                    \
         log_make_log_line(lvl, PG_S(msg), &xxx_tmp_arena,                      \
                           LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);           \
@@ -3464,9 +3466,8 @@ json_unescape_string(PgString entry, PgArena *arena) {
   return dyn_slice(PgString, sb);
 }
 
-[[maybe_unused]] static void
-dynu8_append_json_object_key_string_value_string(Pgu8Dyn *sb, PgString key,
-                                                 PgString value, PgArena *arena) {
+[[maybe_unused]] static void dynu8_append_json_object_key_string_value_string(
+    Pgu8Dyn *sb, PgString key, PgString value, PgArena *arena) {
   PgString json_key = json_escape_string(key, arena);
   dyn_append_slice(sb, json_key, arena);
 
