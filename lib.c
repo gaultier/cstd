@@ -114,25 +114,25 @@ typedef Pgu8Slice PgString;
     (s)->len -= 1;                                                             \
   } while (0)
 
-[[maybe_unused]] [[nodiscard]] static bool ch_is_hex_digit(u8 c) {
+[[maybe_unused]] [[nodiscard]] static bool pg_character_is_hex_digit(u8 c) {
   return ('0' <= c && c <= '9') || ('A' <= c && c <= 'F') ||
          ('a' <= c && c <= 'f');
 }
 
-[[maybe_unused]] [[nodiscard]] static bool ch_is_alphabetical(u8 c) {
+[[maybe_unused]] [[nodiscard]] static bool pg_character_is_alphabetical(u8 c) {
   return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
 }
 
-[[maybe_unused]] [[nodiscard]] static bool ch_is_numeric(u8 c) {
+[[maybe_unused]] [[nodiscard]] static bool pg_character_is_numeric(u8 c) {
   return ('0' <= c && c <= '9');
 }
 
-[[maybe_unused]] [[nodiscard]] static bool ch_is_alphanumeric(u8 c) {
-  return ch_is_numeric(c) || ch_is_alphabetical(c);
+[[maybe_unused]] [[nodiscard]] static bool pg_character_is_alphanumeric(u8 c) {
+  return pg_character_is_numeric(c) || pg_character_is_alphabetical(c);
 }
 
-[[maybe_unused]] [[nodiscard]] static u8 ch_from_hex(u8 c) {
-  PG_ASSERT(ch_is_hex_digit(c));
+[[maybe_unused]] [[nodiscard]] static u8 pg_character_from_hex(u8 c) {
+  PG_ASSERT(pg_character_is_hex_digit(c));
 
   if ('0' <= c && c <= '9') {
     return c - '0';
@@ -167,7 +167,7 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
 [[maybe_unused]] [[nodiscard]] static bool string_is_alphabetical(PgString s) {
   for (u64 i = 0; i < s.len; i++) {
     u8 c = PG_SLICE_AT(s, i);
-    if (!ch_is_alphabetical(c)) {
+    if (!pg_character_is_alphabetical(c)) {
       return false;
     }
   }
@@ -535,7 +535,7 @@ string_parse_u64(PgString s) {
 
   // Forbid leading zero(es) if there is more than one digit.
   if (string_starts_with(s, S("0")) && s.len >= 2 &&
-      ch_is_numeric(PG_SLICE_AT(s, 1))) {
+      pg_character_is_numeric(PG_SLICE_AT(s, 1))) {
     return res;
   }
 
@@ -543,7 +543,7 @@ string_parse_u64(PgString s) {
   for (; i < s.len; i++) {
     u8 c = PG_SLICE_AT(s, i);
 
-    if (!ch_is_numeric(c)) { // End of numbers sequence.
+    if (!pg_character_is_numeric(c)) { // End of numbers sequence.
       break;
     }
 
@@ -1087,7 +1087,7 @@ make_unique_id_u128_string(Arena *arena) {
                                                PgString value, Arena *arena) {
   for (u64 i = 0; i < key.len; i++) {
     u8 c = PG_SLICE_AT(key, i);
-    if (ch_is_alphanumeric(c)) {
+    if (pg_character_is_alphanumeric(c)) {
       *dyn_push(sb, arena) = c;
     } else {
       *dyn_push(sb, arena) = '%';
@@ -1099,7 +1099,7 @@ make_unique_id_u128_string(Arena *arena) {
 
   for (u64 i = 0; i < value.len; i++) {
     u8 c = PG_SLICE_AT(value, i);
-    if (ch_is_alphanumeric(c)) {
+    if (pg_character_is_alphanumeric(c)) {
       *dyn_push(sb, arena) = c;
     } else {
       *dyn_push(sb, arena) = '%';
@@ -2317,13 +2317,13 @@ url_is_scheme_valid(PgString scheme) {
   }
 
   u8 first = PG_SLICE_AT(scheme, 0);
-  if (!ch_is_alphabetical(first)) {
+  if (!pg_character_is_alphabetical(first)) {
     return false;
   }
 
   for (u64 i = 0; i < scheme.len; i++) {
     u8 c = PG_SLICE_AT(scheme, i);
-    if (!(ch_is_alphanumeric(c) || c == '+' || c == '-' || c == '.')) {
+    if (!(pg_character_is_alphanumeric(c) || c == '+' || c == '-' || c == '.')) {
       return false;
     }
   }
@@ -2924,7 +2924,7 @@ typedef struct {
 } FormDataKVElementParseResult;
 
 [[nodiscard]] static FormDataKVElementParseResult
-form_data_kv_parse_element(PgString in, u8 ch_terminator, Arena *arena) {
+form_data_kv_parse_element(PgString in, u8 pg_character_terminator, Arena *arena) {
   FormDataKVElementParseResult res = {0};
   Pgu8Dyn data = {0};
 
@@ -2942,15 +2942,15 @@ form_data_kv_parse_element(PgString in, u8 ch_terminator, Arena *arena) {
       u8 c1 = in.data[i + 1];
       u8 c2 = in.data[i + 2];
 
-      if (!(ch_is_hex_digit(c1) && ch_is_hex_digit(c2))) {
+      if (!(pg_character_is_hex_digit(c1) && pg_character_is_hex_digit(c2))) {
         res.err = EINVAL;
         return res;
       }
 
-      u8 utf8_character = ch_from_hex(c1) * 16 + ch_from_hex(c2);
+      u8 utf8_character = pg_character_from_hex(c1) * 16 + pg_character_from_hex(c2);
       *dyn_push(&data, arena) = utf8_character;
       i += 2; // Consume 2 characters.
-    } else if (ch_terminator == c) {
+    } else if (pg_character_terminator == c) {
       i += 1; // Consume.
       break;
     } else {
