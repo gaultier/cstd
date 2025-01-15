@@ -342,11 +342,11 @@ pg_string_split_next(PgSplitIterator *it) {
 typedef struct {
   PgString left, right;
   bool consumed;
-} StringPairConsume;
+} PgStringPairConsume;
 
-[[maybe_unused]] [[nodiscard]] static StringPairConsume
+[[maybe_unused]] [[nodiscard]] static PgStringPairConsume
 pg_string_consume_until_byte_excl(PgString haystack, u8 needle) {
-  StringPairConsume res = {0};
+  PgStringPairConsume res = {0};
 
   i64 idx = pg_string_indexof_byte(haystack, needle);
   if (-1 == idx) {
@@ -363,9 +363,9 @@ pg_string_consume_until_byte_excl(PgString haystack, u8 needle) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static StringPairConsume
+[[maybe_unused]] [[nodiscard]] static PgStringPairConsume
 pg_string_consume_until_byte_incl(PgString haystack, u8 needle) {
-  StringPairConsume res = {0};
+  PgStringPairConsume res = {0};
 
   i64 idx = pg_string_indexof_byte(haystack, needle);
   if (-1 == idx) {
@@ -393,7 +393,7 @@ pg_string_consume_until_any_byte_incl(PgString haystack, PgString needles) {
 
   for (u64 i = 0; i < needles.len; i++) {
     u8 needle = PG_SLICE_AT(needles, i);
-    StringPairConsume res_consume =
+    PgStringPairConsume res_consume =
         pg_string_consume_until_byte_incl(haystack, needle);
     if (res_consume.consumed) {
       res.left = res_consume.left;
@@ -415,7 +415,7 @@ pg_string_consume_until_any_byte_excl(PgString haystack, PgString needles) {
 
   for (u64 i = 0; i < needles.len; i++) {
     u8 needle = PG_SLICE_AT(needles, i);
-    StringPairConsume res_consume =
+    PgStringPairConsume res_consume =
         pg_string_consume_until_byte_excl(haystack, needle);
     if (res_consume.consumed) {
       res.left = res_consume.left;
@@ -2202,12 +2202,12 @@ url_parse_query_parameters(PgString s, Arena *arena) {
   }
 
   for (u64 _i = 0; _i < s.len; _i++) {
-    StringPairConsume res_consume_and =
+    PgStringPairConsume res_consume_and =
         pg_string_consume_until_byte_incl(remaining, '&');
     remaining = res_consume_and.right;
 
     PgString kv = res_consume_and.left;
-    StringPairConsume res_consume_eq =
+    PgStringPairConsume res_consume_eq =
         pg_string_consume_until_byte_incl(kv, '=');
     PgString k = res_consume_eq.left;
     PgString v = res_consume_eq.consumed ? res_consume_eq.right : PG_S("");
@@ -2273,7 +2273,7 @@ url_parse_authority(PgString s) {
   PgString remaining = s;
   // User info, optional.
   {
-    StringPairConsume user_info_and_rem =
+    PgStringPairConsume user_info_and_rem =
         pg_string_consume_until_byte_incl(remaining, '@');
     remaining = user_info_and_rem.right;
 
@@ -2289,7 +2289,7 @@ url_parse_authority(PgString s) {
   }
 
   // Host, mandatory.
-  StringPairConsume host_and_rem =
+  PgStringPairConsume host_and_rem =
       pg_string_consume_until_byte_incl(remaining, ':');
   {
     remaining = host_and_rem.right;
@@ -2388,7 +2388,7 @@ url_parse_after_authority(PgString s, Arena *arena) {
 
   // Scheme, mandatory.
   {
-    StringPairConsume scheme_and_rem =
+    PgStringPairConsume scheme_and_rem =
         pg_string_consume_until_byte_incl(remaining, ':');
     remaining = scheme_and_rem.right;
 
