@@ -4105,14 +4105,15 @@ static PgError pg_event_loop_read_start(PgEventLoop *loop, u64 os_handle,
   }
 
   handle->on_read = on_read;
-  PgAioEventKind event_kind_before = handle->event_kind;
   handle->event_kind |= PG_AIO_EVENT_KIND_IN;
+  bool event_in_os_queue_before = handle->event_in_os_queue;
+  handle->event_in_os_queue = true;
 
   PgAioEvent event_change = {
       .os_handle = handle->os_handle,
       .kind = handle->event_kind,
-      .action = event_kind_before == 0 ? PG_AIO_EVENT_ACTION_ADD
-                                       : PG_AIO_EVENT_ACTION_MOD,
+      .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
+                                         : PG_AIO_EVENT_ACTION_ADD,
   };
   return pg_aio_queue_ctl_one(loop->queue, event_change);
 }
