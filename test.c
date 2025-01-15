@@ -893,30 +893,30 @@ static void test_net_socket() {
   u16 port = 5679;
   PgSocket socket_listen = 0;
   {
-    PgCreateSocketResult res_create_socket = net_create_tcp_socket();
+    PgCreateSocketResult res_create_socket = pg_net_create_tcp_socket();
     PG_ASSERT(0 == res_create_socket.err);
     socket_listen = res_create_socket.res;
 
-    PG_ASSERT(0 == net_socket_enable_reuse(socket_listen));
-    PG_ASSERT(0 == net_socket_set_blocking(socket_listen, false));
+    PG_ASSERT(0 == pg_net_socket_enable_reuse(socket_listen));
+    PG_ASSERT(0 == pg_net_socket_set_blocking(socket_listen, false));
 
     PgIpv4Address addr = {0};
     addr.port = port;
-    PG_ASSERT(0 == net_tcp_bind_ipv4(socket_listen, addr));
-    PG_ASSERT(0 == net_tcp_listen(socket_listen));
+    PG_ASSERT(0 == pg_net_tcp_bind_ipv4(socket_listen, addr));
+    PG_ASSERT(0 == pg_net_tcp_listen(socket_listen));
   }
 
   PgSocket socket_alice = 0;
   {
     PgDnsResolveIpv4AddressSocketResult res_dns =
-        net_dns_resolve_ipv4_tcp(PG_S("localhost"), port, arena);
+        pg_net_dns_resolve_ipv4_tcp(PG_S("localhost"), port, arena);
     PG_ASSERT(0 == res_dns.err);
 
     PG_ASSERT(port == res_dns.res.address.port);
     PG_ASSERT(0 != res_dns.res.socket);
     socket_alice = res_dns.res.socket;
   }
-  PG_ASSERT(0 == net_socket_set_blocking(socket_alice, false));
+  PG_ASSERT(0 == pg_net_socket_set_blocking(socket_alice, false));
 
   PgAioQueueCreateResult res_queue_create = aio_queue_create();
   PG_ASSERT(0 == res_queue_create.err);
@@ -955,7 +955,7 @@ static void test_net_socket() {
       PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
 
       if (event.socket == socket_listen) {
-        Ipv4AddressAcceptResult res_accept = net_tcp_accept(socket_listen);
+        Ipv4AddressAcceptResult res_accept = pg_net_tcp_accept(socket_listen);
         PG_ASSERT(0 == res_accept.err);
         PG_ASSERT(0 != res_accept.socket);
 
@@ -1008,9 +1008,9 @@ end:
   PG_ASSERT(true == ring_buffer_read_slice(&bob_recv, msg_bob_received));
   PG_ASSERT(pg_string_eq(msg_bob_received, PG_S("ping")));
 
-  PG_ASSERT(0 == net_socket_close(socket_alice));
-  PG_ASSERT(0 == net_socket_close(bob_socket));
-  PG_ASSERT(0 == net_socket_close(socket_listen));
+  PG_ASSERT(0 == pg_net_socket_close(socket_alice));
+  PG_ASSERT(0 == pg_net_socket_close(bob_socket));
+  PG_ASSERT(0 == pg_net_socket_close(socket_listen));
 }
 
 static void test_url_parse_relative_path() {
@@ -1405,30 +1405,30 @@ static void test_http_request_response() {
   u16 port = PG_CLAMP(3000, (u16)arc4random_uniform(UINT16_MAX), UINT16_MAX);
   PgSocket listen_socket = 0;
   {
-    PgCreateSocketResult res_create_socket = net_create_tcp_socket();
+    PgCreateSocketResult res_create_socket = pg_net_create_tcp_socket();
     PG_ASSERT(0 == res_create_socket.err);
     listen_socket = res_create_socket.res;
 
-    PG_ASSERT(0 == net_socket_enable_reuse(listen_socket));
-    PG_ASSERT(0 == net_socket_set_blocking(listen_socket, false));
+    PG_ASSERT(0 == pg_net_socket_enable_reuse(listen_socket));
+    PG_ASSERT(0 == pg_net_socket_set_blocking(listen_socket, false));
 
     PgIpv4Address addr = {0};
     addr.port = port;
-    PG_ASSERT(0 == net_tcp_bind_ipv4(listen_socket, addr));
-    PG_ASSERT(0 == net_tcp_listen(listen_socket));
+    PG_ASSERT(0 == pg_net_tcp_bind_ipv4(listen_socket, addr));
+    PG_ASSERT(0 == pg_net_tcp_listen(listen_socket));
   }
 
   PgSocket client_socket = 0;
   {
     PgDnsResolveIpv4AddressSocketResult res_dns =
-        net_dns_resolve_ipv4_tcp(PG_S("localhost"), port, arena);
+        pg_net_dns_resolve_ipv4_tcp(PG_S("localhost"), port, arena);
     PG_ASSERT(0 == res_dns.err);
 
     PG_ASSERT(port == res_dns.res.address.port);
     PG_ASSERT(0 != res_dns.res.socket);
     client_socket = res_dns.res.socket;
   }
-  PG_ASSERT(0 == net_socket_set_blocking(client_socket, false));
+  PG_ASSERT(0 == pg_net_socket_set_blocking(client_socket, false));
 
   PgAioQueueCreateResult res_queue_create = aio_queue_create();
   PG_ASSERT(0 == res_queue_create.err);
@@ -1493,7 +1493,7 @@ static void test_http_request_response() {
       PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
 
       if (event.socket == listen_socket) {
-        Ipv4AddressAcceptResult res_accept = net_tcp_accept(listen_socket);
+        Ipv4AddressAcceptResult res_accept = pg_net_tcp_accept(listen_socket);
         PG_ASSERT(0 == res_accept.err);
         PG_ASSERT(0 != res_accept.socket);
 
@@ -1613,9 +1613,9 @@ end:
   PG_ASSERT(client_res.version_minor = server_res.version_minor);
   PG_ASSERT(client_res.headers.len = server_res.headers.len);
 
-  PG_ASSERT(0 == net_socket_close(client_socket));
-  PG_ASSERT(0 == net_socket_close(server_socket));
-  PG_ASSERT(0 == net_socket_close(listen_socket));
+  PG_ASSERT(0 == pg_net_socket_close(client_socket));
+  PG_ASSERT(0 == pg_net_socket_close(server_socket));
+  PG_ASSERT(0 == pg_net_socket_close(listen_socket));
 }
 
 static void test_log() {
@@ -1654,10 +1654,10 @@ static void test_timer() {
   AioQueue queue = res_queue_create.res;
 
   PgTimerResult res_timer =
-      pg_timer_create(CLOCK_KIND_MONOTONIC, 10 * PG_Milliseconds);
+      pg_timer_create(PG_CLOCK_KIND_MONOTONIC, 10 * PG_Milliseconds);
   PG_ASSERT(0 == res_timer.err);
 
-  Pgu64Result res_start = pg_time_ns_now(CLOCK_KIND_MONOTONIC);
+  Pgu64Result res_start = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
   PG_ASSERT(0 == res_start.err);
 
   {
@@ -1679,7 +1679,7 @@ static void test_timer() {
   PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event_watch.kind));
   PG_ASSERT(PG_AIO_EVENT_KIND_IN & event_watch.kind);
 
-  Pgu64Result res_end = pg_time_ns_now(CLOCK_KIND_MONOTONIC);
+  Pgu64Result res_end = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
   PG_ASSERT(0 == res_end.err);
   PG_ASSERT(res_end.res > res_start.res);
   PG_ASSERT(res_end.res - res_start.res < 20 * PG_Milliseconds);

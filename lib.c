@@ -1146,7 +1146,7 @@ typedef int PgFile;
 typedef int PgTimer;
 
 typedef enum {
-  CLOCK_KIND_MONOTONIC,
+  PG_CLOCK_KIND_MONOTONIC,
   // TODO: More?
 } PgClockKind;
 
@@ -1162,29 +1162,29 @@ pg_time_ns_now(PgClockKind clock_kind);
 
 PG_RESULT(PgSocket) PgCreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static PgCreateSocketResult
-net_create_tcp_socket();
-[[maybe_unused]] [[nodiscard]] static PgError net_socket_close(PgSocket sock);
-[[maybe_unused]] [[nodiscard]] static PgError net_set_nodelay(PgSocket sock,
+pg_net_create_tcp_socket();
+[[maybe_unused]] [[nodiscard]] static PgError pg_net_socket_close(PgSocket sock);
+[[maybe_unused]] [[nodiscard]] static PgError pg_net_set_nodelay(PgSocket sock,
                                                               bool enabled);
 [[maybe_unused]] [[nodiscard]] static PgError
-net_connect_ipv4(PgSocket sock, PgIpv4Address address);
+pg_net_connect_ipv4(PgSocket sock, PgIpv4Address address);
 typedef struct {
   PgIpv4Address address;
   PgSocket socket;
 } Ipv4AddressSocket;
 PG_RESULT(Ipv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
 [[maybe_unused]] [[nodiscard]] static PgDnsResolveIpv4AddressSocketResult
-net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena);
+pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena);
 
-[[maybe_unused]] [[nodiscard]] static PgError net_tcp_listen(PgSocket sock);
-
-[[maybe_unused]] [[nodiscard]] static PgError
-net_tcp_bind_ipv4(PgSocket sock, PgIpv4Address addr);
-[[maybe_unused]] [[nodiscard]] static PgError
-net_socket_enable_reuse(PgSocket sock);
+[[maybe_unused]] [[nodiscard]] static PgError pg_net_tcp_listen(PgSocket sock);
 
 [[maybe_unused]] [[nodiscard]] static PgError
-net_socket_set_blocking(PgSocket sock, bool blocking);
+pg_net_tcp_bind_ipv4(PgSocket sock, PgIpv4Address addr);
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_enable_reuse(PgSocket sock);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_set_blocking(PgSocket sock, bool blocking);
 
 typedef struct {
   PgIpv4Address addr;
@@ -1192,7 +1192,7 @@ typedef struct {
   PgError err;
 } Ipv4AddressAcceptResult;
 [[maybe_unused]] [[nodiscard]] static Ipv4AddressAcceptResult
-net_tcp_accept(PgSocket sock);
+pg_net_tcp_accept(PgSocket sock);
 
 typedef u64 AioQueue;
 PG_RESULT(AioQueue) PgAioQueueCreateResult;
@@ -1241,7 +1241,7 @@ aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
-static PgCreateSocketResult net_create_tcp_socket() {
+static PgCreateSocketResult pg_net_create_tcp_socket() {
   PgCreateSocketResult res = {0};
 
   PgSocket sock_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -1255,9 +1255,9 @@ static PgCreateSocketResult net_create_tcp_socket() {
   return res;
 }
 
-static PgError net_socket_close(PgSocket sock) { return (PgError)close(sock); }
+static PgError pg_net_socket_close(PgSocket sock) { return (PgError)close(sock); }
 
-static PgError net_set_nodelay(PgSocket sock, bool enabled) {
+static PgError pg_net_set_nodelay(PgSocket sock, bool enabled) {
   int opt = enabled;
   if (-1 == setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
     return (PgError)errno;
@@ -1266,7 +1266,7 @@ static PgError net_set_nodelay(PgSocket sock, bool enabled) {
   return 0;
 }
 
-static PgError net_connect_ipv4(PgSocket sock, PgIpv4Address address) {
+static PgError pg_net_connect_ipv4(PgSocket sock, PgIpv4Address address) {
   struct sockaddr_in addr = {
       .sin_family = AF_INET,
       .sin_port = htons(address.port),
@@ -1281,7 +1281,7 @@ static PgError net_connect_ipv4(PgSocket sock, PgIpv4Address address) {
 }
 
 static PgDnsResolveIpv4AddressSocketResult
-net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
+pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
   PgDnsResolveIpv4AddressSocketResult res = {0};
 
   struct addrinfo hints = {0};
@@ -1300,16 +1300,16 @@ net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
 
   struct addrinfo *rp = nullptr;
   for (rp = addr_info; rp != nullptr; rp = rp->ai_next) {
-    PgCreateSocketResult res_create_socket = net_create_tcp_socket();
+    PgCreateSocketResult res_create_socket = pg_net_create_tcp_socket();
     if (res_create_socket.err) {
       res.err = res_create_socket.err;
       continue;
     }
 
-    // TODO: Use net_connect_ipv4?
+    // TODO: Use pg_net_connect_ipv4?
     if (-1 == connect(res_create_socket.res, rp->ai_addr, rp->ai_addrlen)) {
       // TODO: EINPROGRESS in case of non-blocking.
-      (void)net_socket_close(res_create_socket.res);
+      (void)pg_net_socket_close(res_create_socket.res);
       continue;
     }
 
@@ -1332,7 +1332,7 @@ net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-net_socket_set_blocking(PgSocket sock, bool blocking) {
+pg_net_socket_set_blocking(PgSocket sock, bool blocking) {
   int flags = fcntl(sock, F_GETFL);
   if (-1 == flags) {
     return (PgError)errno;
@@ -1350,7 +1350,7 @@ net_socket_set_blocking(PgSocket sock, bool blocking) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgError net_tcp_listen(PgSocket sock) {
+[[maybe_unused]] [[nodiscard]] static PgError pg_net_tcp_listen(PgSocket sock) {
   if (-1 == listen(sock, 1024)) {
     return (PgError)errno;
   }
@@ -1359,7 +1359,7 @@ net_socket_set_blocking(PgSocket sock, bool blocking) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-net_tcp_bind_ipv4(PgSocket sock, PgIpv4Address addr) {
+pg_net_tcp_bind_ipv4(PgSocket sock, PgIpv4Address addr) {
   struct sockaddr_in addrin = {0};
   addrin.sin_family = AF_INET;
   addrin.sin_port = htons(addr.port);
@@ -1373,7 +1373,7 @@ net_tcp_bind_ipv4(PgSocket sock, PgIpv4Address addr) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-net_socket_enable_reuse(PgSocket sock) {
+pg_net_socket_enable_reuse(PgSocket sock) {
   int val = 1;
   if (-1 == setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val))) {
     return (PgError)errno;
@@ -1386,7 +1386,7 @@ net_socket_enable_reuse(PgSocket sock) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Ipv4AddressAcceptResult
-net_tcp_accept(PgSocket sock) {
+pg_net_tcp_accept(PgSocket sock) {
   PG_ASSERT(0 != sock);
 
   Ipv4AddressAcceptResult res = {0};
@@ -1516,7 +1516,7 @@ aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 
 [[maybe_unused]] [[nodiscard]] static int linux_clock(PgClockKind clock_kind) {
   switch (clock_kind) {
-  case CLOCK_KIND_MONOTONIC:
+  case PG_CLOCK_KIND_MONOTONIC:
     return CLOCK_MONOTONIC;
   default:
     PG_ASSERT(0);
@@ -2883,7 +2883,7 @@ http_client_request(Ipv4AddressSocket sock, HttpRequest req, PgArena *arena) {
   }
 
 end:
-  (void)net_socket_close(sock.socket);
+  (void)pg_net_socket_close(sock.socket);
   return res;
 }
 #endif
