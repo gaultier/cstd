@@ -762,8 +762,8 @@ pg_string_builder_append_u64_to_string(Pgu8Dyn *dyn, u64 n, PgArena *arena) {
   PG_DYN_APPEND_SLICE(dyn, s, arena);
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString pg_u64_to_string(u64 n,
-                                                             PgArena *arena) {
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_u64_to_string(u64 n, PgArena *arena) {
   Pgu8Dyn sb = {0};
   pg_string_builder_append_u64_to_string(&sb, n, arena);
   return PG_DYN_SLICE(PgString, sb);
@@ -849,8 +849,8 @@ pg_string_builder_append_u128_hex(Pgu8Dyn *dyn, u128 n, PgArena *arena) {
   return dst;
 }
 
-[[maybe_unused]] [[nodiscard]] static u64 round_up_multiple_of(u64 n,
-                                                               u64 multiple) {
+[[maybe_unused]] [[nodiscard]] static u64
+pg_round_up_multiple_of(u64 n, u64 multiple) {
   PG_ASSERT(0 != multiple);
 
   if (0 == n % multiple) {
@@ -861,10 +861,11 @@ pg_string_builder_append_u128_hex(Pgu8Dyn *dyn, u128 n, PgArena *arena) {
   return (factor + 1) * n;
 }
 
+// FIXME: Windows.
 [[maybe_unused]] [[nodiscard]] static PgArena
 pg_arena_make_from_virtual_mem(u64 size) {
-  u64 page_size = (u64)sysconf(_SC_PAGE_SIZE); // FIXME
-  u64 alloc_real_size = round_up_multiple_of(size, page_size);
+  u64 page_size = (u64)sysconf(_SC_PAGE_SIZE);
+  u64 alloc_real_size = pg_round_up_multiple_of(size, page_size);
   PG_ASSERT(0 == alloc_real_size % page_size);
 
   u64 mmap_size = alloc_real_size;
@@ -898,8 +899,8 @@ pg_arena_make_from_virtual_mem(u64 size) {
   return (PgArena){.start = alloc, .end = (u8 *)alloc + size};
 }
 
-[[maybe_unused]] [[nodiscard]] static PgError os_sendfile(int fd_in, int fd_out,
-                                                          u64 n_bytes) {
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
 #if defined(__linux__)
 #include <sys/sendfile.h>
   ssize_t res = sendfile(fd_out, fd_in, nullptr, n_bytes);
@@ -943,8 +944,8 @@ pg_string_indexof_unescaped_byte(PgString haystack, u8 needle) {
   return -1;
 }
 
-[[maybe_unused]] [[nodiscard]] static u64 skip_over_whitespace(PgString s,
-                                                               u64 idx_start) {
+[[maybe_unused]] [[nodiscard]] static u64
+pg_skip_over_whitespace(PgString s, u64 idx_start) {
   PG_ASSERT(idx_start < s.len);
 
   u64 idx = idx_start;
@@ -1007,11 +1008,11 @@ pg_string_ieq_ascii(PgString a, PgString b, PgArena *arena) {
   return pg_string_eq(a_clone, b_clone);
 }
 
-[[maybe_unused]] static void sha1(PgString s, u8 hash[20]) {
-  SHA1_CTX ctx = {0};
-  SHA1Init(&ctx);
-  SHA1Update(&ctx, s.data, s.len);
-  SHA1Final(hash, &ctx);
+[[maybe_unused]] static void pg_sha1(PgString s, u8 hash[20]) {
+  pg_SHA1_CTX ctx = {0};
+  pg_SHA1Init(&ctx);
+  pg_SHA1Update(&ctx, s.data, s.len);
+  pg_SHA1Final(hash, &ctx);
 }
 
 // TODO: Windows.
@@ -3586,7 +3587,7 @@ json_decode_string_slice(PgString s, PgArena *arena) {
 
   PgStringDyn dyn = {0};
   for (u64 i = 1; i < s.len - 2;) {
-    i = skip_over_whitespace(s, i);
+    i = pg_skip_over_whitespace(s, i);
 
     u8 c = PG_SLICE_AT(s, i);
     if ('"' != c) { // Opening quote.
@@ -3616,7 +3617,7 @@ json_decode_string_slice(PgString s, PgArena *arena) {
     }
     i += 1;
 
-    i = skip_over_whitespace(s, i);
+    i = pg_skip_over_whitespace(s, i);
     if (i + 1 == s.len) {
       break;
     }

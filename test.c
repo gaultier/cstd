@@ -291,7 +291,7 @@ static void test_string_cmp() {
 static void test_sha1() {
   {
     u8 hash[20] = {0};
-    sha1(PG_S("abc"), hash);
+    pg_sha1(PG_S("abc"), hash);
 
     u8 expected_hash[20] = {
         0xA9, 0x99, 0x3E, 0x36, 0x47, 0x06, 0x81, 0x6A, 0xBA, 0x3E,
