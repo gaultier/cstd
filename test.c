@@ -897,7 +897,7 @@ typedef enum {
 static void test_net_socket() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
-  u16 port = 5679;
+  u16 port = (u16)pg_rand_u32(3000, UINT16_MAX);
   PgSocket socket_listen = 0;
   {
     PgSocketResult res_create_socket = pg_net_create_tcp_socket();
@@ -1702,44 +1702,68 @@ static void test_timer() {
   PG_ASSERT(0 == pg_timer_release(res_timer.res));
 }
 
-static void test_event_loop_connect_on_client_connect(void *ctx, PgError err) {
+static void test_event_loop_connect_on_client_connect(PgEventLoop *loop,
+                                                      u64 os_handle, void *ctx,
+                                                      PgError err) {
+  PG_ASSERT(nullptr != loop);
+  PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
-  PG_ASSERT(1 == *(u64 *)ctx);
-
   PG_ASSERT(0 == err);
+
+  u64 *client_state = (u64 *)ctx;
+  PG_ASSERT(1 == *client_state);
+  *client_state += 1;
+
+  // TODO: read start.
+
+  PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
+  pg_event_loop_stop(loop);
 }
 
-static void test_event_loop_connect_on_server_connect(void *ctx, PgError err) {
+static void test_event_loop_connect_on_server_connect(PgEventLoop *loop,
+                                                      u64 os_handle, void *ctx,
+                                                      PgError err) {
+  PG_ASSERT(nullptr != loop);
+  PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
-  PG_ASSERT(2 == *(u64 *)ctx);
-
   PG_ASSERT(0 == err);
+
+  u64 *server_state = (u64 *)ctx;
+  PG_ASSERT(2 == *server_state);
+  *server_state += 1;
+
+  Pgu64Result res_accept = pg_event_loop_tcp_accept(loop, os_handle);
+  if (res_accept.err) {
+    PG_ASSERT(0 && "test failed");
+    return;
+  }
+
+  // TODO: queue read/write.
+
+  // Stop listening.
+  PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
+  // Close client socket.
+  PG_ASSERT(0 == pg_event_loop_handle_close(loop, res_accept.res));
 }
 
 static void test_event_loop_connect() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
-  PgEventLoopResult res_loop = pg_event_loop_make();
+  PgEventLoopResult res_loop = pg_event_loop_make(&arena);
   PG_ASSERT(0 == res_loop.err);
   PgEventLoop loop = res_loop.res;
 
   PgIpv4Address addr = {.port = (u16)pg_rand_u32(3000, UINT16_MAX)};
 
   u64 client_state = 1;
-  Pgu64Result res_client = pg_event_loop_tcp_init(&loop, &client_state, &arena);
+  Pgu64Result res_client = pg_event_loop_tcp_init(&loop, &client_state);
   PG_ASSERT(0 == res_client.err);
   u64 client_handle = res_client.res;
 
   u64 server_state = 2;
-  Pgu64Result res_server = pg_event_loop_tcp_init(&loop, &server_state, &arena);
+  Pgu64Result res_server = pg_event_loop_tcp_init(&loop, &server_state);
   PG_ASSERT(0 == res_server.err);
   u64 server_handle = res_server.res;
-
-  {
-    PG_ASSERT(0 == pg_event_loop_tcp_connect(
-                       &loop, client_handle, addr,
-                       test_event_loop_connect_on_client_connect));
-  }
 
   {
     PG_ASSERT(0 == pg_event_loop_tcp_bind(&loop, server_handle, addr));
@@ -1747,6 +1771,17 @@ static void test_event_loop_connect() {
                        &loop, server_handle, 1,
                        test_event_loop_connect_on_server_connect));
   }
+
+  {
+    PG_ASSERT(0 == pg_event_loop_tcp_connect(
+                       &loop, client_handle, addr,
+                       test_event_loop_connect_on_client_connect));
+  }
+
+  PG_ASSERT(0 == pg_event_loop_run(&loop, 10));
+
+  PG_ASSERT(2 == client_state);
+  PG_ASSERT(3 == server_state);
 }
 
 int main() {
