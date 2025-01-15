@@ -3769,7 +3769,7 @@ PG_DYN(PgEventLoopHandle) PgEventLoopHandleDyn;
 PG_SLICE(PgEventLoopHandle) PgEventLoopHandleSlice;
 
 struct PgEventLoop {
-  PgEventLoopHandleDyn handles;
+  PgEventLoopHandleDyn handles; // TODO: Smarter?
   PgAioQueue queue;
   PgArena arena;
   bool running;
