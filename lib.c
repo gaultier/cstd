@@ -1874,12 +1874,12 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
 
 typedef struct {
   PgString key, value;
-} KeyValue;
+} PgKeyValue;
 
-PG_RESULT(KeyValue) PgKeyValueResult;
+PG_RESULT(PgKeyValue) PgKeyValueResult;
 
 typedef struct {
-  KeyValue *data;
+  PgKeyValue *data;
   u64 len, cap;
 } DynKeyValue;
 
@@ -2019,7 +2019,7 @@ pg_http_parse_response_status_line(PgString status_line) {
 [[maybe_unused]]
 static void pg_http_push_header(DynKeyValue *headers, PgString key, PgString value,
                              PgArena *arena) {
-  *PG_DYN_PUSH(headers, arena) = (KeyValue){.key = key, .value = value};
+  *PG_DYN_PUSH(headers, arena) = (PgKeyValue){.key = key, .value = value};
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -2041,7 +2041,7 @@ pg_http_request_write_status_line(RingBuffer *rg, PgHttpRequest req, PgArena are
   if (req.url.query_parameters.len > 0) {
     *PG_DYN_PUSH(&sb, &arena) = '?';
     for (u64 i = 0; i < req.url.query_parameters.len; i++) {
-      KeyValue param = PG_DYN_AT(req.url.query_parameters, i);
+      PgKeyValue param = PG_DYN_AT(req.url.query_parameters, i);
       pg_url_encode_string(&sb, param.key, param.value, &arena);
 
       if (i < req.url.query_parameters.len - 1) {
@@ -2077,7 +2077,7 @@ pg_http_response_write_status_line(RingBuffer *rg, PgHttpResponse res,
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_http_write_header(RingBuffer *rg, KeyValue header, PgArena arena) {
+pg_http_write_header(RingBuffer *rg, PgKeyValue header, PgArena arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
   PG_DYN_APPEND_SLICE(&sb, header.key, &arena);
@@ -2198,7 +2198,7 @@ pg_url_parse_query_parameters(PgString s, PgArena *arena) {
     PgString v = res_consume_eq.consumed ? res_consume_eq.right : PG_S("");
 
     if (!PG_SLICE_IS_EMPTY(k)) {
-      *PG_DYN_PUSH(&res.res, arena) = (KeyValue){.key = k, .value = v};
+      *PG_DYN_PUSH(&res.res, arena) = (PgKeyValue){.key = k, .value = v};
     }
 
     if (!res_consume_and.consumed) {
@@ -2693,7 +2693,7 @@ pg_http_write_request(RingBuffer *rg, PgHttpRequest res, PgArena arena) {
   }
 
   for (u64 i = 0; i < res.headers.len; i++) {
-    KeyValue header = PG_DYN_AT(res.headers, i);
+    PgKeyValue header = PG_DYN_AT(res.headers, i);
     if (!pg_http_write_header(rg, header, arena)) {
       return (PgError)ENOMEM;
     }
@@ -2711,7 +2711,7 @@ pg_http_write_response(RingBuffer *rg, PgHttpResponse res, PgArena arena) {
     return (PgError)ENOMEM;
   }
   for (u64 i = 0; i < res.headers.len; i++) {
-    KeyValue header = PG_DYN_AT(res.headers, i);
+    PgKeyValue header = PG_DYN_AT(res.headers, i);
     if (!pg_http_write_header(rg, header, arena)) {
       return (PgError)ENOMEM;
     }
@@ -2779,7 +2779,7 @@ request_parse_content_length_maybe(PgHttpRequest req, PgArena *arena) {
   PG_ASSERT(!req.err);
 
   for (u64 i = 0; i < req.headers.len; i++) {
-    KeyValue h = req.headers.data[i];
+    PgKeyValue h = req.headers.data[i];
 
     if (!pg_string_ieq_ascii(PG_S("Content-Length"), h.key, arena)) {
       continue;
@@ -3064,7 +3064,7 @@ typedef struct {
       HtmlElement tag_meta = {.kind = HTML_META};
       {
         *PG_DYN_PUSH(&tag_meta.attributes, arena) =
-            (KeyValue){.key = PG_S("charset"), .value = PG_S("utf-8")};
+            (PgKeyValue){.key = PG_S("charset"), .value = PG_S("utf-8")};
       }
       *PG_DYN_PUSH(&tag_head.children, arena) = tag_meta;
     }
@@ -3085,7 +3085,7 @@ typedef struct {
 static void html_attributes_to_string(DynKeyValue attributes, Pgu8Dyn *sb,
                                       PgArena *arena) {
   for (u64 i = 0; i < attributes.len; i++) {
-    KeyValue attr = PG_DYN_AT(attributes, i);
+    PgKeyValue attr = PG_DYN_AT(attributes, i);
     PG_ASSERT(-1 == pg_string_indexof_string(attr.key, PG_S("\"")));
 
     *PG_DYN_PUSH(sb, arena) = ' ';
@@ -3217,7 +3217,7 @@ pg_http_req_extract_cookie_with_name(PgHttpRequest req, PgString cookie_name,
   PgString res = {0};
   {
     for (u64 i = 0; i < req.headers.len; i++) {
-      KeyValue h = PG_SLICE_AT(req.headers, i);
+      PgKeyValue h = PG_SLICE_AT(req.headers, i);
 
       if (!pg_string_ieq_ascii(h.key, PG_S("Cookie"), arena)) {
         continue;
