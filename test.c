@@ -1731,7 +1731,7 @@ static void test_event_loop_connect_on_server_write(PgEventLoop *loop,
 
   u64 *server_state = (u64 *)ctx;
   PG_ASSERT(3 == *server_state);
-  *server_state += 2;
+  *server_state += 1;
 
   PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
 }
@@ -1770,12 +1770,12 @@ static void test_event_loop_connect_on_server_connect(PgEventLoop *loop,
     return;
   }
 
-  PG_ASSERT(0 == pg_event_loop_write(loop, os_handle, PG_S("ping"),
+  PG_ASSERT(0 == pg_event_loop_write(loop, res_accept.res, PG_S("ping"),
                                      test_event_loop_connect_on_server_write));
 }
 
 static void test_event_loop_connect() {
-  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(12 * PG_KiB);
 
   PgEventLoopResult res_loop = pg_event_loop_make_loop(&arena);
   PG_ASSERT(0 == res_loop.err);
@@ -1806,7 +1806,7 @@ static void test_event_loop_connect() {
                        test_event_loop_connect_on_client_connect));
   }
 
-  PG_ASSERT(0 == pg_event_loop_run(&loop, 10));
+  PG_ASSERT(0 == pg_event_loop_run(&loop, -1));
 
   PG_ASSERT(3 == client_state);
   PG_ASSERT(4 == server_state);

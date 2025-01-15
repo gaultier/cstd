@@ -3928,8 +3928,12 @@ static Pgu64Result pg_event_loop_tcp_accept(PgEventLoop *loop, u64 os_handle) {
     return res;
   }
 
-  *PG_DYN_PUSH(&loop->handles, loop->arena) =
+  PgEventLoopHandle client_handle =
       pg_event_loop_make_tcp_handle(res_accept.socket, nullptr);
+  client_handle.state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTED;
+  client_handle.ctx = handle->ctx;
+
+  *PG_DYN_PUSH(&loop->handles, loop->arena) = client_handle;
 
   res.res = (u64)client_socket;
   return res;
@@ -4047,8 +4051,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
       // Socket read.
       if ((PG_AIO_EVENT_KIND_IN & event_watch.kind) &&
           (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
-          (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state) &&
-          handle->on_read) {
+          (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state)) {
         {
           PgArena arena_tmp = *loop->arena;
           Pgu64Result res_read =
@@ -4063,7 +4066,10 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
             PG_ASSERT(true == pg_ring_read_slice(&handle->ring_read, data));
           }
 
-          handle->on_read(loop, handle->os_handle, handle->ctx, err_read, data);
+          if (handle->on_read) {
+            handle->on_read(loop, handle->os_handle, handle->ctx, err_read,
+                            data);
+          }
         }
       }
 
@@ -4071,13 +4077,33 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
       if ((PG_AIO_EVENT_KIND_OUT & event_watch.kind) &&
           (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
           (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state) &&
-          handle->on_write) {
+          pg_ring_read_space(handle->ring_write) > 0) {
         {
           PgArena arena_tmp = *loop->arena;
           Pgu64Result res_write =
               pg_writer_write(&handle->writer, &handle->ring_write, arena_tmp);
 
-          handle->on_write(loop, handle->os_handle, handle->ctx, res_write.err);
+          if (handle->on_write) {
+            handle->on_write(loop, handle->os_handle, handle->ctx,
+                             res_write.err);
+          }
+
+          // Stop listening for 'OUT' if all of the data was written.
+          if (0 == pg_ring_read_space(handle->ring_write)) {
+            handle->event_kind = handle->event_kind & ~PG_AIO_EVENT_KIND_OUT;
+            bool event_in_os_queue_before = handle->event_in_os_queue;
+            handle->event_in_os_queue = true;
+
+            if (PG_EVENT_LOOP_HANDLE_STATE_CLOSING != handle->state) {
+              PgAioEvent event_change = {
+                  .os_handle = handle->os_handle,
+                  .kind = handle->event_kind,
+                  .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
+                                                     : PG_AIO_EVENT_ACTION_ADD,
+              };
+              PG_ASSERT(0 == pg_aio_queue_ctl_one(loop->queue, event_change));
+            }
+          }
         }
       }
     }
