@@ -919,7 +919,7 @@ static void test_net_socket() {
   events_change.len = 1;
 
   {
-    PgAioEvent *event_bob_listen = slice_at_ptr(&events_change, 0);
+    PgAioEvent *event_bob_listen = PG_SLICE_AT_PTR(&events_change, 0);
     event_bob_listen->socket = socket_listen;
     event_bob_listen->kind = PG_AIO_EVENT_KIND_IN;
     event_bob_listen->action = PG_AIO_EVENT_ACTION_ADD;
@@ -953,7 +953,7 @@ static void test_net_socket() {
         PG_ASSERT(0 != res_accept.socket);
 
         events_change.len = 2;
-        PgAioEvent *event_alice = slice_at_ptr(&events_change, 0);
+        PgAioEvent *event_alice = PG_SLICE_AT_PTR(&events_change, 0);
         event_alice->socket = socket_alice;
         event_alice->kind = PG_AIO_EVENT_KIND_OUT;
         event_alice->action = PG_AIO_EVENT_ACTION_ADD;
@@ -961,7 +961,7 @@ static void test_net_socket() {
         bob_socket = res_accept.socket;
         bob_reader = reader_make_from_socket(bob_socket);
 
-        PgAioEvent *event_bob = slice_at_ptr(&events_change, 1);
+        PgAioEvent *event_bob = PG_SLICE_AT_PTR(&events_change, 1);
         event_bob->socket = res_accept.socket;
         event_bob->kind = PG_AIO_EVENT_KIND_IN;
         event_bob->action = PG_AIO_EVENT_ACTION_ADD;
@@ -1421,7 +1421,7 @@ static void test_http_request_response() {
   events_change.len = 1;
 
   {
-    PgAioEvent *event_server_listen = slice_at_ptr(&events_change, 0);
+    PgAioEvent *event_server_listen = PG_SLICE_AT_PTR(&events_change, 0);
     event_server_listen->socket = listen_socket;
     event_server_listen->kind = PG_AIO_EVENT_KIND_IN;
     event_server_listen->action = PG_AIO_EVENT_ACTION_ADD;
@@ -1480,7 +1480,7 @@ static void test_http_request_response() {
         PG_ASSERT(0 != res_accept.socket);
 
         events_change.len = 2;
-        PgAioEvent *event_client = slice_at_ptr(&events_change, 0);
+        PgAioEvent *event_client = PG_SLICE_AT_PTR(&events_change, 0);
         event_client->socket = client_socket;
         event_client->kind = PG_AIO_EVENT_KIND_OUT;
         event_client->action = PG_AIO_EVENT_ACTION_ADD;
@@ -1489,7 +1489,7 @@ static void test_http_request_response() {
         server_reader = reader_make_from_socket(server_socket);
         server_writer = writer_make_from_socket(server_socket);
 
-        PgAioEvent *event_server_client = slice_at_ptr(&events_change, 1);
+        PgAioEvent *event_server_client = PG_SLICE_AT_PTR(&events_change, 1);
         event_server_client->socket = res_accept.socket;
         event_server_client->kind = PG_AIO_EVENT_KIND_IN;
         event_server_client->action = PG_AIO_EVENT_ACTION_ADD;
@@ -1507,7 +1507,7 @@ static void test_http_request_response() {
 
             // Stop subscribing for writing, start subscribing for reading.
             events_change.len = 1;
-            PgAioEvent *event_client = slice_at_ptr(&events_change, 0);
+            PgAioEvent *event_client = PG_SLICE_AT_PTR(&events_change, 0);
             event_client->socket = client_socket;
             event_client->kind = PG_AIO_EVENT_KIND_IN;
             event_client->action = PG_AIO_EVENT_ACTION_MOD;
@@ -1540,7 +1540,7 @@ static void test_http_request_response() {
 
             // Stop subscribing for reading, start subscribing for writing.
             events_change.len = 1;
-            PgAioEvent *event_server = slice_at_ptr(&events_change, 0);
+            PgAioEvent *event_server = PG_SLICE_AT_PTR(&events_change, 0);
             event_server->socket = server_socket;
             event_server->kind = PG_AIO_EVENT_KIND_OUT;
             event_server->action = PG_AIO_EVENT_ACTION_MOD;
@@ -1556,7 +1556,7 @@ static void test_http_request_response() {
 
             // Stop subscribing.
             events_change.len = 1;
-            PgAioEvent *event_server = slice_at_ptr(&events_change, 0);
+            PgAioEvent *event_server = PG_SLICE_AT_PTR(&events_change, 0);
             event_server->socket = server_socket;
             event_server->action = PG_AIO_EVENT_ACTION_DEL;
             PG_ASSERT(0 == aio_queue_ctl(queue, events_change));

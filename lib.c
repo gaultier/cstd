@@ -99,7 +99,7 @@ typedef Pgu8Slice PgString;
 
 #define PG_SLICE_AT(s, idx) (PG_C_ARRAY_AT((s).data, (s).len, idx))
 
-#define slice_at_ptr(s, idx) (PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx))
+#define PG_SLICE_AT_PTR(s, idx) (PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx))
 
 #define slice_make(T, l, arena)                                                \
   ((T##Slice){.data = arena_new(arena, T, l), .len = l})
@@ -750,10 +750,10 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 [[maybe_unused]] static void u32_to_u8x4_be(u32 n, PgString *dst) {
   PG_ASSERT(sizeof(n) == dst->len);
 
-  *(slice_at_ptr(dst, 0)) = (u8)(n >> 24);
-  *(slice_at_ptr(dst, 1)) = (u8)(n >> 16);
-  *(slice_at_ptr(dst, 2)) = (u8)(n >> 8);
-  *(slice_at_ptr(dst, 3)) = (u8)(n >> 0);
+  *(PG_SLICE_AT_PTR(dst, 0)) = (u8)(n >> 24);
+  *(PG_SLICE_AT_PTR(dst, 1)) = (u8)(n >> 16);
+  *(PG_SLICE_AT_PTR(dst, 2)) = (u8)(n >> 8);
+  *(PG_SLICE_AT_PTR(dst, 3)) = (u8)(n >> 0);
 }
 
 [[maybe_unused]] static void dynu8_append_u32(Pgu8Dyn *dyn, u32 n,
@@ -1509,7 +1509,7 @@ aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
   res.res = (u64)res_epoll;
 
   for (u64 i = 0; i < res.res; i++) {
-    PgAioEvent *event = slice_at_ptr(&events, i);
+    PgAioEvent *event = PG_SLICE_AT_PTR(&events, i);
     *event = (PgAioEvent){0};
 
     struct epoll_event epoll_event = epoll_events[i];
