@@ -101,7 +101,7 @@ typedef Pgu8Slice PgString;
 
 #define PG_SLICE_AT_PTR(s, idx) (PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx))
 
-#define slice_make(T, l, arena)                                                \
+#define PG_SLICE_MAKE(T, l, arena)                                                \
   ((T##Slice){.data = arena_new(arena, T, l), .len = l})
 
 #define slice_swap_remove(s, idx)                                              \

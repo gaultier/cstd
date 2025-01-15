@@ -915,7 +915,7 @@ static void test_net_socket() {
   PG_ASSERT(0 == res_queue_create.err);
 
   AioQueue queue = res_queue_create.res;
-  PgAioEventSlice events_change = slice_make(PgAioEvent, 3, &arena);
+  PgAioEventSlice events_change = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
   events_change.len = 1;
 
   {
@@ -937,7 +937,7 @@ static void test_net_socket() {
 
   AliceState alice_state = ALICE_STATE_NONE;
 
-  PgAioEventSlice events_watch = slice_make(PgAioEvent, 3, &arena);
+  PgAioEventSlice events_watch = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
 
   for (;;) {
     Pgu64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
@@ -1417,7 +1417,7 @@ static void test_http_request_response() {
   PG_ASSERT(0 == res_queue_create.err);
 
   AioQueue queue = res_queue_create.res;
-  PgAioEventSlice events_change = slice_make(PgAioEvent, 3, &arena);
+  PgAioEventSlice events_change = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
   events_change.len = 1;
 
   {
@@ -1464,7 +1464,7 @@ static void test_http_request_response() {
   HttpRequest server_req = {0};
   HttpResponse client_res = {0};
 
-  PgAioEventSlice events_watch = slice_make(PgAioEvent, 3, &arena);
+  PgAioEventSlice events_watch = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
 
   for (u64 _i = 0; _i <= 128; _i++) {
     Pgu64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
@@ -1647,7 +1647,7 @@ static void test_timer() {
     PG_ASSERT(0 == err);
   }
 
-  PgAioEventSlice events_watch = slice_make(PgAioEvent, 1, &arena);
+  PgAioEventSlice events_watch = PG_SLICE_MAKE(PgAioEvent, 1, &arena);
   Pgu64Result res_wait = aio_queue_wait(queue, events_watch, 1'000, arena);
   PG_ASSERT(0 == res_wait.err);
   PG_ASSERT(1 == res_wait.res);
