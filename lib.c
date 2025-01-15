@@ -564,6 +564,9 @@ pg_string_parse_u64(PgString s) {
 typedef struct {
   u8 *start;
   u8 *end;
+
+  void *os_start;
+  u64 os_alloc_size;
 } PgArena;
 
 __attribute((malloc, alloc_size(2, 4), alloc_align(3)))
@@ -1063,6 +1066,8 @@ pg_file_read_full(PgString path, PgArena *arena);
 [[maybe_unused]] [[nodiscard]] static PgArena
 pg_arena_make_from_virtual_mem(u64 size);
 
+[[maybe_unused]] [[nodiscard]] static PgError pg_arena_release(PgArena *arena);
+
 PG_RESULT(PgSocket) PgSocketResult;
 [[maybe_unused]] [[nodiscard]] static PgSocketResult pg_net_create_tcp_socket();
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -1212,7 +1217,28 @@ pg_arena_make_from_virtual_mem(u64 size) {
   // mappings.
   *(u8 *)alloc = 0;
 
-  return (PgArena){.start = alloc, .end = (u8 *)alloc + size};
+  return (PgArena){
+      .start = alloc,
+      .end = (u8 *)alloc + size,
+      .os_start = (void *)page_guard_before,
+      .os_alloc_size = alloc_real_size,
+  };
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError pg_arena_release(PgArena *arena) {
+  if (nullptr == arena->start) {
+    return 0;
+  }
+
+  PG_ASSERT(nullptr != arena->end);
+  PG_ASSERT(nullptr != arena->os_start);
+
+  int ret = munmap(arena->os_start, arena->os_alloc_size);
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  return 0;
 }
 
 [[maybe_unused]] static PgStringResult pg_file_read_full(PgString path,
@@ -3973,7 +3999,7 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
       PG_ASSERT(0);
     }
 
-    // TODO: release `handle->arena`.
+    (void)pg_arena_release(&handle->arena);
 
     PG_SLICE_SWAP_REMOVE(&loop->handles, i);
     i -= 1;
