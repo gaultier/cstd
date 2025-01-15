@@ -102,7 +102,7 @@ static void test_dyn_ensure_cap() {
   {
     Arena arena = arena_make_from_virtual_mem(arena_cap);
 
-    u8Dyn dyn = {0};
+    Pgu8Dyn dyn = {0};
     *dyn_push(&dyn, &arena) = 1;
     ASSERT(1 == dyn.len);
     ASSERT(2 == dyn.cap);
@@ -121,12 +121,12 @@ static void test_dyn_ensure_cap() {
   {
     Arena arena = arena_make_from_virtual_mem(arena_cap);
 
-    u8Dyn dyn = {0};
+    Pgu8Dyn dyn = {0};
     *dyn_push(&dyn, &arena) = 1;
     ASSERT(1 == dyn.len);
     ASSERT(2 == dyn.cap);
 
-    u8Dyn dummy = {0};
+    Pgu8Dyn dummy = {0};
     *dyn_push(&dummy, &arena) = 2;
     *dyn_push(&dummy, &arena) = 3;
 
@@ -175,7 +175,7 @@ static void test_slice_range() {
     ASSERT(slice_is_empty(slice_range(s, 100, 300)));
   }
 
-  StringDyn dyn = {0};
+  PgStringDyn dyn = {0};
   // Works on empty slices.
   (void)slice_range(dyn_slice(StringSlice, dyn), 0, 0);
 
@@ -311,7 +311,7 @@ static void test_dynu8_append_u8_hex_upper() {
   Arena arena = arena_make_from_virtual_mem(4 * PG_KiB);
 
   {
-    u8Dyn sb = {0};
+    Pgu8Dyn sb = {0};
     dynu8_append_u8_hex_upper(&sb, 0xac, &arena);
     dynu8_append_u8_hex_upper(&sb, 0x89, &arena);
 
@@ -336,7 +336,7 @@ static void test_ipv4_address_to_string() {
 static void test_url_encode() {
   Arena arena = arena_make_from_virtual_mem(4 * PG_KiB);
   {
-    u8Dyn sb = {0};
+    Pgu8Dyn sb = {0};
     url_encode_string(&sb, S("日本語"), S("123"), &arena);
     String encoded = dyn_slice(String, sb);
 
@@ -344,7 +344,7 @@ static void test_url_encode() {
   }
 
   {
-    u8Dyn sb = {0};
+    Pgu8Dyn sb = {0};
     url_encode_string(&sb, S("日本語"), S("foo"), &arena);
     String encoded = dyn_slice(String, sb);
 

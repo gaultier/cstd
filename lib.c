@@ -37,13 +37,13 @@
   typedef struct {                                                             \
     T *data;                                                                   \
     u64 len, cap;                                                              \
-  } PgT##Dyn
+  }
 
 #define PG_SLICE(T)                                                            \
   typedef struct {                                                             \
     T *data;                                                                   \
     u64 len;                                                                   \
-  } PgT##Slice
+  }
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -65,13 +65,13 @@ typedef int64_t i64;
   typedef struct {                                                             \
     T res;                                                                     \
     bool ok;                                                                   \
-  } PgT##Ok
+  }
 
 typedef u32 PgError;
 PG_RESULT(u64) Pgu64Result;
 
-PG_DYN(u8);
-PG_SLICE(u8);
+PG_DYN(u8) Pgu8Dyn;
+PG_SLICE(u8) Pgu8Slice;
 typedef Pgu8Slice PgString;
 
 #define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
@@ -149,11 +149,11 @@ typedef Pgu8Slice PgString;
   ASSERT(false);
 }
 
-PG_RESULT(String) StringResult;
-PG_OK(String);
-PG_SLICE(String);
+PG_RESULT(PgString) PgStringResult;
+PG_OK(PgString) PgStringOk;
+PG_SLICE(PgString) PgStringSlice;
 
-PG_RESULT(StringSlice) StringSliceResult;
+PG_RESULT(PgStringSlice) PgStringSliceResult;
 
 #define slice_is_empty(s)                                                      \
   (((s).len == 0) ? true : (ASSERT(nullptr != (s).data), false))
@@ -702,8 +702,8 @@ typedef enum {
 #define dyn_space(T, dyn)                                                      \
   ((T){.data = (dyn)->data + (dyn)->len, .len = (dyn)->cap - (dyn)->len})
 
-PG_DYN(String);
-PG_RESULT(StringDyn) StringDynResult;
+PG_DYN(PgString) PgStringDyn;
+PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define dyn_push(s, arena)                                                     \
   (dyn_ensure_cap(s, (s)->len + 1, arena), (s)->data + (s)->len++)
@@ -733,7 +733,7 @@ PG_RESULT(StringDyn) StringDynResult;
 
 #define dyn_slice(T, dyn) ((T){.data = dyn.data, .len = dyn.len})
 
-[[maybe_unused]] static void dynu8_append_u64_to_string(u8Dyn *dyn, u64 n,
+[[maybe_unused]] static void dynu8_append_u64_to_string(Pgu8Dyn *dyn, u64 n,
                                                         Arena *arena) {
   u8 tmp[30] = {0};
   const int written_count = snprintf((char *)tmp, sizeof(tmp), "%lu", n);
@@ -753,7 +753,8 @@ PG_RESULT(StringDyn) StringDynResult;
   *(slice_at_ptr(dst, 3)) = (u8)(n >> 0);
 }
 
-[[maybe_unused]] static void dynu8_append_u32(u8Dyn *dyn, u32 n, Arena *arena) {
+[[maybe_unused]] static void dynu8_append_u32(Pgu8Dyn *dyn, u32 n,
+                                              Arena *arena) {
 
   u8 data[sizeof(n)] = {0};
   String s = {.data = data, .len = sizeof(n)};
@@ -763,7 +764,7 @@ PG_RESULT(StringDyn) StringDynResult;
 
 [[maybe_unused]] [[nodiscard]] static String u64_to_string(u64 n,
                                                            Arena *arena) {
-  u8Dyn sb = {0};
+  Pgu8Dyn sb = {0};
   dynu8_append_u64_to_string(&sb, n, arena);
   return dyn_slice(String, sb);
 }
@@ -810,7 +811,7 @@ PG_RESULT(StringDyn) StringDynResult;
   ASSERT(0);
 }
 
-static void dynu8_append_u8_hex_upper(u8Dyn *dyn, u8 n, Arena *arena) {
+static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
   dyn_ensure_cap(dyn, dyn->len + 2, arena);
   u64 dyn_original_len = dyn->len;
 
@@ -821,7 +822,7 @@ static void dynu8_append_u8_hex_upper(u8Dyn *dyn, u8 n, Arena *arena) {
   ASSERT(2 == (dyn->len - dyn_original_len));
 }
 
-[[maybe_unused]] static void dynu8_append_u128_hex(u8Dyn *dyn, u128 n,
+[[maybe_unused]] static void dynu8_append_u128_hex(Pgu8Dyn *dyn, u128 n,
                                                    Arena *arena) {
   dyn_ensure_cap(dyn, dyn->len + 32, arena);
   u64 dyn_original_len = dyn->len;
@@ -1029,7 +1030,7 @@ string_indexof_unescaped_byte(String haystack, u8 needle) {
     goto end;
   }
 
-  u8Dyn sb = {0};
+  Pgu8Dyn sb = {0};
   dyn_ensure_cap(&sb, (u64)st.st_size, arena);
 
   for (u64 lim = 0; lim < (u64)st.st_size; lim++) {
@@ -1065,20 +1066,20 @@ typedef struct {
   u16 port; // Host order.
 } Ipv4Address;
 
-PG_DYN(Ipv4Address);
+PG_DYN(Ipv4Address) PgIpv4AddressDyn;
 
 [[maybe_unused]] [[nodiscard]] static String
 make_unique_id_u128_string(Arena *arena) {
   u128 id = 0;
   arc4random_buf(&id, sizeof(id));
 
-  u8Dyn dyn = {0};
+  Pgu8Dyn dyn = {0};
   dynu8_append_u128_hex(&dyn, id, arena);
 
   return dyn_slice(String, dyn);
 }
 
-[[maybe_unused]] static void url_encode_string(u8Dyn *sb, String key,
+[[maybe_unused]] static void url_encode_string(Pgu8Dyn *sb, String key,
                                                String value, Arena *arena) {
   for (u64 i = 0; i < key.len; i++) {
     u8 c = slice_at(key, i);
@@ -1105,7 +1106,7 @@ make_unique_id_u128_string(Arena *arena) {
 
 [[maybe_unused]] [[nodiscard]] static String
 ipv4_address_to_string(Ipv4Address address, Arena *arena) {
-  u8Dyn sb = {0};
+  Pgu8Dyn sb = {0};
   dynu8_append_u64_to_string(&sb, (address.ip >> 24) & 0xFF, arena);
   *dyn_push(&sb, arena) = '.';
   dynu8_append_u64_to_string(&sb, (address.ip >> 16) & 0xFF, arena);
@@ -1160,7 +1161,7 @@ typedef enum {
   // TODO: More?
 } ClockKind;
 
-PG_RESULT(Timer) TimerResult;
+PG_RESULT(Timer) PgTimerResult;
 
 [[maybe_unused]] [[nodiscard]] static TimerResult
 pg_timer_create(ClockKind clock_kind, u64 ns);
@@ -1170,7 +1171,7 @@ pg_timer_create(ClockKind clock_kind, u64 ns);
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_time_ns_now(ClockKind clock_kind);
 
-PG_RESULT(Socket) CreateSocketResult;
+PG_RESULT(Socket) PgCreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static CreateSocketResult
 net_create_tcp_socket();
 [[maybe_unused]] [[nodiscard]] static PgError net_socket_close(Socket sock);
@@ -1182,7 +1183,7 @@ typedef struct {
   Ipv4Address address;
   Socket socket;
 } Ipv4AddressSocket;
-PG_RESULT(Ipv4AddressSocket) DnsResolveIpv4AddressSocketResult;
+PG_RESULT(Ipv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
 [[maybe_unused]] [[nodiscard]] static DnsResolveIpv4AddressSocketResult
 net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena);
 
@@ -1205,8 +1206,8 @@ typedef struct {
 net_tcp_accept(Socket sock);
 
 typedef u64 AioQueue;
-PG_RESULT(AioQueue) AioQueueCreateResult;
-[[maybe_unused]] [[nodiscard]] static AioQueueCreateResult aio_queue_create();
+PG_RESULT(AioQueue) PgAioQueueCreateResult;
+[[maybe_unused]] [[nodiscard]] static PgAioQueueCreateResult aio_queue_create();
 
 typedef enum {
   AIO_EVENT_KIND_NONE = 0,
@@ -1229,8 +1230,8 @@ typedef struct {
   AioEventActionKind action;
 } AioEvent;
 
-PG_SLICE(AioEvent);
-PG_DYN(AioEvent);
+PG_SLICE(AioEvent) PgAioEventSlice;
+PG_DYN(AioEvent) PgAioEventDyn;
 
 [[maybe_unused]] [[nodiscard]] static PgError
 aio_queue_ctl(AioQueue queue, AioEventSlice events);
@@ -1579,7 +1580,7 @@ pg_time_ns_now(ClockKind clock) {
 }
 #endif
 
-PG_RESULT(String) IoResult;
+PG_RESULT(PgString) PgIoResult;
 
 typedef Pgu64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
 typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
@@ -1623,7 +1624,7 @@ unix_write(void *self, u8 *buf, size_t buf_len) {
 }
 
 typedef struct {
-  u8Dyn sb;
+  Pgu8Dyn sb;
   Arena *arena;
 } StringBuilder;
 
@@ -1884,20 +1885,20 @@ typedef struct {
   String key, value;
 } KeyValue;
 
-PG_RESULT(KeyValue) KeyValueResult;
+PG_RESULT(KeyValue) PgKeyValueResult;
 
 typedef struct {
   KeyValue *data;
   u64 len, cap;
 } DynKeyValue;
 
-PG_RESULT(DynKeyValue) DynKeyValueResult;
+PG_RESULT(DynKeyValue) PgDynKeyValueResult;
 
 typedef struct {
   String scheme;
   String username, password;
   String host; // Including subdomains.
-  StringDyn path_components;
+  PgStringDyn path_components;
   DynKeyValue query_parameters;
   u16 port;
   // TODO: fragment.
@@ -1920,7 +1921,7 @@ typedef struct {
   Url url; // Does not have a scheme, domain, port.
 } HttpRequestStatusLine;
 
-PG_RESULT(HttpRequestStatusLine) HttpRequestStatusLineResult;
+PG_RESULT(HttpRequestStatusLine) PgHttpRequestStatusLineResult;
 
 // `HTTP/1.1 201 Created`.
 typedef struct {
@@ -1929,7 +1930,7 @@ typedef struct {
   u16 status;
 } HttpResponseStatusLine;
 
-PG_RESULT(HttpResponseStatusLine) HttpResponseStatusLineResult;
+PG_RESULT(HttpResponseStatusLine) PgHttpResponseStatusLineResult;
 
 #if 0
 typedef struct {
@@ -2032,7 +2033,7 @@ static void http_push_header(DynKeyValue *headers, String key, String value,
 
 [[maybe_unused]] [[nodiscard]] static bool
 http_request_write_status_line(RingBuffer *rg, HttpRequest req, Arena arena) {
-  u8Dyn sb = {0};
+  Pgu8Dyn sb = {0};
   dyn_ensure_cap(&sb, 128, &arena);
   dyn_append_slice(&sb, http_method_to_s(req.method), &arena);
   dyn_append_slice(&sb, S(" /"), &arena);
@@ -2067,7 +2068,7 @@ http_request_write_status_line(RingBuffer *rg, HttpRequest req, Arena arena) {
 
 [[maybe_unused]] [[nodiscard]] static bool
 http_response_write_status_line(RingBuffer *rg, HttpResponse res, Arena arena) {
-  u8Dyn sb = {0};
+  Pgu8Dyn sb = {0};
   dyn_ensure_cap(&sb, 128, &arena);
   dyn_append_slice(&sb, S("HTTP/"), &arena);
   dynu8_append_u64_to_string(&sb, res.version_major, &arena);
@@ -2085,7 +2086,7 @@ http_response_write_status_line(RingBuffer *rg, HttpResponse res, Arena arena) {
 
 [[maybe_unused]] [[nodiscard]] static bool
 http_write_header(RingBuffer *rg, KeyValue header, Arena arena) {
-  u8Dyn sb = {0};
+  Pgu8Dyn sb = {0};
   dyn_ensure_cap(&sb, 128, &arena);
   dyn_append_slice(&sb, header.key, &arena);
   dyn_append_slice(&sb, S(": "), &arena);
@@ -2102,7 +2103,7 @@ http_write_header(RingBuffer *rg, KeyValue header, Arena arena) {
 // etc), more advance sanitation is required.
 [[maybe_unused]] [[nodiscard]] static String html_sanitize(String s,
                                                            Arena *arena) {
-  u8Dyn res = {0};
+  Pgu8Dyn res = {0};
   dyn_ensure_cap(&res, s.len, arena);
   for (u64 i = 0; i < s.len; i++) {
     u8 c = slice_at(s, i);
@@ -2129,7 +2130,7 @@ typedef struct {
   String username, password;
 } UrlUserInfo;
 
-PG_RESULT(UrlUserInfo) UrlUserInfoResult;
+PG_RESULT(UrlUserInfo) PgUrlUserInfoResult;
 
 typedef struct {
   UrlUserInfo user_info;
@@ -2137,9 +2138,9 @@ typedef struct {
   u16 port;
 } UrlAuthority;
 
-PG_RESULT(UrlAuthority) UrlAuthorityResult;
+PG_RESULT(UrlAuthority) PgUrlAuthorityResult;
 
-PG_RESULT(Url) ParseUrlResult;
+PG_RESULT(Url) PgParseUrlResult;
 
 [[maybe_unused]] [[nodiscard]] static StringDynResult
 url_parse_path_components(String s, Arena *arena) {
@@ -2159,7 +2160,7 @@ url_parse_path_components(String s, Arena *arena) {
     return res;
   }
 
-  StringDyn components = {0};
+  PgStringDyn components = {0};
 
   SplitIterator split_it_slash = string_split_string(s, S("/"));
   for (u64 i = 0; i < s.len; i++) { // Bound.
@@ -2234,7 +2235,7 @@ url_parse_user_info(String s) {
   return res;
 }
 
-PG_RESULT(u16) PortResult;
+PG_RESULT(u16) PgPortResult;
 
 [[maybe_unused]] [[nodiscard]] static PortResult url_parse_port(String s) {
   PortResult res = {0};
@@ -2920,7 +2921,7 @@ typedef struct {
 [[nodiscard]] static FormDataKVElementParseResult
 form_data_kv_parse_element(String in, u8 ch_terminator, Arena *arena) {
   FormDataKVElementParseResult res = {0};
-  u8Dyn data = {0};
+  Pgu8Dyn data = {0};
 
   u64 i = 0;
   for (; i < in.len; i++) {
@@ -3082,7 +3083,7 @@ typedef struct {
   return res;
 }
 
-static void html_attributes_to_string(DynKeyValue attributes, u8Dyn *sb,
+static void html_attributes_to_string(DynKeyValue attributes, Pgu8Dyn *sb,
                                       Arena *arena) {
   for (u64 i = 0; i < attributes.len; i++) {
     KeyValue attr = dyn_at(attributes, i);
@@ -3098,11 +3099,11 @@ static void html_attributes_to_string(DynKeyValue attributes, u8Dyn *sb,
   }
 }
 
-static void html_tags_to_string(DynHtmlElements elements, u8Dyn *sb,
+static void html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
                                 Arena *arena);
-static void html_tag_to_string(HtmlElement e, u8Dyn *sb, Arena *arena);
+static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, Arena *arena);
 
-static void html_tags_to_string(DynHtmlElements elements, u8Dyn *sb,
+static void html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
                                 Arena *arena) {
   for (u64 i = 0; i < elements.len; i++) {
     HtmlElement e = dyn_at(elements, i);
@@ -3111,7 +3112,8 @@ static void html_tags_to_string(DynHtmlElements elements, u8Dyn *sb,
 }
 
 [[maybe_unused]]
-static void html_document_to_string(HtmlDocument doc, u8Dyn *sb, Arena *arena) {
+static void html_document_to_string(HtmlDocument doc, Pgu8Dyn *sb,
+                                    Arena *arena) {
   dyn_append_slice(sb, S("<!DOCTYPE html>"), arena);
 
   dyn_append_slice(sb, S("<html>"), arena);
@@ -3120,7 +3122,7 @@ static void html_document_to_string(HtmlDocument doc, u8Dyn *sb, Arena *arena) {
   dyn_append_slice(sb, S("</html>"), arena);
 }
 
-static void html_tag_to_string(HtmlElement e, u8Dyn *sb, Arena *arena) {
+static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, Arena *arena) {
   static const String tag_to_string[HTML_MAX] = {
       [HTML_NONE] = S("FIXME"),
       [HTML_TITLE] = S("title"),
@@ -3376,7 +3378,7 @@ log_level_to_string(LogLevel level) {
 
 [[maybe_unused]] [[nodiscard]] static String json_escape_string(String entry,
                                                                 Arena *arena) {
-  u8Dyn sb = {0};
+  Pgu8Dyn sb = {0};
   *dyn_push(&sb, arena) = '"';
 
   for (u64 i = 0; i < entry.len; i++) {
@@ -3413,7 +3415,7 @@ log_level_to_string(LogLevel level) {
 
 [[maybe_unused]] [[nodiscard]] static String
 json_unescape_string(String entry, Arena *arena) {
-  u8Dyn sb = {0};
+  Pgu8Dyn sb = {0};
 
   for (u64 i = 0; i < entry.len; i++) {
     u8 c = slice_at(entry, i);
@@ -3453,7 +3455,7 @@ json_unescape_string(String entry, Arena *arena) {
 }
 
 [[maybe_unused]] static void
-dynu8_append_json_object_key_string_value_string(u8Dyn *sb, String key,
+dynu8_append_json_object_key_string_value_string(Pgu8Dyn *sb, String key,
                                                  String value, Arena *arena) {
   String json_key = json_escape_string(key, arena);
   dyn_append_slice(sb, json_key, arena);
@@ -3467,8 +3469,8 @@ dynu8_append_json_object_key_string_value_string(u8Dyn *sb, String key,
 }
 
 [[maybe_unused]] static void
-dynu8_append_json_object_key_string_value_u64(u8Dyn *sb, String key, u64 value,
-                                              Arena *arena) {
+dynu8_append_json_object_key_string_value_u64(Pgu8Dyn *sb, String key,
+                                              u64 value, Arena *arena) {
   String json_key = json_escape_string(key, arena);
   dyn_append_slice(sb, json_key, arena);
 
@@ -3491,7 +3493,7 @@ log_make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count,
   clock_gettime(CLOCK_REALTIME, &now);
   u64 timestamp_ns = (u64)now.tv_sec * 1000'000'000 + (u64)now.tv_nsec;
 
-  u8Dyn sb = {0};
+  Pgu8Dyn sb = {0};
   *dyn_push(&sb, arena) = '{';
 
   dynu8_append_json_object_key_string_value_string(
@@ -3533,7 +3535,7 @@ log_make_log_line(LogLevel level, String msg, Arena *arena, i32 args_count,
 
 [[maybe_unused]] [[nodiscard]] static String
 json_encode_string_slice(StringSlice strings, Arena *arena) {
-  u8Dyn sb = {0};
+  Pgu8Dyn sb = {0};
   *dyn_push(&sb, arena) = '[';
 
   for (u64 i = 0; i < strings.len; i++) {
@@ -3563,7 +3565,7 @@ json_decode_string_slice(String s, Arena *arena) {
     return res;
   }
 
-  StringDyn dyn = {0};
+  PgStringDyn dyn = {0};
   for (u64 i = 1; i < s.len - 2;) {
     i = skip_over_whitespace(s, i);
 
