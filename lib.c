@@ -1120,8 +1120,7 @@ typedef enum {
 } PgAioEventAction;
 
 typedef struct {
-  PgSocket socket;
-  PgTimer timer;
+  u64 os_handle;
   PgAioEventKind kind;
   PgAioEventAction action;
 } PgAioEvent;
@@ -1471,7 +1470,6 @@ pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
 pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events) {
   for (u64 i = 0; i < events.len; i++) {
     PgAioEvent event = PG_SLICE_AT(events, i);
-    PG_ASSERT(event.socket ^ event.timer);
 
     int op = 0;
     switch (event.action) {
@@ -1500,11 +1498,7 @@ pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events) {
       epoll_event.events |= EPOLLERR;
     }
 
-    if (event.socket) {
-      epoll_event.data.fd = event.socket;
-    } else if (event.timer) {
-      epoll_event.data.fd = event.timer;
-    }
+    epoll_event.data.u64 = event.os_handle;
 
     int res_epoll =
         epoll_ctl((int)queue, op, epoll_event.data.fd, &epoll_event);
@@ -1549,7 +1543,7 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
     if (epoll_event.events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
       event->kind |= PG_AIO_EVENT_KIND_ERR;
     }
-    event->socket = epoll_event.data.fd;
+    event->os_handle = (u64)epoll_event.data.fd;
   }
 
   return res;
@@ -3685,6 +3679,7 @@ typedef struct {
   PgEventLoopHandleKind kind;
   u64 os_handle;
   PgEventLoopOnTcpConnect on_connect;
+  void *ctx;
 } PgEventLoopHandle;
 PG_DYN(PgEventLoopHandle) PgEventLoopHandleDyn;
 
@@ -3724,7 +3719,8 @@ static PgEventLoopHandle *pg_event_loop_find_handle(PgEventLoop *loop,
 }
 
 [[nodiscard]] [[maybe_unused]]
-static Pgu64Result pg_event_loop_tcp_init(PgEventLoop *loop, PgArena *arena) {
+static Pgu64Result pg_event_loop_tcp_init(PgEventLoop *loop, void *ctx,
+                                          PgArena *arena) {
   Pgu64Result res = {0};
 
   PgSocketResult res_socket = pg_net_create_tcp_socket();
@@ -3744,6 +3740,7 @@ static Pgu64Result pg_event_loop_tcp_init(PgEventLoop *loop, PgArena *arena) {
   *PG_DYN_PUSH(&loop->handles, arena) = (PgEventLoopHandle){
       .kind = PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET,
       .os_handle = (u64)res_socket.res,
+      .ctx = ctx,
   };
 
   res.res = (u64)res_socket.res;
@@ -3764,7 +3761,18 @@ static PgError pg_event_loop_tcp_connect(PgEventLoop *loop, u64 os_handle,
   handle->on_connect = on_connect;
 
   PgSocket socket = (PgSocket)os_handle;
-  return pg_net_connect_ipv4(socket, addr);
+  PgError err = pg_net_connect_ipv4(socket, addr);
+  if (err) {
+    return err;
+  }
+
+  PgAioEvent event = {
+      .os_handle = os_handle,
+      .kind = PG_AIO_EVENT_KIND_OUT, // Needed to be notified on a successful
+                                     // `connect`.
+      .action = PG_AIO_EVENT_ACTION_ADD,
+  };
+  return pg_aio_queue_ctl_one(loop->queue, event);
 }
 
 [[nodiscard]] [[maybe_unused]]
@@ -3793,14 +3801,77 @@ static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, u64 os_handle,
   }
   handle->on_connect = on_connect;
 
-  return pg_net_tcp_listen((PgSocket)os_handle, backlog);
+  PgError err = pg_net_tcp_listen((PgSocket)os_handle, backlog);
+  if (err) {
+    return err;
+  }
+
+  PgAioEvent event = {
+      .os_handle = os_handle,
+      .kind =
+          PG_AIO_EVENT_KIND_IN, // Needed to be notified on a client connection.
+      .action = PG_AIO_EVENT_ACTION_ADD,
+  };
+  return pg_aio_queue_ctl_one(loop->queue, event);
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgError pg_event_loop_run(PgEventLoop *loop) {
+static Pgu64Result pg_event_loop_tcp_accept(PgEventLoop *loop, u64 os_handle,
+                                            PgArena *arena) {
+  Pgu64Result res = {0};
+
+  PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
+  if (!handle) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  if (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET != handle->kind) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept((PgSocket)os_handle);
+  if (res_accept.err) {
+    res.err = res_accept.err;
+    return res;
+  }
+
+  PgSocket client_socket = res_accept.socket;
+  PgError err = pg_net_socket_set_blocking(client_socket, false);
+  if (err) {
+    res.err = err;
+    return res;
+  }
+
+  *PG_DYN_PUSH(&loop->handles, arena) = (PgEventLoopHandle){
+      .kind = PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET,
+      .os_handle = (u64)res_accept.socket,
+  };
+
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]]
+static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms,
+                                 PgArena arena) {
   PG_ASSERT(loop->queue != 0);
 
+  PgAioEventSlice events_watch =
+      PG_SLICE_MAKE(PgAioEvent, loop->handles.len, &arena);
+
   for (;;) {
+    Pgu64Result res_wait =
+        pg_aio_queue_wait(loop->queue, events_watch, timeout_ms, arena);
+    if (res_wait.err) {
+      return res_wait.err;
+    }
+
+    for (u64 i = 0; i < res_wait.res; i++) {
+      PgAioEvent event = PG_SLICE_AT(events_watch, i);
+      PgEventLoopHandle *handle =
+          pg_event_loop_find_handle(loop, event.os_handle);
+      PG_ASSERT(handle);
+    }
   }
 }
 

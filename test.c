@@ -934,7 +934,7 @@ static void test_net_socket() {
 
   {
     PgAioEvent *event_bob_listen = PG_SLICE_AT_PTR(&events_change, 0);
-    event_bob_listen->socket = socket_listen;
+    event_bob_listen->os_handle = (u64)socket_listen;
     event_bob_listen->kind = PG_AIO_EVENT_KIND_IN;
     event_bob_listen->action = PG_AIO_EVENT_ACTION_ADD;
 
@@ -961,14 +961,14 @@ static void test_net_socket() {
       PgAioEvent event = PG_SLICE_AT(events_watch, i);
       PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
 
-      if (event.socket == socket_listen) {
+      if (event.os_handle == (u64)socket_listen) {
         PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(socket_listen);
         PG_ASSERT(0 == res_accept.err);
         PG_ASSERT(0 != res_accept.socket);
 
         events_change.len = 2;
         PgAioEvent *event_alice = PG_SLICE_AT_PTR(&events_change, 0);
-        event_alice->socket = socket_alice;
+        event_alice->os_handle = (u64)socket_alice;
         event_alice->kind = PG_AIO_EVENT_KIND_OUT;
         event_alice->action = PG_AIO_EVENT_ACTION_ADD;
 
@@ -976,13 +976,13 @@ static void test_net_socket() {
         bob_reader = pg_reader_make_from_socket(bob_socket);
 
         PgAioEvent *event_bob = PG_SLICE_AT_PTR(&events_change, 1);
-        event_bob->socket = res_accept.socket;
+        event_bob->os_handle = (u64)res_accept.socket;
         event_bob->kind = PG_AIO_EVENT_KIND_IN;
         event_bob->action = PG_AIO_EVENT_ACTION_ADD;
 
         PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
         events_change.len = 0;
-      } else if (event.socket == socket_alice) {
+      } else if (event.os_handle == (u64)socket_alice) {
         PG_ASSERT(PG_AIO_EVENT_KIND_OUT & event.kind);
 
         switch (alice_state) {
@@ -997,7 +997,7 @@ static void test_net_socket() {
         default:
           PG_ASSERT(0);
         }
-      } else if (event.socket == bob_socket) {
+      } else if (event.os_handle == (u64)bob_socket) {
         PG_ASSERT(PG_AIO_EVENT_KIND_IN & event.kind);
 
         PG_ASSERT(0 == pg_reader_read(&bob_reader, &bob_recv, arena).err);
@@ -1454,7 +1454,7 @@ static void test_http_request_response() {
 
   {
     PgAioEvent *event_server_listen = PG_SLICE_AT_PTR(&events_change, 0);
-    event_server_listen->socket = listen_socket;
+    event_server_listen->os_handle = (u64)listen_socket;
     event_server_listen->kind = PG_AIO_EVENT_KIND_IN;
     event_server_listen->action = PG_AIO_EVENT_ACTION_ADD;
 
@@ -1507,14 +1507,14 @@ static void test_http_request_response() {
       PgAioEvent event = PG_SLICE_AT(events_watch, i);
       PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
 
-      if (event.socket == listen_socket) {
+      if (event.os_handle == (u64)listen_socket) {
         PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(listen_socket);
         PG_ASSERT(0 == res_accept.err);
         PG_ASSERT(0 != res_accept.socket);
 
         events_change.len = 2;
         PgAioEvent *event_client = PG_SLICE_AT_PTR(&events_change, 0);
-        event_client->socket = client_socket;
+        event_client->os_handle = (u64)client_socket;
         event_client->kind = PG_AIO_EVENT_KIND_OUT;
         event_client->action = PG_AIO_EVENT_ACTION_ADD;
 
@@ -1523,13 +1523,13 @@ static void test_http_request_response() {
         server_writer = pg_writer_make_from_socket(server_socket);
 
         PgAioEvent *event_server_client = PG_SLICE_AT_PTR(&events_change, 1);
-        event_server_client->socket = res_accept.socket;
+        event_server_client->os_handle = (u64)res_accept.socket;
         event_server_client->kind = PG_AIO_EVENT_KIND_IN;
         event_server_client->action = PG_AIO_EVENT_ACTION_ADD;
 
         PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
         events_change.len = 0;
-      } else if (event.socket == client_socket) {
+      } else if (event.os_handle == (u64)client_socket) {
         if (PG_AIO_EVENT_KIND_OUT & event.kind) {
           if (!client_send_http_io_done) {
             pg_http_write_request(&client_send, client_req, arena);
@@ -1542,7 +1542,7 @@ static void test_http_request_response() {
             // Stop subscribing for writing, start subscribing for reading.
             events_change.len = 1;
             PgAioEvent *event_client = PG_SLICE_AT_PTR(&events_change, 0);
-            event_client->socket = client_socket;
+            event_client->os_handle = (u64)client_socket;
             event_client->kind = PG_AIO_EVENT_KIND_IN;
             event_client->action = PG_AIO_EVENT_ACTION_MOD;
             PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
@@ -1562,7 +1562,7 @@ static void test_http_request_response() {
             goto end;
           }
         }
-      } else if (event.socket == server_socket) {
+      } else if (event.os_handle == (u64)server_socket) {
         if (PG_AIO_EVENT_KIND_IN & event.kind) {
           if (!server_recv_http_io_done) {
             PG_ASSERT(0 ==
@@ -1577,7 +1577,7 @@ static void test_http_request_response() {
             // Stop subscribing for reading, start subscribing for writing.
             events_change.len = 1;
             PgAioEvent *event_server = PG_SLICE_AT_PTR(&events_change, 0);
-            event_server->socket = server_socket;
+            event_server->os_handle = (u64)server_socket;
             event_server->kind = PG_AIO_EVENT_KIND_OUT;
             event_server->action = PG_AIO_EVENT_ACTION_MOD;
             PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
@@ -1595,7 +1595,7 @@ static void test_http_request_response() {
             // Stop subscribing.
             events_change.len = 1;
             PgAioEvent *event_server = PG_SLICE_AT_PTR(&events_change, 0);
-            event_server->socket = server_socket;
+            event_server->os_handle = (u64)server_socket;
             event_server->action = PG_AIO_EVENT_ACTION_DEL;
             PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
             events_change.len = 0;
@@ -1677,7 +1677,7 @@ static void test_timer() {
 
   {
     PgAioEvent event_change = {
-        .timer = res_timer.res,
+        .os_handle = (u64)res_timer.res,
         .kind = PG_AIO_EVENT_KIND_IN,
         .action = PG_AIO_EVENT_ACTION_ADD,
     };
@@ -1704,11 +1704,15 @@ static void test_timer() {
 
 static void test_event_loop_connect_on_client_connect(void *ctx, PgError err) {
   PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(1 == *(u64 *)ctx);
+
   PG_ASSERT(0 == err);
 }
 
 static void test_event_loop_connect_on_server_connect(void *ctx, PgError err) {
   PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(2 == *(u64 *)ctx);
+
   PG_ASSERT(0 == err);
 }
 
@@ -1721,11 +1725,13 @@ static void test_event_loop_connect() {
 
   PgIpv4Address addr = {.port = (u16)pg_rand_u32(3000, UINT16_MAX)};
 
-  Pgu64Result res_client = pg_event_loop_tcp_init(&loop, &arena);
+  u64 client_state = 1;
+  Pgu64Result res_client = pg_event_loop_tcp_init(&loop, &client_state, &arena);
   PG_ASSERT(0 == res_client.err);
   u64 client_handle = res_client.res;
 
-  Pgu64Result res_server = pg_event_loop_tcp_init(&loop, &arena);
+  u64 server_state = 2;
+  Pgu64Result res_server = pg_event_loop_tcp_init(&loop, &server_state, &arena);
   PG_ASSERT(0 == res_server.err);
   u64 server_handle = res_server.res;
 
