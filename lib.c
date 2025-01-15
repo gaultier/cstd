@@ -552,11 +552,11 @@ pg_string_parse_u64(PgString s) {
 typedef struct {
   u8 *start;
   u8 *end;
-} Arena;
+} PgArena;
 
 __attribute((malloc, alloc_size(2, 4), alloc_align(3)))
 [[maybe_unused]] [[nodiscard]] static void *
-arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
+arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   PG_ASSERT(a->start != nullptr);
 
   const u64 padding = (-(u64)a->start & (align - 1));
@@ -580,7 +580,7 @@ arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
 #define arena_new(a, t, n) (t *)arena_alloc(a, sizeof(t), _Alignof(t), n)
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_make(u64 len,
-                                                              Arena *arena) {
+                                                              PgArena *arena) {
   PgString res = {0};
   res.len = len;
   res.data = arena_new(arena, u8, len);
@@ -588,7 +588,7 @@ arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
 }
 
 [[maybe_unused]] [[nodiscard]] static char *pg_string_to_cstr(PgString s,
-                                                              Arena *arena) {
+                                                              PgArena *arena) {
   char *res = (char *)arena_new(arena, u8, s.len + 1);
   if (NULL != s.data) {
     memcpy(res, s.data, s.len);
@@ -636,7 +636,7 @@ typedef enum {
 }
 
 [[maybe_unused]] static void dyn_grow(void *slice, u64 size, u64 align,
-                                      u64 count, Arena *a) {
+                                      u64 count, PgArena *a) {
   PG_ASSERT(nullptr != slice);
 
   struct {
@@ -731,7 +731,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 #define dyn_slice(T, dyn) ((T){.data = dyn.data, .len = dyn.len})
 
 [[maybe_unused]] static void dynu8_append_u64_to_string(Pgu8Dyn *dyn, u64 n,
-                                                        Arena *arena) {
+                                                        PgArena *arena) {
   u8 tmp[30] = {0};
   const int written_count = snprintf((char *)tmp, sizeof(tmp), "%lu", n);
 
@@ -751,7 +751,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 }
 
 [[maybe_unused]] static void dynu8_append_u32(Pgu8Dyn *dyn, u32 n,
-                                              Arena *arena) {
+                                              PgArena *arena) {
 
   u8 data[sizeof(n)] = {0};
   PgString s = {.data = data, .len = sizeof(n)};
@@ -760,7 +760,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString u64_to_string(u64 n,
-                                                             Arena *arena) {
+                                                             PgArena *arena) {
   Pgu8Dyn sb = {0};
   dynu8_append_u64_to_string(&sb, n, arena);
   return dyn_slice(PgString, sb);
@@ -808,7 +808,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
   PG_ASSERT(0);
 }
 
-static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
+static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, PgArena *arena) {
   dyn_ensure_cap(dyn, dyn->len + 2, arena);
   u64 dyn_original_len = dyn->len;
 
@@ -820,7 +820,7 @@ static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
 }
 
 [[maybe_unused]] static void dynu8_append_u128_hex(Pgu8Dyn *dyn, u128 n,
-                                                   Arena *arena) {
+                                                   PgArena *arena) {
   dyn_ensure_cap(dyn, dyn->len + 32, arena);
   u64 dyn_original_len = dyn->len;
 
@@ -838,7 +838,7 @@ static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_dup(PgString src,
-                                                             Arena *arena) {
+                                                             PgArena *arena) {
   PgString dst = pg_string_make(src.len, arena);
   memcpy(dst.data, src.data, src.len);
 
@@ -857,7 +857,7 @@ static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
   return (factor + 1) * n;
 }
 
-[[maybe_unused]] [[nodiscard]] static Arena
+[[maybe_unused]] [[nodiscard]] static PgArena
 arena_make_from_virtual_mem(u64 size) {
   u64 page_size = (u64)sysconf(_SC_PAGE_SIZE); // FIXME
   u64 alloc_real_size = round_up_multiple_of(size, page_size);
@@ -891,7 +891,7 @@ arena_make_from_virtual_mem(u64 size) {
   // mappings.
   *(u8 *)alloc = 0;
 
-  return (Arena){.start = alloc, .end = (u8 *)alloc + size};
+  return (PgArena){.start = alloc, .end = (u8 *)alloc + size};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError os_sendfile(int fd_in, int fd_out,
@@ -955,7 +955,7 @@ pg_string_indexof_unescaped_byte(PgString haystack, u8 needle) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_clone(PgString s,
-                                                               Arena *arena) {
+                                                               PgArena *arena) {
   PgString res = pg_string_make(s.len, arena);
   if (res.data != nullptr) {
     memcpy(res.data, s.data, s.len);
@@ -974,7 +974,7 @@ pg_string_indexof_unescaped_byte(PgString haystack, u8 needle) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_string_ieq_ascii(PgString a, PgString b, Arena *arena) {
+pg_string_ieq_ascii(PgString a, PgString b, PgArena *arena) {
   if (a.data == nullptr && b.data == nullptr && a.len == b.len) {
     return true;
   }
@@ -993,7 +993,7 @@ pg_string_ieq_ascii(PgString a, PgString b, Arena *arena) {
   PG_ASSERT(b.data != nullptr);
   PG_ASSERT(a.len == b.len);
 
-  Arena tmp = *arena;
+  PgArena tmp = *arena;
   PgString a_clone = pg_string_clone(a, &tmp);
   PgString b_clone = pg_string_clone(b, &tmp);
 
@@ -1012,7 +1012,7 @@ pg_string_ieq_ascii(PgString a, PgString b, Arena *arena) {
 
 // TODO: Windows.
 [[maybe_unused]] static PgStringResult file_read_full(PgString path,
-                                                      Arena *arena) {
+                                                      PgArena *arena) {
 
   PgStringResult res = {0};
   char *path_c = pg_string_to_cstr(path, arena);
@@ -1068,7 +1068,7 @@ typedef struct {
 PG_DYN(Ipv4Address) PgIpv4AddressDyn;
 
 [[maybe_unused]] [[nodiscard]] static PgString
-make_unique_id_u128_string(Arena *arena) {
+make_unique_id_u128_string(PgArena *arena) {
   u128 id = 0;
   arc4random_buf(&id, sizeof(id));
 
@@ -1079,7 +1079,7 @@ make_unique_id_u128_string(Arena *arena) {
 }
 
 [[maybe_unused]] static void url_encode_string(Pgu8Dyn *sb, PgString key,
-                                               PgString value, Arena *arena) {
+                                               PgString value, PgArena *arena) {
   for (u64 i = 0; i < key.len; i++) {
     u8 c = PG_SLICE_AT(key, i);
     if (pg_character_is_alphanumeric(c)) {
@@ -1104,7 +1104,7 @@ make_unique_id_u128_string(Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-ipv4_address_to_string(Ipv4Address address, Arena *arena) {
+ipv4_address_to_string(Ipv4Address address, PgArena *arena) {
   Pgu8Dyn sb = {0};
   dynu8_append_u64_to_string(&sb, (address.ip >> 24) & 0xFF, arena);
   *dyn_push(&sb, arena) = '.';
@@ -1184,7 +1184,7 @@ typedef struct {
 } Ipv4AddressSocket;
 PG_RESULT(Ipv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
 [[maybe_unused]] [[nodiscard]] static PgDnsResolveIpv4AddressSocketResult
-net_dns_resolve_ipv4_tcp(PgString host, u16 port, Arena arena);
+net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena);
 
 [[maybe_unused]] [[nodiscard]] static PgError net_tcp_listen(Socket sock);
 
@@ -1243,7 +1243,7 @@ aio_queue_ctl_one(AioQueue queue, PgAioEvent event) {
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
-               Arena arena);
+               PgArena arena);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #include <arpa/inet.h>
@@ -1291,7 +1291,7 @@ static PgError net_connect_ipv4(Socket sock, Ipv4Address address) {
 }
 
 static PgDnsResolveIpv4AddressSocketResult
-net_dns_resolve_ipv4_tcp(PgString host, u16 port, Arena arena) {
+net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
   PgDnsResolveIpv4AddressSocketResult res = {0};
 
   struct addrinfo hints = {0};
@@ -1487,7 +1487,7 @@ aio_queue_ctl(AioQueue queue, PgAioEventSlice events) {
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
-               Arena arena) {
+               PgArena arena) {
   Pgu64Result res = {0};
   if (PG_SLICE_IS_EMPTY(events)) {
     return res;
@@ -1626,7 +1626,7 @@ unix_write(void *self, u8 *buf, size_t buf_len) {
 
 typedef struct {
   Pgu8Dyn sb;
-  Arena *arena;
+  PgArena *arena;
 } StringBuilder;
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
@@ -1808,13 +1808,13 @@ ring_buffer_read_slice(RingBuffer *rg, PgString data) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringOk
-ring_buffer_read_until_excl(RingBuffer *rg, PgString needle, Arena *arena) {
+ring_buffer_read_until_excl(RingBuffer *rg, PgString needle, PgArena *arena) {
   PgStringOk res = {0};
   i64 idx = -1;
 
   {
     RingBuffer cpy_rg = *rg;
-    Arena cpy_arena = *arena;
+    PgArena cpy_arena = *arena;
 
     PgString dst = pg_string_make(ring_buffer_read_space(*rg), arena);
     PG_ASSERT(ring_buffer_read_slice(rg, dst));
@@ -1833,7 +1833,7 @@ ring_buffer_read_until_excl(RingBuffer *rg, PgString needle, Arena *arena) {
 
   // Read and throw away the needle.
   {
-    Arena arena_tmp = *arena;
+    PgArena arena_tmp = *arena;
     PgString dst_needle = pg_string_make(needle.len, &arena_tmp);
     PG_ASSERT(ring_buffer_read_slice(rg, dst_needle));
     PG_ASSERT(pg_string_eq(needle, dst_needle));
@@ -2028,12 +2028,12 @@ http_parse_response_status_line(PgString status_line) {
 
 [[maybe_unused]]
 static void http_push_header(DynKeyValue *headers, PgString key, PgString value,
-                             Arena *arena) {
+                             PgArena *arena) {
   *dyn_push(headers, arena) = (KeyValue){.key = key, .value = value};
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-http_request_write_status_line(RingBuffer *rg, HttpRequest req, Arena arena) {
+http_request_write_status_line(RingBuffer *rg, HttpRequest req, PgArena arena) {
   Pgu8Dyn sb = {0};
   dyn_ensure_cap(&sb, 128, &arena);
   dyn_append_slice(&sb, http_method_to_s(req.method), &arena);
@@ -2068,7 +2068,7 @@ http_request_write_status_line(RingBuffer *rg, HttpRequest req, Arena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-http_response_write_status_line(RingBuffer *rg, HttpResponse res, Arena arena) {
+http_response_write_status_line(RingBuffer *rg, HttpResponse res, PgArena arena) {
   Pgu8Dyn sb = {0};
   dyn_ensure_cap(&sb, 128, &arena);
   dyn_append_slice(&sb, PG_S("HTTP/"), &arena);
@@ -2086,7 +2086,7 @@ http_response_write_status_line(RingBuffer *rg, HttpResponse res, Arena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-http_write_header(RingBuffer *rg, KeyValue header, Arena arena) {
+http_write_header(RingBuffer *rg, KeyValue header, PgArena arena) {
   Pgu8Dyn sb = {0};
   dyn_ensure_cap(&sb, 128, &arena);
   dyn_append_slice(&sb, header.key, &arena);
@@ -2103,7 +2103,7 @@ http_write_header(RingBuffer *rg, KeyValue header, Arena arena) {
 // To include the string inside other context (e.g. JS, CSS, HTML attributes,
 // etc), more advance sanitation is required.
 [[maybe_unused]] [[nodiscard]] static PgString html_sanitize(PgString s,
-                                                             Arena *arena) {
+                                                             PgArena *arena) {
   Pgu8Dyn res = {0};
   dyn_ensure_cap(&res, s.len, arena);
   for (u64 i = 0; i < s.len; i++) {
@@ -2144,7 +2144,7 @@ PG_RESULT(UrlAuthority) PgUrlAuthorityResult;
 PG_RESULT(Url) PgUrlResult;
 
 [[maybe_unused]] [[nodiscard]] static PgStringDynResult
-url_parse_path_components(PgString s, Arena *arena) {
+url_parse_path_components(PgString s, PgArena *arena) {
   PgStringDynResult res = {0};
 
   if (-1 != pg_string_indexof_any_byte(s, PG_S("?#:"))) {
@@ -2182,7 +2182,7 @@ url_parse_path_components(PgString s, Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgDynKeyValueResult
-url_parse_query_parameters(PgString s, Arena *arena) {
+url_parse_query_parameters(PgString s, PgArena *arena) {
   PgDynKeyValueResult res = {0};
 
   PgString remaining = s;
@@ -2330,7 +2330,7 @@ url_is_scheme_valid(PgString scheme) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgUrlResult
-url_parse_after_authority(PgString s, Arena *arena) {
+url_parse_after_authority(PgString s, PgArena *arena) {
   PgUrlResult res = {0};
   PgString remaining = s;
 
@@ -2375,7 +2375,7 @@ url_parse_after_authority(PgString s, Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgUrlResult url_parse(PgString s,
-                                                            Arena *arena) {
+                                                            PgArena *arena) {
   PgUrlResult res = {0};
 
   PgString remaining = s;
@@ -2453,7 +2453,7 @@ url_parse_after_authority(PgString s, Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestStatusLineResult
-http_parse_request_status_line(PgString status_line, Arena *arena) {
+http_parse_request_status_line(PgString status_line, PgArena *arena) {
   PgHttpRequestStatusLineResult res = {0};
 
   PgString remaining = status_line;
@@ -2593,7 +2593,7 @@ typedef struct {
 } HttpRequestReadResult;
 
 [[maybe_unused]] [[nodiscard]] static HttpResponseReadResult
-http_read_response(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
+http_read_response(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
   HttpResponseReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
@@ -2643,7 +2643,7 @@ http_read_response(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static HttpRequestReadResult
-http_read_request(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
+http_read_request(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
   HttpRequestReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
@@ -2694,7 +2694,7 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
 }
 
 [[maybe_unused]] static PgError
-http_write_request(RingBuffer *rg, HttpRequest res, Arena arena) {
+http_write_request(RingBuffer *rg, HttpRequest res, PgArena arena) {
   if (!http_request_write_status_line(rg, res, arena)) {
     return (PgError)ENOMEM;
   }
@@ -2713,7 +2713,7 @@ http_write_request(RingBuffer *rg, HttpRequest res, Arena arena) {
 }
 
 [[maybe_unused]] static PgError
-http_write_response(RingBuffer *rg, HttpResponse res, Arena arena) {
+http_write_response(RingBuffer *rg, HttpResponse res, PgArena arena) {
   if (!http_response_write_status_line(rg, res, arena)) {
     return (PgError)ENOMEM;
   }
@@ -2753,7 +2753,7 @@ writer_make_from_string_builder(StringBuilder *sb) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-reader_read(Reader *r, RingBuffer *rg, Arena arena) {
+reader_read(Reader *r, RingBuffer *rg, PgArena arena) {
   PG_ASSERT(nullptr != r->read_fn);
 
   Pgu64Result res = {0};
@@ -2771,7 +2771,7 @@ reader_read(Reader *r, RingBuffer *rg, Arena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-writer_write(Writer *w, RingBuffer *rg, Arena arena) {
+writer_write(Writer *w, RingBuffer *rg, PgArena arena) {
   PG_ASSERT(nullptr != w->write_fn);
 
   PgString dst = pg_string_make(ring_buffer_read_space(*rg), &arena);
@@ -2782,7 +2782,7 @@ writer_write(Writer *w, RingBuffer *rg, Arena arena) {
 
 #if 0
 [[nodiscard]] static PgParseNumberResult
-request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
+request_parse_content_length_maybe(HttpRequest req, PgArena *arena) {
   PG_ASSERT(!req.err);
 
   for (u64 i = 0; i < req.headers.len; i++) {
@@ -2798,7 +2798,7 @@ request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static HttpResponse
-http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
+http_client_request(Ipv4AddressSocket sock, HttpRequest req, PgArena *arena) {
   HttpResponse res = {0};
 
   if (!PG_SLICE_IS_EMPTY(req.path_raw)) {
@@ -2924,7 +2924,7 @@ typedef struct {
 
 [[nodiscard]] static FormDataKVElementParseResult
 form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
-                           Arena *arena) {
+                           PgArena *arena) {
   FormDataKVElementParseResult res = {0};
   Pgu8Dyn data = {0};
 
@@ -2965,7 +2965,7 @@ form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
 }
 
 [[nodiscard]] static FormDataKVParseResult form_data_kv_parse(PgString in,
-                                                              Arena *arena) {
+                                                              PgArena *arena) {
   FormDataKVParseResult res = {0};
 
   PgString remaining = in;
@@ -2993,7 +2993,7 @@ form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
 }
 
 [[maybe_unused]] [[nodiscard]] static FormDataParseResult
-form_data_parse(PgString in, Arena *arena) {
+form_data_parse(PgString in, PgArena *arena) {
   FormDataParseResult res = {0};
 
   PgString remaining = in;
@@ -3061,7 +3061,7 @@ typedef struct {
 } HtmlDocument;
 
 [[maybe_unused]] [[nodiscard]] static HtmlDocument html_make(PgString title,
-                                                             Arena *arena) {
+                                                             PgArena *arena) {
   HtmlDocument res = {0};
 
   {
@@ -3090,7 +3090,7 @@ typedef struct {
 }
 
 static void html_attributes_to_string(DynKeyValue attributes, Pgu8Dyn *sb,
-                                      Arena *arena) {
+                                      PgArena *arena) {
   for (u64 i = 0; i < attributes.len; i++) {
     KeyValue attr = dyn_at(attributes, i);
     PG_ASSERT(-1 == pg_string_indexof_string(attr.key, PG_S("\"")));
@@ -3106,11 +3106,11 @@ static void html_attributes_to_string(DynKeyValue attributes, Pgu8Dyn *sb,
 }
 
 static void html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
-                                Arena *arena);
-static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, Arena *arena);
+                                PgArena *arena);
+static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, PgArena *arena);
 
 static void html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
-                                Arena *arena) {
+                                PgArena *arena) {
   for (u64 i = 0; i < elements.len; i++) {
     HtmlElement e = dyn_at(elements, i);
     html_tag_to_string(e, sb, arena);
@@ -3119,7 +3119,7 @@ static void html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
 
 [[maybe_unused]]
 static void html_document_to_string(HtmlDocument doc, Pgu8Dyn *sb,
-                                    Arena *arena) {
+                                    PgArena *arena) {
   dyn_append_slice(sb, PG_S("<!DOCTYPE html>"), arena);
 
   dyn_append_slice(sb, PG_S("<html>"), arena);
@@ -3128,7 +3128,7 @@ static void html_document_to_string(HtmlDocument doc, Pgu8Dyn *sb,
   dyn_append_slice(sb, PG_S("</html>"), arena);
 }
 
-static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, Arena *arena) {
+static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, PgArena *arena) {
   static const PgString tag_to_string[HTML_MAX] = {
       [HTML_NONE] = PG_S("FIXME"),
       [HTML_TITLE] = PG_S("title"),
@@ -3220,7 +3220,7 @@ static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, Arena *arena) {
 
 [[maybe_unused]] [[nodiscard]] static PgString
 http_req_extract_cookie_with_name(HttpRequest req, PgString cookie_name,
-                                  Arena *arena) {
+                                  PgArena *arena) {
   PgString res = {0};
   {
     for (u64 i = 0; i < req.headers.len; i++) {
@@ -3378,7 +3378,7 @@ log_level_to_string(LogLevel level) {
     if ((logger)->level > (lvl)) {                                             \
       break;                                                                   \
     };                                                                         \
-    Arena xxx_tmp_arena = (arena);                                             \
+    PgArena xxx_tmp_arena = (arena);                                             \
     PgString xxx_log_line =                                                    \
         log_make_log_line(lvl, PG_S(msg), &xxx_tmp_arena,                      \
                           LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);           \
@@ -3387,7 +3387,7 @@ log_level_to_string(LogLevel level) {
   } while (0)
 
 [[maybe_unused]] [[nodiscard]] static PgString
-json_escape_string(PgString entry, Arena *arena) {
+json_escape_string(PgString entry, PgArena *arena) {
   Pgu8Dyn sb = {0};
   *dyn_push(&sb, arena) = '"';
 
@@ -3424,7 +3424,7 @@ json_escape_string(PgString entry, Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-json_unescape_string(PgString entry, Arena *arena) {
+json_unescape_string(PgString entry, PgArena *arena) {
   Pgu8Dyn sb = {0};
 
   for (u64 i = 0; i < entry.len; i++) {
@@ -3466,7 +3466,7 @@ json_unescape_string(PgString entry, Arena *arena) {
 
 [[maybe_unused]] static void
 dynu8_append_json_object_key_string_value_string(Pgu8Dyn *sb, PgString key,
-                                                 PgString value, Arena *arena) {
+                                                 PgString value, PgArena *arena) {
   PgString json_key = json_escape_string(key, arena);
   dyn_append_slice(sb, json_key, arena);
 
@@ -3480,7 +3480,7 @@ dynu8_append_json_object_key_string_value_string(Pgu8Dyn *sb, PgString key,
 
 [[maybe_unused]] static void
 dynu8_append_json_object_key_string_value_u64(Pgu8Dyn *sb, PgString key,
-                                              u64 value, Arena *arena) {
+                                              u64 value, PgArena *arena) {
   PgString json_key = json_escape_string(key, arena);
   dyn_append_slice(sb, json_key, arena);
 
@@ -3492,7 +3492,7 @@ dynu8_append_json_object_key_string_value_u64(Pgu8Dyn *sb, PgString key,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-log_make_log_line(LogLevel level, PgString msg, Arena *arena, i32 args_count,
+log_make_log_line(LogLevel level, PgString msg, PgArena *arena, i32 args_count,
                   ...) {
   struct timespec monotonic = {0};
   clock_gettime(CLOCK_MONOTONIC, &monotonic);
@@ -3544,7 +3544,7 @@ log_make_log_line(LogLevel level, PgString msg, Arena *arena, i32 args_count,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-json_encode_string_slice(PgStringSlice strings, Arena *arena) {
+json_encode_string_slice(PgStringSlice strings, PgArena *arena) {
   Pgu8Dyn sb = {0};
   *dyn_push(&sb, arena) = '[';
 
@@ -3564,7 +3564,7 @@ json_encode_string_slice(PgStringSlice strings, Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringSliceResult
-json_decode_string_slice(PgString s, Arena *arena) {
+json_decode_string_slice(PgString s, PgArena *arena) {
   PgStringSliceResult res = {0};
   if (s.len < 2) {
     res.err = EINVAL;
