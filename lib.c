@@ -57,7 +57,7 @@ typedef int64_t i64;
 
 #define PG_RESULT(T)                                                           \
   typedef struct {                                                             \
-    Error err;                                                                 \
+    PgError err;                                                                 \
     T res;                                                                     \
   }
 
@@ -67,7 +67,7 @@ typedef int64_t i64;
     bool ok;                                                                   \
   } T##Ok
 
-typedef u32 Error;
+typedef u32 PgError;
 PG_RESULT(u64) u64Result;
 
 PG_DYN(u8);
@@ -895,22 +895,22 @@ arena_make_from_virtual_mem(u64 size) {
   return (Arena){.start = alloc, .end = (u8 *)alloc + size};
 }
 
-[[maybe_unused]] [[nodiscard]] static Error os_sendfile(int fd_in, int fd_out,
+[[maybe_unused]] [[nodiscard]] static PgError os_sendfile(int fd_in, int fd_out,
                                                         u64 n_bytes) {
 #if defined(__linux__)
 #include <sys/sendfile.h>
   ssize_t res = sendfile(fd_out, fd_in, nullptr, n_bytes);
   if (res == -1) {
-    return (Error)errno;
+    return (PgError)errno;
   }
   if (res != (ssize_t)n_bytes) {
-    return (Error)EAGAIN;
+    return (PgError)EAGAIN;
   }
   return 0;
 #elif defined(__FreeBSD__)
   int res = sendfile(fd_in, fd_out, 0, n_bytes, nullptr, nullptr, 0);
   if (res == -1) {
-    return (Error)errno;
+    return (PgError)errno;
   }
   return 0;
 #else
@@ -1019,13 +1019,13 @@ string_indexof_unescaped_byte(String haystack, u8 needle) {
 
   int fd = open(path_c, O_RDONLY);
   if (fd < 0) {
-    res.err = (Error)errno;
+    res.err = (PgError)errno;
     return res;
   }
 
   struct stat st = {0};
   if (-1 == stat(path_c, &st)) {
-    res.err = (Error)errno;
+    res.err = (PgError)errno;
     goto end;
   }
 
@@ -1040,12 +1040,12 @@ string_indexof_unescaped_byte(String haystack, u8 needle) {
     String space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
     ssize_t read_n = read(fd, space.data, space.len);
     if (-1 == read_n) {
-      res.err = (Error)errno;
+      res.err = (PgError)errno;
       goto end;
     }
 
     if (0 == read_n) {
-      res.err = (Error)EINVAL;
+      res.err = (PgError)EINVAL;
       goto end;
     }
 
@@ -1165,7 +1165,7 @@ PG_RESULT(Timer) TimerResult;
 [[maybe_unused]] [[nodiscard]] static TimerResult
 pg_timer_create(ClockKind clock_kind, u64 ns);
 
-[[maybe_unused]] [[nodiscard]] static Error pg_timer_release(Timer timer);
+[[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(Timer timer);
 
 [[maybe_unused]] [[nodiscard]] static u64Result
 pg_time_ns_now(ClockKind clock_kind);
@@ -1173,10 +1173,10 @@ pg_time_ns_now(ClockKind clock_kind);
 PG_RESULT(Socket) CreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static CreateSocketResult
 net_create_tcp_socket();
-[[maybe_unused]] [[nodiscard]] static Error net_socket_close(Socket sock);
-[[maybe_unused]] [[nodiscard]] static Error net_set_nodelay(Socket sock,
+[[maybe_unused]] [[nodiscard]] static PgError net_socket_close(Socket sock);
+[[maybe_unused]] [[nodiscard]] static PgError net_set_nodelay(Socket sock,
                                                             bool enabled);
-[[maybe_unused]] [[nodiscard]] static Error
+[[maybe_unused]] [[nodiscard]] static PgError
 net_connect_ipv4(Socket sock, Ipv4Address address);
 typedef struct {
   Ipv4Address address;
@@ -1186,20 +1186,20 @@ PG_RESULT(Ipv4AddressSocket) DnsResolveIpv4AddressSocketResult;
 [[maybe_unused]] [[nodiscard]] static DnsResolveIpv4AddressSocketResult
 net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena);
 
-[[maybe_unused]] [[nodiscard]] static Error net_tcp_listen(Socket sock);
+[[maybe_unused]] [[nodiscard]] static PgError net_tcp_listen(Socket sock);
 
-[[maybe_unused]] [[nodiscard]] static Error net_tcp_bind_ipv4(Socket sock,
+[[maybe_unused]] [[nodiscard]] static PgError net_tcp_bind_ipv4(Socket sock,
                                                               Ipv4Address addr);
-[[maybe_unused]] [[nodiscard]] static Error
+[[maybe_unused]] [[nodiscard]] static PgError
 net_socket_enable_reuse(Socket sock);
 
-[[maybe_unused]] [[nodiscard]] static Error
+[[maybe_unused]] [[nodiscard]] static PgError
 net_socket_set_blocking(Socket sock, bool blocking);
 
 typedef struct {
   Ipv4Address addr;
   Socket socket;
-  Error err;
+  PgError err;
 } Ipv4AddressAcceptResult;
 [[maybe_unused]] [[nodiscard]] static Ipv4AddressAcceptResult
 net_tcp_accept(Socket sock);
@@ -1232,10 +1232,10 @@ typedef struct {
 PG_SLICE(AioEvent);
 PG_DYN(AioEvent);
 
-[[maybe_unused]] [[nodiscard]] static Error aio_queue_ctl(AioQueue queue,
+[[maybe_unused]] [[nodiscard]] static PgError aio_queue_ctl(AioQueue queue,
                                                           AioEventSlice events);
 
-[[maybe_unused]] [[nodiscard]] static Error aio_queue_ctl_one(AioQueue queue,
+[[maybe_unused]] [[nodiscard]] static PgError aio_queue_ctl_one(AioQueue queue,
                                                               AioEvent event) {
   AioEventSlice events = {.data = &event, .len = 1};
   return aio_queue_ctl(queue, events);
@@ -1256,7 +1256,7 @@ static CreateSocketResult net_create_tcp_socket() {
 
   Socket sock_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (-1 == sock_fd) {
-    res.err = (Error)errno;
+    res.err = (PgError)errno;
     return res;
   }
 
@@ -1265,18 +1265,18 @@ static CreateSocketResult net_create_tcp_socket() {
   return res;
 }
 
-static Error net_socket_close(Socket sock) { return (Error)close(sock); }
+static PgError net_socket_close(Socket sock) { return (PgError)close(sock); }
 
-static Error net_set_nodelay(Socket sock, bool enabled) {
+static PgError net_set_nodelay(Socket sock, bool enabled) {
   int opt = enabled;
   if (-1 == setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
-    return (Error)errno;
+    return (PgError)errno;
   }
 
   return 0;
 }
 
-static Error net_connect_ipv4(Socket sock, Ipv4Address address) {
+static PgError net_connect_ipv4(Socket sock, Ipv4Address address) {
   struct sockaddr_in addr = {
       .sin_family = AF_INET,
       .sin_port = htons(address.port),
@@ -1284,7 +1284,7 @@ static Error net_connect_ipv4(Socket sock, Ipv4Address address) {
   };
 
   if (-1 == connect(sock, (struct sockaddr *)&addr, sizeof(addr))) {
-    return (Error)errno;
+    return (PgError)errno;
   }
 
   return 0;
@@ -1340,11 +1340,11 @@ net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Error
+[[maybe_unused]] [[nodiscard]] static PgError
 net_socket_set_blocking(Socket sock, bool blocking) {
   int flags = fcntl(sock, F_GETFL);
   if (-1 == flags) {
-    return (Error)errno;
+    return (PgError)errno;
   }
 
   if (blocking) {
@@ -1353,21 +1353,21 @@ net_socket_set_blocking(Socket sock, bool blocking) {
     flags |= O_NONBLOCK;
   }
   if (-1 == fcntl(sock, F_SETFL, flags)) {
-    return (Error)errno;
+    return (PgError)errno;
   }
 
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static Error net_tcp_listen(Socket sock) {
+[[maybe_unused]] [[nodiscard]] static PgError net_tcp_listen(Socket sock) {
   if (-1 == listen(sock, 1024)) {
-    return (Error)errno;
+    return (PgError)errno;
   }
 
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static Error
+[[maybe_unused]] [[nodiscard]] static PgError
 net_tcp_bind_ipv4(Socket sock, Ipv4Address addr) {
   struct sockaddr_in addrin = {0};
   addrin.sin_family = AF_INET;
@@ -1375,21 +1375,21 @@ net_tcp_bind_ipv4(Socket sock, Ipv4Address addr) {
   addrin.sin_addr.s_addr = htonl(addr.ip);
 
   if (-1 == bind(sock, (struct sockaddr *)&addrin, sizeof(addrin))) {
-    return (Error)errno;
+    return (PgError)errno;
   }
 
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static Error
+[[maybe_unused]] [[nodiscard]] static PgError
 net_socket_enable_reuse(Socket sock) {
   int val = 1;
   if (-1 == setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val))) {
-    return (Error)errno;
+    return (PgError)errno;
   }
 
   if (-1 == setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val))) {
-    return (Error)errno;
+    return (PgError)errno;
   }
   return 0;
 }
@@ -1405,7 +1405,7 @@ net_tcp_accept(Socket sock) {
   int sock_client =
       accept(sock, (struct sockaddr *)&sockaddrin, &sockaddrin_len);
   if (-1 == sock_client) {
-    res.err = (Error)errno;
+    res.err = (PgError)errno;
     return res;
   }
 
@@ -1428,13 +1428,13 @@ net_tcp_accept(Socket sock) {
   AioQueueCreateResult res = {0};
   int queue = epoll_create(1 /* Ignored */);
   if (-1 == queue) {
-    res.err = (Error)errno;
+    res.err = (PgError)errno;
   }
   res.res = (AioQueue)queue;
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Error
+[[maybe_unused]] [[nodiscard]] static PgError
 aio_queue_ctl(AioQueue queue, AioEventSlice events) {
   for (u64 i = 0; i < events.len; i++) {
     AioEvent event = slice_at(events, i);
@@ -1476,7 +1476,7 @@ aio_queue_ctl(AioQueue queue, AioEventSlice events) {
     int res_epoll =
         epoll_ctl((int)queue, op, epoll_event.data.fd, &epoll_event);
     if (-1 == res_epoll) {
-      return (Error)errno;
+      return (PgError)errno;
     }
   }
 
@@ -1497,7 +1497,7 @@ aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
   int res_epoll =
       epoll_wait((int)queue, epoll_events, (int)events.len, (int)timeout_ms);
   if (-1 == res_epoll) {
-    res.err = (Error)errno;
+    res.err = (PgError)errno;
     return res;
   }
   res.res = (u64)res_epoll;
@@ -1537,7 +1537,7 @@ pg_timer_create(ClockKind clock, u64 ns) {
 
   int ret = timerfd_create(linux_clock(clock), TFD_NONBLOCK);
   if (-1 == ret) {
-    res.err = (Error)errno;
+    res.err = (PgError)errno;
     return res;
   }
 
@@ -1548,18 +1548,18 @@ pg_timer_create(ClockKind clock, u64 ns) {
   ts.it_value.tv_nsec = ns % PG_Seconds;
   ret = timerfd_settime((int)res.res, 0, &ts, nullptr);
   if (-1 == ret) {
-    res.err = (Error)errno;
+    res.err = (PgError)errno;
     return res;
   }
 
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Error pg_timer_release(Timer timer) {
+[[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(Timer timer) {
   if (-1 == close((int)timer)) {
-    return (Error)errno;
+    return (PgError)errno;
   }
-  return (Error)0;
+  return (PgError)0;
 }
 
 [[maybe_unused]] [[nodiscard]] static u64Result
@@ -1569,7 +1569,7 @@ pg_time_ns_now(ClockKind clock) {
   struct timespec ts = {0};
   int ret = clock_gettime(linux_clock(clock), &ts);
   if (-1 == ret) {
-    res.err = (Error)errno;
+    res.err = (PgError)errno;
     return res;
   }
 
@@ -1595,7 +1595,7 @@ typedef u64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
   u64Result res = {0};
   if (n < 0) {
-    res.err = (Error)errno;
+    res.err = (PgError)errno;
   } else {
     res.res = (u64)n;
   }
@@ -1614,7 +1614,7 @@ typedef u64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
   u64Result res = {0};
   if (n < 0) {
-    res.err = (Error)errno;
+    res.err = (PgError)errno;
   } else {
     res.res = (u64)n;
   }
@@ -2578,13 +2578,13 @@ http_parse_header(String s) {
 typedef struct {
   bool done;
   HttpResponse res;
-  Error err;
+  PgError err;
 } HttpResponseReadResult;
 
 typedef struct {
   bool done;
   HttpRequest res;
-  Error err;
+  PgError err;
 } HttpRequestReadResult;
 
 [[maybe_unused]] [[nodiscard]] static HttpResponseReadResult
@@ -2688,41 +2688,41 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
   return res;
 }
 
-[[maybe_unused]] static Error http_write_request(RingBuffer *rg,
+[[maybe_unused]] static PgError http_write_request(RingBuffer *rg,
                                                  HttpRequest res, Arena arena) {
   if (!http_request_write_status_line(rg, res, arena)) {
-    return (Error)ENOMEM;
+    return (PgError)ENOMEM;
   }
 
   for (u64 i = 0; i < res.headers.len; i++) {
     KeyValue header = dyn_at(res.headers, i);
     if (!http_write_header(rg, header, arena)) {
-      return (Error)ENOMEM;
+      return (PgError)ENOMEM;
     }
   }
   if (!ring_buffer_write_slice(rg, S("\r\n"))) {
-    return (Error)ENOMEM;
+    return (PgError)ENOMEM;
   }
 
-  return (Error)0;
+  return (PgError)0;
 }
 
-[[maybe_unused]] static Error
+[[maybe_unused]] static PgError
 http_write_response(RingBuffer *rg, HttpResponse res, Arena arena) {
   if (!http_response_write_status_line(rg, res, arena)) {
-    return (Error)ENOMEM;
+    return (PgError)ENOMEM;
   }
   for (u64 i = 0; i < res.headers.len; i++) {
     KeyValue header = dyn_at(res.headers, i);
     if (!http_write_header(rg, header, arena)) {
-      return (Error)ENOMEM;
+      return (PgError)ENOMEM;
     }
   }
   if (!ring_buffer_write_slice(rg, S("\r\n"))) {
 
-    return (Error)ENOMEM;
+    return (PgError)ENOMEM;
   }
-  return (Error)0;
+  return (PgError)0;
 }
 
 [[maybe_unused]] [[nodiscard]] static Reader
@@ -2902,18 +2902,18 @@ typedef struct {
 typedef struct {
   // NOTE: Repeated keys are allowed, that's how 'arrays' are encoded.
   DynFormData form;
-  Error err;
+  PgError err;
 } FormDataParseResult;
 
 typedef struct {
   FormDataKV kv;
-  Error err;
+  PgError err;
   String remaining;
 } FormDataKVParseResult;
 
 typedef struct {
   String data;
-  Error err;
+  PgError err;
   String remaining;
 } FormDataKVElementParseResult;
 

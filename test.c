@@ -1642,7 +1642,7 @@ static void test_timer() {
         .kind = AIO_EVENT_KIND_IN,
         .action = AIO_EVENT_ACTION_KIND_ADD,
     };
-    Error err = aio_queue_ctl_one(queue, event_change);
+    PgError err = aio_queue_ctl_one(queue, event_change);
     ASSERT(0 == err);
   }
 
