@@ -937,7 +937,7 @@ static void test_net_socket() {
   PgSocket bob_socket = 0;
   PgReader bob_reader = {0};
 
-  PgWriter alice_writer = writer_make_from_socket(socket_alice);
+  PgWriter alice_writer = pg_writer_make_from_socket(socket_alice);
 
   RingBuffer bob_recv = {.data = pg_string_make(4 + 1, &arena)};
   RingBuffer alice_send = {.data = pg_string_make(4 + 1, &arena)};
@@ -966,7 +966,7 @@ static void test_net_socket() {
         event_alice->action = PG_AIO_EVENT_ACTION_ADD;
 
         bob_socket = res_accept.socket;
-        bob_reader = reader_make_from_socket(bob_socket);
+        bob_reader = pg_reader_make_from_socket(bob_socket);
 
         PgAioEvent *event_bob = PG_SLICE_AT_PTR(&events_change, 1);
         event_bob->socket = res_accept.socket;
@@ -981,7 +981,7 @@ static void test_net_socket() {
         switch (alice_state) {
         case ALICE_STATE_NONE: {
           PG_ASSERT(true == pg_ring_write_slice(&alice_send, PG_S("ping")));
-          PG_ASSERT(0 == writer_write(&alice_writer, &alice_send, arena).err);
+          PG_ASSERT(0 == pg_writer_write(&alice_writer, &alice_send, arena).err);
           alice_state = ALICE_STATE_DONE;
         } break;
         case ALICE_STATE_DONE:
@@ -992,7 +992,7 @@ static void test_net_socket() {
       } else if (event.socket == bob_socket) {
         PG_ASSERT(PG_AIO_EVENT_KIND_IN & event.kind);
 
-        PG_ASSERT(0 == reader_read(&bob_reader, &bob_recv, arena).err);
+        PG_ASSERT(0 == pg_reader_read(&bob_reader, &bob_recv, arena).err);
 
         if (4 == pg_ring_read_space(bob_recv)) {
           goto end; // End of test.
@@ -1450,8 +1450,8 @@ static void test_http_request_response() {
   PgReader server_reader = {0};
   PgWriter server_writer = {0};
 
-  PgWriter client_writer = writer_make_from_socket(client_socket);
-  PgReader client_reader = reader_make_from_socket(client_socket);
+  PgWriter client_writer = pg_writer_make_from_socket(client_socket);
+  PgReader client_reader = pg_reader_make_from_socket(client_socket);
 
   RingBuffer client_recv = {.data = pg_string_make(128, &arena)};
   RingBuffer client_send = {.data = pg_string_make(128, &arena)};
@@ -1504,8 +1504,8 @@ static void test_http_request_response() {
         event_client->action = PG_AIO_EVENT_ACTION_ADD;
 
         server_socket = res_accept.socket;
-        server_reader = reader_make_from_socket(server_socket);
-        server_writer = writer_make_from_socket(server_socket);
+        server_reader = pg_reader_make_from_socket(server_socket);
+        server_writer = pg_writer_make_from_socket(server_socket);
 
         PgAioEvent *event_server_client = PG_SLICE_AT_PTR(&events_change, 1);
         event_server_client->socket = res_accept.socket;
@@ -1521,7 +1521,7 @@ static void test_http_request_response() {
             PG_ASSERT(true == pg_ring_write_slice(
                                   &client_send, PG_S("client request body")));
             PG_ASSERT(0 ==
-                      writer_write(&client_writer, &client_send, arena).err);
+                      pg_writer_write(&client_writer, &client_send, arena).err);
             client_send_http_io_done = true;
 
             // Stop subscribing for writing, start subscribing for reading.
@@ -1537,7 +1537,7 @@ static void test_http_request_response() {
         if (PG_AIO_EVENT_KIND_IN & event.kind) {
           if (!client_recv_http_io_done) {
             PG_ASSERT(0 ==
-                      reader_read(&client_reader, &client_recv, arena).err);
+                      pg_reader_read(&client_reader, &client_recv, arena).err);
             HttpResponseReadResult res =
                 http_read_response(&client_recv, 128, &arena);
             PG_ASSERT(0 == res.err);
@@ -1551,7 +1551,7 @@ static void test_http_request_response() {
         if (PG_AIO_EVENT_KIND_IN & event.kind) {
           if (!server_recv_http_io_done) {
             PG_ASSERT(0 ==
-                      reader_read(&server_reader, &server_recv, arena).err);
+                      pg_reader_read(&server_reader, &server_recv, arena).err);
             HttpRequestReadResult res =
                 http_read_request(&server_recv, 128, &arena);
             PG_ASSERT(0 == res.err);
@@ -1574,7 +1574,7 @@ static void test_http_request_response() {
             PG_ASSERT(0 ==
                       http_write_response(&server_send, server_res, arena));
             PG_ASSERT(0 ==
-                      writer_write(&server_writer, &server_send, arena).err);
+                      pg_writer_write(&server_writer, &server_send, arena).err);
             server_send_http_io_done = true;
 
             // Stop subscribing.
@@ -1624,7 +1624,7 @@ static void test_log() {
   {
     StringBuilder sb = {.arena = &arena};
     Logger logger = log_logger_make_stdout_json(LOG_LEVEL_DEBUG);
-    logger.writer = writer_make_from_string_builder(&sb);
+    logger.writer = pg_writer_make_from_string_builder(&sb);
 
     logger_log(&logger, LOG_LEVEL_INFO, "hello world", arena,
                L("foo", PG_S("bar")));
@@ -1636,7 +1636,7 @@ static void test_log() {
   {
     StringBuilder sb = {.arena = &arena};
     Logger logger = log_logger_make_stdout_json(LOG_LEVEL_INFO);
-    logger.writer = writer_make_from_string_builder(&sb);
+    logger.writer = pg_writer_make_from_string_builder(&sb);
 
     logger_log(&logger, LOG_LEVEL_DEBUG, "hello world", arena,
                L("foo", PG_S("bar")));

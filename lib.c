@@ -1842,12 +1842,12 @@ typedef struct {
   WriteFn write_fn;
 } PgWriter;
 
-[[maybe_unused]] [[nodiscard]] static PgSocket reader_socket(PgReader *r) {
+[[maybe_unused]] [[nodiscard]] static PgSocket pg_reader_socket(PgReader *r) {
   PG_ASSERT(r->ctx);
   return (PgSocket)(u64)r->ctx;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgSocket writer_socket(PgWriter *w) {
+[[maybe_unused]] [[nodiscard]] static PgSocket pg_writer_socket(PgWriter *w) {
   PG_ASSERT(w->ctx);
   return (PgSocket)(u64)w->ctx;
 }
@@ -2724,29 +2724,29 @@ http_write_response(RingBuffer *rg, HttpResponse res, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgReader
-reader_make_from_socket(PgSocket socket) {
+pg_reader_make_from_socket(PgSocket socket) {
   // TODO: Windows.
   return (PgReader){.read_fn = pg_unix_read, .ctx = (void *)(u64)socket};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgWriter
-writer_make_from_socket(PgSocket socket) {
+pg_writer_make_from_socket(PgSocket socket) {
   // TODO: Windows.
   return (PgWriter){.write_fn = pg_unix_write, .ctx = (void *)(u64)socket};
 }
 
-[[maybe_unused]] [[nodiscard]] static PgWriter writer_make_from_file(PgFile *file) {
+[[maybe_unused]] [[nodiscard]] static PgWriter pg_writer_make_from_file(PgFile *file) {
   // TODO: Windows.
   return (PgWriter){.write_fn = pg_unix_write, .ctx = (void *)file};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgWriter
-writer_make_from_string_builder(StringBuilder *sb) {
+pg_writer_make_from_string_builder(StringBuilder *sb) {
   return (PgWriter){.write_fn = pg_string_builder_write, .ctx = (void *)sb};
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-reader_read(PgReader *r, RingBuffer *rg, PgArena arena) {
+pg_reader_read(PgReader *r, RingBuffer *rg, PgArena arena) {
   PG_ASSERT(nullptr != r->read_fn);
 
   Pgu64Result res = {0};
@@ -2764,7 +2764,7 @@ reader_read(PgReader *r, RingBuffer *rg, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-writer_write(PgWriter *w, RingBuffer *rg, PgArena arena) {
+pg_writer_write(PgWriter *w, RingBuffer *rg, PgArena arena) {
   PG_ASSERT(nullptr != w->write_fn);
 
   PgString dst = pg_string_make(pg_ring_read_space(*rg), &arena);
@@ -2874,7 +2874,7 @@ http_client_request(PgIpv4AddressSocket sock, HttpRequest req, PgArena *arena) {
 
   if (content_length.present) {
     IoResult res_io =
-        reader_read_exactly((PgReader *)&reader, content_length.n, arena);
+        pg_reader_read_exactly((PgReader *)&reader, content_length.n, arena);
     if (res_io.err) {
       res.err = res_io.err;
       return res;
@@ -3289,7 +3289,7 @@ log_logger_make_stdout_json(LogLevel level) {
   Logger logger = {
       .level = level,
       .writer =
-          writer_make_from_file((PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
+          pg_writer_make_from_file((PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
   };
 
   return logger;
