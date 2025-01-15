@@ -91,15 +91,15 @@ typedef Pgu8Slice PgString;
       : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),                \
          __builtin_trap(), 0)
 
-#define AT_PTR(arr, len, idx)                                                  \
+#define PG_C_ARRAY_AT_PTR(arr, len, idx)                                                  \
   (((i64)(idx) >= (i64)(len)) ? (__builtin_trap(), &(arr)[0])                  \
                               : (PG_ASSERT(nullptr != (arr)), (&(arr)[idx])))
 
-#define AT(arr, len, idx) (*AT_PTR(arr, len, idx))
+#define AT(arr, len, idx) (*PG_C_ARRAY_AT_PTR(arr, len, idx))
 
 #define slice_at(s, idx) (AT((s).data, (s).len, idx))
 
-#define slice_at_ptr(s, idx) (AT_PTR((s)->data, (s)->len, idx))
+#define slice_at_ptr(s, idx) (PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx))
 
 #define slice_make(T, l, arena)                                                \
   ((T##Slice){.data = arena_new(arena, T, l), .len = l})
@@ -109,7 +109,7 @@ typedef Pgu8Slice PgString;
     if ((i64)(idx) >= (i64)((s)->len)) {                                       \
       __builtin_trap();                                                        \
     }                                                                          \
-    *(AT_PTR((s)->data, (s)->len, idx)) =                                      \
+    *(PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx)) =                                      \
         AT((s)->data, (s)->len, (s)->len - 1);                                 \
     (s)->len -= 1;                                                             \
   } while (0)
@@ -245,7 +245,7 @@ string_split_string(PgString s, PgString sep) {
   ((typeof((s))){                                                              \
       .data = (s).len == PG_CLAMP(0, start, (s).len)                           \
                   ? nullptr                                                    \
-                  : AT_PTR((s).data, (s).len, PG_CLAMP(0, start, (s).len)),    \
+                  : PG_C_ARRAY_AT_PTR((s).data, (s).len, PG_CLAMP(0, start, (s).len)),    \
       .len =                                                                   \
           PG_SUB_SAT(PG_CLAMP(0, end, (s).len), PG_CLAMP(0, start, (s).len)),  \
   })
@@ -718,11 +718,11 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
     (s)->len -= 1;                                                             \
   } while (0)
 
-#define dyn_last_ptr(s) AT_PTR((s)->data, (s)->len, (s)->len - 1)
+#define dyn_last_ptr(s) PG_C_ARRAY_AT_PTR((s)->data, (s)->len, (s)->len - 1)
 
 #define dyn_last(s) AT((s).data, (s).len, (s).len - 1)
 
-#define dyn_at_ptr(s, idx) AT_PTR((s)->data, (s)->len, idx)
+#define dyn_at_ptr(s, idx) PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx)
 
 #define dyn_at(s, idx) AT((s).data, (s).len, idx)
 
@@ -971,7 +971,7 @@ string_indexof_unescaped_byte(PgString haystack, u8 needle) {
 
 [[maybe_unused]] static void string_lowercase_ascii_mut(PgString s) {
   for (u64 i = 0; i < s.len; i++) {
-    u8 *c = AT_PTR(s.data, s.len, i);
+    u8 *c = PG_C_ARRAY_AT_PTR(s.data, s.len, i);
     if ('A' <= *c && *c <= 'Z') {
       *c += 32;
     }
