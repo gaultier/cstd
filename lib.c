@@ -769,7 +769,7 @@ pg_string_builder_append_u64_to_string(Pgu8Dyn *dyn, u64 n, PgArena *arena) {
   return PG_DYN_SLICE(PgString, sb);
 }
 
-[[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_ch_hex(u8 n) {
+[[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_character_hex(u8 n) {
   PG_ASSERT(n < 16);
 
   if (n <= 9) {
@@ -790,7 +790,7 @@ pg_string_builder_append_u64_to_string(Pgu8Dyn *dyn, u64 n, PgArena *arena) {
   PG_ASSERT(0);
 }
 
-[[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_ch_hex_upper(u8 n) {
+[[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_character_hex_upper(u8 n) {
   PG_ASSERT(n < 16);
 
   if (n <= 9) {
@@ -818,8 +818,8 @@ static void pg_string_builder_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n,
 
   u8 c1 = n % 16;
   u8 c2 = n / 16;
-  *PG_DYN_PUSH(dyn, arena) = pg_u8_to_ch_hex_upper(c2);
-  *PG_DYN_PUSH(dyn, arena) = pg_u8_to_ch_hex_upper(c1);
+  *PG_DYN_PUSH(dyn, arena) = pg_u8_to_character_hex_upper(c2);
+  *PG_DYN_PUSH(dyn, arena) = pg_u8_to_character_hex_upper(c1);
   PG_ASSERT(2 == (dyn->len - PG_DYN_ORIGINAL_LEN));
 }
 
@@ -835,8 +835,8 @@ pg_string_builder_append_u128_hex(Pgu8Dyn *dyn, u128 n, PgArena *arena) {
   for (u64 i = 0; i < sizeof(it); i++) {
     u8 c1 = it[i] % 16;
     u8 c2 = it[i] / 16;
-    *PG_DYN_PUSH(dyn, arena) = pg_u8_to_ch_hex(c2);
-    *PG_DYN_PUSH(dyn, arena) = pg_u8_to_ch_hex(c1);
+    *PG_DYN_PUSH(dyn, arena) = pg_u8_to_character_hex(c2);
+    *PG_DYN_PUSH(dyn, arena) = pg_u8_to_character_hex(c1);
   }
   PG_ASSERT(32 == (dyn->len - PG_DYN_ORIGINAL_LEN));
 }
