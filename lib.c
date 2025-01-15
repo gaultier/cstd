@@ -1194,9 +1194,9 @@ typedef struct {
 [[maybe_unused]] [[nodiscard]] static PgIpv4AddressAcceptResult
 pg_net_tcp_accept(PgSocket sock);
 
-typedef u64 AioQueue;
-PG_RESULT(AioQueue) PgAioQueueCreateResult;
-[[maybe_unused]] [[nodiscard]] static PgAioQueueCreateResult aio_queue_create();
+typedef u64 PgAioQueue;
+PG_RESULT(PgAioQueue) PgAioQueueCreateResult;
+[[maybe_unused]] [[nodiscard]] static PgAioQueueCreateResult pg_aio_queue_create();
 
 typedef enum {
   PG_AIO_EVENT_KIND_NONE = 0,
@@ -1223,16 +1223,16 @@ PG_SLICE(PgAioEvent) PgAioEventSlice;
 PG_DYN(PgAioEvent) PgAioEventDyn;
 
 [[maybe_unused]] [[nodiscard]] static PgError
-aio_queue_ctl(AioQueue queue, PgAioEventSlice events);
+pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events);
 
 [[maybe_unused]] [[nodiscard]] static PgError
-aio_queue_ctl_one(AioQueue queue, PgAioEvent event) {
+pg_aio_queue_ctl_one(PgAioQueue queue, PgAioEvent event) {
   PgAioEventSlice events = {.data = &event, .len = 1};
-  return aio_queue_ctl(queue, events);
+  return pg_aio_queue_ctl(queue, events);
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
+pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
                PgArena arena);
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
@@ -1416,18 +1416,18 @@ pg_net_tcp_accept(PgSocket sock) {
 #include <sys/timerfd.h>
 
 [[maybe_unused]] [[nodiscard]] static PgAioQueueCreateResult
-aio_queue_create() {
+pg_aio_queue_create() {
   PgAioQueueCreateResult res = {0};
   int queue = epoll_create(1 /* Ignored */);
   if (-1 == queue) {
     res.err = (PgError)errno;
   }
-  res.res = (AioQueue)queue;
+  res.res = (PgAioQueue)queue;
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-aio_queue_ctl(AioQueue queue, PgAioEventSlice events) {
+pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events) {
   for (u64 i = 0; i < events.len; i++) {
     PgAioEvent event = PG_SLICE_AT(events, i);
     PG_ASSERT(event.socket ^ event.timer);
@@ -1476,7 +1476,7 @@ aio_queue_ctl(AioQueue queue, PgAioEventSlice events) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
+pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
                PgArena arena) {
   Pgu64Result res = {0};
   if (PG_SLICE_IS_EMPTY(events)) {

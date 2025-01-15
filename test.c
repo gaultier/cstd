@@ -918,10 +918,10 @@ static void test_net_socket() {
   }
   PG_ASSERT(0 == pg_net_socket_set_blocking(socket_alice, false));
 
-  PgAioQueueCreateResult res_queue_create = aio_queue_create();
+  PgAioQueueCreateResult res_queue_create = pg_aio_queue_create();
   PG_ASSERT(0 == res_queue_create.err);
 
-  AioQueue queue = res_queue_create.res;
+  PgAioQueue queue = res_queue_create.res;
   PgAioEventSlice events_change = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
   events_change.len = 1;
 
@@ -931,7 +931,7 @@ static void test_net_socket() {
     event_bob_listen->kind = PG_AIO_EVENT_KIND_IN;
     event_bob_listen->action = PG_AIO_EVENT_ACTION_ADD;
 
-    PG_ASSERT(0 == aio_queue_ctl(queue, events_change));
+    PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
   }
 
   PgSocket bob_socket = 0;
@@ -947,7 +947,7 @@ static void test_net_socket() {
   PgAioEventSlice events_watch = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
 
   for (;;) {
-    Pgu64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
+    Pgu64Result res_wait = pg_aio_queue_wait(queue, events_watch, -1, arena);
     PG_ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
@@ -973,7 +973,7 @@ static void test_net_socket() {
         event_bob->kind = PG_AIO_EVENT_KIND_IN;
         event_bob->action = PG_AIO_EVENT_ACTION_ADD;
 
-        PG_ASSERT(0 == aio_queue_ctl(queue, events_change));
+        PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
         events_change.len = 0;
       } else if (event.socket == socket_alice) {
         PG_ASSERT(PG_AIO_EVENT_KIND_OUT & event.kind);
@@ -1430,10 +1430,10 @@ static void test_http_request_response() {
   }
   PG_ASSERT(0 == pg_net_socket_set_blocking(client_socket, false));
 
-  PgAioQueueCreateResult res_queue_create = aio_queue_create();
+  PgAioQueueCreateResult res_queue_create = pg_aio_queue_create();
   PG_ASSERT(0 == res_queue_create.err);
 
-  AioQueue queue = res_queue_create.res;
+  PgAioQueue queue = res_queue_create.res;
   PgAioEventSlice events_change = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
   events_change.len = 1;
 
@@ -1443,7 +1443,7 @@ static void test_http_request_response() {
     event_server_listen->kind = PG_AIO_EVENT_KIND_IN;
     event_server_listen->action = PG_AIO_EVENT_ACTION_ADD;
 
-    PG_ASSERT(0 == aio_queue_ctl(queue, events_change));
+    PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
   }
 
   PgSocket server_socket = 0;
@@ -1485,7 +1485,7 @@ static void test_http_request_response() {
   PgAioEventSlice events_watch = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
 
   for (u64 _i = 0; _i <= 128; _i++) {
-    Pgu64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
+    Pgu64Result res_wait = pg_aio_queue_wait(queue, events_watch, -1, arena);
     PG_ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
@@ -1512,7 +1512,7 @@ static void test_http_request_response() {
         event_server_client->kind = PG_AIO_EVENT_KIND_IN;
         event_server_client->action = PG_AIO_EVENT_ACTION_ADD;
 
-        PG_ASSERT(0 == aio_queue_ctl(queue, events_change));
+        PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
         events_change.len = 0;
       } else if (event.socket == client_socket) {
         if (PG_AIO_EVENT_KIND_OUT & event.kind) {
@@ -1530,7 +1530,7 @@ static void test_http_request_response() {
             event_client->socket = client_socket;
             event_client->kind = PG_AIO_EVENT_KIND_IN;
             event_client->action = PG_AIO_EVENT_ACTION_MOD;
-            PG_ASSERT(0 == aio_queue_ctl(queue, events_change));
+            PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
             events_change.len = 0;
           }
         }
@@ -1565,7 +1565,7 @@ static void test_http_request_response() {
             event_server->socket = server_socket;
             event_server->kind = PG_AIO_EVENT_KIND_OUT;
             event_server->action = PG_AIO_EVENT_ACTION_MOD;
-            PG_ASSERT(0 == aio_queue_ctl(queue, events_change));
+            PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
             events_change.len = 0;
           }
         }
@@ -1582,7 +1582,7 @@ static void test_http_request_response() {
             PgAioEvent *event_server = PG_SLICE_AT_PTR(&events_change, 0);
             event_server->socket = server_socket;
             event_server->action = PG_AIO_EVENT_ACTION_DEL;
-            PG_ASSERT(0 == aio_queue_ctl(queue, events_change));
+            PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
             events_change.len = 0;
           }
         }
@@ -1649,9 +1649,9 @@ static void test_log() {
 static void test_timer() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
-  PgAioQueueCreateResult res_queue_create = aio_queue_create();
+  PgAioQueueCreateResult res_queue_create = pg_aio_queue_create();
   PG_ASSERT(0 == res_queue_create.err);
-  AioQueue queue = res_queue_create.res;
+  PgAioQueue queue = res_queue_create.res;
 
   PgTimerResult res_timer =
       pg_timer_create(PG_CLOCK_KIND_MONOTONIC, 10 * PG_Milliseconds);
@@ -1666,12 +1666,12 @@ static void test_timer() {
         .kind = PG_AIO_EVENT_KIND_IN,
         .action = PG_AIO_EVENT_ACTION_ADD,
     };
-    PgError err = aio_queue_ctl_one(queue, event_change);
+    PgError err = pg_aio_queue_ctl_one(queue, event_change);
     PG_ASSERT(0 == err);
   }
 
   PgAioEventSlice events_watch = PG_SLICE_MAKE(PgAioEvent, 1, &arena);
-  Pgu64Result res_wait = aio_queue_wait(queue, events_watch, 1'000, arena);
+  Pgu64Result res_wait = pg_aio_queue_wait(queue, events_watch, 1'000, arena);
   PG_ASSERT(0 == res_wait.err);
   PG_ASSERT(1 == res_wait.res);
 
