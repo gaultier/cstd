@@ -1065,12 +1065,12 @@ static void test_url_parse_relative_path() {
 static void test_http_send_request() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   {
-    HttpRequest req;
+    PgHttpRequest req;
     req.method = HTTP_METHOD_GET;
 
     RingBuffer rg = {.data = pg_string_make(32, &arena)};
 
-    PG_ASSERT(0 == http_write_request(&rg, req, arena));
+    PG_ASSERT(0 == pg_http_write_request(&rg, req, arena));
     PgString s = pg_string_make(pg_ring_read_space(rg), &arena);
     PG_ASSERT(true == pg_ring_read_slice(&rg, s));
 
@@ -1079,19 +1079,19 @@ static void test_http_send_request() {
     PG_ASSERT(pg_string_eq(s, expected));
   }
   {
-    HttpRequest req;
+    PgHttpRequest req;
     req.method = HTTP_METHOD_POST;
-    http_push_header(&req.headers, PG_S("Host"), PG_S("google.com"), &arena);
+    pg_http_push_header(&req.headers, PG_S("Host"), PG_S("google.com"), &arena);
     *PG_DYN_PUSH(&req.url.path_components, &arena) = PG_S("foobar");
 
     {
       RingBuffer rg = {.data = pg_string_make(32, &arena)};
-      PG_ASSERT(ENOMEM == http_write_request(&rg, req, arena));
+      PG_ASSERT(ENOMEM == pg_http_write_request(&rg, req, arena));
     }
 
     RingBuffer rg = {.data = pg_string_make(128, &arena)};
 
-    PG_ASSERT(0 == http_write_request(&rg, req, arena));
+    PG_ASSERT(0 == pg_http_write_request(&rg, req, arena));
 
     PgString s = pg_string_make(pg_ring_read_space(rg), &arena);
     PG_ASSERT(true == pg_ring_read_slice(&rg, s));
@@ -1106,56 +1106,56 @@ static void test_http_send_request() {
 static void test_http_parse_response_status_line() {
   // Empty.
   {
-    PG_ASSERT(http_parse_response_status_line(PG_S("")).err);
+    PG_ASSERT(pg_http_parse_response_status_line(PG_S("")).err);
   }
   // Missing prefix.
   {
-    PG_ASSERT(http_parse_response_status_line(PG_S("HTT")).err);
-    PG_ASSERT(http_parse_response_status_line(PG_S("abc")).err);
-    PG_ASSERT(http_parse_response_status_line(PG_S("/1.1")).err);
+    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTT")).err);
+    PG_ASSERT(pg_http_parse_response_status_line(PG_S("abc")).err);
+    PG_ASSERT(pg_http_parse_response_status_line(PG_S("/1.1")).err);
   }
   // Missing slash.
   {
-    PG_ASSERT(http_parse_response_status_line(PG_S("HTTP1.1 201 Created")).err);
+    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP1.1 201 Created")).err);
   }
   // Missing major version.
   {
-    PG_ASSERT(http_parse_response_status_line(PG_S("HTTP/.1 201 Created")).err);
+    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP/.1 201 Created")).err);
   }
   // Missing `.`.
   {
-    PG_ASSERT(http_parse_response_status_line(PG_S("HTTP/11 201 Created")).err);
+    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP/11 201 Created")).err);
   }
   // Missing minor version.
   {
-    PG_ASSERT(http_parse_response_status_line(PG_S("HTTP/1. 201 Created")).err);
+    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP/1. 201 Created")).err);
   }
   // Missing status code.
   {
-    PG_ASSERT(http_parse_response_status_line(PG_S("HTTP/1.1 Created")).err);
+    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP/1.1 Created")).err);
   }
   // Invalid major version.
   {
     PG_ASSERT(
-        http_parse_response_status_line(PG_S("HTTP/abc.1 201 Created")).err);
+        pg_http_parse_response_status_line(PG_S("HTTP/abc.1 201 Created")).err);
     PG_ASSERT(
-        http_parse_response_status_line(PG_S("HTTP/4.1 201 Created")).err);
+        pg_http_parse_response_status_line(PG_S("HTTP/4.1 201 Created")).err);
   }
   // Invalid minor version.
   {
     PG_ASSERT(
-        http_parse_response_status_line(PG_S("HTTP/1.10 201 Created")).err);
+        pg_http_parse_response_status_line(PG_S("HTTP/1.10 201 Created")).err);
   }
   // Invalid status code.
   {
-    PG_ASSERT(http_parse_response_status_line(PG_S("HTTP/1.1 99 Created")).err);
+    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP/1.1 99 Created")).err);
     PG_ASSERT(
-        http_parse_response_status_line(PG_S("HTTP/1.1 600 Created")).err);
+        pg_http_parse_response_status_line(PG_S("HTTP/1.1 600 Created")).err);
   }
   // Valid, short.
   {
     PgHttpResponseStatusLineResult res =
-        http_parse_response_status_line(PG_S("HTTP/2.0 201"));
+        pg_http_parse_response_status_line(PG_S("HTTP/2.0 201"));
     PG_ASSERT(0 == res.err);
     PG_ASSERT(2 == res.res.version_major);
     PG_ASSERT(0 == res.res.version_minor);
@@ -1164,7 +1164,7 @@ static void test_http_parse_response_status_line() {
   // Valid, short, 0.9.
   {
     PgHttpResponseStatusLineResult res =
-        http_parse_response_status_line(PG_S("HTTP/0.9 201"));
+        pg_http_parse_response_status_line(PG_S("HTTP/0.9 201"));
     PG_ASSERT(0 == res.err);
     PG_ASSERT(0 == res.res.version_major);
     PG_ASSERT(9 == res.res.version_minor);
@@ -1173,7 +1173,7 @@ static void test_http_parse_response_status_line() {
   // Valid, long.
   {
     PgHttpResponseStatusLineResult res =
-        http_parse_response_status_line(PG_S("HTTP/1.1 404 Not found"));
+        pg_http_parse_response_status_line(PG_S("HTTP/1.1 404 Not found"));
     PG_ASSERT(0 == res.err);
     PG_ASSERT(1 == res.res.version_major);
     PG_ASSERT(1 == res.res.version_minor);
@@ -1186,49 +1186,49 @@ static void test_http_parse_request_status_line() {
 
   // Empty.
   {
-    PG_ASSERT(http_parse_request_status_line(PG_S(""), &arena).err);
+    PG_ASSERT(pg_http_parse_request_status_line(PG_S(""), &arena).err);
   }
   // Missing prefix.
   {
-    PG_ASSERT(http_parse_request_status_line(PG_S("GE"), &arena).err);
-    PG_ASSERT(http_parse_request_status_line(PG_S("abc"), &arena).err);
-    PG_ASSERT(http_parse_request_status_line(PG_S("123 "), &arena).err);
+    PG_ASSERT(pg_http_parse_request_status_line(PG_S("GE"), &arena).err);
+    PG_ASSERT(pg_http_parse_request_status_line(PG_S("abc"), &arena).err);
+    PG_ASSERT(pg_http_parse_request_status_line(PG_S("123 "), &arena).err);
   }
   // Missing slash.
   {
-    PG_ASSERT(http_parse_request_status_line(PG_S("GET HTTP1.1"), &arena).err);
+    PG_ASSERT(pg_http_parse_request_status_line(PG_S("GET HTTP1.1"), &arena).err);
   }
   // Missing major version.
   {
     PG_ASSERT(
-        http_parse_request_status_line(PG_S("GET / HTTP/.1"), &arena).err);
+        pg_http_parse_request_status_line(PG_S("GET / HTTP/.1"), &arena).err);
   }
   // Missing `.`.
   {
     PG_ASSERT(
-        http_parse_request_status_line(PG_S("GET / HTTP/11"), &arena).err);
+        pg_http_parse_request_status_line(PG_S("GET / HTTP/11"), &arena).err);
   }
   // Missing minor version.
   {
     PG_ASSERT(
-        http_parse_request_status_line(PG_S("GET / HTTP/1."), &arena).err);
+        pg_http_parse_request_status_line(PG_S("GET / HTTP/1."), &arena).err);
   }
   // Invalid major version.
   {
     PG_ASSERT(
-        http_parse_request_status_line(PG_S("GET / HTTP/abc.1"), &arena).err);
+        pg_http_parse_request_status_line(PG_S("GET / HTTP/abc.1"), &arena).err);
     PG_ASSERT(
-        http_parse_request_status_line(PG_S("GET / HTTP/4.1"), &arena).err);
+        pg_http_parse_request_status_line(PG_S("GET / HTTP/4.1"), &arena).err);
   }
   // Invalid minor version.
   {
     PG_ASSERT(
-        http_parse_request_status_line(PG_S("GET / HTTP/1.10"), &arena).err);
+        pg_http_parse_request_status_line(PG_S("GET / HTTP/1.10"), &arena).err);
   }
   // Valid, short.
   {
     PgHttpRequestStatusLineResult res =
-        http_parse_request_status_line(PG_S("GET / HTTP/2.0"), &arena);
+        pg_http_parse_request_status_line(PG_S("GET / HTTP/2.0"), &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(HTTP_METHOD_GET == res.res.method);
     PG_ASSERT(2 == res.res.version_major);
@@ -1239,7 +1239,7 @@ static void test_http_parse_request_status_line() {
   // Valid, short with query parameters.
   {
     PgHttpRequestStatusLineResult res =
-        http_parse_request_status_line(PG_S("GET /?foo=bar& HTTP/2.0"), &arena);
+        pg_http_parse_request_status_line(PG_S("GET /?foo=bar& HTTP/2.0"), &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(HTTP_METHOD_GET == res.res.method);
     PG_ASSERT(2 == res.res.version_major);
@@ -1253,7 +1253,7 @@ static void test_http_parse_request_status_line() {
   // Valid, short, 0.9.
   {
     PgHttpRequestStatusLineResult res =
-        http_parse_request_status_line(PG_S("GET / HTTP/0.9"), &arena);
+        pg_http_parse_request_status_line(PG_S("GET / HTTP/0.9"), &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(HTTP_METHOD_GET == res.res.method);
     PG_ASSERT(0 == res.res.version_major);
@@ -1263,7 +1263,7 @@ static void test_http_parse_request_status_line() {
   }
   // Valid, long.
   {
-    PgHttpRequestStatusLineResult res = http_parse_request_status_line(
+    PgHttpRequestStatusLineResult res = pg_http_parse_request_status_line(
         PG_S("GET /foo/bar/baz?hey HTTP/1.1"), &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(HTTP_METHOD_GET == res.res.method);
@@ -1280,44 +1280,44 @@ static void test_http_parse_request_status_line() {
 static void test_http_parse_header() {
   // Empty.
   {
-    PG_ASSERT(http_parse_header(PG_S("")).err);
+    PG_ASSERT(pg_http_parse_header(PG_S("")).err);
   }
   // Missing `:`.
   {
-    PG_ASSERT(http_parse_header(PG_S("foo bar")).err);
+    PG_ASSERT(pg_http_parse_header(PG_S("foo bar")).err);
   }
   // Missing key.
   {
-    PG_ASSERT(http_parse_header(PG_S(":bcd")).err);
+    PG_ASSERT(pg_http_parse_header(PG_S(":bcd")).err);
   }
   // Missing value.
   {
-    PG_ASSERT(http_parse_header(PG_S("foo:")).err);
+    PG_ASSERT(pg_http_parse_header(PG_S("foo:")).err);
   }
   // Multiple colons.
   {
-    PgKeyValueResult res = http_parse_header(PG_S("foo: bar : baz"));
+    PgKeyValueResult res = pg_http_parse_header(PG_S("foo: bar : baz"));
     PG_ASSERT(0 == res.err);
     PG_ASSERT(pg_string_eq(res.res.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(res.res.value, PG_S("bar : baz")));
   }
   // Valid, one space before the value.
   {
-    PgKeyValueResult res = http_parse_header(PG_S("foo: bar"));
+    PgKeyValueResult res = pg_http_parse_header(PG_S("foo: bar"));
     PG_ASSERT(0 == res.err);
     PG_ASSERT(pg_string_eq(res.res.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(res.res.value, PG_S("bar")));
   }
   // Valid, no space before the value.
   {
-    PgKeyValueResult res = http_parse_header(PG_S("foo:bar"));
+    PgKeyValueResult res = pg_http_parse_header(PG_S("foo:bar"));
     PG_ASSERT(0 == res.err);
     PG_ASSERT(pg_string_eq(res.res.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(res.res.value, PG_S("bar")));
   }
   // Valid, multiple spaces before the value.
   {
-    PgKeyValueResult res = http_parse_header(PG_S("foo:   bar"));
+    PgKeyValueResult res = pg_http_parse_header(PG_S("foo:   bar"));
     PG_ASSERT(0 == res.err);
     PG_ASSERT(pg_string_eq(res.res.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(res.res.value, PG_S("bar")));
@@ -1330,7 +1330,7 @@ static void test_http_read_response() {
   // Empty.
   {
     RingBuffer rg = {.data = pg_string_make(32, &arena)};
-    HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
+    PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(false == res.done);
   }
@@ -1338,7 +1338,7 @@ static void test_http_read_response() {
   {
     RingBuffer rg = {.data = pg_string_make(32, &arena)};
     PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S("HTTP/1.")));
-    HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
+    PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(false == res.done);
     PG_ASSERT(pg_ring_read_space(rg) == PG_S("HTTP/1.").len);
@@ -1348,7 +1348,7 @@ static void test_http_read_response() {
     RingBuffer rg = {.data = pg_string_make(32, &arena)};
     PG_ASSERT(true == pg_ring_write_slice(
                           &rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
-    HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
+    PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(false == res.done);
   }
@@ -1360,19 +1360,19 @@ static void test_http_read_response() {
     {
       PG_ASSERT(true == pg_ring_write_slice(
                             &rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
-      HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
+      PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
       PG_ASSERT(0 == res.err);
       PG_ASSERT(false == res.done);
     }
 
     {
       PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S("google.com\r")));
-      HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
+      PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
       PG_ASSERT(0 == res.err);
       PG_ASSERT(false == res.done);
 
       PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S("\n")));
-      res = http_read_response(&rg, 128, &arena);
+      res = pg_http_read_response(&rg, 128, &arena);
       PG_ASSERT(0 == res.err);
       PG_ASSERT(false == res.done);
     }
@@ -1380,7 +1380,7 @@ static void test_http_read_response() {
     {
       PG_ASSERT(true == pg_ring_write_slice(
                             &rg, PG_S("Authorization: Bearer foo\r\n\r\n")));
-      HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
+      PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
       PG_ASSERT(0 == res.err);
       PG_ASSERT(true == res.done);
       PG_ASSERT(1 == res.res.version_major);
@@ -1463,24 +1463,24 @@ static void test_http_request_response() {
   bool server_recv_http_io_done = false;
   bool server_send_http_io_done = false;
 
-  HttpRequest client_req = {0};
+  PgHttpRequest client_req = {0};
   client_req.method = HTTP_METHOD_GET;
-  http_push_header(&client_req.headers, PG_S("Host"), PG_S("localhost"),
+  pg_http_push_header(&client_req.headers, PG_S("Host"), PG_S("localhost"),
                    &arena);
   *PG_DYN_PUSH(&client_req.url.query_parameters, &arena) = (KeyValue){
       .key = PG_S("uploaded"),
       .value = pg_u64_to_string(123456, &arena),
   };
 
-  HttpResponse server_res = {0};
+  PgHttpResponse server_res = {0};
   server_res.status = 200;
   server_res.version_major = 1;
   server_res.version_minor = 1;
-  http_push_header(&server_res.headers, PG_S("Accept"),
+  pg_http_push_header(&server_res.headers, PG_S("Accept"),
                    PG_S("application/json"), &arena);
 
-  HttpRequest server_req = {0};
-  HttpResponse client_res = {0};
+  PgHttpRequest server_req = {0};
+  PgHttpResponse client_res = {0};
 
   PgAioEventSlice events_watch = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
 
@@ -1517,7 +1517,7 @@ static void test_http_request_response() {
       } else if (event.socket == client_socket) {
         if (PG_AIO_EVENT_KIND_OUT & event.kind) {
           if (!client_send_http_io_done) {
-            http_write_request(&client_send, client_req, arena);
+            pg_http_write_request(&client_send, client_req, arena);
             PG_ASSERT(true == pg_ring_write_slice(
                                   &client_send, PG_S("client request body")));
             PG_ASSERT(0 ==
@@ -1538,8 +1538,8 @@ static void test_http_request_response() {
           if (!client_recv_http_io_done) {
             PG_ASSERT(0 ==
                       pg_reader_read(&client_reader, &client_recv, arena).err);
-            HttpResponseReadResult res =
-                http_read_response(&client_recv, 128, &arena);
+            PgHttpResponseReadResult res =
+                pg_http_read_response(&client_recv, 128, &arena);
             PG_ASSERT(0 == res.err);
             PG_ASSERT(true == res.done);
             client_res = res.res;
@@ -1552,8 +1552,8 @@ static void test_http_request_response() {
           if (!server_recv_http_io_done) {
             PG_ASSERT(0 ==
                       pg_reader_read(&server_reader, &server_recv, arena).err);
-            HttpRequestReadResult res =
-                http_read_request(&server_recv, 128, &arena);
+            PgHttpRequestReadResult res =
+                pg_http_read_request(&server_recv, 128, &arena);
             PG_ASSERT(0 == res.err);
             PG_ASSERT(true == res.done);
             server_req = res.res;
@@ -1572,7 +1572,7 @@ static void test_http_request_response() {
         if (PG_AIO_EVENT_KIND_OUT & event.kind) {
           if (!server_send_http_io_done) {
             PG_ASSERT(0 ==
-                      http_write_response(&server_send, server_res, arena));
+                      pg_http_write_response(&server_send, server_res, arena));
             PG_ASSERT(0 ==
                       pg_writer_write(&server_writer, &server_send, arena).err);
             server_send_http_io_done = true;

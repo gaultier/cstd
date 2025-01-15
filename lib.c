@@ -1856,10 +1856,10 @@ typedef enum {
   HTTP_METHOD_UNKNOWN,
   HTTP_METHOD_GET,
   HTTP_METHOD_POST
-} HttpMethod;
+} PgHttpMethod;
 
 [[maybe_unused]]
-PgString static http_method_to_s(HttpMethod m) {
+PgString static pg_http_method_to_s(PgHttpMethod m) {
   switch (m) {
   case HTTP_METHOD_UNKNOWN:
     return PG_S("unknown");
@@ -1898,36 +1898,36 @@ typedef struct {
 typedef struct {
   PgString id;
   Url url; // Does not have a scheme, domain, port.
-  HttpMethod method;
+  PgHttpMethod method;
   DynKeyValue headers;
   u8 version_minor;
   u8 version_major;
-} HttpRequest;
+} PgHttpRequest;
 
 // `GET /en-US/docs/Web/HTTP/Messages HTTP/1.1`.
 typedef struct {
-  HttpMethod method;
+  PgHttpMethod method;
   u8 version_minor;
   u8 version_major;
   Url url; // Does not have a scheme, domain, port.
-} HttpRequestStatusLine;
+} PgHttpRequestStatusLine;
 
-PG_RESULT(HttpRequestStatusLine) PgHttpRequestStatusLineResult;
+PG_RESULT(PgHttpRequestStatusLine) PgHttpRequestStatusLineResult;
 
 // `HTTP/1.1 201 Created`.
 typedef struct {
   u8 version_minor;
   u8 version_major;
   u16 status;
-} HttpResponseStatusLine;
+} PgHttpResponseStatusLine;
 
-PG_RESULT(HttpResponseStatusLine) PgHttpResponseStatusLineResult;
+PG_RESULT(PgHttpResponseStatusLine) PgHttpResponseStatusLineResult;
 
 #if 0
 typedef struct {
-  HttpRequest req;
-  HttpParseState state;
-} HttpRequestParse;
+  PgHttpRequest req;
+  PgHttpParseState state;
+} PgHttpRequestParse;
 #endif
 
 typedef struct {
@@ -1935,10 +1935,10 @@ typedef struct {
   u8 version_minor;
   u16 status;
   DynKeyValue headers;
-} HttpResponse;
+} PgHttpResponse;
 
 [[maybe_unused]] [[nodiscard]] static PgHttpResponseStatusLineResult
-http_parse_response_status_line(PgString status_line) {
+pg_http_parse_response_status_line(PgString status_line) {
   PgHttpResponseStatusLineResult res = {0};
 
   PgString remaining = status_line;
@@ -2017,16 +2017,16 @@ http_parse_response_status_line(PgString status_line) {
 }
 
 [[maybe_unused]]
-static void http_push_header(DynKeyValue *headers, PgString key, PgString value,
+static void pg_http_push_header(DynKeyValue *headers, PgString key, PgString value,
                              PgArena *arena) {
   *PG_DYN_PUSH(headers, arena) = (KeyValue){.key = key, .value = value};
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-http_request_write_status_line(RingBuffer *rg, HttpRequest req, PgArena arena) {
+pg_http_request_write_status_line(RingBuffer *rg, PgHttpRequest req, PgArena arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
-  PG_DYN_APPEND_SLICE(&sb, http_method_to_s(req.method), &arena);
+  PG_DYN_APPEND_SLICE(&sb, pg_http_method_to_s(req.method), &arena);
   PG_DYN_APPEND_SLICE(&sb, PG_S(" /"), &arena);
 
   for (u64 i = 0; i < req.url.path_components.len; i++) {
@@ -2058,7 +2058,7 @@ http_request_write_status_line(RingBuffer *rg, HttpRequest req, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-http_response_write_status_line(RingBuffer *rg, HttpResponse res,
+pg_http_response_write_status_line(RingBuffer *rg, PgHttpResponse res,
                                 PgArena arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
@@ -2077,7 +2077,7 @@ http_response_write_status_line(RingBuffer *rg, HttpResponse res,
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-http_write_header(RingBuffer *rg, KeyValue header, PgArena arena) {
+pg_http_write_header(RingBuffer *rg, KeyValue header, PgArena arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
   PG_DYN_APPEND_SLICE(&sb, header.key, &arena);
@@ -2436,7 +2436,7 @@ pg_url_parse_after_authority(PgString s, PgArena *arena) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool http_url_is_valid(Url u) {
+[[maybe_unused]] [[nodiscard]] static bool pg_http_url_is_valid(Url u) {
   // TODO: Support https.
   if (!pg_string_eq(u.scheme, PG_S("http"))) {
     return false;
@@ -2446,7 +2446,7 @@ pg_url_parse_after_authority(PgString s, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestStatusLineResult
-http_parse_request_status_line(PgString status_line, PgArena *arena) {
+pg_http_parse_request_status_line(PgString status_line, PgArena *arena) {
   PgHttpRequestStatusLineResult res = {0};
 
   PgString remaining = status_line;
@@ -2548,7 +2548,7 @@ http_parse_request_status_line(PgString status_line, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgKeyValueResult
-http_parse_header(PgString s) {
+pg_http_parse_header(PgString s) {
   PgKeyValueResult res = {0};
 
   i64 idx = pg_string_indexof_byte(s, ':');
@@ -2575,19 +2575,19 @@ http_parse_header(PgString s) {
 
 typedef struct {
   bool done;
-  HttpResponse res;
+  PgHttpResponse res;
   PgError err;
-} HttpResponseReadResult;
+} PgHttpResponseReadResult;
 
 typedef struct {
   bool done;
-  HttpRequest res;
+  PgHttpRequest res;
   PgError err;
-} HttpRequestReadResult;
+} PgHttpRequestReadResult;
 
-[[maybe_unused]] [[nodiscard]] static HttpResponseReadResult
-http_read_response(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
-  HttpResponseReadResult res = {0};
+[[maybe_unused]] [[nodiscard]] static PgHttpResponseReadResult
+pg_http_read_response(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
+  PgHttpResponseReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
   PgStringOk s = pg_ring_read_until_excl(rg, sep, arena);
@@ -2603,7 +2603,7 @@ http_read_response(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
   }
 
   PgHttpResponseStatusLineResult res_status_line =
-      http_parse_response_status_line(res_split.res);
+      pg_http_parse_response_status_line(res_split.res);
   if (res_status_line.err) {
     res.err = res_status_line.err;
     return res;
@@ -2618,7 +2618,7 @@ http_read_response(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
     if (!res_split.ok) {
       break;
     }
-    PgKeyValueResult res_kv = http_parse_header(res_split.res);
+    PgKeyValueResult res_kv = pg_http_parse_header(res_split.res);
     if (res_kv.err) {
       res.err = res_kv.err;
       return res;
@@ -2635,9 +2635,9 @@ http_read_response(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static HttpRequestReadResult
-http_read_request(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
-  HttpRequestReadResult res = {0};
+[[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
+pg_http_read_request(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
+  PgHttpRequestReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
   PgStringOk s = pg_ring_read_until_excl(rg, sep, arena);
@@ -2653,7 +2653,7 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
   }
 
   PgHttpRequestStatusLineResult res_status_line =
-      http_parse_request_status_line(res_split.res, arena);
+      pg_http_parse_request_status_line(res_split.res, arena);
   if (res_status_line.err) {
     res.err = res_status_line.err;
     return res;
@@ -2669,7 +2669,7 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
     if (!res_split.ok) {
       break;
     }
-    PgKeyValueResult res_kv = http_parse_header(res_split.res);
+    PgKeyValueResult res_kv = pg_http_parse_header(res_split.res);
     if (res_kv.err) {
       res.err = res_kv.err;
       return res;
@@ -2687,14 +2687,14 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
 }
 
 [[maybe_unused]] static PgError
-http_write_request(RingBuffer *rg, HttpRequest res, PgArena arena) {
-  if (!http_request_write_status_line(rg, res, arena)) {
+pg_http_write_request(RingBuffer *rg, PgHttpRequest res, PgArena arena) {
+  if (!pg_http_request_write_status_line(rg, res, arena)) {
     return (PgError)ENOMEM;
   }
 
   for (u64 i = 0; i < res.headers.len; i++) {
     KeyValue header = PG_DYN_AT(res.headers, i);
-    if (!http_write_header(rg, header, arena)) {
+    if (!pg_http_write_header(rg, header, arena)) {
       return (PgError)ENOMEM;
     }
   }
@@ -2706,13 +2706,13 @@ http_write_request(RingBuffer *rg, HttpRequest res, PgArena arena) {
 }
 
 [[maybe_unused]] static PgError
-http_write_response(RingBuffer *rg, HttpResponse res, PgArena arena) {
-  if (!http_response_write_status_line(rg, res, arena)) {
+pg_http_write_response(RingBuffer *rg, PgHttpResponse res, PgArena arena) {
+  if (!pg_http_response_write_status_line(rg, res, arena)) {
     return (PgError)ENOMEM;
   }
   for (u64 i = 0; i < res.headers.len; i++) {
     KeyValue header = PG_DYN_AT(res.headers, i);
-    if (!http_write_header(rg, header, arena)) {
+    if (!pg_http_write_header(rg, header, arena)) {
       return (PgError)ENOMEM;
     }
   }
@@ -2775,7 +2775,7 @@ pg_writer_write(PgWriter *w, RingBuffer *rg, PgArena arena) {
 
 #if 0
 [[nodiscard]] static PgParseNumberResult
-request_parse_content_length_maybe(HttpRequest req, PgArena *arena) {
+request_parse_content_length_maybe(PgHttpRequest req, PgArena *arena) {
   PG_ASSERT(!req.err);
 
   for (u64 i = 0; i < req.headers.len; i++) {
@@ -2790,9 +2790,9 @@ request_parse_content_length_maybe(HttpRequest req, PgArena *arena) {
   return (PgParseNumberResult){0};
 }
 
-[[maybe_unused]] [[nodiscard]] static HttpResponse
-http_client_request(PgIpv4AddressSocket sock, HttpRequest req, PgArena *arena) {
-  HttpResponse res = {0};
+[[maybe_unused]] [[nodiscard]] static PgHttpResponse
+pg_http_client_request(PgIpv4AddressSocket sock, PgHttpRequest req, PgArena *arena) {
+  PgHttpResponse res = {0};
 
   if (!PG_SLICE_IS_EMPTY(req.path_raw)) {
     // Should use `req.path_components`, not `path.raw`.
@@ -2805,14 +2805,14 @@ http_client_request(PgIpv4AddressSocket sock, HttpRequest req, PgArena *arena) {
     return res;
   }
 
-  PgString http_request_serialized = http_request_serialize(req, arena);
+  PgString pg_http_request_serialized = pg_http_request_serialize(req, arena);
   log(LOG_LEVEL_DEBUG, "http request", arena, L("ip", sock.address.ip),
-      L("port", sock.address.port), L("serialized", http_request_serialized));
+      L("port", sock.address.port), L("serialized", pg_http_request_serialized));
 
   // TODO: should not be an assert but a returned error.
-  PG_ASSERT(send(sock.socket, http_request_serialized.data,
-              http_request_serialized.len,
-              0) == (i64)http_request_serialized.len);
+  PG_ASSERT(send(sock.socket, pg_http_request_serialized.data,
+              pg_http_request_serialized.len,
+              0) == (i64)pg_http_request_serialized.len);
 
   BufferedReader reader = buffered_reader_make(sock.socket, arena);
 
@@ -2857,7 +2857,7 @@ http_client_request(PgIpv4AddressSocket sock, HttpRequest req, PgArena *arena) {
     res.status = (u16)status_parsed.n;
   }
 
-  res.err = http_read_headers(&reader, &res.headers, arena);
+  res.err = pg_http_read_headers(&reader, &res.headers, arena);
   if (res.err) {
     log(LOG_LEVEL_ERROR, "http request failed to read headers", arena,
         L("req.method", req.method), L("req.path_raw", req.path_raw),
@@ -3212,7 +3212,7 @@ static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-http_req_extract_cookie_with_name(HttpRequest req, PgString cookie_name,
+pg_http_req_extract_cookie_with_name(PgHttpRequest req, PgString cookie_name,
                                   PgArena *arena) {
   PgString res = {0};
   {
