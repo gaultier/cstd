@@ -1086,7 +1086,7 @@ static void test_http_send_request() {
 
     {
       PgRing rg = {.data = pg_string_make(32, &arena)};
-      PG_ASSERT(ENOMEM == pg_http_write_request(&rg, req, arena));
+      PG_ASSERT(PG_ERR_OUT_OF_MEMORY == pg_http_write_request(&rg, req, arena));
     }
 
     PgRing rg = {.data = pg_string_make(128, &arena)};

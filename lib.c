@@ -2687,17 +2687,17 @@ pg_http_read_request(PgRing *rg, u64 max_http_headers, PgArena *arena) {
 [[maybe_unused]] static PgError
 pg_http_write_request(PgRing *rg, PgHttpRequest res, PgArena arena) {
   if (!pg_http_request_write_status_line(rg, res, arena)) {
-    return (PgError)ENOMEM;
+    return (PgError)PG_ERR_OUT_OF_MEMORY;
   }
 
   for (u64 i = 0; i < res.headers.len; i++) {
     PgKeyValue header = PG_DYN_AT(res.headers, i);
     if (!pg_http_write_header(rg, header, arena)) {
-      return (PgError)ENOMEM;
+      return (PgError)PG_ERR_OUT_OF_MEMORY;
     }
   }
   if (!pg_ring_write_slice(rg, PG_S("\r\n"))) {
-    return (PgError)ENOMEM;
+    return (PgError)PG_ERR_OUT_OF_MEMORY;
   }
 
   return (PgError)0;
@@ -2706,17 +2706,17 @@ pg_http_write_request(PgRing *rg, PgHttpRequest res, PgArena arena) {
 [[maybe_unused]] static PgError
 pg_http_write_response(PgRing *rg, PgHttpResponse res, PgArena arena) {
   if (!pg_http_response_write_status_line(rg, res, arena)) {
-    return (PgError)ENOMEM;
+    return (PgError)PG_ERR_OUT_OF_MEMORY;
   }
   for (u64 i = 0; i < res.headers.len; i++) {
     PgKeyValue header = PG_DYN_AT(res.headers, i);
     if (!pg_http_write_header(rg, header, arena)) {
-      return (PgError)ENOMEM;
+      return (PgError)PG_ERR_OUT_OF_MEMORY;
     }
   }
   if (!pg_ring_write_slice(rg, PG_S("\r\n"))) {
 
-    return (PgError)ENOMEM;
+    return (PgError)PG_ERR_OUT_OF_MEMORY;
   }
   return (PgError)0;
 }
