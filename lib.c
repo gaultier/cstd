@@ -6,8 +6,6 @@
 #define _XOPEN_SOURCE 700
 #define _DEFAULT_SOURCE 1
 #include "sha1.c"
-#include <errno.h> // TODO: Windows.
-#include <fcntl.h> // TODO: Windows.
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdckdint.h>
@@ -901,29 +899,6 @@ pg_arena_make_from_virtual_mem(u64 size) {
   return (PgArena){.start = alloc, .end = (u8 *)alloc + size};
 }
 
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
-#if defined(__linux__)
-#include <sys/sendfile.h>
-  ssize_t res = sendfile(fd_out, fd_in, nullptr, n_bytes);
-  if (res == -1) {
-    return (PgError)errno;
-  }
-  if (res != (ssize_t)n_bytes) {
-    return (PgError)EAGAIN;
-  }
-  return 0;
-#elif defined(__FreeBSD__)
-  int res = sendfile(fd_in, fd_out, 0, n_bytes, nullptr, nullptr, 0);
-  if (res == -1) {
-    return (PgError)errno;
-  }
-  return 0;
-#else
-#error "sendfile(2) not implemented on other OSes than Linux/FreeBSD."
-#endif
-}
-
 [[maybe_unused]] [[nodiscard]] static i64
 pg_string_indexof_unescaped_byte(PgString haystack, u8 needle) {
   for (u64 i = 0; i < haystack.len; i++) {
@@ -1142,6 +1117,9 @@ pg_net_socket_enable_reuse(PgSocket sock);
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_socket_set_blocking(PgSocket sock, bool blocking);
 
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_os_sendfile(PgFile fd_in, PgFile fd_out, u64 n_bytes);
+
 typedef struct {
   PgIpv4Address addr;
   PgSocket socket;
@@ -1194,6 +1172,8 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -1421,7 +1401,20 @@ pg_net_tcp_accept(PgSocket sock) {
 
 #if defined(__linux__)
 #include <sys/epoll.h>
+#include <sys/sendfile.h>
 #include <sys/timerfd.h>
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
+  ssize_t res = sendfile(fd_out, fd_in, nullptr, n_bytes);
+  if (res == -1) {
+    return (PgError)errno;
+  }
+  if (res != (ssize_t)n_bytes) {
+    return (PgError)EAGAIN;
+  }
+  return 0;
+}
 
 [[maybe_unused]] [[nodiscard]] static PgAioQueueCreateResult
 pg_aio_queue_create() {
@@ -1577,6 +1570,17 @@ pg_time_ns_now(PgClockKind clock) {
   res.res = (u64)ts.tv_sec * PG_Seconds + (u64)ts.tv_nsec;
 
   return res;
+}
+#endif
+
+#if defined(__FreeBSD__)
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
+  int res = sendfile(fd_in, fd_out, 0, n_bytes, nullptr, nullptr, 0);
+  if (res == -1) {
+    return (PgError)errno;
+  }
+  return 0;
 }
 #endif
 
@@ -2008,7 +2012,8 @@ pg_http_parse_response_status_line(PgString status_line) {
     remaining = res_status_code.remaining;
   }
 
-  // TODO: Should we keep the human-readable status code around or validate it?
+  // TODO: Should we keep the human-readable status code around or validate
+  // it?
 
   return res;
 }
