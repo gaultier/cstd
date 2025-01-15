@@ -1859,7 +1859,7 @@ typedef enum {
 } PgHttpMethod;
 
 [[maybe_unused]]
-PgString static pg_http_method_to_s(PgHttpMethod m) {
+PgString static pg_http_method_to_string(PgHttpMethod m) {
   switch (m) {
   case HTTP_METHOD_UNKNOWN:
     return PG_S("unknown");
@@ -2026,7 +2026,7 @@ static void pg_http_push_header(DynKeyValue *headers, PgString key, PgString val
 pg_http_request_write_status_line(RingBuffer *rg, PgHttpRequest req, PgArena arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
-  PG_DYN_APPEND_SLICE(&sb, pg_http_method_to_s(req.method), &arena);
+  PG_DYN_APPEND_SLICE(&sb, pg_http_method_to_string(req.method), &arena);
   PG_DYN_APPEND_SLICE(&sb, PG_S(" /"), &arena);
 
   for (u64 i = 0; i < req.url.path_components.len; i++) {
