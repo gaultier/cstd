@@ -215,16 +215,16 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
 typedef struct {
   PgString s;
   PgString sep;
-} SplitIterator;
+} PgSplitIterator;
 
 typedef struct {
   PgString s;
   bool ok;
-} SplitResult;
+} PgSplitResult;
 
-[[maybe_unused]] [[nodiscard]] static SplitIterator
+[[maybe_unused]] [[nodiscard]] static PgSplitIterator
 pg_string_split_string(PgString s, PgString sep) {
-  return (SplitIterator){.s = s, .sep = sep};
+  return (PgSplitIterator){.s = s, .sep = sep};
 }
 
 [[maybe_unused]] [[nodiscard]] static i64 pg_string_indexof_byte(PgString haystack,
@@ -312,17 +312,17 @@ pg_string_indexof_string(PgString haystack, PgString needle) {
   return (i64)res;
 }
 
-[[maybe_unused]] [[nodiscard]] static SplitResult
-pg_string_split_next(SplitIterator *it) {
+[[maybe_unused]] [[nodiscard]] static PgSplitResult
+pg_string_split_next(PgSplitIterator *it) {
   if (PG_SLICE_IS_EMPTY(it->s)) {
-    return (SplitResult){0};
+    return (PgSplitResult){0};
   }
 
   for (u64 _i = 0; _i < it->s.len; _i++) {
     i64 idx = pg_string_indexof_string(it->s, it->sep);
     if (-1 == idx) {
       // Last element.
-      SplitResult res = {.s = it->s, .ok = true};
+      PgSplitResult res = {.s = it->s, .ok = true};
       it->s = (PgString){0};
       return res;
     }
@@ -331,13 +331,13 @@ pg_string_split_next(SplitIterator *it) {
       it->s = PG_SLICE_RANGE_START(it->s, (u64)idx + it->sep.len);
       continue;
     } else {
-      SplitResult res = {.s = PG_SLICE_RANGE(it->s, 0, (u64)idx), .ok = true};
+      PgSplitResult res = {.s = PG_SLICE_RANGE(it->s, 0, (u64)idx), .ok = true};
       it->s = PG_SLICE_RANGE_START(it->s, (u64)idx + it->sep.len);
 
       return res;
     }
   }
-  return (SplitResult){0};
+  return (PgSplitResult){0};
 }
 
 typedef struct {
@@ -2167,9 +2167,9 @@ url_parse_path_components(PgString s, Arena *arena) {
 
   PgStringDyn components = {0};
 
-  SplitIterator split_it_slash = pg_string_split_string(s, PG_S("/"));
+  PgSplitIterator split_it_slash = pg_string_split_string(s, PG_S("/"));
   for (u64 i = 0; i < s.len; i++) { // Bound.
-    SplitResult split = pg_string_split_next(&split_it_slash);
+    PgSplitResult split = pg_string_split_next(&split_it_slash);
     if (!split.ok) {
       break;
     }
@@ -2603,8 +2603,8 @@ http_read_response(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
     return res;
   }
 
-  SplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
-  SplitResult res_split = pg_string_split_next(&it);
+  PgSplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
+  PgSplitResult res_split = pg_string_split_next(&it);
   if (!res_split.ok) {
     res.err = EINVAL;
     return res;
@@ -2653,8 +2653,8 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
     return res;
   }
 
-  SplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
-  SplitResult res_split = pg_string_split_next(&it);
+  PgSplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
+  PgSplitResult res_split = pg_string_split_next(&it);
   if (!res_split.ok) {
     res.err = EINVAL;
     return res;
@@ -3232,16 +3232,16 @@ http_req_extract_cookie_with_name(HttpRequest req, PgString cookie_name,
         continue;
       }
 
-      SplitIterator it_semicolon = pg_string_split_string(h.value, PG_S(";"));
+      PgSplitIterator it_semicolon = pg_string_split_string(h.value, PG_S(";"));
       for (u64 j = 0; j < h.value.len; j++) {
-        SplitResult split_semicolon = pg_string_split_next(&it_semicolon);
+        PgSplitResult split_semicolon = pg_string_split_next(&it_semicolon);
         if (!split_semicolon.ok) {
           break;
         }
 
-        SplitIterator it_equals =
+        PgSplitIterator it_equals =
             pg_string_split_string(split_semicolon.s, PG_S("="));
-        SplitResult split_equals_left = pg_string_split_next(&it_equals);
+        PgSplitResult split_equals_left = pg_string_split_next(&it_equals);
         if (!split_equals_left.ok) {
           break;
         }
@@ -3249,7 +3249,7 @@ http_req_extract_cookie_with_name(HttpRequest req, PgString cookie_name,
           // Could be: `; Secure;`
           continue;
         }
-        SplitResult split_equals_right = pg_string_split_next(&it_equals);
+        PgSplitResult split_equals_right = pg_string_split_next(&it_equals);
         if (!PG_SLICE_IS_EMPTY(split_equals_right.s)) {
           return split_equals_right.s;
         }

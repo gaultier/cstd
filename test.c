@@ -44,22 +44,22 @@ static void test_string_trim() {
 
 static void test_string_split_byte() {
   PgString s = PG_S("hello..world...foobar");
-  SplitIterator it = pg_string_split_string(s, PG_S("."));
+  PgSplitIterator it = pg_string_split_string(s, PG_S("."));
 
   {
-    SplitResult elem = pg_string_split_next(&it);
+    PgSplitResult elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.s, PG_S("hello")));
   }
 
   {
-    SplitResult elem = pg_string_split_next(&it);
+    PgSplitResult elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.s, PG_S("world")));
   }
 
   {
-    SplitResult elem = pg_string_split_next(&it);
+    PgSplitResult elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.s, PG_S("foobar")));
   }
@@ -70,22 +70,22 @@ static void test_string_split_byte() {
 
 static void test_string_split_string() {
   PgString s = PG_S("hello, world,little, thing !");
-  SplitIterator it = pg_string_split_string(s, PG_S(", "));
+  PgSplitIterator it = pg_string_split_string(s, PG_S(", "));
 
   {
-    SplitResult elem = pg_string_split_next(&it);
+    PgSplitResult elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.s, PG_S("hello")));
   }
 
   {
-    SplitResult elem = pg_string_split_next(&it);
+    PgSplitResult elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.s, PG_S("world,little")));
   }
 
   {
-    SplitResult elem = pg_string_split_next(&it);
+    PgSplitResult elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.s, PG_S("thing !")));
   }
