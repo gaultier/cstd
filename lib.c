@@ -1018,7 +1018,7 @@ pg_string_ieq_ascii(PgString a, PgString b, PgArena *arena) {
 }
 
 // TODO: Windows.
-[[maybe_unused]] static PgStringResult file_read_full(PgString path,
+[[maybe_unused]] static PgStringResult pg_file_read_full(PgString path,
                                                       PgArena *arena) {
 
   PgStringResult res = {0};
