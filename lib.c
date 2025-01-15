@@ -55,7 +55,7 @@ typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
 
-#define RESULT(T)                                                              \
+#define PG_RESULT(T)                                                           \
   typedef struct {                                                             \
     Error err;                                                                 \
     T res;                                                                     \
@@ -68,8 +68,7 @@ typedef int64_t i64;
   } T##Ok
 
 typedef u32 Error;
-RESULT(u64) IoCountResult;
-RESULT(u64) u64Result;
+PG_RESULT(u64) u64Result;
 
 PG_DYN(u8);
 SLICE(u8);
@@ -150,11 +149,11 @@ typedef u8Slice String;
   ASSERT(false);
 }
 
-RESULT(String) StringResult;
+PG_RESULT(String) StringResult;
 OK(String);
 SLICE(String);
 
-RESULT(StringSlice) StringSliceResult;
+PG_RESULT(StringSlice) StringSliceResult;
 
 #define slice_is_empty(s)                                                      \
   (((s).len == 0) ? true : (ASSERT(nullptr != (s).data), false))
@@ -704,7 +703,7 @@ typedef enum {
   ((T){.data = (dyn)->data + (dyn)->len, .len = (dyn)->cap - (dyn)->len})
 
 PG_DYN(String);
-RESULT(StringDyn) StringDynResult;
+PG_RESULT(StringDyn) StringDynResult;
 
 #define dyn_push(s, arena)                                                     \
   (dyn_ensure_cap(s, (s)->len + 1, arena), (s)->data + (s)->len++)
@@ -1161,7 +1160,7 @@ typedef enum {
   // TODO: More?
 } ClockKind;
 
-RESULT(Timer) TimerResult;
+PG_RESULT(Timer) TimerResult;
 
 [[maybe_unused]] [[nodiscard]] static TimerResult
 pg_timer_create(ClockKind clock_kind, u64 ns);
@@ -1171,7 +1170,7 @@ pg_timer_create(ClockKind clock_kind, u64 ns);
 [[maybe_unused]] [[nodiscard]] static u64Result
 pg_time_ns_now(ClockKind clock_kind);
 
-RESULT(Socket) CreateSocketResult;
+PG_RESULT(Socket) CreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static CreateSocketResult
 net_create_tcp_socket();
 [[maybe_unused]] [[nodiscard]] static Error net_socket_close(Socket sock);
@@ -1183,7 +1182,7 @@ typedef struct {
   Ipv4Address address;
   Socket socket;
 } Ipv4AddressSocket;
-RESULT(Ipv4AddressSocket) DnsResolveIpv4AddressSocketResult;
+PG_RESULT(Ipv4AddressSocket) DnsResolveIpv4AddressSocketResult;
 [[maybe_unused]] [[nodiscard]] static DnsResolveIpv4AddressSocketResult
 net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena);
 
@@ -1206,7 +1205,7 @@ typedef struct {
 net_tcp_accept(Socket sock);
 
 typedef u64 AioQueue;
-RESULT(AioQueue) AioQueueCreateResult;
+PG_RESULT(AioQueue) AioQueueCreateResult;
 [[maybe_unused]] [[nodiscard]] static AioQueueCreateResult aio_queue_create();
 
 typedef enum {
@@ -1242,7 +1241,7 @@ PG_DYN(AioEvent);
   return aio_queue_ctl(queue, events);
 }
 
-[[maybe_unused]] [[nodiscard]] static IoCountResult
+[[maybe_unused]] [[nodiscard]] static u64Result
 aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
                Arena arena);
 
@@ -1484,10 +1483,10 @@ aio_queue_ctl(AioQueue queue, AioEventSlice events) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static IoCountResult
+[[maybe_unused]] [[nodiscard]] static u64Result
 aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
                Arena arena) {
-  IoCountResult res = {0};
+  u64Result res = {0};
   if (slice_is_empty(events)) {
     return res;
   }
@@ -1580,21 +1579,21 @@ pg_time_ns_now(ClockKind clock) {
 }
 #endif
 
-RESULT(String) IoResult;
+PG_RESULT(String) IoResult;
 
-typedef IoCountResult (*ReadFn)(void *self, u8 *buf, size_t buf_len);
-typedef IoCountResult (*WriteFn)(void *self, u8 *buf, size_t buf_len);
+typedef u64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
+typedef u64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
-[[maybe_unused]] [[nodiscard]] static IoCountResult
-unix_read(void *self, u8 *buf, size_t buf_len) {
+[[maybe_unused]] [[nodiscard]] static u64Result unix_read(void *self, u8 *buf,
+                                                          size_t buf_len) {
   ASSERT(nullptr != self);
 
   int fd = (int)(u64)self;
   ssize_t n = read(fd, buf, buf_len);
 
-  IoCountResult res = {0};
+  u64Result res = {0};
   if (n < 0) {
     res.err = (Error)errno;
   } else {
@@ -1606,14 +1605,14 @@ unix_read(void *self, u8 *buf, size_t buf_len) {
 
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
-[[maybe_unused]] [[nodiscard]] static IoCountResult
-unix_write(void *self, u8 *buf, size_t buf_len) {
+[[maybe_unused]] [[nodiscard]] static u64Result unix_write(void *self, u8 *buf,
+                                                           size_t buf_len) {
   ASSERT(nullptr != self);
 
   int fd = (int)(u64)self;
   ssize_t n = write(fd, buf, buf_len);
 
-  IoCountResult res = {0};
+  u64Result res = {0};
   if (n < 0) {
     res.err = (Error)errno;
   } else {
@@ -1628,13 +1627,13 @@ typedef struct {
   Arena *arena;
 } StringBuilder;
 
-[[maybe_unused]] [[nodiscard]] static IoCountResult
+[[maybe_unused]] [[nodiscard]] static u64Result
 string_builder_write(void *self, u8 *buf, size_t buf_len) {
   StringBuilder *sb = self;
   String s = {.data = buf, .len = buf_len};
   dyn_append_slice(&sb->sb, s, sb->arena);
 
-  return (IoCountResult){.res = buf_len};
+  return (u64Result){.res = buf_len};
 }
 
 typedef struct {
@@ -1885,14 +1884,14 @@ typedef struct {
   String key, value;
 } KeyValue;
 
-RESULT(KeyValue) KeyValueResult;
+PG_RESULT(KeyValue) KeyValueResult;
 
 typedef struct {
   KeyValue *data;
   u64 len, cap;
 } DynKeyValue;
 
-RESULT(DynKeyValue) DynKeyValueResult;
+PG_RESULT(DynKeyValue) DynKeyValueResult;
 
 typedef struct {
   String scheme;
@@ -1921,7 +1920,7 @@ typedef struct {
   Url url; // Does not have a scheme, domain, port.
 } HttpRequestStatusLine;
 
-RESULT(HttpRequestStatusLine) HttpRequestStatusLineResult;
+PG_RESULT(HttpRequestStatusLine) HttpRequestStatusLineResult;
 
 // `HTTP/1.1 201 Created`.
 typedef struct {
@@ -1930,7 +1929,7 @@ typedef struct {
   u16 status;
 } HttpResponseStatusLine;
 
-RESULT(HttpResponseStatusLine) HttpResponseStatusLineResult;
+PG_RESULT(HttpResponseStatusLine) HttpResponseStatusLineResult;
 
 #if 0
 typedef struct {
@@ -2130,7 +2129,7 @@ typedef struct {
   String username, password;
 } UrlUserInfo;
 
-RESULT(UrlUserInfo) UrlUserInfoResult;
+PG_RESULT(UrlUserInfo) UrlUserInfoResult;
 
 typedef struct {
   UrlUserInfo user_info;
@@ -2138,9 +2137,9 @@ typedef struct {
   u16 port;
 } UrlAuthority;
 
-RESULT(UrlAuthority) UrlAuthorityResult;
+PG_RESULT(UrlAuthority) UrlAuthorityResult;
 
-RESULT(Url) ParseUrlResult;
+PG_RESULT(Url) ParseUrlResult;
 
 [[maybe_unused]] [[nodiscard]] static StringDynResult
 url_parse_path_components(String s, Arena *arena) {
@@ -2235,7 +2234,7 @@ url_parse_user_info(String s) {
   return res;
 }
 
-RESULT(u16) PortResult;
+PG_RESULT(u16) PortResult;
 
 [[maybe_unused]] [[nodiscard]] static PortResult url_parse_port(String s) {
   PortResult res = {0};
@@ -2748,11 +2747,11 @@ writer_make_from_string_builder(StringBuilder *sb) {
   return (Writer){.write_fn = string_builder_write, .ctx = (void *)sb};
 }
 
-[[maybe_unused]] [[nodiscard]] static IoCountResult
+[[maybe_unused]] [[nodiscard]] static u64Result
 reader_read(Reader *r, RingBuffer *rg, Arena arena) {
   ASSERT(nullptr != r->read_fn);
 
-  IoCountResult res = {0};
+  u64Result res = {0};
 
   String dst = string_make(ring_buffer_write_space(*rg), &arena);
   res = r->read_fn(r->ctx, dst.data, dst.len);
@@ -2766,7 +2765,7 @@ reader_read(Reader *r, RingBuffer *rg, Arena arena) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static IoCountResult
+[[maybe_unused]] [[nodiscard]] static u64Result
 writer_write(Writer *w, RingBuffer *rg, Arena arena) {
   ASSERT(nullptr != w->write_fn);
 

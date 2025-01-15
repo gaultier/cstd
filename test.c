@@ -941,7 +941,7 @@ static void test_net_socket() {
   AioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
 
   for (;;) {
-    IoCountResult res_wait = aio_queue_wait(queue, events_watch, -1, arena);
+    u64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
     ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
@@ -1466,7 +1466,7 @@ static void test_http_request_response() {
   AioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
 
   for (u64 _i = 0; _i <= 128; _i++) {
-    IoCountResult res_wait = aio_queue_wait(queue, events_watch, -1, arena);
+    u64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
     ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
@@ -1647,7 +1647,7 @@ static void test_timer() {
   }
 
   AioEventSlice events_watch = slice_make(AioEvent, 1, &arena);
-  IoCountResult res_wait = aio_queue_wait(queue, events_watch, 1'000, arena);
+  u64Result res_wait = aio_queue_wait(queue, events_watch, 1'000, arena);
   ASSERT(0 == res_wait.err);
   ASSERT(1 == res_wait.res);
 
