@@ -438,7 +438,7 @@ static void test_u8x4_be_to_u32_and_back() {
     u32 n = 123'456'789;
     u8 data[sizeof(n)] = {0};
     PgString s = {.data = data, .len = sizeof(n)};
-    u32_to_u8x4_be(n, &s);
+    pg_u32_to_u8x4_be(n, &s);
     PG_ASSERT(pg_string_eq(s, PG_S("\x07"
                                    "\x5b"
                                    "\x0cd"
@@ -1469,7 +1469,7 @@ static void test_http_request_response() {
                    &arena);
   *PG_DYN_PUSH(&client_req.url.query_parameters, &arena) = (KeyValue){
       .key = PG_S("uploaded"),
-      .value = u64_to_string(123456, &arena),
+      .value = pg_u64_to_string(123456, &arena),
   };
 
   HttpResponse server_res = {0};

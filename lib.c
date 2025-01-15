@@ -744,7 +744,7 @@ pg_string_builder_append_u64_to_string(Pgu8Dyn *dyn, u64 n, PgArena *arena) {
   PG_DYN_APPEND_SLICE(dyn, s, arena);
 }
 
-[[maybe_unused]] static void u32_to_u8x4_be(u32 n, PgString *dst) {
+[[maybe_unused]] static void pg_u32_to_u8x4_be(u32 n, PgString *dst) {
   PG_ASSERT(sizeof(n) == dst->len);
 
   *(PG_SLICE_AT_PTR(dst, 0)) = (u8)(n >> 24);
@@ -758,18 +758,18 @@ pg_string_builder_append_u64_to_string(Pgu8Dyn *dyn, u64 n, PgArena *arena) {
 
   u8 data[sizeof(n)] = {0};
   PgString s = {.data = data, .len = sizeof(n)};
-  u32_to_u8x4_be(n, &s);
+  pg_u32_to_u8x4_be(n, &s);
   PG_DYN_APPEND_SLICE(dyn, s, arena);
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString u64_to_string(u64 n,
+[[maybe_unused]] [[nodiscard]] static PgString pg_u64_to_string(u64 n,
                                                              PgArena *arena) {
   Pgu8Dyn sb = {0};
   pg_string_builder_append_u64_to_string(&sb, n, arena);
   return PG_DYN_SLICE(PgString, sb);
 }
 
-[[maybe_unused]] [[nodiscard]] static u8 u8_to_ch_hex(u8 n) {
+[[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_ch_hex(u8 n) {
   PG_ASSERT(n < 16);
 
   if (n <= 9) {
@@ -790,7 +790,7 @@ pg_string_builder_append_u64_to_string(Pgu8Dyn *dyn, u64 n, PgArena *arena) {
   PG_ASSERT(0);
 }
 
-[[maybe_unused]] [[nodiscard]] static u8 u8_to_ch_hex_upper(u8 n) {
+[[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_ch_hex_upper(u8 n) {
   PG_ASSERT(n < 16);
 
   if (n <= 9) {
@@ -818,8 +818,8 @@ static void pg_string_builder_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n,
 
   u8 c1 = n % 16;
   u8 c2 = n / 16;
-  *PG_DYN_PUSH(dyn, arena) = u8_to_ch_hex_upper(c2);
-  *PG_DYN_PUSH(dyn, arena) = u8_to_ch_hex_upper(c1);
+  *PG_DYN_PUSH(dyn, arena) = pg_u8_to_ch_hex_upper(c2);
+  *PG_DYN_PUSH(dyn, arena) = pg_u8_to_ch_hex_upper(c1);
   PG_ASSERT(2 == (dyn->len - PG_DYN_ORIGINAL_LEN));
 }
 
@@ -835,8 +835,8 @@ pg_string_builder_append_u128_hex(Pgu8Dyn *dyn, u128 n, PgArena *arena) {
   for (u64 i = 0; i < sizeof(it); i++) {
     u8 c1 = it[i] % 16;
     u8 c2 = it[i] / 16;
-    *PG_DYN_PUSH(dyn, arena) = u8_to_ch_hex(c2);
-    *PG_DYN_PUSH(dyn, arena) = u8_to_ch_hex(c1);
+    *PG_DYN_PUSH(dyn, arena) = pg_u8_to_ch_hex(c2);
+    *PG_DYN_PUSH(dyn, arena) = pg_u8_to_ch_hex(c1);
   }
   PG_ASSERT(32 == (dyn->len - PG_DYN_ORIGINAL_LEN));
 }
@@ -1305,7 +1305,7 @@ net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
   struct addrinfo *addr_info = nullptr;
   int res_getaddrinfo =
       getaddrinfo(pg_string_to_cstr(host, &arena),
-                  pg_string_to_cstr(u64_to_string(port, &arena), &arena),
+                  pg_string_to_cstr(pg_u64_to_string(port, &arena), &arena),
                   &hints, &addr_info);
   if (res_getaddrinfo != 0) {
     res.err = EINVAL;
