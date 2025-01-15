@@ -302,7 +302,7 @@ static void test_slice_swap_remove() {
   Arena arena = arena_make_from_virtual_mem(4 * PG_KiB);
   {
     PgString s = string_dup(S("hello world!"), &arena);
-    slice_swap_remove(&s, 4);
+    PG_SLICE_SWAP_REMOVE(&s, 4);
     PG_ASSERT(string_eq(s, S("hell! world")));
   }
 }

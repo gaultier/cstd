@@ -104,7 +104,7 @@ typedef Pgu8Slice PgString;
 #define PG_SLICE_MAKE(T, l, arena)                                                \
   ((T##Slice){.data = arena_new(arena, T, l), .len = l})
 
-#define slice_swap_remove(s, idx)                                              \
+#define PG_SLICE_SWAP_REMOVE(s, idx)                                              \
   do {                                                                         \
     if ((i64)(idx) >= (i64)((s)->len)) {                                       \
       __builtin_trap();                                                        \
