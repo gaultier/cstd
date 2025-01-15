@@ -2801,8 +2801,8 @@ pg_http_client_request(PgIpv4AddressSocket sock, PgHttpRequest req, PgArena *are
   }
 
   PgString pg_http_request_serialized = pg_http_request_serialize(req, arena);
-  log(PG_LOG_LEVEL_DEBUG, "http request", arena, L("ip", sock.address.ip),
-      L("port", sock.address.port), L("serialized", pg_http_request_serialized));
+  log(PG_LOG_LEVEL_DEBUG, "http request", arena, PG_L("ip", sock.address.ip),
+      PG_L("port", sock.address.port), PG_L("serialized", pg_http_request_serialized));
 
   // TODO: should not be an assert but a returned error.
   PG_ASSERT(send(sock.socket, pg_http_request_serialized.data,
@@ -2855,8 +2855,8 @@ pg_http_client_request(PgIpv4AddressSocket sock, PgHttpRequest req, PgArena *are
   res.err = pg_http_read_headers(&reader, &res.headers, arena);
   if (res.err) {
     log(PG_LOG_LEVEL_ERROR, "http request failed to read headers", arena,
-        L("req.method", req.method), L("req.path_raw", req.path_raw),
-        L("err", res.err));
+        PG_L("req.method", req.method), PG_L("req.path_raw", req.path_raw),
+        PG_L("err", res.err));
     goto end;
   }
 
@@ -3347,7 +3347,7 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
-#define L(k, v)                                                                \
+#define PG_L(k, v)                                                                \
   (_Generic((v),                                                               \
        int: pg_log_entry_int,                                                     \
        u16: pg_log_entry_u16,                                                     \

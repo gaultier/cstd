@@ -424,7 +424,7 @@ static void test_make_log_line() {
 
   PgString pg_log_line =
       pg_log_make_log_line(PG_LOG_LEVEL_DEBUG, PG_S("foobar"), &arena, 2,
-                        L("num", 42), L("s", PG_S("hello \"world\"")));
+                        PG_L("num", 42), PG_L("s", PG_S("hello \"world\"")));
 
   PgString expected_suffix = PG_S(
       "\"message\":\"foobar\",\"num\":42,\"s\":\"hello \\\"world\\\"\"}\n");
@@ -1627,7 +1627,7 @@ static void test_log() {
     logger.writer = pg_writer_make_from_string_builder(&sb);
 
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world", arena,
-               L("foo", PG_S("bar")));
+               PG_L("foo", PG_S("bar")));
 
     PgString out = PG_DYN_SLICE(PgString, sb.sb);
     PG_ASSERT(pg_string_starts_with(out, PG_S("{\"level\":\"info\"")));
@@ -1639,7 +1639,7 @@ static void test_log() {
     logger.writer = pg_writer_make_from_string_builder(&sb);
 
     pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world", arena,
-               L("foo", PG_S("bar")));
+               PG_L("foo", PG_S("bar")));
 
     PgString out = PG_DYN_SLICE(PgString, sb.sb);
     PG_ASSERT(pg_string_is_empty(out));
