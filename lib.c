@@ -1840,14 +1840,14 @@ typedef struct {
 typedef struct {
   void *ctx;
   WriteFn write_fn;
-} Writer;
+} PgWriter;
 
 [[maybe_unused]] [[nodiscard]] static PgSocket reader_socket(PgReader *r) {
   PG_ASSERT(r->ctx);
   return (PgSocket)(u64)r->ctx;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgSocket writer_socket(Writer *w) {
+[[maybe_unused]] [[nodiscard]] static PgSocket writer_socket(PgWriter *w) {
   PG_ASSERT(w->ctx);
   return (PgSocket)(u64)w->ctx;
 }
@@ -2729,20 +2729,20 @@ reader_make_from_socket(PgSocket socket) {
   return (PgReader){.read_fn = pg_unix_read, .ctx = (void *)(u64)socket};
 }
 
-[[maybe_unused]] [[nodiscard]] static Writer
+[[maybe_unused]] [[nodiscard]] static PgWriter
 writer_make_from_socket(PgSocket socket) {
   // TODO: Windows.
-  return (Writer){.write_fn = pg_unix_write, .ctx = (void *)(u64)socket};
+  return (PgWriter){.write_fn = pg_unix_write, .ctx = (void *)(u64)socket};
 }
 
-[[maybe_unused]] [[nodiscard]] static Writer writer_make_from_file(PgFile *file) {
+[[maybe_unused]] [[nodiscard]] static PgWriter writer_make_from_file(PgFile *file) {
   // TODO: Windows.
-  return (Writer){.write_fn = pg_unix_write, .ctx = (void *)file};
+  return (PgWriter){.write_fn = pg_unix_write, .ctx = (void *)file};
 }
 
-[[maybe_unused]] [[nodiscard]] static Writer
+[[maybe_unused]] [[nodiscard]] static PgWriter
 writer_make_from_string_builder(StringBuilder *sb) {
-  return (Writer){.write_fn = pg_string_builder_write, .ctx = (void *)sb};
+  return (PgWriter){.write_fn = pg_string_builder_write, .ctx = (void *)sb};
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
@@ -2764,7 +2764,7 @@ reader_read(PgReader *r, RingBuffer *rg, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-writer_write(Writer *w, RingBuffer *rg, PgArena arena) {
+writer_write(PgWriter *w, RingBuffer *rg, PgArena arena) {
   PG_ASSERT(nullptr != w->write_fn);
 
   PgString dst = pg_string_make(pg_ring_read_space(*rg), &arena);
@@ -3267,7 +3267,7 @@ typedef enum {
 
 typedef struct {
   LogLevel level;
-  Writer writer;
+  PgWriter writer;
 } Logger;
 
 typedef struct {
