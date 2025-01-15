@@ -108,7 +108,7 @@ static void test_dyn_ensure_cap() {
     PgArena arena = pg_arena_make_from_virtual_mem(pg_arena_cap);
 
     Pgu8Dyn dyn = {0};
-    *dyn_push(&dyn, &arena) = 1;
+    *PG_DYN_PUSH(&dyn, &arena) = 1;
     PG_ASSERT(1 == dyn.len);
     PG_ASSERT(2 == dyn.cap);
 
@@ -117,7 +117,7 @@ static void test_dyn_ensure_cap() {
     PG_ASSERT(dyn.cap == pg_arena_size_expected);
 
     u64 desired_cap = 13;
-    dyn_ensure_cap(&dyn, desired_cap, &arena);
+    PG_DYN_ENSURE_CAP(&dyn, desired_cap, &arena);
     PG_ASSERT(16 == dyn.cap);
     pg_arena_size_expected = pg_arena_cap - ((u64)arena.end - (u64)arena.start);
     PG_ASSERT(16 == pg_arena_size_expected);
@@ -127,19 +127,19 @@ static void test_dyn_ensure_cap() {
     PgArena arena = pg_arena_make_from_virtual_mem(pg_arena_cap);
 
     Pgu8Dyn dyn = {0};
-    *dyn_push(&dyn, &arena) = 1;
+    *PG_DYN_PUSH(&dyn, &arena) = 1;
     PG_ASSERT(1 == dyn.len);
     PG_ASSERT(2 == dyn.cap);
 
     Pgu8Dyn dummy = {0};
-    *dyn_push(&dummy, &arena) = 2;
-    *dyn_push(&dummy, &arena) = 3;
+    *PG_DYN_PUSH(&dummy, &arena) = 2;
+    *PG_DYN_PUSH(&dummy, &arena) = 3;
 
     u64 pg_arena_size_expected = pg_arena_cap - ((u64)arena.end - (u64)arena.start);
     PG_ASSERT(2 + 2 == pg_arena_size_expected);
 
     // This triggers a new allocation.
-    *dyn_push(&dummy, &arena) = 4;
+    *PG_DYN_PUSH(&dummy, &arena) = 4;
     PG_ASSERT(3 == dummy.len);
     PG_ASSERT(4 == dummy.cap);
 
@@ -147,7 +147,7 @@ static void test_dyn_ensure_cap() {
     PG_ASSERT(2 + 4 == pg_arena_size_expected);
 
     u64 desired_cap = 13;
-    dyn_ensure_cap(&dyn, desired_cap, &arena);
+    PG_DYN_ENSURE_CAP(&dyn, desired_cap, &arena);
     PG_ASSERT(16 == dyn.cap);
 
     pg_arena_size_expected = pg_arena_cap - ((u64)arena.end - (u64)arena.start);
@@ -182,13 +182,13 @@ static void test_slice_range() {
 
   PgStringDyn dyn = {0};
   // Works on empty slices.
-  (void)PG_SLICE_RANGE(dyn_slice(PgStringSlice, dyn), 0, 0);
+  (void)PG_SLICE_RANGE(PG_DYN_SLICE(PgStringSlice, dyn), 0, 0);
 
-  *dyn_push(&dyn, &arena) = PG_S("hello \"world\n\"!");
-  *dyn_push(&dyn, &arena) = PG_S("日");
-  *dyn_push(&dyn, &arena) = PG_S("本語");
+  *PG_DYN_PUSH(&dyn, &arena) = PG_S("hello \"world\n\"!");
+  *PG_DYN_PUSH(&dyn, &arena) = PG_S("日");
+  *PG_DYN_PUSH(&dyn, &arena) = PG_S("本語");
 
-  PgStringSlice s = dyn_slice(PgStringSlice, dyn);
+  PgStringSlice s = PG_DYN_SLICE(PgStringSlice, dyn);
   PgStringSlice range = PG_SLICE_RANGE_START(s, 1UL);
   PG_ASSERT(2 == range.len);
 
@@ -320,7 +320,7 @@ static void test_dynu8_append_u8_hex_upper() {
     dynu8_append_u8_hex_upper(&sb, 0xac, &arena);
     dynu8_append_u8_hex_upper(&sb, 0x89, &arena);
 
-    PgString s = dyn_slice(PgString, sb);
+    PgString s = PG_DYN_SLICE(PgString, sb);
     PG_ASSERT(pg_string_eq(s, PG_S("AC89")));
   }
 }
@@ -343,7 +343,7 @@ static void test_url_encode() {
   {
     Pgu8Dyn sb = {0};
     url_encode_string(&sb, PG_S("日本語"), PG_S("123"), &arena);
-    PgString encoded = dyn_slice(PgString, sb);
+    PgString encoded = PG_DYN_SLICE(PgString, sb);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=123")));
   }
@@ -351,7 +351,7 @@ static void test_url_encode() {
   {
     Pgu8Dyn sb = {0};
     url_encode_string(&sb, PG_S("日本語"), PG_S("foo"), &arena);
-    PgString encoded = dyn_slice(PgString, sb);
+    PgString encoded = PG_DYN_SLICE(PgString, sb);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=foo")));
   }
@@ -793,7 +793,7 @@ static void test_url_parse() {
     PG_ASSERT(0 == res.res.path_components.len);
     PG_ASSERT(1 == res.res.query_parameters.len);
 
-    KeyValue kv0 = dyn_at(res.res.query_parameters, 0);
+    KeyValue kv0 = PG_DYN_AT(res.res.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("")));
   }
@@ -819,7 +819,7 @@ static void test_url_parse() {
     PG_ASSERT(0 == res.res.path_components.len);
     PG_ASSERT(1 == res.res.query_parameters.len);
 
-    KeyValue kv0 = dyn_at(res.res.query_parameters, 0);
+    KeyValue kv0 = PG_DYN_AT(res.res.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
   }
@@ -834,7 +834,7 @@ static void test_url_parse() {
     PG_ASSERT(0 == res.res.path_components.len);
     PG_ASSERT(1 == res.res.query_parameters.len);
 
-    KeyValue kv0 = dyn_at(res.res.query_parameters, 0);
+    KeyValue kv0 = PG_DYN_AT(res.res.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
   }
@@ -849,11 +849,11 @@ static void test_url_parse() {
     PG_ASSERT(0 == res.res.path_components.len);
     PG_ASSERT(2 == res.res.query_parameters.len);
 
-    KeyValue kv0 = dyn_at(res.res.query_parameters, 0);
+    KeyValue kv0 = PG_DYN_AT(res.res.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
 
-    KeyValue kv1 = dyn_at(res.res.query_parameters, 1);
+    KeyValue kv1 = PG_DYN_AT(res.res.query_parameters, 1);
     PG_ASSERT(pg_string_eq(kv1.key, PG_S("hello")));
     PG_ASSERT(pg_string_eq(kv1.value, PG_S("world")));
   }
@@ -869,15 +869,15 @@ static void test_url_parse() {
     PG_ASSERT(0 == res.res.path_components.len);
     PG_ASSERT(3 == res.res.query_parameters.len);
 
-    KeyValue kv0 = dyn_at(res.res.query_parameters, 0);
+    KeyValue kv0 = PG_DYN_AT(res.res.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
 
-    KeyValue kv1 = dyn_at(res.res.query_parameters, 1);
+    KeyValue kv1 = PG_DYN_AT(res.res.query_parameters, 1);
     PG_ASSERT(pg_string_eq(kv1.key, PG_S("hello")));
     PG_ASSERT(pg_string_eq(kv1.value, PG_S("world")));
 
-    KeyValue kv2 = dyn_at(res.res.query_parameters, 2);
+    KeyValue kv2 = PG_DYN_AT(res.res.query_parameters, 2);
     PG_ASSERT(pg_string_eq(kv2.key, PG_S("a")));
     PG_ASSERT(pg_string_eq(kv2.value, PG_S("")));
   }
@@ -1082,7 +1082,7 @@ static void test_http_send_request() {
     HttpRequest req;
     req.method = HTTP_METHOD_POST;
     http_push_header(&req.headers, PG_S("Host"), PG_S("google.com"), &arena);
-    *dyn_push(&req.url.path_components, &arena) = PG_S("foobar");
+    *PG_DYN_PUSH(&req.url.path_components, &arena) = PG_S("foobar");
 
     {
       RingBuffer rg = {.data = pg_string_make(32, &arena)};
@@ -1246,7 +1246,7 @@ static void test_http_parse_request_status_line() {
     PG_ASSERT(0 == res.res.version_minor);
     PG_ASSERT(0 == res.res.url.path_components.len);
     PG_ASSERT(1 == res.res.url.query_parameters.len);
-    KeyValue kv0 = dyn_at(res.res.url.query_parameters, 0);
+    KeyValue kv0 = PG_DYN_AT(res.res.url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
   }
@@ -1271,7 +1271,7 @@ static void test_http_parse_request_status_line() {
     PG_ASSERT(1 == res.res.version_minor);
     PG_ASSERT(3 == res.res.url.path_components.len);
     PG_ASSERT(1 == res.res.url.query_parameters.len);
-    KeyValue kv0 = dyn_at(res.res.url.query_parameters, 0);
+    KeyValue kv0 = PG_DYN_AT(res.res.url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("hey")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("")));
   }
@@ -1467,7 +1467,7 @@ static void test_http_request_response() {
   client_req.method = HTTP_METHOD_GET;
   http_push_header(&client_req.headers, PG_S("Host"), PG_S("localhost"),
                    &arena);
-  *dyn_push(&client_req.url.query_parameters, &arena) = (KeyValue){
+  *PG_DYN_PUSH(&client_req.url.query_parameters, &arena) = (KeyValue){
       .key = PG_S("uploaded"),
       .value = u64_to_string(123456, &arena),
   };
@@ -1629,7 +1629,7 @@ static void test_log() {
     logger_log(&logger, LOG_LEVEL_INFO, "hello world", arena,
                L("foo", PG_S("bar")));
 
-    PgString out = dyn_slice(PgString, sb.sb);
+    PgString out = PG_DYN_SLICE(PgString, sb.sb);
     PG_ASSERT(pg_string_starts_with(out, PG_S("{\"level\":\"info\"")));
   }
   // Log but the logger level is higher.
@@ -1641,7 +1641,7 @@ static void test_log() {
     logger_log(&logger, LOG_LEVEL_DEBUG, "hello world", arena,
                L("foo", PG_S("bar")));
 
-    PgString out = dyn_slice(PgString, sb.sb);
+    PgString out = PG_DYN_SLICE(PgString, sb.sb);
     PG_ASSERT(pg_string_is_empty(out));
   }
 }
