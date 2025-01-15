@@ -1684,6 +1684,14 @@ typedef struct {
   PgString data;
 } PgRing;
 
+[[nodiscard]] [[maybe_unused]] static bool pg_ring_is_empty(PgRing rg) {
+  return rg.idx_read == rg.idx_write;
+}
+
+[[maybe_unused]] static PgRing pg_ring_make(u64 cap, PgArena *arena) {
+  return (PgRing){.data = pg_string_make(cap, arena)};
+}
+
 [[maybe_unused]] [[nodiscard]] static u64 pg_ring_write_space(PgRing rg) {
   if (rg.idx_write == rg.idx_read) { // Empty.
     return rg.data.len - 1;
@@ -3710,6 +3718,8 @@ struct PgEventLoopHandle {
   PgReader reader;
   PgWriter writer;
 
+  PgArena arena;
+
   PgEventLoopOnTcpConnect on_connect;
   PgEventLoopOnClose on_close;
   PgEventLoopOnRead on_read;
@@ -3730,7 +3740,7 @@ struct PgEventLoop {
 PG_RESULT(PgEventLoop) PgEventLoopResult;
 
 [[nodiscard]] [[maybe_unused]]
-static PgEventLoopResult pg_event_loop_make(PgArena *arena) {
+static PgEventLoopResult pg_event_loop_make_loop(PgArena *arena) {
   PgEventLoopResult res = {0};
   {
     PgAioQueueResult res_queue = pg_aio_queue_create();
@@ -3742,6 +3752,22 @@ static PgEventLoopResult pg_event_loop_make(PgArena *arena) {
     res.res.queue = res_queue.res;
   }
   res.res.arena = arena;
+
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]]
+static PgEventLoopHandle pg_event_loop_make_tcp_handle(PgSocket socket,
+                                                       void *ctx) {
+  PgEventLoopHandle res = {0};
+  res.kind = PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET;
+  res.reader = pg_reader_make_from_socket(socket);
+  res.writer = pg_writer_make_from_socket(socket);
+  res.os_handle = (u64)socket;
+  res.ctx = ctx;
+  res.arena = pg_arena_make_from_virtual_mem(2 * 4096);
+  res.ring_read = pg_ring_make(4096, &res.arena);
+  res.ring_write = pg_ring_make(4096, &res.arena);
 
   return res;
 }
@@ -3785,11 +3811,8 @@ static Pgu64Result pg_event_loop_tcp_init(PgEventLoop *loop, void *ctx) {
     }
   }
 
-  *PG_DYN_PUSH(&loop->handles, loop->arena) = (PgEventLoopHandle){
-      .kind = PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET,
-      .os_handle = (u64)res_socket.res,
-      .ctx = ctx,
-  };
+  *PG_DYN_PUSH(&loop->handles, loop->arena) =
+      pg_event_loop_make_tcp_handle(res_socket.res, ctx);
 
   res.res = (u64)res_socket.res;
   return res;
@@ -3902,10 +3925,8 @@ static Pgu64Result pg_event_loop_tcp_accept(PgEventLoop *loop, u64 os_handle) {
     return res;
   }
 
-  *PG_DYN_PUSH(&loop->handles, loop->arena) = (PgEventLoopHandle){
-      .kind = PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET,
-      .os_handle = (u64)res_accept.socket,
-  };
+  *PG_DYN_PUSH(&loop->handles, loop->arena) =
+      pg_event_loop_make_tcp_handle(res_accept.socket, nullptr);
 
   res.res = (u64)client_socket;
   return res;
@@ -3944,6 +3965,8 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
     default:
       PG_ASSERT(0);
     }
+
+    // TODO: release `handle->arena`.
 
     PG_SLICE_SWAP_REMOVE(&loop->handles, i);
     i -= 1;
