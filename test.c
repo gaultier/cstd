@@ -112,7 +112,8 @@ static void test_dyn_ensure_cap() {
     PG_ASSERT(1 == dyn.len);
     PG_ASSERT(2 == dyn.cap);
 
-    u64 pg_arena_size_expected = pg_arena_cap - ((u64)arena.end - (u64)arena.start);
+    u64 pg_arena_size_expected =
+        pg_arena_cap - ((u64)arena.end - (u64)arena.start);
     PG_ASSERT(2 == pg_arena_size_expected);
     PG_ASSERT(dyn.cap == pg_arena_size_expected);
 
@@ -135,7 +136,8 @@ static void test_dyn_ensure_cap() {
     *PG_DYN_PUSH(&dummy, &arena) = 2;
     *PG_DYN_PUSH(&dummy, &arena) = 3;
 
-    u64 pg_arena_size_expected = pg_arena_cap - ((u64)arena.end - (u64)arena.start);
+    u64 pg_arena_size_expected =
+        pg_arena_cap - ((u64)arena.end - (u64)arena.start);
     PG_ASSERT(2 + 2 == pg_arena_size_expected);
 
     // This triggers a new allocation.
@@ -424,7 +426,7 @@ static void test_make_log_line() {
 
   PgString pg_log_line =
       pg_log_make_log_line(PG_LOG_LEVEL_DEBUG, PG_S("foobar"), &arena, 2,
-                        PG_L("num", 42), PG_L("s", PG_S("hello \"world\"")));
+                           PG_L("num", 42), PG_L("s", PG_S("hello \"world\"")));
 
   PgString expected_suffix = PG_S(
       "\"message\":\"foobar\",\"num\":42,\"s\":\"hello \\\"world\\\"\"}\n");
@@ -625,17 +627,17 @@ static void test_ring_buffer_read_write_fuzz() {
   PgRing rg = {.data = pg_string_make(4 * PG_KiB, &pg_arena_ring)};
 
   u64 ROUNDS = 1024;
-  PgArena pg_arena_strings = pg_arena_make_from_virtual_mem(ROUNDS * 8 * PG_KiB);
+  PgArena pg_arena_strings =
+      pg_arena_make_from_virtual_mem(ROUNDS * 8 * PG_KiB);
 
   // TODO: Random seed for reproducability?
   for (u64 i = 0; i < ROUNDS; i++) {
-    PgString from = pg_string_make(arc4random_uniform((u32)rg.data.len + 1),
-                                   &pg_arena_strings);
-    arc4random_buf(from.data, from.len);
+    u32 len = pg_rand_u32(0, (u32)rg.data.len + 1);
+    PgString from = pg_string_make(len, &pg_arena_strings);
+    pg_rand_string_mut(from);
 
-    PgString to = pg_string_make(arc4random_uniform((u32)rg.data.len + 1),
-                                 &pg_arena_strings);
-    arc4random_buf(to.data, to.len);
+    PgString to = pg_string_make(len, &pg_arena_strings);
+    pg_rand_string_mut(to);
 
     bool ok_write = pg_ring_write_slice(&rg, from);
     (void)ok_write;
@@ -839,7 +841,8 @@ static void test_url_parse() {
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a/?foo=bar&hello=world"), &arena);
+    PgUrlResult res =
+        pg_url_parse(PG_S("http://a/?foo=bar&hello=world"), &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(pg_string_eq(PG_S("http"), res.res.scheme));
     PG_ASSERT(0 == res.res.username.len);
@@ -981,7 +984,8 @@ static void test_net_socket() {
         switch (alice_state) {
         case ALICE_STATE_NONE: {
           PG_ASSERT(true == pg_ring_write_slice(&alice_send, PG_S("ping")));
-          PG_ASSERT(0 == pg_writer_write(&alice_writer, &alice_send, arena).err);
+          PG_ASSERT(0 ==
+                    pg_writer_write(&alice_writer, &alice_send, arena).err);
           alice_state = ALICE_STATE_DONE;
         } break;
         case ALICE_STATE_DONE:
@@ -1116,19 +1120,23 @@ static void test_http_parse_response_status_line() {
   }
   // Missing slash.
   {
-    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP1.1 201 Created")).err);
+    PG_ASSERT(
+        pg_http_parse_response_status_line(PG_S("HTTP1.1 201 Created")).err);
   }
   // Missing major version.
   {
-    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP/.1 201 Created")).err);
+    PG_ASSERT(
+        pg_http_parse_response_status_line(PG_S("HTTP/.1 201 Created")).err);
   }
   // Missing `.`.
   {
-    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP/11 201 Created")).err);
+    PG_ASSERT(
+        pg_http_parse_response_status_line(PG_S("HTTP/11 201 Created")).err);
   }
   // Missing minor version.
   {
-    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP/1. 201 Created")).err);
+    PG_ASSERT(
+        pg_http_parse_response_status_line(PG_S("HTTP/1. 201 Created")).err);
   }
   // Missing status code.
   {
@@ -1148,7 +1156,8 @@ static void test_http_parse_response_status_line() {
   }
   // Invalid status code.
   {
-    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP/1.1 99 Created")).err);
+    PG_ASSERT(
+        pg_http_parse_response_status_line(PG_S("HTTP/1.1 99 Created")).err);
     PG_ASSERT(
         pg_http_parse_response_status_line(PG_S("HTTP/1.1 600 Created")).err);
   }
@@ -1196,7 +1205,8 @@ static void test_http_parse_request_status_line() {
   }
   // Missing slash.
   {
-    PG_ASSERT(pg_http_parse_request_status_line(PG_S("GET HTTP1.1"), &arena).err);
+    PG_ASSERT(
+        pg_http_parse_request_status_line(PG_S("GET HTTP1.1"), &arena).err);
   }
   // Missing major version.
   {
@@ -1216,7 +1226,8 @@ static void test_http_parse_request_status_line() {
   // Invalid major version.
   {
     PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/abc.1"), &arena).err);
+        pg_http_parse_request_status_line(PG_S("GET / HTTP/abc.1"), &arena)
+            .err);
     PG_ASSERT(
         pg_http_parse_request_status_line(PG_S("GET / HTTP/4.1"), &arena).err);
   }
@@ -1238,8 +1249,8 @@ static void test_http_parse_request_status_line() {
   }
   // Valid, short with query parameters.
   {
-    PgHttpRequestStatusLineResult res =
-        pg_http_parse_request_status_line(PG_S("GET /?foo=bar& HTTP/2.0"), &arena);
+    PgHttpRequestStatusLineResult res = pg_http_parse_request_status_line(
+        PG_S("GET /?foo=bar& HTTP/2.0"), &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(HTTP_METHOD_GET == res.res.method);
     PG_ASSERT(2 == res.res.version_major);
@@ -1346,8 +1357,8 @@ static void test_http_read_response() {
   // Status line and some but not full.
   {
     PgRing rg = {.data = pg_string_make(32, &arena)};
-    PG_ASSERT(true == pg_ring_write_slice(
-                          &rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
+    PG_ASSERT(true ==
+              pg_ring_write_slice(&rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
     PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(false == res.done);
@@ -1402,7 +1413,7 @@ static void test_http_read_response() {
 static void test_http_request_response() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
-  u16 port = PG_CLAMP(3000, (u16)arc4random_uniform(UINT16_MAX), UINT16_MAX);
+  u16 port = (u16)pg_rand_u32(3000, UINT16_MAX);
   PgSocket listen_socket = 0;
   {
     PgCreateSocketResult res_create_socket = pg_net_create_tcp_socket();
@@ -1466,7 +1477,7 @@ static void test_http_request_response() {
   PgHttpRequest client_req = {0};
   client_req.method = HTTP_METHOD_GET;
   pg_http_push_header(&client_req.headers, PG_S("Host"), PG_S("localhost"),
-                   &arena);
+                      &arena);
   *PG_DYN_PUSH(&client_req.url.query_parameters, &arena) = (PgKeyValue){
       .key = PG_S("uploaded"),
       .value = pg_u64_to_string(123456, &arena),
@@ -1477,7 +1488,7 @@ static void test_http_request_response() {
   server_res.version_major = 1;
   server_res.version_minor = 1;
   pg_http_push_header(&server_res.headers, PG_S("Accept"),
-                   PG_S("application/json"), &arena);
+                      PG_S("application/json"), &arena);
 
   PgHttpRequest server_req = {0};
   PgHttpResponse client_res = {0};
@@ -1518,8 +1529,8 @@ static void test_http_request_response() {
         if (PG_AIO_EVENT_KIND_OUT & event.kind) {
           if (!client_send_http_io_done) {
             pg_http_write_request(&client_send, client_req, arena);
-            PG_ASSERT(true == pg_ring_write_slice(
-                                  &client_send, PG_S("client request body")));
+            PG_ASSERT(true == pg_ring_write_slice(&client_send,
+                                                  PG_S("client request body")));
             PG_ASSERT(0 ==
                       pg_writer_write(&client_writer, &client_send, arena).err);
             client_send_http_io_done = true;
@@ -1627,7 +1638,7 @@ static void test_log() {
     logger.writer = pg_writer_make_from_string_builder(&sb);
 
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world", arena,
-               PG_L("foo", PG_S("bar")));
+           PG_L("foo", PG_S("bar")));
 
     PgString out = PG_DYN_SLICE(PgString, sb.sb);
     PG_ASSERT(pg_string_starts_with(out, PG_S("{\"level\":\"info\"")));
@@ -1639,7 +1650,7 @@ static void test_log() {
     logger.writer = pg_writer_make_from_string_builder(&sb);
 
     pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world", arena,
-               PG_L("foo", PG_S("bar")));
+           PG_L("foo", PG_S("bar")));
 
     PgString out = PG_DYN_SLICE(PgString, sb.sb);
     PG_ASSERT(pg_string_is_empty(out));

@@ -1038,7 +1038,8 @@ pg_time_ns_now(PgClockKind clock_kind);
 [[nodiscard]] [[maybe_unused]] static PgStringResult
 pg_file_read_full(PgString path, PgArena *arena);
 
-[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min, u32 max);
+[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min_incl,
+                                                      u32 max_excl);
 [[maybe_unused]] static void pg_rand_string_mut(PgString s);
 [[nodiscard]] [[maybe_unused]] static u128 pg_rand_u128();
 
@@ -1137,9 +1138,10 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 #include <sys/stat.h>
 #include <unistd.h>
 
-[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min, u32 max) {
-  u32 res = arc4random_uniform(max);
-  res = PG_CLAMP(min, res, max);
+[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min_incl,
+                                                      u32 max_excl) {
+  u32 res = arc4random_uniform(max_excl);
+  res = PG_CLAMP(min_incl, res, max_excl);
   return res;
 }
 
