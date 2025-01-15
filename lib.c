@@ -1017,56 +1017,6 @@ pg_string_ieq_ascii(PgString a, PgString b, PgArena *arena) {
   pg_SHA1Final(hash, &ctx);
 }
 
-// TODO: Windows.
-[[maybe_unused]] static PgStringResult pg_file_read_full(PgString path,
-                                                      PgArena *arena) {
-
-  PgStringResult res = {0};
-  char *path_c = pg_string_to_cstr(path, arena);
-
-  int fd = open(path_c, O_RDONLY);
-  if (fd < 0) {
-    res.err = (PgError)errno;
-    return res;
-  }
-
-  struct stat st = {0};
-  if (-1 == stat(path_c, &st)) {
-    res.err = (PgError)errno;
-    goto end;
-  }
-
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, (u64)st.st_size, arena);
-
-  for (u64 lim = 0; lim < (u64)st.st_size; lim++) {
-    if ((u64)st.st_size == sb.len) {
-      break;
-    }
-
-    PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
-    ssize_t read_n = read(fd, space.data, space.len);
-    if (-1 == read_n) {
-      res.err = (PgError)errno;
-      goto end;
-    }
-
-    if (0 == read_n) {
-      res.err = (PgError)PG_ERR_INVALID_VALUE;
-      goto end;
-    }
-
-    PG_ASSERT((u64)read_n <= space.len);
-
-    sb.len += (u64)read_n;
-  }
-
-end:
-  close(fd);
-  res.res = PG_DYN_SLICE(PgString, sb);
-  return res;
-}
-
 typedef struct {
   u32 ip;   // Host order.
   u16 port; // Host order.
@@ -1162,6 +1112,9 @@ pg_timer_create(PgClockKind clock_kind, u64 ns);
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_time_ns_now(PgClockKind clock_kind);
 
+[[nodiscard]] [[maybe_unused]] static PgStringResult
+pg_file_read_full(PgString path, PgArena *arena);
+
 PG_RESULT(PgSocket) PgCreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static PgCreateSocketResult
 pg_net_create_tcp_socket();
@@ -1244,6 +1197,55 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+
+[[maybe_unused]] static PgStringResult pg_file_read_full(PgString path,
+                                                         PgArena *arena) {
+
+  PgStringResult res = {0};
+  char *path_c = pg_string_to_cstr(path, arena);
+
+  int fd = open(path_c, O_RDONLY);
+  if (fd < 0) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  struct stat st = {0};
+  if (-1 == stat(path_c, &st)) {
+    res.err = (PgError)errno;
+    goto end;
+  }
+
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, (u64)st.st_size, arena);
+
+  for (u64 lim = 0; lim < (u64)st.st_size; lim++) {
+    if ((u64)st.st_size == sb.len) {
+      break;
+    }
+
+    PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
+    ssize_t read_n = read(fd, space.data, space.len);
+    if (-1 == read_n) {
+      res.err = (PgError)errno;
+      goto end;
+    }
+
+    if (0 == read_n) {
+      res.err = (PgError)PG_ERR_INVALID_VALUE;
+      goto end;
+    }
+
+    PG_ASSERT((u64)read_n <= space.len);
+
+    sb.len += (u64)read_n;
+  }
+
+end:
+  close(fd);
+  res.res = PG_DYN_SLICE(PgString, sb);
+  return res;
+}
 
 static PgCreateSocketResult pg_net_create_tcp_socket() {
   PgCreateSocketResult res = {0};
