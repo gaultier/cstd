@@ -187,8 +187,8 @@ static void test_slice_range() {
   PgStringSlice range = slice_range_start(s, 1UL);
   PG_ASSERT(2 == range.len);
 
-  PG_ASSERT(string_eq(slice_at(s, 1), slice_at(range, 0)));
-  PG_ASSERT(string_eq(slice_at(s, 2), slice_at(range, 1)));
+  PG_ASSERT(string_eq(PG_SLICE_AT(s, 1), PG_SLICE_AT(range, 0)));
+  PG_ASSERT(string_eq(PG_SLICE_AT(s, 2), PG_SLICE_AT(range, 1)));
 }
 
 static void test_string_consume() {
@@ -742,7 +742,7 @@ static void test_url_parse() {
     PG_ASSERT(80 == res.res.port);
     PG_ASSERT(1 == res.res.path_components.len);
 
-    PgString path_component0 = slice_at(res.res.path_components, 0);
+    PgString path_component0 = PG_SLICE_AT(res.res.path_components, 0);
     PG_ASSERT(string_eq(S("foo"), path_component0));
   }
   {
@@ -765,13 +765,13 @@ static void test_url_parse() {
     PG_ASSERT(0 == res.res.port);
     PG_ASSERT(3 == res.res.path_components.len);
 
-    PgString path_component0 = slice_at(res.res.path_components, 0);
+    PgString path_component0 = PG_SLICE_AT(res.res.path_components, 0);
     PG_ASSERT(string_eq(S("foo"), path_component0));
 
-    PgString path_component1 = slice_at(res.res.path_components, 1);
+    PgString path_component1 = PG_SLICE_AT(res.res.path_components, 1);
     PG_ASSERT(string_eq(S("bar"), path_component1));
 
-    PgString path_component2 = slice_at(res.res.path_components, 2);
+    PgString path_component2 = PG_SLICE_AT(res.res.path_components, 2);
     PG_ASSERT(string_eq(S("baz"), path_component2));
   }
 
@@ -944,7 +944,7 @@ static void test_net_socket() {
     PG_ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
-      PgAioEvent event = slice_at(events_watch, i);
+      PgAioEvent event = PG_SLICE_AT(events_watch, i);
       PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
 
       if (event.socket == socket_listen) {
@@ -1031,7 +1031,7 @@ static void test_url_parse_relative_path() {
     PgStringDynResult res = url_parse_path_components(S("/foo"), &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(1 == res.res.len);
-    PG_ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
+    PG_ASSERT(string_eq(S("foo"), PG_SLICE_AT(res.res, 0)));
   }
   // Simple path with a few components.
   {
@@ -1039,9 +1039,9 @@ static void test_url_parse_relative_path() {
         url_parse_path_components(S("/foo/bar/baz"), &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(3 == res.res.len);
-    PG_ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
-    PG_ASSERT(string_eq(S("bar"), slice_at(res.res, 1)));
-    PG_ASSERT(string_eq(S("baz"), slice_at(res.res, 2)));
+    PG_ASSERT(string_eq(S("foo"), PG_SLICE_AT(res.res, 0)));
+    PG_ASSERT(string_eq(S("bar"), PG_SLICE_AT(res.res, 1)));
+    PG_ASSERT(string_eq(S("baz"), PG_SLICE_AT(res.res, 2)));
   }
   // Simple path with a few components with trailing slash.
   {
@@ -1049,9 +1049,9 @@ static void test_url_parse_relative_path() {
         url_parse_path_components(S("/foo/bar/baz/"), &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(3 == res.res.len);
-    PG_ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
-    PG_ASSERT(string_eq(S("bar"), slice_at(res.res, 1)));
-    PG_ASSERT(string_eq(S("baz"), slice_at(res.res, 2)));
+    PG_ASSERT(string_eq(S("foo"), PG_SLICE_AT(res.res, 0)));
+    PG_ASSERT(string_eq(S("bar"), PG_SLICE_AT(res.res, 1)));
+    PG_ASSERT(string_eq(S("baz"), PG_SLICE_AT(res.res, 2)));
   }
 }
 
@@ -1371,11 +1371,11 @@ static void test_http_read_response() {
       PG_ASSERT(201 == res.res.status);
       PG_ASSERT(2 == res.res.headers.len);
 
-      KeyValue kv0 = slice_at(res.res.headers, 0);
+      KeyValue kv0 = PG_SLICE_AT(res.res.headers, 0);
       PG_ASSERT(string_eq(kv0.key, S("Host")));
       PG_ASSERT(string_eq(kv0.value, S("google.com")));
 
-      KeyValue kv1 = slice_at(res.res.headers, 1);
+      KeyValue kv1 = PG_SLICE_AT(res.res.headers, 1);
       PG_ASSERT(string_eq(kv1.key, S("Authorization")));
       PG_ASSERT(string_eq(kv1.value, S("Bearer foo")));
     }
@@ -1471,7 +1471,7 @@ static void test_http_request_response() {
     PG_ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
-      PgAioEvent event = slice_at(events_watch, i);
+      PgAioEvent event = PG_SLICE_AT(events_watch, i);
       PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
 
       if (event.socket == listen_socket) {
@@ -1581,7 +1581,7 @@ end:
   PG_ASSERT(client_req.version_minor = server_req.version_minor);
   PG_ASSERT(client_req.headers.len = server_req.headers.len);
   PG_ASSERT(1 == server_req.url.query_parameters.len);
-  KeyValue query0 = slice_at(server_req.url.query_parameters, 0);
+  KeyValue query0 = PG_SLICE_AT(server_req.url.query_parameters, 0);
   PG_ASSERT(string_eq(query0.key, S("uploaded")));
   PG_ASSERT(string_eq(query0.value, S("123456")));
 
@@ -1652,7 +1652,7 @@ static void test_timer() {
   PG_ASSERT(0 == res_wait.err);
   PG_ASSERT(1 == res_wait.res);
 
-  PgAioEvent event_watch = slice_at(events_watch, 0);
+  PgAioEvent event_watch = PG_SLICE_AT(events_watch, 0);
   PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event_watch.kind));
   PG_ASSERT(PG_AIO_EVENT_KIND_IN & event_watch.kind);
 

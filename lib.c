@@ -97,7 +97,7 @@ typedef Pgu8Slice PgString;
 
 #define PG_C_ARRAY_AT(arr, len, idx) (*PG_C_ARRAY_AT_PTR(arr, len, idx))
 
-#define slice_at(s, idx) (PG_C_ARRAY_AT((s).data, (s).len, idx))
+#define PG_SLICE_AT(s, idx) (PG_C_ARRAY_AT((s).data, (s).len, idx))
 
 #define slice_at_ptr(s, idx) (PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx))
 
@@ -166,7 +166,7 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
 
 [[maybe_unused]] [[nodiscard]] static bool string_is_alphabetical(PgString s) {
   for (u64 i = 0; i < s.len; i++) {
-    u8 c = slice_at(s, i);
+    u8 c = PG_SLICE_AT(s, i);
     if (!ch_is_alphabetical(c)) {
       return false;
     }
@@ -360,7 +360,7 @@ string_consume_until_byte_excl(PgString haystack, u8 needle) {
   res.right = slice_range_start(haystack, (u64)idx);
   res.consumed = true;
 
-  PG_ASSERT(needle == slice_at(res.right, 0));
+  PG_ASSERT(needle == PG_SLICE_AT(res.right, 0));
   return res;
 }
 
@@ -393,7 +393,7 @@ string_consume_until_any_byte_incl(PgString haystack, PgString needles) {
   StringPairConsumeAny res = {0};
 
   for (u64 i = 0; i < needles.len; i++) {
-    u8 needle = slice_at(needles, i);
+    u8 needle = PG_SLICE_AT(needles, i);
     StringPairConsume res_consume =
         string_consume_until_byte_incl(haystack, needle);
     if (res_consume.consumed) {
@@ -415,7 +415,7 @@ string_consume_until_any_byte_excl(PgString haystack, PgString needles) {
   StringPairConsumeAny res = {0};
 
   for (u64 i = 0; i < needles.len; i++) {
-    u8 needle = slice_at(needles, i);
+    u8 needle = PG_SLICE_AT(needles, i);
     StringPairConsume res_consume =
         string_consume_until_byte_excl(haystack, needle);
     if (res_consume.consumed) {
@@ -435,10 +435,10 @@ string_consume_until_any_byte_excl(PgString haystack, PgString needles) {
 [[maybe_unused]] [[nodiscard]] static i64
 string_indexof_any_byte(PgString haystack, PgString needle) {
   for (i64 i = 0; i < (i64)haystack.len; i++) {
-    u8 c_h = slice_at(haystack, i);
+    u8 c_h = PG_SLICE_AT(haystack, i);
 
     for (i64 j = 0; j < (i64)needle.len; j++) {
-      u8 c_n = slice_at(needle, j);
+      u8 c_n = PG_SLICE_AT(needle, j);
       if (c_h == c_n) {
         return i;
       }
@@ -487,7 +487,7 @@ string_consume_string(PgString haystack, PgString needle) {
   res.remaining = haystack;
 
   for (u64 i = 0; i < needle.len; i++) {
-    res = string_consume_byte(res.remaining, slice_at(needle, i));
+    res = string_consume_byte(res.remaining, PG_SLICE_AT(needle, i));
     if (!res.consumed) {
       return res;
     }
@@ -501,7 +501,7 @@ string_consume_any_string(PgString haystack, PgStringSlice needles) {
   res.remaining = haystack;
 
   for (u64 i = 0; i < needles.len; i++) {
-    res = string_consume_string(res.remaining, slice_at(needles, i));
+    res = string_consume_string(res.remaining, PG_SLICE_AT(needles, i));
     if (res.consumed) {
       return res;
     }
@@ -535,20 +535,20 @@ string_parse_u64(PgString s) {
 
   // Forbid leading zero(es) if there is more than one digit.
   if (string_starts_with(s, S("0")) && s.len >= 2 &&
-      ch_is_numeric(slice_at(s, 1))) {
+      ch_is_numeric(PG_SLICE_AT(s, 1))) {
     return res;
   }
 
   u64 i = 0;
   for (; i < s.len; i++) {
-    u8 c = slice_at(s, i);
+    u8 c = PG_SLICE_AT(s, i);
 
     if (!ch_is_numeric(c)) { // End of numbers sequence.
       break;
     }
 
     res.n *= 10;
-    res.n += (u8)slice_at(s, i) - '0';
+    res.n += (u8)PG_SLICE_AT(s, i) - '0';
     res.present = true;
   }
   res.remaining = slice_range_start(s, i);
@@ -730,7 +730,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
   do {                                                                         \
     dyn_ensure_cap(dst, (dst)->len + (src).len, arena);                        \
     for (u64 _iii = 0; _iii < src.len; _iii++) {                               \
-      *dyn_push(dst, arena) = slice_at(src, _iii);                             \
+      *dyn_push(dst, arena) = PG_SLICE_AT(src, _iii);                             \
     }                                                                          \
   } while (0)
 
@@ -925,7 +925,7 @@ arena_make_from_virtual_mem(u64 size) {
 [[maybe_unused]] [[nodiscard]] static i64
 string_indexof_unescaped_byte(PgString haystack, u8 needle) {
   for (u64 i = 0; i < haystack.len; i++) {
-    u8 c = slice_at(haystack, i);
+    u8 c = PG_SLICE_AT(haystack, i);
 
     if (c != needle) {
       continue;
@@ -935,7 +935,7 @@ string_indexof_unescaped_byte(PgString haystack, u8 needle) {
       return (i64)i;
     }
 
-    u8 previous = slice_at(haystack, i - 1);
+    u8 previous = PG_SLICE_AT(haystack, i - 1);
     if ('\\' != previous) {
       return (i64)i;
     }
@@ -950,7 +950,7 @@ string_indexof_unescaped_byte(PgString haystack, u8 needle) {
 
   u64 idx = idx_start;
   for (; idx < s.len; idx++) {
-    u8 c = slice_at(s, idx);
+    u8 c = PG_SLICE_AT(s, idx);
     if (' ' != c) {
       return idx;
     }
@@ -1086,7 +1086,7 @@ make_unique_id_u128_string(Arena *arena) {
 [[maybe_unused]] static void url_encode_string(Pgu8Dyn *sb, PgString key,
                                                PgString value, Arena *arena) {
   for (u64 i = 0; i < key.len; i++) {
-    u8 c = slice_at(key, i);
+    u8 c = PG_SLICE_AT(key, i);
     if (ch_is_alphanumeric(c)) {
       *dyn_push(sb, arena) = c;
     } else {
@@ -1098,7 +1098,7 @@ make_unique_id_u128_string(Arena *arena) {
   *dyn_push(sb, arena) = '=';
 
   for (u64 i = 0; i < value.len; i++) {
-    u8 c = slice_at(value, i);
+    u8 c = PG_SLICE_AT(value, i);
     if (ch_is_alphanumeric(c)) {
       *dyn_push(sb, arena) = c;
     } else {
@@ -1142,8 +1142,8 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
 
 [[maybe_unused]] [[nodiscard]] static u32 u8x4_be_to_u32(PgString s) {
   PG_ASSERT(4 == s.len);
-  return (u32)(slice_at(s, 0) << 24) | (u32)(slice_at(s, 1) << 16) |
-         (u32)(slice_at(s, 2) << 8) | (u32)(slice_at(s, 3) << 0);
+  return (u32)(PG_SLICE_AT(s, 0) << 24) | (u32)(PG_SLICE_AT(s, 1) << 16) |
+         (u32)(PG_SLICE_AT(s, 2) << 8) | (u32)(PG_SLICE_AT(s, 3) << 0);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool bitfield_get(PgString bitfield,
@@ -1152,7 +1152,7 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
 
   u64 idx_byte = idx_bit / 8;
 
-  return slice_at(bitfield, idx_byte) & (1 << (idx_bit % 8));
+  return PG_SLICE_AT(bitfield, idx_byte) & (1 << (idx_bit % 8));
 }
 
 // FIXME: Windows.
@@ -1443,7 +1443,7 @@ aio_queue_create() {
 [[maybe_unused]] [[nodiscard]] static PgError
 aio_queue_ctl(AioQueue queue, PgAioEventSlice events) {
   for (u64 i = 0; i < events.len; i++) {
-    PgAioEvent event = slice_at(events, i);
+    PgAioEvent event = PG_SLICE_AT(events, i);
     PG_ASSERT(event.socket ^ event.timer);
 
     int op = 0;
@@ -2111,7 +2111,7 @@ http_write_header(RingBuffer *rg, KeyValue header, Arena arena) {
   Pgu8Dyn res = {0};
   dyn_ensure_cap(&res, s.len, arena);
   for (u64 i = 0; i < s.len; i++) {
-    u8 c = slice_at(s, i);
+    u8 c = PG_SLICE_AT(s, i);
 
     if ('&' == c) {
       dyn_append_slice(&res, S("&amp"), arena);
@@ -2316,13 +2316,13 @@ url_is_scheme_valid(PgString scheme) {
     return false;
   }
 
-  u8 first = slice_at(scheme, 0);
+  u8 first = PG_SLICE_AT(scheme, 0);
   if (!ch_is_alphabetical(first)) {
     return false;
   }
 
   for (u64 i = 0; i < scheme.len; i++) {
-    u8 c = slice_at(scheme, i);
+    u8 c = PG_SLICE_AT(scheme, i);
     if (!(ch_is_alphanumeric(c) || c == '+' || c == '-' || c == '.')) {
       return false;
     }
@@ -3223,7 +3223,7 @@ http_req_extract_cookie_with_name(HttpRequest req, PgString cookie_name,
   PgString res = {0};
   {
     for (u64 i = 0; i < req.headers.len; i++) {
-      KeyValue h = slice_at(req.headers, i);
+      KeyValue h = PG_SLICE_AT(req.headers, i);
 
       if (!string_ieq_ascii(h.key, S("Cookie"), arena)) {
         continue;
@@ -3391,7 +3391,7 @@ json_escape_string(PgString entry, Arena *arena) {
   *dyn_push(&sb, arena) = '"';
 
   for (u64 i = 0; i < entry.len; i++) {
-    u8 c = slice_at(entry, i);
+    u8 c = PG_SLICE_AT(entry, i);
     if ('"' == c) {
       *dyn_push(&sb, arena) = '\\';
       *dyn_push(&sb, arena) = '"';
@@ -3427,8 +3427,8 @@ json_unescape_string(PgString entry, Arena *arena) {
   Pgu8Dyn sb = {0};
 
   for (u64 i = 0; i < entry.len; i++) {
-    u8 c = slice_at(entry, i);
-    u8 next = i + 1 < entry.len ? slice_at(entry, i + 1) : 0;
+    u8 c = PG_SLICE_AT(entry, i);
+    u8 next = i + 1 < entry.len ? PG_SLICE_AT(entry, i + 1) : 0;
 
     if ('\\' == c) {
       if ('"' == next) {
@@ -3569,7 +3569,7 @@ json_decode_string_slice(PgString s, Arena *arena) {
     res.err = EINVAL;
     return res;
   }
-  if ('[' != slice_at(s, 0)) {
+  if ('[' != PG_SLICE_AT(s, 0)) {
     res.err = EINVAL;
     return res;
   }
@@ -3578,7 +3578,7 @@ json_decode_string_slice(PgString s, Arena *arena) {
   for (u64 i = 1; i < s.len - 2;) {
     i = skip_over_whitespace(s, i);
 
-    u8 c = slice_at(s, i);
+    u8 c = PG_SLICE_AT(s, i);
     if ('"' != c) { // Opening quote.
       res.err = EINVAL;
       return res;
@@ -3611,7 +3611,7 @@ json_decode_string_slice(PgString s, Arena *arena) {
       break;
     }
 
-    c = slice_at(s, i);
+    c = PG_SLICE_AT(s, i);
     if (',' != c) {
       res.err = EINVAL;
       return res;
@@ -3619,7 +3619,7 @@ json_decode_string_slice(PgString s, Arena *arena) {
     i += 1;
   }
 
-  if (']' != slice_at(s, s.len - 1)) {
+  if (']' != PG_SLICE_AT(s, s.len - 1)) {
     res.err = EINVAL;
     return res;
   }
