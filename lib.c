@@ -68,7 +68,7 @@ typedef int64_t i64;
   } T##Ok
 
 typedef u32 PgError;
-PG_RESULT(u64) u64Result;
+PG_RESULT(u64) Pgu64Result;
 
 PG_DYN(u8);
 PG_SLICE(u8);
@@ -1167,7 +1167,7 @@ pg_timer_create(ClockKind clock_kind, u64 ns);
 
 [[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(Timer timer);
 
-[[maybe_unused]] [[nodiscard]] static u64Result
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_time_ns_now(ClockKind clock_kind);
 
 PG_RESULT(Socket) CreateSocketResult;
@@ -1241,7 +1241,7 @@ PG_DYN(AioEvent);
   return aio_queue_ctl(queue, events);
 }
 
-[[maybe_unused]] [[nodiscard]] static u64Result
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
 aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
                Arena arena);
 
@@ -1483,10 +1483,10 @@ aio_queue_ctl(AioQueue queue, AioEventSlice events) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static u64Result
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
 aio_queue_wait(AioQueue queue, AioEventSlice events, i64 timeout_ms,
                Arena arena) {
-  u64Result res = {0};
+  Pgu64Result res = {0};
   if (slice_is_empty(events)) {
     return res;
   }
@@ -1562,9 +1562,9 @@ pg_timer_create(ClockKind clock, u64 ns) {
   return (PgError)0;
 }
 
-[[maybe_unused]] [[nodiscard]] static u64Result
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_time_ns_now(ClockKind clock) {
-  u64Result res = {0};
+  Pgu64Result res = {0};
 
   struct timespec ts = {0};
   int ret = clock_gettime(linux_clock(clock), &ts);
@@ -1581,19 +1581,19 @@ pg_time_ns_now(ClockKind clock) {
 
 PG_RESULT(String) IoResult;
 
-typedef u64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
-typedef u64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
+typedef Pgu64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
+typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
-[[maybe_unused]] [[nodiscard]] static u64Result unix_read(void *self, u8 *buf,
+[[maybe_unused]] [[nodiscard]] static Pgu64Result unix_read(void *self, u8 *buf,
                                                           size_t buf_len) {
   ASSERT(nullptr != self);
 
   int fd = (int)(u64)self;
   ssize_t n = read(fd, buf, buf_len);
 
-  u64Result res = {0};
+  Pgu64Result res = {0};
   if (n < 0) {
     res.err = (PgError)errno;
   } else {
@@ -1605,14 +1605,14 @@ typedef u64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
-[[maybe_unused]] [[nodiscard]] static u64Result unix_write(void *self, u8 *buf,
+[[maybe_unused]] [[nodiscard]] static Pgu64Result unix_write(void *self, u8 *buf,
                                                            size_t buf_len) {
   ASSERT(nullptr != self);
 
   int fd = (int)(u64)self;
   ssize_t n = write(fd, buf, buf_len);
 
-  u64Result res = {0};
+  Pgu64Result res = {0};
   if (n < 0) {
     res.err = (PgError)errno;
   } else {
@@ -1627,13 +1627,13 @@ typedef struct {
   Arena *arena;
 } StringBuilder;
 
-[[maybe_unused]] [[nodiscard]] static u64Result
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
 string_builder_write(void *self, u8 *buf, size_t buf_len) {
   StringBuilder *sb = self;
   String s = {.data = buf, .len = buf_len};
   dyn_append_slice(&sb->sb, s, sb->arena);
 
-  return (u64Result){.res = buf_len};
+  return (Pgu64Result){.res = buf_len};
 }
 
 typedef struct {
@@ -2747,11 +2747,11 @@ writer_make_from_string_builder(StringBuilder *sb) {
   return (Writer){.write_fn = string_builder_write, .ctx = (void *)sb};
 }
 
-[[maybe_unused]] [[nodiscard]] static u64Result
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
 reader_read(Reader *r, RingBuffer *rg, Arena arena) {
   ASSERT(nullptr != r->read_fn);
 
-  u64Result res = {0};
+  Pgu64Result res = {0};
 
   String dst = string_make(ring_buffer_write_space(*rg), &arena);
   res = r->read_fn(r->ctx, dst.data, dst.len);
@@ -2765,7 +2765,7 @@ reader_read(Reader *r, RingBuffer *rg, Arena arena) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static u64Result
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
 writer_write(Writer *w, RingBuffer *rg, Arena arena) {
   ASSERT(nullptr != w->write_fn);
 

@@ -941,7 +941,7 @@ static void test_net_socket() {
   AioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
 
   for (;;) {
-    u64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
+    Pgu64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
     ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
@@ -1466,7 +1466,7 @@ static void test_http_request_response() {
   AioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
 
   for (u64 _i = 0; _i <= 128; _i++) {
-    u64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
+    Pgu64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
     ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
@@ -1633,7 +1633,7 @@ static void test_timer() {
       pg_timer_create(CLOCK_KIND_MONOTONIC, 10 * PG_Milliseconds);
   ASSERT(0 == res_timer.err);
 
-  u64Result res_start = pg_time_ns_now(CLOCK_KIND_MONOTONIC);
+  Pgu64Result res_start = pg_time_ns_now(CLOCK_KIND_MONOTONIC);
   ASSERT(0 == res_start.err);
 
   {
@@ -1647,7 +1647,7 @@ static void test_timer() {
   }
 
   AioEventSlice events_watch = slice_make(AioEvent, 1, &arena);
-  u64Result res_wait = aio_queue_wait(queue, events_watch, 1'000, arena);
+  Pgu64Result res_wait = aio_queue_wait(queue, events_watch, 1'000, arena);
   ASSERT(0 == res_wait.err);
   ASSERT(1 == res_wait.res);
 
@@ -1655,7 +1655,7 @@ static void test_timer() {
   ASSERT(0 == (AIO_EVENT_KIND_ERR & event_watch.kind));
   ASSERT(AIO_EVENT_KIND_IN & event_watch.kind);
 
-  u64Result res_end = pg_time_ns_now(CLOCK_KIND_MONOTONIC);
+  Pgu64Result res_end = pg_time_ns_now(CLOCK_KIND_MONOTONIC);
   ASSERT(0 == res_end.err);
   ASSERT(res_end.res > res_start.res);
   ASSERT(res_end.res - res_start.res < 20 * PG_Milliseconds);
