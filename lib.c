@@ -1634,7 +1634,7 @@ typedef struct {
 } RingBuffer;
 
 [[maybe_unused]] [[nodiscard]] static u64
-ring_buffer_write_space(RingBuffer rg) {
+pg_ring_write_space(RingBuffer rg) {
   if (rg.idx_write == rg.idx_read) { // Empty.
     return rg.data.len - 1;
   } else if (rg.idx_write < rg.idx_read) { // Easy case.
@@ -1658,7 +1658,7 @@ ring_buffer_write_space(RingBuffer rg) {
 }
 
 [[maybe_unused]] [[nodiscard]] static u64
-ring_buffer_read_space(RingBuffer rg) {
+pg_ring_read_space(RingBuffer rg) {
   if (rg.idx_write == rg.idx_read) { // Empty.
     return 0;
   } else if (rg.idx_read < rg.idx_write) { // Easy case.
@@ -1674,7 +1674,7 @@ ring_buffer_read_space(RingBuffer rg) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-ring_buffer_write_slice(RingBuffer *rg, PgString data) {
+pg_ring_write_slice(RingBuffer *rg, PgString data) {
   PG_ASSERT(nullptr != rg->data.data);
   PG_ASSERT(rg->idx_read <= rg->data.len);
   PG_ASSERT(rg->idx_write <= rg->data.len);
@@ -1737,7 +1737,7 @@ ring_buffer_write_slice(RingBuffer *rg, PgString data) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-ring_buffer_read_slice(RingBuffer *rg, PgString data) {
+pg_ring_read_slice(RingBuffer *rg, PgString data) {
   PG_ASSERT(nullptr != rg->data.data);
   PG_ASSERT(rg->idx_read <= rg->data.len);
   PG_ASSERT(rg->idx_write <= rg->data.len);
@@ -1798,7 +1798,7 @@ ring_buffer_read_slice(RingBuffer *rg, PgString data) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringOk
-ring_buffer_read_until_excl(RingBuffer *rg, PgString needle, PgArena *arena) {
+pg_ring_read_until_excl(RingBuffer *rg, PgString needle, PgArena *arena) {
   PgStringOk res = {0};
   i64 idx = -1;
 
@@ -1806,8 +1806,8 @@ ring_buffer_read_until_excl(RingBuffer *rg, PgString needle, PgArena *arena) {
     RingBuffer cpy_rg = *rg;
     PgArena cpy_arena = *arena;
 
-    PgString dst = pg_string_make(ring_buffer_read_space(*rg), arena);
-    PG_ASSERT(ring_buffer_read_slice(rg, dst));
+    PgString dst = pg_string_make(pg_ring_read_space(*rg), arena);
+    PG_ASSERT(pg_ring_read_slice(rg, dst));
     *rg = cpy_rg;       // Reset.
     *arena = cpy_arena; // Reset.
 
@@ -1819,13 +1819,13 @@ ring_buffer_read_until_excl(RingBuffer *rg, PgString needle, PgArena *arena) {
 
   res.ok = true;
   res.res = pg_string_make((u64)idx, arena);
-  PG_ASSERT(ring_buffer_read_slice(rg, res.res));
+  PG_ASSERT(pg_ring_read_slice(rg, res.res));
 
   // Read and throw away the needle.
   {
     PgArena pg_arena_tmp = *arena;
     PgString dst_needle = pg_string_make(needle.len, &pg_arena_tmp);
-    PG_ASSERT(ring_buffer_read_slice(rg, dst_needle));
+    PG_ASSERT(pg_ring_read_slice(rg, dst_needle));
     PG_ASSERT(pg_string_eq(needle, dst_needle));
   }
 
@@ -2054,7 +2054,7 @@ http_request_write_status_line(RingBuffer *rg, HttpRequest req, PgArena arena) {
   PG_DYN_APPEND_SLICE(&sb, PG_S("\r\n"), &arena);
 
   PgString s = PG_DYN_SLICE(PgString, sb);
-  return ring_buffer_write_slice(rg, s);
+  return pg_ring_write_slice(rg, s);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -2073,7 +2073,7 @@ http_response_write_status_line(RingBuffer *rg, HttpResponse res,
   PG_DYN_APPEND_SLICE(&sb, PG_S(" \r\n"), &arena);
 
   PgString s = PG_DYN_SLICE(PgString, sb);
-  return ring_buffer_write_slice(rg, s);
+  return pg_ring_write_slice(rg, s);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -2086,7 +2086,7 @@ http_write_header(RingBuffer *rg, KeyValue header, PgArena arena) {
   PG_DYN_APPEND_SLICE(&sb, PG_S("\r\n"), &arena);
 
   PgString s = PG_DYN_SLICE(PgString, sb);
-  return ring_buffer_write_slice(rg, s);
+  return pg_ring_write_slice(rg, s);
 }
 
 // NOTE: Only sanitation for including the string inside an HTML tag e.g.:
@@ -2590,7 +2590,7 @@ http_read_response(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
   HttpResponseReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
-  PgStringOk s = ring_buffer_read_until_excl(rg, sep, arena);
+  PgStringOk s = pg_ring_read_until_excl(rg, sep, arena);
   if (!s.ok) { // In progress.
     return res;
   }
@@ -2640,7 +2640,7 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, PgArena *arena) {
   HttpRequestReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
-  PgStringOk s = ring_buffer_read_until_excl(rg, sep, arena);
+  PgStringOk s = pg_ring_read_until_excl(rg, sep, arena);
   if (!s.ok) { // In progress.
     return res;
   }
@@ -2698,7 +2698,7 @@ http_write_request(RingBuffer *rg, HttpRequest res, PgArena arena) {
       return (PgError)ENOMEM;
     }
   }
-  if (!ring_buffer_write_slice(rg, PG_S("\r\n"))) {
+  if (!pg_ring_write_slice(rg, PG_S("\r\n"))) {
     return (PgError)ENOMEM;
   }
 
@@ -2716,7 +2716,7 @@ http_write_response(RingBuffer *rg, HttpResponse res, PgArena arena) {
       return (PgError)ENOMEM;
     }
   }
-  if (!ring_buffer_write_slice(rg, PG_S("\r\n"))) {
+  if (!pg_ring_write_slice(rg, PG_S("\r\n"))) {
 
     return (PgError)ENOMEM;
   }
@@ -2751,14 +2751,14 @@ reader_read(Reader *r, RingBuffer *rg, PgArena arena) {
 
   Pgu64Result res = {0};
 
-  PgString dst = pg_string_make(ring_buffer_write_space(*rg), &arena);
+  PgString dst = pg_string_make(pg_ring_write_space(*rg), &arena);
   res = r->read_fn(r->ctx, dst.data, dst.len);
 
   if (res.err) {
     return res;
   }
   dst.len = res.res;
-  PG_ASSERT(true == ring_buffer_write_slice(rg, dst));
+  PG_ASSERT(true == pg_ring_write_slice(rg, dst));
 
   return res;
 }
@@ -2767,8 +2767,8 @@ reader_read(Reader *r, RingBuffer *rg, PgArena arena) {
 writer_write(Writer *w, RingBuffer *rg, PgArena arena) {
   PG_ASSERT(nullptr != w->write_fn);
 
-  PgString dst = pg_string_make(ring_buffer_read_space(*rg), &arena);
-  PG_ASSERT(true == ring_buffer_read_slice(rg, dst));
+  PgString dst = pg_string_make(pg_ring_read_space(*rg), &arena);
+  PG_ASSERT(true == pg_ring_read_slice(rg, dst));
 
   return w->write_fn(w->ctx, dst.data, dst.len);
 }

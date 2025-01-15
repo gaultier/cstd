@@ -477,18 +477,18 @@ static void test_ring_buffer_write_slice() {
   // Write to empty ring buffer.
   {
     RingBuffer rg = {.data = pg_string_make(12, &arena)};
-    PG_ASSERT(ring_buffer_write_space(rg) == rg.data.len - 1);
-    PG_ASSERT(ring_buffer_write_slice(&rg, PG_S("hello")));
+    PG_ASSERT(pg_ring_write_space(rg) == rg.data.len - 1);
+    PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello")));
     PG_ASSERT(5 == rg.idx_write);
-    PG_ASSERT(ring_buffer_write_space(rg) == rg.data.len - 1 - 5);
+    PG_ASSERT(pg_ring_write_space(rg) == rg.data.len - 1 - 5);
 
-    PG_ASSERT(false == ring_buffer_write_slice(&rg, PG_S(" world!")));
+    PG_ASSERT(false == pg_ring_write_slice(&rg, PG_S(" world!")));
     PG_ASSERT(5 == rg.idx_write);
-    PG_ASSERT(ring_buffer_write_space(rg) == rg.data.len - 1 - 5);
+    PG_ASSERT(pg_ring_write_space(rg) == rg.data.len - 1 - 5);
 
-    PG_ASSERT(true == ring_buffer_write_slice(&rg, PG_S(" world")));
+    PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S(" world")));
     PG_ASSERT(11 == rg.idx_write);
-    PG_ASSERT(ring_buffer_write_space(rg) == 0);
+    PG_ASSERT(pg_ring_write_space(rg) == 0);
 
     PG_ASSERT(0 == rg.idx_read);
     PG_ASSERT(
@@ -502,10 +502,10 @@ static void test_ring_buffer_write_slice() {
         .idx_write = 1,
         .idx_read = 2,
     };
-    PG_ASSERT(ring_buffer_write_space(rg) == 0);
-    PG_ASSERT(false == ring_buffer_write_slice(&rg, PG_S("hello")));
+    PG_ASSERT(pg_ring_write_space(rg) == 0);
+    PG_ASSERT(false == pg_ring_write_slice(&rg, PG_S("hello")));
     PG_ASSERT(1 == rg.idx_write);
-    PG_ASSERT(ring_buffer_write_space(rg) == 0);
+    PG_ASSERT(pg_ring_write_space(rg) == 0);
   }
   // Write to ring buffer, easy case.
   {
@@ -514,10 +514,10 @@ static void test_ring_buffer_write_slice() {
         .idx_read = 1,
         .idx_write = 2,
     };
-    PG_ASSERT(ring_buffer_write_space(rg) == 10);
-    PG_ASSERT(ring_buffer_write_slice(&rg, PG_S("hello")));
+    PG_ASSERT(pg_ring_write_space(rg) == 10);
+    PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello")));
     PG_ASSERT(2 + 5 == rg.idx_write);
-    PG_ASSERT(ring_buffer_write_space(rg) == 5);
+    PG_ASSERT(pg_ring_write_space(rg) == 5);
   }
 
   // Write to ring buffer, hard case.
@@ -527,10 +527,10 @@ static void test_ring_buffer_write_slice() {
         .idx_read = 2,
         .idx_write = 3,
     };
-    PG_ASSERT(ring_buffer_write_space(rg) == 10);
-    PG_ASSERT(ring_buffer_write_slice(&rg, PG_S("hello worl")));
+    PG_ASSERT(pg_ring_write_space(rg) == 10);
+    PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello worl")));
     PG_ASSERT(1 == rg.idx_write);
-    PG_ASSERT(ring_buffer_write_space(rg) == 0);
+    PG_ASSERT(pg_ring_write_space(rg) == 0);
     PG_ASSERT(pg_string_eq(rg.data, PG_S("l\x0\x0hello wor")));
   }
 }
@@ -541,83 +541,83 @@ static void test_ring_buffer_read_write_slice() {
   // Read from an empty ring buffer.
   {
     RingBuffer rg = {.data = pg_string_make(12, &arena)};
-    PG_ASSERT(0 == ring_buffer_read_space(rg));
-    PG_ASSERT(true == ring_buffer_read_slice(&rg, (PgString){0}));
+    PG_ASSERT(0 == pg_ring_read_space(rg));
+    PG_ASSERT(true == pg_ring_read_slice(&rg, (PgString){0}));
 
     PgString dst = pg_string_dup(PG_S("xyz"), &arena);
-    PG_ASSERT(false == ring_buffer_read_slice(&rg, dst));
+    PG_ASSERT(false == pg_ring_read_slice(&rg, dst));
   }
 
   // Write to empty ring buffer, then read part of it.
   {
     RingBuffer rg = {.data = pg_string_make(12, &arena)};
-    PG_ASSERT(ring_buffer_write_slice(&rg, PG_S("hello")));
+    PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello")));
     PG_ASSERT(5 == rg.idx_write);
-    PG_ASSERT(5 == ring_buffer_read_space(rg));
+    PG_ASSERT(5 == pg_ring_read_space(rg));
 
     PgString dst = pg_string_dup(PG_S("xyz"), &arena);
-    PG_ASSERT(ring_buffer_read_slice(&rg, dst));
+    PG_ASSERT(pg_ring_read_slice(&rg, dst));
     PG_ASSERT(pg_string_eq(dst, PG_S("hel")));
     PG_ASSERT(3 == rg.idx_read);
-    PG_ASSERT(2 == ring_buffer_read_space(rg));
+    PG_ASSERT(2 == pg_ring_read_space(rg));
 
-    PG_ASSERT(true == ring_buffer_write_slice(&rg, PG_S(" world!")));
+    PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S(" world!")));
     PG_ASSERT(0 == rg.idx_write);
-    PG_ASSERT(9 == ring_buffer_read_space(rg));
+    PG_ASSERT(9 == pg_ring_read_space(rg));
 
-    PG_ASSERT(false == ring_buffer_write_slice(&rg, PG_S("abc")));
-    PG_ASSERT(9 == ring_buffer_read_space(rg));
-    PG_ASSERT(true == ring_buffer_write_slice(&rg, PG_S("ab")));
-    PG_ASSERT(11 == ring_buffer_read_space(rg));
+    PG_ASSERT(false == pg_ring_write_slice(&rg, PG_S("abc")));
+    PG_ASSERT(9 == pg_ring_read_space(rg));
+    PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S("ab")));
+    PG_ASSERT(11 == pg_ring_read_space(rg));
     PG_ASSERT(2 == rg.idx_write);
 
     dst = pg_string_dup(PG_S("abcdefghijk"), &arena);
-    PG_ASSERT(ring_buffer_read_slice(&rg, dst));
+    PG_ASSERT(pg_ring_read_slice(&rg, dst));
     PG_ASSERT(pg_string_eq(dst, PG_S("lo world!ab")));
     PG_ASSERT(2 == rg.idx_read);
-    PG_ASSERT(0 == ring_buffer_read_space(rg));
+    PG_ASSERT(0 == pg_ring_read_space(rg));
   }
 }
 
 static void test_ring_buffer_read_until_excl() {
   PgArena arena = pg_arena_make_from_virtual_mem(8 * PG_KiB);
   RingBuffer rg = {.data = pg_string_make(4 * PG_KiB, &arena)};
-  PG_ASSERT(ring_buffer_write_slice(
+  PG_ASSERT(pg_ring_write_slice(
       &rg, PG_S("The quick brown fox jumps over the lazy dog")));
 
   {
-    u64 space_read = ring_buffer_read_space(rg);
-    u64 space_write = ring_buffer_write_space(rg);
-    PgStringOk s = ring_buffer_read_until_excl(&rg, PG_S("\r\n"), &arena);
+    u64 space_read = pg_ring_read_space(rg);
+    u64 space_write = pg_ring_write_space(rg);
+    PgStringOk s = pg_ring_read_until_excl(&rg, PG_S("\r\n"), &arena);
     PG_ASSERT(!s.ok);
     PG_ASSERT(PG_SLICE_IS_EMPTY(s.res));
 
     // Unmodified.
-    PG_ASSERT(ring_buffer_read_space(rg) == space_read);
-    PG_ASSERT(ring_buffer_write_space(rg) == space_write);
+    PG_ASSERT(pg_ring_read_space(rg) == space_read);
+    PG_ASSERT(pg_ring_write_space(rg) == space_write);
   }
 
   {
-    PgStringOk s = ring_buffer_read_until_excl(&rg, PG_S(" "), &arena);
+    PgStringOk s = pg_ring_read_until_excl(&rg, PG_S(" "), &arena);
     PG_ASSERT(s.ok);
     PG_ASSERT(pg_string_eq(s.res, PG_S("The")));
   }
   {
-    PgStringOk s = ring_buffer_read_until_excl(&rg, PG_S(" "), &arena);
+    PgStringOk s = pg_ring_read_until_excl(&rg, PG_S(" "), &arena);
     PG_ASSERT(s.ok);
     PG_ASSERT(pg_string_eq(s.res, PG_S("quick")));
   }
   {
-    PgStringOk s = ring_buffer_read_until_excl(&rg, PG_S("lazy "), &arena);
+    PgStringOk s = pg_ring_read_until_excl(&rg, PG_S("lazy "), &arena);
     PG_ASSERT(s.ok);
     PG_ASSERT(pg_string_eq(s.res, PG_S("brown fox jumps over the ")));
   }
   {
-    PgStringOk s = ring_buffer_read_until_excl(&rg, PG_S("g"), &arena);
+    PgStringOk s = pg_ring_read_until_excl(&rg, PG_S("g"), &arena);
     PG_ASSERT(s.ok);
     PG_ASSERT(pg_string_eq(s.res, PG_S("do")));
   }
-  PG_ASSERT(0 == ring_buffer_read_space(rg));
+  PG_ASSERT(0 == pg_ring_read_space(rg));
 }
 
 static void test_ring_buffer_read_write_fuzz() {
@@ -637,13 +637,13 @@ static void test_ring_buffer_read_write_fuzz() {
                                  &pg_arena_strings);
     arc4random_buf(to.data, to.len);
 
-    bool ok_write = ring_buffer_write_slice(&rg, from);
+    bool ok_write = pg_ring_write_slice(&rg, from);
     (void)ok_write;
-    bool ok_read = ring_buffer_read_slice(&rg, to);
+    bool ok_read = pg_ring_read_slice(&rg, to);
     (void)ok_read;
 
-    PG_ASSERT(ring_buffer_write_space(rg) <= rg.data.len - 1);
-    PG_ASSERT(ring_buffer_read_space(rg) <= rg.data.len - 1);
+    PG_ASSERT(pg_ring_write_space(rg) <= rg.data.len - 1);
+    PG_ASSERT(pg_ring_read_space(rg) <= rg.data.len - 1);
   }
 }
 
@@ -980,7 +980,7 @@ static void test_net_socket() {
 
         switch (alice_state) {
         case ALICE_STATE_NONE: {
-          PG_ASSERT(true == ring_buffer_write_slice(&alice_send, PG_S("ping")));
+          PG_ASSERT(true == pg_ring_write_slice(&alice_send, PG_S("ping")));
           PG_ASSERT(0 == writer_write(&alice_writer, &alice_send, arena).err);
           alice_state = ALICE_STATE_DONE;
         } break;
@@ -994,7 +994,7 @@ static void test_net_socket() {
 
         PG_ASSERT(0 == reader_read(&bob_reader, &bob_recv, arena).err);
 
-        if (4 == ring_buffer_read_space(bob_recv)) {
+        if (4 == pg_ring_read_space(bob_recv)) {
           goto end; // End of test.
         }
       }
@@ -1005,7 +1005,7 @@ end:
   PG_ASSERT(ALICE_STATE_DONE == alice_state);
 
   PgString msg_bob_received = pg_string_make(4, &arena);
-  PG_ASSERT(true == ring_buffer_read_slice(&bob_recv, msg_bob_received));
+  PG_ASSERT(true == pg_ring_read_slice(&bob_recv, msg_bob_received));
   PG_ASSERT(pg_string_eq(msg_bob_received, PG_S("ping")));
 
   PG_ASSERT(0 == pg_net_socket_close(socket_alice));
@@ -1071,8 +1071,8 @@ static void test_http_send_request() {
     RingBuffer rg = {.data = pg_string_make(32, &arena)};
 
     PG_ASSERT(0 == http_write_request(&rg, req, arena));
-    PgString s = pg_string_make(ring_buffer_read_space(rg), &arena);
-    PG_ASSERT(true == ring_buffer_read_slice(&rg, s));
+    PgString s = pg_string_make(pg_ring_read_space(rg), &arena);
+    PG_ASSERT(true == pg_ring_read_slice(&rg, s));
 
     PgString expected = PG_S("GET / HTTP/1.1\r\n"
                              "\r\n");
@@ -1093,8 +1093,8 @@ static void test_http_send_request() {
 
     PG_ASSERT(0 == http_write_request(&rg, req, arena));
 
-    PgString s = pg_string_make(ring_buffer_read_space(rg), &arena);
-    PG_ASSERT(true == ring_buffer_read_slice(&rg, s));
+    PgString s = pg_string_make(pg_ring_read_space(rg), &arena);
+    PG_ASSERT(true == pg_ring_read_slice(&rg, s));
 
     PgString expected = PG_S("POST /foobar HTTP/1.1\r\n"
                              "Host: google.com\r\n"
@@ -1337,16 +1337,16 @@ static void test_http_read_response() {
   // Partial status line.
   {
     RingBuffer rg = {.data = pg_string_make(32, &arena)};
-    PG_ASSERT(true == ring_buffer_write_slice(&rg, PG_S("HTTP/1.")));
+    PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S("HTTP/1.")));
     HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(false == res.done);
-    PG_ASSERT(ring_buffer_read_space(rg) == PG_S("HTTP/1.").len);
+    PG_ASSERT(pg_ring_read_space(rg) == PG_S("HTTP/1.").len);
   }
   // Status line and some but not full.
   {
     RingBuffer rg = {.data = pg_string_make(32, &arena)};
-    PG_ASSERT(true == ring_buffer_write_slice(
+    PG_ASSERT(true == pg_ring_write_slice(
                           &rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
     HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
     PG_ASSERT(0 == res.err);
@@ -1358,7 +1358,7 @@ static void test_http_read_response() {
     RingBuffer rg = {.data = pg_string_make(128, &arena)};
 
     {
-      PG_ASSERT(true == ring_buffer_write_slice(
+      PG_ASSERT(true == pg_ring_write_slice(
                             &rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
       HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
       PG_ASSERT(0 == res.err);
@@ -1366,19 +1366,19 @@ static void test_http_read_response() {
     }
 
     {
-      PG_ASSERT(true == ring_buffer_write_slice(&rg, PG_S("google.com\r")));
+      PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S("google.com\r")));
       HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
       PG_ASSERT(0 == res.err);
       PG_ASSERT(false == res.done);
 
-      PG_ASSERT(true == ring_buffer_write_slice(&rg, PG_S("\n")));
+      PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S("\n")));
       res = http_read_response(&rg, 128, &arena);
       PG_ASSERT(0 == res.err);
       PG_ASSERT(false == res.done);
     }
 
     {
-      PG_ASSERT(true == ring_buffer_write_slice(
+      PG_ASSERT(true == pg_ring_write_slice(
                             &rg, PG_S("Authorization: Bearer foo\r\n\r\n")));
       HttpResponseReadResult res = http_read_response(&rg, 128, &arena);
       PG_ASSERT(0 == res.err);
@@ -1518,7 +1518,7 @@ static void test_http_request_response() {
         if (PG_AIO_EVENT_KIND_OUT & event.kind) {
           if (!client_send_http_io_done) {
             http_write_request(&client_send, client_req, arena);
-            PG_ASSERT(true == ring_buffer_write_slice(
+            PG_ASSERT(true == pg_ring_write_slice(
                                   &client_send, PG_S("client request body")));
             PG_ASSERT(0 ==
                       writer_write(&client_writer, &client_send, arena).err);
