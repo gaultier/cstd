@@ -156,35 +156,35 @@ static void test_slice_range() {
   // Empty slice.
   {
     PgString s = S("");
-    PG_ASSERT(slice_is_empty(slice_range(s, 0, 0)));
-    PG_ASSERT(slice_is_empty(slice_range_start(s, 0)));
+    PG_ASSERT(PG_SLICE_IS_EMPTY(PG_SLICE_RANGE(s, 0, 0)));
+    PG_ASSERT(PG_SLICE_IS_EMPTY(PG_SLICE_RANGE_START(s, 0)));
   }
   // Empty range.
   {
     PgString s = S("a");
-    PG_ASSERT(slice_is_empty(slice_range(s, 0, 0)));
-    PG_ASSERT(string_eq(s, slice_range_start(s, 0)));
+    PG_ASSERT(PG_SLICE_IS_EMPTY(PG_SLICE_RANGE(s, 0, 0)));
+    PG_ASSERT(string_eq(s, PG_SLICE_RANGE_START(s, 0)));
   }
 
   {
     PgString s = S("abcd");
-    PG_ASSERT(string_eq(slice_range_start(s, 1), S("bcd")));
-    PG_ASSERT(string_eq(slice_range(s, 1, 3), S("bc")));
-    PG_ASSERT(string_eq(slice_range(s, 1, 4), S("bcd")));
-    PG_ASSERT(string_eq(slice_range(s, 1, 5), S("bcd")));
-    PG_ASSERT(slice_is_empty(slice_range(s, 100, 300)));
+    PG_ASSERT(string_eq(PG_SLICE_RANGE_START(s, 1), S("bcd")));
+    PG_ASSERT(string_eq(PG_SLICE_RANGE(s, 1, 3), S("bc")));
+    PG_ASSERT(string_eq(PG_SLICE_RANGE(s, 1, 4), S("bcd")));
+    PG_ASSERT(string_eq(PG_SLICE_RANGE(s, 1, 5), S("bcd")));
+    PG_ASSERT(PG_SLICE_IS_EMPTY(PG_SLICE_RANGE(s, 100, 300)));
   }
 
   PgStringDyn dyn = {0};
   // Works on empty slices.
-  (void)slice_range(dyn_slice(PgStringSlice, dyn), 0, 0);
+  (void)PG_SLICE_RANGE(dyn_slice(PgStringSlice, dyn), 0, 0);
 
   *dyn_push(&dyn, &arena) = S("hello \"world\n\"!");
   *dyn_push(&dyn, &arena) = S("日");
   *dyn_push(&dyn, &arena) = S("本語");
 
   PgStringSlice s = dyn_slice(PgStringSlice, dyn);
-  PgStringSlice range = slice_range_start(s, 1UL);
+  PgStringSlice range = PG_SLICE_RANGE_START(s, 1UL);
   PG_ASSERT(2 == range.len);
 
   PG_ASSERT(string_eq(PG_SLICE_AT(s, 1), PG_SLICE_AT(range, 0)));
@@ -584,7 +584,7 @@ static void test_ring_buffer_read_until_excl() {
     u64 space_write = ring_buffer_write_space(rg);
     PgStringOk s = ring_buffer_read_until_excl(&rg, S("\r\n"), &arena);
     PG_ASSERT(!s.ok);
-    PG_ASSERT(slice_is_empty(s.res));
+    PG_ASSERT(PG_SLICE_IS_EMPTY(s.res));
 
     // Unmodified.
     PG_ASSERT(ring_buffer_read_space(rg) == space_read);

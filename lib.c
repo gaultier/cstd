@@ -155,13 +155,13 @@ PG_SLICE(PgString) PgStringSlice;
 
 PG_RESULT(PgStringSlice) PgStringSliceResult;
 
-#define slice_is_empty(s)                                                      \
+#define PG_SLICE_IS_EMPTY(s)                                                      \
   (((s).len == 0) ? true : (PG_ASSERT(nullptr != (s).data), false))
 
 #define S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
 
 [[maybe_unused]] [[nodiscard]] static bool string_is_empty(PgString s) {
-  return slice_is_empty(s);
+  return PG_SLICE_IS_EMPTY(s);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool string_is_alphabetical(PgString s) {
@@ -229,7 +229,7 @@ string_split_string(PgString s, PgString sep) {
 
 [[maybe_unused]] [[nodiscard]] static i64 string_indexof_byte(PgString haystack,
                                                               u8 needle) {
-  if (slice_is_empty(haystack)) {
+  if (PG_SLICE_IS_EMPTY(haystack)) {
     return -1;
   }
 
@@ -241,7 +241,7 @@ string_split_string(PgString s, PgString sep) {
   return res - haystack.data;
 }
 
-#define slice_range(s, start, end)                                             \
+#define PG_SLICE_RANGE(s, start, end)                                             \
   ((typeof((s))){                                                              \
       .data = (s).len == PG_CLAMP(0, start, (s).len)                           \
                   ? nullptr                                                    \
@@ -250,7 +250,7 @@ string_split_string(PgString s, PgString sep) {
           PG_SUB_SAT(PG_CLAMP(0, end, (s).len), PG_CLAMP(0, start, (s).len)),  \
   })
 
-#define slice_range_start(s, start) slice_range(s, start, (s).len)
+#define PG_SLICE_RANGE_START(s, start) PG_SLICE_RANGE(s, start, (s).len)
 
 [[maybe_unused]] [[nodiscard]] static bool string_eq(PgString a, PgString b) {
   if (a.len == 0 && b.len == 0) {
@@ -314,7 +314,7 @@ string_indexof_string(PgString haystack, PgString needle) {
 
 [[maybe_unused]] [[nodiscard]] static SplitResult
 string_split_next(SplitIterator *it) {
-  if (slice_is_empty(it->s)) {
+  if (PG_SLICE_IS_EMPTY(it->s)) {
     return (SplitResult){0};
   }
 
@@ -328,11 +328,11 @@ string_split_next(SplitIterator *it) {
     }
 
     if (idx == 0) { // Multiple contiguous separators.
-      it->s = slice_range_start(it->s, (u64)idx + it->sep.len);
+      it->s = PG_SLICE_RANGE_START(it->s, (u64)idx + it->sep.len);
       continue;
     } else {
-      SplitResult res = {.s = slice_range(it->s, 0, (u64)idx), .ok = true};
-      it->s = slice_range_start(it->s, (u64)idx + it->sep.len);
+      SplitResult res = {.s = PG_SLICE_RANGE(it->s, 0, (u64)idx), .ok = true};
+      it->s = PG_SLICE_RANGE_START(it->s, (u64)idx + it->sep.len);
 
       return res;
     }
@@ -356,8 +356,8 @@ string_consume_until_byte_excl(PgString haystack, u8 needle) {
     return res;
   }
 
-  res.left = slice_range(haystack, 0, (u64)idx);
-  res.right = slice_range_start(haystack, (u64)idx);
+  res.left = PG_SLICE_RANGE(haystack, 0, (u64)idx);
+  res.right = PG_SLICE_RANGE_START(haystack, (u64)idx);
   res.consumed = true;
 
   PG_ASSERT(needle == PG_SLICE_AT(res.right, 0));
@@ -375,8 +375,8 @@ string_consume_until_byte_incl(PgString haystack, u8 needle) {
     return res;
   }
 
-  res.left = slice_range(haystack, 0, (u64)idx);
-  res.right = slice_range_start(haystack, (u64)idx + 1);
+  res.left = PG_SLICE_RANGE(haystack, 0, (u64)idx);
+  res.right = PG_SLICE_RANGE_START(haystack, (u64)idx + 1);
   res.consumed = true;
 
   return res;
@@ -455,7 +455,7 @@ string_indexof_any_byte(PgString haystack, PgString needle) {
   PG_ASSERT(nullptr != haystack.data);
   PG_ASSERT(nullptr != needle.data);
 
-  PgString start = slice_range(haystack, 0, needle.len);
+  PgString start = PG_SLICE_RANGE(haystack, 0, needle.len);
 
   return string_eq(needle, start);
 }
@@ -477,7 +477,7 @@ string_consume_byte(PgString haystack, u8 needle) {
   }
 
   res.consumed = true;
-  res.remaining = slice_range_start(haystack, 1UL);
+  res.remaining = PG_SLICE_RANGE_START(haystack, 1UL);
   return res;
 }
 
@@ -517,7 +517,7 @@ string_consume_any_string(PgString haystack, PgStringSlice needles) {
   PG_ASSERT(nullptr != haystack.data);
   PG_ASSERT(nullptr != needle.data);
 
-  PgString end = slice_range_start(haystack, haystack.len - needle.len);
+  PgString end = PG_SLICE_RANGE_START(haystack, haystack.len - needle.len);
 
   return string_eq(needle, end);
 }
@@ -551,7 +551,7 @@ string_parse_u64(PgString s) {
     res.n += (u8)PG_SLICE_AT(s, i) - '0';
     res.present = true;
   }
-  res.remaining = slice_range_start(s, i);
+  res.remaining = PG_SLICE_RANGE_START(s, i);
   return res;
 }
 
@@ -1493,7 +1493,7 @@ aio_queue_ctl(AioQueue queue, PgAioEventSlice events) {
 aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
                Arena arena) {
   Pgu64Result res = {0};
-  if (slice_is_empty(events)) {
+  if (PG_SLICE_IS_EMPTY(events)) {
     return res;
   }
 
@@ -2156,7 +2156,7 @@ url_parse_path_components(PgString s, Arena *arena) {
     return res;
   }
 
-  if (slice_is_empty(s)) {
+  if (PG_SLICE_IS_EMPTY(s)) {
     return res;
   }
 
@@ -2174,7 +2174,7 @@ url_parse_path_components(PgString s, Arena *arena) {
       break;
     }
 
-    if (slice_is_empty(split.s)) {
+    if (PG_SLICE_IS_EMPTY(split.s)) {
       continue;
     }
 
@@ -2209,7 +2209,7 @@ url_parse_query_parameters(PgString s, Arena *arena) {
     PgString k = res_consume_eq.left;
     PgString v = res_consume_eq.consumed ? res_consume_eq.right : S("");
 
-    if (!slice_is_empty(k)) {
+    if (!PG_SLICE_IS_EMPTY(k)) {
       *dyn_push(&res.res, arena) = (KeyValue){.key = k, .value = v};
     }
 
@@ -2232,7 +2232,7 @@ url_parse_user_info(PgString s) {
   // (indicating no password).  Applications may choose to ignore or
   // reject such data when it is received.
 
-  if (slice_is_empty(s)) {
+  if (PG_SLICE_IS_EMPTY(s)) {
     res.err = EINVAL;
     return res;
   }
@@ -2246,12 +2246,12 @@ PG_RESULT(u16) Pgu16Result;
   Pgu16Result res = {0};
 
   // Allowed.
-  if (slice_is_empty(s)) {
+  if (PG_SLICE_IS_EMPTY(s)) {
     return res;
   }
 
   ParseNumberResult port_parse = string_parse_u64(s);
-  if (!slice_is_empty(port_parse.remaining)) {
+  if (!PG_SLICE_IS_EMPTY(port_parse.remaining)) {
     res.err = EINVAL;
     return res;
   }
@@ -2291,7 +2291,7 @@ url_parse_authority(PgString s) {
   {
     remaining = host_and_rem.right;
     res.res.host = host_and_rem.left;
-    if (slice_is_empty(res.res.host)) {
+    if (PG_SLICE_IS_EMPTY(res.res.host)) {
       res.err = EINVAL;
       return res;
     }
@@ -2312,7 +2312,7 @@ url_parse_authority(PgString s) {
 
 [[maybe_unused]] [[nodiscard]] static bool
 url_is_scheme_valid(PgString scheme) {
-  if (slice_is_empty(scheme)) {
+  if (PG_SLICE_IS_EMPTY(scheme)) {
     return false;
   }
 
@@ -2342,7 +2342,7 @@ url_parse_after_authority(PgString s, Arena *arena) {
 
   // Path, optional.
   if (string_starts_with(s, S("/"))) {
-    PG_ASSERT(!slice_is_empty(path_components_and_rem.left));
+    PG_ASSERT(!PG_SLICE_IS_EMPTY(path_components_and_rem.left));
 
     PgStringDynResult res_path_components =
         url_parse_path_components(path_components_and_rem.left, arena);
@@ -2367,10 +2367,10 @@ url_parse_after_authority(PgString s, Arena *arena) {
 
   // TODO: fragments.
 
-  PG_ASSERT(slice_is_empty(res.res.scheme));
-  PG_ASSERT(slice_is_empty(res.res.username));
-  PG_ASSERT(slice_is_empty(res.res.password));
-  PG_ASSERT(slice_is_empty(res.res.host));
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.scheme));
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.username));
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.password));
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.host));
   PG_ASSERT(0 == res.res.port);
 
   return res;
@@ -2417,7 +2417,7 @@ url_parse_after_authority(PgString s, Arena *arena) {
       string_consume_until_any_byte_excl(remaining, S("/?#"));
   remaining = authority_and_rem.right;
   {
-    if (slice_is_empty(authority_and_rem.left)) {
+    if (PG_SLICE_IS_EMPTY(authority_and_rem.left)) {
       res.err = EINVAL;
       return res;
     }
@@ -2490,8 +2490,8 @@ http_parse_request_status_line(PgString status_line, Arena *arena) {
     res.err = EINVAL;
     return res;
   }
-  PgString path = slice_range(remaining, 0, (u64)idx_space);
-  remaining = slice_range_start(remaining, (u64)idx_space + 1);
+  PgString path = PG_SLICE_RANGE(remaining, 0, (u64)idx_space);
+  remaining = PG_SLICE_RANGE_START(remaining, (u64)idx_space + 1);
   {
     PgUrlResult res_url = url_parse_after_authority(path, arena);
     if (res_url.err) {
@@ -2548,7 +2548,7 @@ http_parse_request_status_line(PgString status_line, Arena *arena) {
     remaining = res_minor.remaining;
   }
 
-  if (!slice_is_empty(remaining)) {
+  if (!PG_SLICE_IS_EMPTY(remaining)) {
     res.err = EINVAL;
     return res;
   }
@@ -2566,14 +2566,14 @@ http_parse_header(PgString s) {
     return res;
   }
 
-  res.res.key = slice_range(s, 0, (u64)idx);
-  if (slice_is_empty(res.res.key)) {
+  res.res.key = PG_SLICE_RANGE(s, 0, (u64)idx);
+  if (PG_SLICE_IS_EMPTY(res.res.key)) {
     res.err = EINVAL;
     return res;
   }
 
-  res.res.value = string_trim_left(slice_range_start(s, (u64)idx + 1), ' ');
-  if (slice_is_empty(res.res.value)) {
+  res.res.value = string_trim_left(PG_SLICE_RANGE_START(s, (u64)idx + 1), ' ');
+  if (PG_SLICE_IS_EMPTY(res.res.value)) {
     res.err = EINVAL;
     return res;
   }
@@ -2634,7 +2634,7 @@ http_read_response(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
 
     *dyn_push(&res.res.headers, arena) = res_kv.res;
   }
-  if (!slice_is_empty(it.s)) {
+  if (!PG_SLICE_IS_EMPTY(it.s)) {
     res.err = EINVAL;
     return res;
   }
@@ -2685,7 +2685,7 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
 
     *dyn_push(&res.res.headers, arena) = res_kv.res;
   }
-  if (!slice_is_empty(it.s)) {
+  if (!PG_SLICE_IS_EMPTY(it.s)) {
     res.err = EINVAL;
     return res;
   }
@@ -2802,7 +2802,7 @@ request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
 http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
   HttpResponse res = {0};
 
-  if (!slice_is_empty(req.path_raw)) {
+  if (!PG_SLICE_IS_EMPTY(req.path_raw)) {
     // Should use `req.path_components`, not `path.raw`.
     res.err = EINVAL;
     return res;
@@ -2831,7 +2831,7 @@ http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
       res.err = io_result.err;
       goto end;
     }
-    if (slice_is_empty(io_result.res)) {
+    if (PG_SLICE_IS_EMPTY(io_result.res)) {
       res.err = HS_ERR_INVALID_HTTP_RESPONSE;
       goto end;
     }
@@ -2847,7 +2847,7 @@ http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
     }
 
     PgString status_str =
-        slice_range_start(io_result.res, http1_1_version_needle.len);
+        PG_SLICE_RANGE_START(io_result.res, http1_1_version_needle.len);
     ParseNumberResult status_parsed = string_parse_u64(status_str);
     if (!status_parsed.present) {
       res.err = HS_ERR_INVALID_HTTP_RESPONSE;
@@ -2959,7 +2959,7 @@ form_data_kv_parse_element(PgString in, u8 pg_character_terminator, Arena *arena
   }
 
   res.data = dyn_slice(PgString, data);
-  res.remaining = slice_range_start(in, i);
+  res.remaining = PG_SLICE_RANGE_START(in, i);
   return res;
 }
 
@@ -2998,7 +2998,7 @@ form_data_parse(PgString in, Arena *arena) {
   PgString remaining = in;
 
   for (u64 i = 0; i < in.len; i++) { // Bound.
-    if (slice_is_empty(remaining)) {
+    if (PG_SLICE_IS_EMPTY(remaining)) {
       break;
     }
 
@@ -3228,7 +3228,7 @@ http_req_extract_cookie_with_name(HttpRequest req, PgString cookie_name,
       if (!string_ieq_ascii(h.key, S("Cookie"), arena)) {
         continue;
       }
-      if (slice_is_empty(h.value)) {
+      if (PG_SLICE_IS_EMPTY(h.value)) {
         continue;
       }
 
@@ -3250,7 +3250,7 @@ http_req_extract_cookie_with_name(HttpRequest req, PgString cookie_name,
           continue;
         }
         SplitResult split_equals_right = string_split_next(&it_equals);
-        if (!slice_is_empty(split_equals_right.s)) {
+        if (!PG_SLICE_IS_EMPTY(split_equals_right.s)) {
           return split_equals_right.s;
         }
       }
@@ -3585,7 +3585,7 @@ json_decode_string_slice(PgString s, Arena *arena) {
     }
     i += 1;
 
-    PgString remaining = slice_range_start(s, i);
+    PgString remaining = PG_SLICE_RANGE_START(s, i);
     i64 end_quote_idx = string_indexof_unescaped_byte(remaining, '"');
     if (-1 == end_quote_idx) {
       res.err = EINVAL;
@@ -3594,7 +3594,7 @@ json_decode_string_slice(PgString s, Arena *arena) {
 
     PG_ASSERT(0 <= end_quote_idx);
 
-    PgString str = slice_range(s, i, i + (u64)end_quote_idx);
+    PgString str = PG_SLICE_RANGE(s, i, i + (u64)end_quote_idx);
     PgString unescaped = json_unescape_string(str, arena);
     *dyn_push(&dyn, arena) = unescaped;
 
