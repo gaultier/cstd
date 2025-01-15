@@ -3,12 +3,12 @@
 static void test_string_indexof_slice() {
   // Empty haystack.
   {
-    ASSERT(-1 == string_indexof_string((String){0}, S("fox")));
+    ASSERT(-1 == string_indexof_string((PgString){0}, S("fox")));
   }
 
   // Empty needle.
   {
-    ASSERT(-1 == string_indexof_string(S("hello"), (String){0}));
+    ASSERT(-1 == string_indexof_string(S("hello"), (PgString){0}));
   }
 
   // Not found.
@@ -38,12 +38,12 @@ static void test_string_indexof_slice() {
 }
 
 static void test_string_trim() {
-  String trimmed = string_trim(S("   foo "), ' ');
+  PgString trimmed = string_trim(S("   foo "), ' ');
   ASSERT(string_eq(trimmed, S("foo")));
 }
 
 static void test_string_split_byte() {
-  String s = S("hello..world...foobar");
+  PgString s = S("hello..world...foobar");
   SplitIterator it = string_split_string(s, S("."));
 
   {
@@ -69,7 +69,7 @@ static void test_string_split_byte() {
 }
 
 static void test_string_split_string() {
-  String s = S("hello, world,little, thing !");
+  PgString s = S("hello, world,little, thing !");
   SplitIterator it = string_split_string(s, S(", "));
 
   {
@@ -155,19 +155,19 @@ static void test_slice_range() {
 
   // Empty slice.
   {
-    String s = S("");
+    PgString s = S("");
     ASSERT(slice_is_empty(slice_range(s, 0, 0)));
     ASSERT(slice_is_empty(slice_range_start(s, 0)));
   }
   // Empty range.
   {
-    String s = S("a");
+    PgString s = S("a");
     ASSERT(slice_is_empty(slice_range(s, 0, 0)));
     ASSERT(string_eq(s, slice_range_start(s, 0)));
   }
 
   {
-    String s = S("abcd");
+    PgString s = S("abcd");
     ASSERT(string_eq(slice_range_start(s, 1), S("bcd")));
     ASSERT(string_eq(slice_range(s, 1, 3), S("bc")));
     ASSERT(string_eq(slice_range(s, 1, 4), S("bcd")));
@@ -177,14 +177,14 @@ static void test_slice_range() {
 
   PgStringDyn dyn = {0};
   // Works on empty slices.
-  (void)slice_range(dyn_slice(StringSlice, dyn), 0, 0);
+  (void)slice_range(dyn_slice(PgStringSlice, dyn), 0, 0);
 
   *dyn_push(&dyn, &arena) = S("hello \"world\n\"!");
   *dyn_push(&dyn, &arena) = S("日");
   *dyn_push(&dyn, &arena) = S("本語");
 
-  StringSlice s = dyn_slice(StringSlice, dyn);
-  StringSlice range = slice_range_start(s, 1UL);
+  PgStringSlice s = dyn_slice(PgStringSlice, dyn);
+  PgStringSlice range = slice_range_start(s, 1UL);
   ASSERT(2 == range.len);
 
   ASSERT(string_eq(slice_at(s, 1), slice_at(range, 0)));
@@ -301,7 +301,7 @@ static void test_sha1() {
 static void test_slice_swap_remove() {
   Arena arena = arena_make_from_virtual_mem(4 * PG_KiB);
   {
-    String s = string_dup(S("hello world!"), &arena);
+    PgString s = string_dup(S("hello world!"), &arena);
     slice_swap_remove(&s, 4);
     ASSERT(string_eq(s, S("hell! world")));
   }
@@ -315,7 +315,7 @@ static void test_dynu8_append_u8_hex_upper() {
     dynu8_append_u8_hex_upper(&sb, 0xac, &arena);
     dynu8_append_u8_hex_upper(&sb, 0x89, &arena);
 
-    String s = dyn_slice(String, sb);
+    PgString s = dyn_slice(PgString, sb);
     ASSERT(string_eq(s, S("AC89")));
   }
 }
@@ -328,7 +328,7 @@ static void test_ipv4_address_to_string() {
         .port = 6881,
     };
 
-    String s = ipv4_address_to_string(address, &arena);
+    PgString s = ipv4_address_to_string(address, &arena);
     ASSERT(string_eq(s, S("192.168.1.56:6881")));
   }
 }
@@ -338,7 +338,7 @@ static void test_url_encode() {
   {
     Pgu8Dyn sb = {0};
     url_encode_string(&sb, S("日本語"), S("123"), &arena);
-    String encoded = dyn_slice(String, sb);
+    PgString encoded = dyn_slice(PgString, sb);
 
     ASSERT(string_eq(encoded, S("%E6%97%A5%E6%9C%AC%E8%AA%9E=123")));
   }
@@ -346,7 +346,7 @@ static void test_url_encode() {
   {
     Pgu8Dyn sb = {0};
     url_encode_string(&sb, S("日本語"), S("foo"), &arena);
-    String encoded = dyn_slice(String, sb);
+    PgString encoded = dyn_slice(PgString, sb);
 
     ASSERT(string_eq(encoded, S("%E6%97%A5%E6%9C%AC%E8%AA%9E=foo")));
   }
@@ -387,29 +387,29 @@ static void test_log_entry_quote_value() {
   Arena arena = arena_make_from_virtual_mem(4 * PG_KiB);
   // Nothing to escape.
   {
-    String s = S("hello");
-    String expected = S("\"hello\"");
+    PgString s = S("hello");
+    PgString expected = S("\"hello\"");
     ASSERT(string_eq(expected, json_escape_string(s, &arena)));
   }
   {
-    String s = S("{\"id\": 1}");
-    String expected = S("\"{\\\"id\\\": 1}\"");
+    PgString s = S("{\"id\": 1}");
+    PgString expected = S("\"{\\\"id\\\": 1}\"");
     ASSERT(string_eq(expected, json_escape_string(s, &arena)));
   }
   {
-    String s = S("192.168.1.2:12345");
-    String expected = S("\"192.168.1.2:12345\"");
+    PgString s = S("192.168.1.2:12345");
+    PgString expected = S("\"192.168.1.2:12345\"");
     ASSERT(string_eq(expected, json_escape_string(s, &arena)));
   }
   {
     u8 backslash = 0x5c;
     u8 double_quote = '"';
     u8 data[] = {backslash, double_quote};
-    String s = {.data = data, .len = sizeof(data)};
+    PgString s = {.data = data, .len = sizeof(data)};
 
     u8 data_expected[] = {double_quote, backslash,    backslash,
                           backslash,    double_quote, double_quote};
-    String expected = {.data = data_expected, .len = sizeof(data_expected)};
+    PgString expected = {.data = data_expected, .len = sizeof(data_expected)};
     ASSERT(string_eq(expected, json_escape_string(s, &arena)));
   }
 }
@@ -417,11 +417,11 @@ static void test_log_entry_quote_value() {
 static void test_make_log_line() {
   Arena arena = arena_make_from_virtual_mem(4 * PG_KiB);
 
-  String log_line =
+  PgString log_line =
       log_make_log_line(LOG_LEVEL_DEBUG, S("foobar"), &arena, 2, L("num", 42),
                         L("s", S("hello \"world\"")));
 
-  String expected_suffix =
+  PgString expected_suffix =
       S("\"message\":\"foobar\",\"num\":42,\"s\":\"hello \\\"world\\\"\"}\n");
   ASSERT(string_starts_with(log_line,
                             S("{\"level\":\"debug\",\"timestamp_ns\":")));
@@ -432,7 +432,7 @@ static void test_u8x4_be_to_u32_and_back() {
   {
     u32 n = 123'456'789;
     u8 data[sizeof(n)] = {0};
-    String s = {.data = data, .len = sizeof(n)};
+    PgString s = {.data = data, .len = sizeof(n)};
     u32_to_u8x4_be(n, &s);
     ASSERT(string_eq(s, S("\x07"
                           "\x5b"
@@ -445,8 +445,8 @@ static void test_u8x4_be_to_u32_and_back() {
 
 static void test_bitfield() {
   {
-    String bitfield = S("\x3"
-                        "\x2");
+    PgString bitfield = S("\x3"
+                          "\x2");
     ASSERT(bitfield_get(bitfield, 0));
     ASSERT(bitfield_get(bitfield, 1));
     ASSERT(!bitfield_get(bitfield, 2));
@@ -487,7 +487,7 @@ static void test_ring_buffer_write_slice() {
 
     ASSERT(0 == rg.idx_read);
     ASSERT(string_eq(S("hello world"),
-                     (String){.data = rg.data.data, .len = rg.idx_write}));
+                     (PgString){.data = rg.data.data, .len = rg.idx_write}));
   }
   // Write to full ring buffer.
   {
@@ -536,9 +536,9 @@ static void test_ring_buffer_read_write_slice() {
   {
     RingBuffer rg = {.data = string_make(12, &arena)};
     ASSERT(0 == ring_buffer_read_space(rg));
-    ASSERT(true == ring_buffer_read_slice(&rg, (String){0}));
+    ASSERT(true == ring_buffer_read_slice(&rg, (PgString){0}));
 
-    String dst = string_dup(S("xyz"), &arena);
+    PgString dst = string_dup(S("xyz"), &arena);
     ASSERT(false == ring_buffer_read_slice(&rg, dst));
   }
 
@@ -549,7 +549,7 @@ static void test_ring_buffer_read_write_slice() {
     ASSERT(5 == rg.idx_write);
     ASSERT(5 == ring_buffer_read_space(rg));
 
-    String dst = string_dup(S("xyz"), &arena);
+    PgString dst = string_dup(S("xyz"), &arena);
     ASSERT(ring_buffer_read_slice(&rg, dst));
     ASSERT(string_eq(dst, S("hel")));
     ASSERT(3 == rg.idx_read);
@@ -582,7 +582,7 @@ static void test_ring_buffer_read_until_excl() {
   {
     u64 space_read = ring_buffer_read_space(rg);
     u64 space_write = ring_buffer_write_space(rg);
-    StringOk s = ring_buffer_read_until_excl(&rg, S("\r\n"), &arena);
+    PgStringOk s = ring_buffer_read_until_excl(&rg, S("\r\n"), &arena);
     ASSERT(!s.ok);
     ASSERT(slice_is_empty(s.res));
 
@@ -592,22 +592,22 @@ static void test_ring_buffer_read_until_excl() {
   }
 
   {
-    StringOk s = ring_buffer_read_until_excl(&rg, S(" "), &arena);
+    PgStringOk s = ring_buffer_read_until_excl(&rg, S(" "), &arena);
     ASSERT(s.ok);
     ASSERT(string_eq(s.res, S("The")));
   }
   {
-    StringOk s = ring_buffer_read_until_excl(&rg, S(" "), &arena);
+    PgStringOk s = ring_buffer_read_until_excl(&rg, S(" "), &arena);
     ASSERT(s.ok);
     ASSERT(string_eq(s.res, S("quick")));
   }
   {
-    StringOk s = ring_buffer_read_until_excl(&rg, S("lazy "), &arena);
+    PgStringOk s = ring_buffer_read_until_excl(&rg, S("lazy "), &arena);
     ASSERT(s.ok);
     ASSERT(string_eq(s.res, S("brown fox jumps over the ")));
   }
   {
-    StringOk s = ring_buffer_read_until_excl(&rg, S("g"), &arena);
+    PgStringOk s = ring_buffer_read_until_excl(&rg, S("g"), &arena);
     ASSERT(s.ok);
     ASSERT(string_eq(s.res, S("do")));
   }
@@ -623,11 +623,11 @@ static void test_ring_buffer_read_write_fuzz() {
 
   // TODO: Random seed for reproducability?
   for (u64 i = 0; i < ROUNDS; i++) {
-    String from =
+    PgString from =
         string_make(arc4random_uniform((u32)rg.data.len + 1), &arena_strings);
     arc4random_buf(from.data, from.len);
 
-    String to =
+    PgString to =
         string_make(arc4random_uniform((u32)rg.data.len + 1), &arena_strings);
     arc4random_buf(to.data, to.len);
 
@@ -645,31 +645,31 @@ static void test_url_parse() {
   Arena arena = arena_make_from_virtual_mem(4 * PG_KiB);
 
   {
-    ParseUrlResult res = url_parse(S(""), &arena);
+    PgUrlResult res = url_parse(S(""), &arena);
     ASSERT(0 != res.err);
   }
   {
-    ParseUrlResult res = url_parse(S("x"), &arena);
+    PgUrlResult res = url_parse(S("x"), &arena);
     ASSERT(0 != res.err);
   }
   {
-    ParseUrlResult res = url_parse(S("http:"), &arena);
+    PgUrlResult res = url_parse(S("http:"), &arena);
     ASSERT(0 != res.err);
   }
   {
-    ParseUrlResult res = url_parse(S("http:/"), &arena);
+    PgUrlResult res = url_parse(S("http:/"), &arena);
     ASSERT(0 != res.err);
   }
   {
-    ParseUrlResult res = url_parse(S("http://"), &arena);
+    PgUrlResult res = url_parse(S("http://"), &arena);
     ASSERT(0 != res.err);
   }
   {
-    ParseUrlResult res = url_parse(S("://"), &arena);
+    PgUrlResult res = url_parse(S("://"), &arena);
     ASSERT(0 != res.err);
   }
   {
-    ParseUrlResult res = url_parse(S("http://a"), &arena);
+    PgUrlResult res = url_parse(S("http://a"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -679,7 +679,7 @@ static void test_url_parse() {
     ASSERT(0 == res.res.port);
   }
   {
-    ParseUrlResult res = url_parse(S("http://a:"), &arena);
+    PgUrlResult res = url_parse(S("http://a:"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -689,7 +689,7 @@ static void test_url_parse() {
     ASSERT(0 == res.res.port);
   }
   {
-    ParseUrlResult res = url_parse(S("http://a:/"), &arena);
+    PgUrlResult res = url_parse(S("http://a:/"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -699,11 +699,11 @@ static void test_url_parse() {
     ASSERT(0 == res.res.port);
   }
   {
-    ParseUrlResult res = url_parse(S("http://a:bc"), &arena);
+    PgUrlResult res = url_parse(S("http://a:bc"), &arena);
     ASSERT(0 != res.err);
   }
   {
-    ParseUrlResult res = url_parse(S("http://abc:0"), &arena);
+    PgUrlResult res = url_parse(S("http://abc:0"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -713,17 +713,17 @@ static void test_url_parse() {
     ASSERT(0 == res.res.port);
   }
   {
-    ParseUrlResult res = url_parse(S("http://abc:999999"), &arena);
+    PgUrlResult res = url_parse(S("http://abc:999999"), &arena);
     ASSERT(0 != res.err);
   }
 
   // Invalid scheme.
   {
-    ParseUrlResult res = url_parse(S("1abc://a:80/"), &arena);
+    PgUrlResult res = url_parse(S("1abc://a:80/"), &arena);
     ASSERT(0 != res.err);
   }
   {
-    ParseUrlResult res = url_parse(S("http://a:80"), &arena);
+    PgUrlResult res = url_parse(S("http://a:80"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -733,7 +733,7 @@ static void test_url_parse() {
     ASSERT(80 == res.res.port);
   }
   {
-    ParseUrlResult res = url_parse(S("http://a.b.c:80/foo"), &arena);
+    PgUrlResult res = url_parse(S("http://a.b.c:80/foo"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -742,11 +742,11 @@ static void test_url_parse() {
     ASSERT(80 == res.res.port);
     ASSERT(1 == res.res.path_components.len);
 
-    String path_component0 = slice_at(res.res.path_components, 0);
+    PgString path_component0 = slice_at(res.res.path_components, 0);
     ASSERT(string_eq(S("foo"), path_component0));
   }
   {
-    ParseUrlResult res = url_parse(S("http://a.b.c:80/"), &arena);
+    PgUrlResult res = url_parse(S("http://a.b.c:80/"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -756,7 +756,7 @@ static void test_url_parse() {
     ASSERT(0 == res.res.path_components.len);
   }
   {
-    ParseUrlResult res = url_parse(S("http://a.b.c/foo/bar/baz"), &arena);
+    PgUrlResult res = url_parse(S("http://a.b.c/foo/bar/baz"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -765,19 +765,19 @@ static void test_url_parse() {
     ASSERT(0 == res.res.port);
     ASSERT(3 == res.res.path_components.len);
 
-    String path_component0 = slice_at(res.res.path_components, 0);
+    PgString path_component0 = slice_at(res.res.path_components, 0);
     ASSERT(string_eq(S("foo"), path_component0));
 
-    String path_component1 = slice_at(res.res.path_components, 1);
+    PgString path_component1 = slice_at(res.res.path_components, 1);
     ASSERT(string_eq(S("bar"), path_component1));
 
-    String path_component2 = slice_at(res.res.path_components, 2);
+    PgString path_component2 = slice_at(res.res.path_components, 2);
     ASSERT(string_eq(S("baz"), path_component2));
   }
 
   // Url parameters.
   {
-    ParseUrlResult res = url_parse(S("http://a/?foo"), &arena);
+    PgUrlResult res = url_parse(S("http://a/?foo"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -792,7 +792,7 @@ static void test_url_parse() {
     ASSERT(string_eq(kv0.value, S("")));
   }
   {
-    ParseUrlResult res = url_parse(S("http://a/?"), &arena);
+    PgUrlResult res = url_parse(S("http://a/?"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -803,7 +803,7 @@ static void test_url_parse() {
     ASSERT(0 == res.res.query_parameters.len);
   }
   {
-    ParseUrlResult res = url_parse(S("http://a/?foo=bar"), &arena);
+    PgUrlResult res = url_parse(S("http://a/?foo=bar"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -818,7 +818,7 @@ static void test_url_parse() {
     ASSERT(string_eq(kv0.value, S("bar")));
   }
   {
-    ParseUrlResult res = url_parse(S("http://a/?foo=bar&"), &arena);
+    PgUrlResult res = url_parse(S("http://a/?foo=bar&"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -833,7 +833,7 @@ static void test_url_parse() {
     ASSERT(string_eq(kv0.value, S("bar")));
   }
   {
-    ParseUrlResult res = url_parse(S("http://a/?foo=bar&hello=world"), &arena);
+    PgUrlResult res = url_parse(S("http://a/?foo=bar&hello=world"), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -852,8 +852,7 @@ static void test_url_parse() {
     ASSERT(string_eq(kv1.value, S("world")));
   }
   {
-    ParseUrlResult res =
-        url_parse(S("http://a/?foo=bar&hello=world&a="), &arena);
+    PgUrlResult res = url_parse(S("http://a/?foo=bar&hello=world&a="), &arena);
     ASSERT(0 == res.err);
     ASSERT(string_eq(S("http"), res.res.scheme));
     ASSERT(0 == res.res.username.len);
@@ -887,7 +886,7 @@ static void test_net_socket() {
   u16 port = 5679;
   Socket socket_listen = 0;
   {
-    CreateSocketResult res_create_socket = net_create_tcp_socket();
+    PgCreateSocketResult res_create_socket = net_create_tcp_socket();
     ASSERT(0 == res_create_socket.err);
     socket_listen = res_create_socket.res;
 
@@ -902,7 +901,7 @@ static void test_net_socket() {
 
   Socket socket_alice = 0;
   {
-    DnsResolveIpv4AddressSocketResult res_dns =
+    PgDnsResolveIpv4AddressSocketResult res_dns =
         net_dns_resolve_ipv4_tcp(S("localhost"), port, arena);
     ASSERT(0 == res_dns.err);
 
@@ -912,11 +911,11 @@ static void test_net_socket() {
   }
   ASSERT(0 == net_socket_set_blocking(socket_alice, false));
 
-  AioQueueCreateResult res_queue_create = aio_queue_create();
+  PgAioQueueCreateResult res_queue_create = aio_queue_create();
   ASSERT(0 == res_queue_create.err);
 
   AioQueue queue = res_queue_create.res;
-  AioEventSlice events_change = slice_make(AioEvent, 3, &arena);
+  PgAioEventSlice events_change = slice_make(AioEvent, 3, &arena);
   events_change.len = 1;
 
   {
@@ -938,7 +937,7 @@ static void test_net_socket() {
 
   AliceState alice_state = ALICE_STATE_NONE;
 
-  AioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
+  PgAioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
 
   for (;;) {
     Pgu64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
@@ -998,7 +997,7 @@ static void test_net_socket() {
 end:
   ASSERT(ALICE_STATE_DONE == alice_state);
 
-  String msg_bob_received = string_make(4, &arena);
+  PgString msg_bob_received = string_make(4, &arena);
   ASSERT(true == ring_buffer_read_slice(&bob_recv, msg_bob_received));
   ASSERT(string_eq(msg_bob_received, S("ping")));
 
@@ -1012,7 +1011,7 @@ static void test_url_parse_relative_path() {
 
   // Empty.
   {
-    StringDynResult res = url_parse_path_components(S(""), &arena);
+    PgStringDynResult res = url_parse_path_components(S(""), &arena);
     ASSERT(0 == res.err);
     ASSERT(0 == res.res.len);
   }
@@ -1024,19 +1023,20 @@ static void test_url_parse_relative_path() {
   }
   // Must start with slash and it does not.
   {
-    StringDynResult res = url_parse_path_components(S("foo"), &arena);
+    PgStringDynResult res = url_parse_path_components(S("foo"), &arena);
     ASSERT(res.err);
   }
   // Must start with slash and it does.
   {
-    StringDynResult res = url_parse_path_components(S("/foo"), &arena);
+    PgStringDynResult res = url_parse_path_components(S("/foo"), &arena);
     ASSERT(0 == res.err);
     ASSERT(1 == res.res.len);
     ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
   }
   // Simple path with a few components.
   {
-    StringDynResult res = url_parse_path_components(S("/foo/bar/baz"), &arena);
+    PgStringDynResult res =
+        url_parse_path_components(S("/foo/bar/baz"), &arena);
     ASSERT(0 == res.err);
     ASSERT(3 == res.res.len);
     ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
@@ -1045,7 +1045,8 @@ static void test_url_parse_relative_path() {
   }
   // Simple path with a few components with trailing slash.
   {
-    StringDynResult res = url_parse_path_components(S("/foo/bar/baz/"), &arena);
+    PgStringDynResult res =
+        url_parse_path_components(S("/foo/bar/baz/"), &arena);
     ASSERT(0 == res.err);
     ASSERT(3 == res.res.len);
     ASSERT(string_eq(S("foo"), slice_at(res.res, 0)));
@@ -1063,11 +1064,11 @@ static void test_http_send_request() {
     RingBuffer rg = {.data = string_make(32, &arena)};
 
     ASSERT(0 == http_write_request(&rg, req, arena));
-    String s = string_make(ring_buffer_read_space(rg), &arena);
+    PgString s = string_make(ring_buffer_read_space(rg), &arena);
     ASSERT(true == ring_buffer_read_slice(&rg, s));
 
-    String expected = S("GET / HTTP/1.1\r\n"
-                        "\r\n");
+    PgString expected = S("GET / HTTP/1.1\r\n"
+                          "\r\n");
     ASSERT(string_eq(s, expected));
   }
   {
@@ -1085,12 +1086,12 @@ static void test_http_send_request() {
 
     ASSERT(0 == http_write_request(&rg, req, arena));
 
-    String s = string_make(ring_buffer_read_space(rg), &arena);
+    PgString s = string_make(ring_buffer_read_space(rg), &arena);
     ASSERT(true == ring_buffer_read_slice(&rg, s));
 
-    String expected = S("POST /foobar HTTP/1.1\r\n"
-                        "Host: google.com\r\n"
-                        "\r\n");
+    PgString expected = S("POST /foobar HTTP/1.1\r\n"
+                          "Host: google.com\r\n"
+                          "\r\n");
     ASSERT(string_eq(s, expected));
   }
 }
@@ -1142,7 +1143,7 @@ static void test_http_parse_response_status_line() {
   }
   // Valid, short.
   {
-    HttpResponseStatusLineResult res =
+    PgHttpResponseStatusLineResult res =
         http_parse_response_status_line(S("HTTP/2.0 201"));
     ASSERT(0 == res.err);
     ASSERT(2 == res.res.version_major);
@@ -1151,7 +1152,7 @@ static void test_http_parse_response_status_line() {
   }
   // Valid, short, 0.9.
   {
-    HttpResponseStatusLineResult res =
+    PgHttpResponseStatusLineResult res =
         http_parse_response_status_line(S("HTTP/0.9 201"));
     ASSERT(0 == res.err);
     ASSERT(0 == res.res.version_major);
@@ -1160,7 +1161,7 @@ static void test_http_parse_response_status_line() {
   }
   // Valid, long.
   {
-    HttpResponseStatusLineResult res =
+    PgHttpResponseStatusLineResult res =
         http_parse_response_status_line(S("HTTP/1.1 404 Not found"));
     ASSERT(0 == res.err);
     ASSERT(1 == res.res.version_major);
@@ -1209,7 +1210,7 @@ static void test_http_parse_request_status_line() {
   }
   // Valid, short.
   {
-    HttpRequestStatusLineResult res =
+    PgHttpRequestStatusLineResult res =
         http_parse_request_status_line(S("GET / HTTP/2.0"), &arena);
     ASSERT(0 == res.err);
     ASSERT(HTTP_METHOD_GET == res.res.method);
@@ -1220,7 +1221,7 @@ static void test_http_parse_request_status_line() {
   }
   // Valid, short with query parameters.
   {
-    HttpRequestStatusLineResult res =
+    PgHttpRequestStatusLineResult res =
         http_parse_request_status_line(S("GET /?foo=bar& HTTP/2.0"), &arena);
     ASSERT(0 == res.err);
     ASSERT(HTTP_METHOD_GET == res.res.method);
@@ -1234,7 +1235,7 @@ static void test_http_parse_request_status_line() {
   }
   // Valid, short, 0.9.
   {
-    HttpRequestStatusLineResult res =
+    PgHttpRequestStatusLineResult res =
         http_parse_request_status_line(S("GET / HTTP/0.9"), &arena);
     ASSERT(0 == res.err);
     ASSERT(HTTP_METHOD_GET == res.res.method);
@@ -1245,7 +1246,7 @@ static void test_http_parse_request_status_line() {
   }
   // Valid, long.
   {
-    HttpRequestStatusLineResult res = http_parse_request_status_line(
+    PgHttpRequestStatusLineResult res = http_parse_request_status_line(
         S("GET /foo/bar/baz?hey HTTP/1.1"), &arena);
     ASSERT(0 == res.err);
     ASSERT(HTTP_METHOD_GET == res.res.method);
@@ -1278,28 +1279,28 @@ static void test_http_parse_header() {
   }
   // Multiple colons.
   {
-    KeyValueResult res = http_parse_header(S("foo: bar : baz"));
+    PgKeyValueResult res = http_parse_header(S("foo: bar : baz"));
     ASSERT(0 == res.err);
     ASSERT(string_eq(res.res.key, S("foo")));
     ASSERT(string_eq(res.res.value, S("bar : baz")));
   }
   // Valid, one space before the value.
   {
-    KeyValueResult res = http_parse_header(S("foo: bar"));
+    PgKeyValueResult res = http_parse_header(S("foo: bar"));
     ASSERT(0 == res.err);
     ASSERT(string_eq(res.res.key, S("foo")));
     ASSERT(string_eq(res.res.value, S("bar")));
   }
   // Valid, no space before the value.
   {
-    KeyValueResult res = http_parse_header(S("foo:bar"));
+    PgKeyValueResult res = http_parse_header(S("foo:bar"));
     ASSERT(0 == res.err);
     ASSERT(string_eq(res.res.key, S("foo")));
     ASSERT(string_eq(res.res.value, S("bar")));
   }
   // Valid, multiple spaces before the value.
   {
-    KeyValueResult res = http_parse_header(S("foo:   bar"));
+    PgKeyValueResult res = http_parse_header(S("foo:   bar"));
     ASSERT(0 == res.err);
     ASSERT(string_eq(res.res.key, S("foo")));
     ASSERT(string_eq(res.res.value, S("bar")));
@@ -1387,7 +1388,7 @@ static void test_http_request_response() {
   u16 port = CLAMP(3000, (u16)arc4random_uniform(UINT16_MAX), UINT16_MAX);
   Socket listen_socket = 0;
   {
-    CreateSocketResult res_create_socket = net_create_tcp_socket();
+    PgCreateSocketResult res_create_socket = net_create_tcp_socket();
     ASSERT(0 == res_create_socket.err);
     listen_socket = res_create_socket.res;
 
@@ -1402,7 +1403,7 @@ static void test_http_request_response() {
 
   Socket client_socket = 0;
   {
-    DnsResolveIpv4AddressSocketResult res_dns =
+    PgDnsResolveIpv4AddressSocketResult res_dns =
         net_dns_resolve_ipv4_tcp(S("localhost"), port, arena);
     ASSERT(0 == res_dns.err);
 
@@ -1412,11 +1413,11 @@ static void test_http_request_response() {
   }
   ASSERT(0 == net_socket_set_blocking(client_socket, false));
 
-  AioQueueCreateResult res_queue_create = aio_queue_create();
+  PgAioQueueCreateResult res_queue_create = aio_queue_create();
   ASSERT(0 == res_queue_create.err);
 
   AioQueue queue = res_queue_create.res;
-  AioEventSlice events_change = slice_make(AioEvent, 3, &arena);
+  PgAioEventSlice events_change = slice_make(AioEvent, 3, &arena);
   events_change.len = 1;
 
   {
@@ -1463,7 +1464,7 @@ static void test_http_request_response() {
   HttpRequest server_req = {0};
   HttpResponse client_res = {0};
 
-  AioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
+  PgAioEventSlice events_watch = slice_make(AioEvent, 3, &arena);
 
   for (u64 _i = 0; _i <= 128; _i++) {
     Pgu64Result res_wait = aio_queue_wait(queue, events_watch, -1, arena);
@@ -1605,7 +1606,7 @@ static void test_log() {
     logger_log(&logger, LOG_LEVEL_INFO, "hello world", arena,
                L("foo", S("bar")));
 
-    String out = dyn_slice(String, sb.sb);
+    PgString out = dyn_slice(PgString, sb.sb);
     ASSERT(string_starts_with(out, S("{\"level\":\"info\"")));
   }
   // Log but the logger level is higher.
@@ -1617,7 +1618,7 @@ static void test_log() {
     logger_log(&logger, LOG_LEVEL_DEBUG, "hello world", arena,
                L("foo", S("bar")));
 
-    String out = dyn_slice(String, sb.sb);
+    PgString out = dyn_slice(PgString, sb.sb);
     ASSERT(string_is_empty(out));
   }
 }
@@ -1625,11 +1626,11 @@ static void test_log() {
 static void test_timer() {
   Arena arena = arena_make_from_virtual_mem(4 * PG_KiB);
 
-  AioQueueCreateResult res_queue_create = aio_queue_create();
+  PgAioQueueCreateResult res_queue_create = aio_queue_create();
   ASSERT(0 == res_queue_create.err);
   AioQueue queue = res_queue_create.res;
 
-  TimerResult res_timer =
+  PgTimerResult res_timer =
       pg_timer_create(CLOCK_KIND_MONOTONIC, 10 * PG_Milliseconds);
   ASSERT(0 == res_timer.err);
 
@@ -1646,7 +1647,7 @@ static void test_timer() {
     ASSERT(0 == err);
   }
 
-  AioEventSlice events_watch = slice_make(AioEvent, 1, &arena);
+  PgAioEventSlice events_watch = slice_make(AioEvent, 1, &arena);
   Pgu64Result res_wait = aio_queue_wait(queue, events_watch, 1'000, arena);
   ASSERT(0 == res_wait.err);
   ASSERT(1 == res_wait.res);
