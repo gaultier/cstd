@@ -110,7 +110,7 @@ typedef Pgu8Slice PgString;
     if ((i64)(idx) >= (i64)((s)->len)) {                                       \
       __builtin_trap();                                                        \
     }                                                                          \
-    *(PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx)) =                           \
+    *(PG_C_ARRAY_AT_PTR((s)->data, (s)->len, (idx))) =                         \
         PG_C_ARRAY_AT((s)->data, (s)->len, (s)->len - 1);                      \
     (s)->len -= 1;                                                             \
   } while (0)
@@ -3674,14 +3674,27 @@ typedef enum {
 } PgEventLoopHandleKind;
 
 typedef void (*PgEventLoopOnTcpConnect)(void *ctx, PgError err);
+struct PgEventLoopHandle;
+typedef void (*PgEventLoopOnClose)(struct PgEventLoopHandle *handle);
+
+typedef enum {
+  PG_EVENT_LOOP_HANDLE_STATE_NONE,
+  PG_EVENT_LOOP_HANDLE_STATE_CONNECTING,
+  PG_EVENT_LOOP_HANDLE_STATE_CONNECTED,
+  PG_EVENT_LOOP_HANDLE_STATE_LISTENING,
+} PgEventLoopHandleState;
 
 typedef struct {
   PgEventLoopHandleKind kind;
+  PgEventLoopHandleState state;
   u64 os_handle;
   PgEventLoopOnTcpConnect on_connect;
+  PgEventLoopOnClose on_close;
   void *ctx;
 } PgEventLoopHandle;
+
 PG_DYN(PgEventLoopHandle) PgEventLoopHandleDyn;
+PG_SLICE(PgEventLoopHandle) PgEventLoopHandleSlice;
 
 typedef struct {
   PgEventLoopHandleDyn handles;
@@ -3707,15 +3720,24 @@ static PgEventLoopResult pg_event_loop_make() {
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgEventLoopHandle *pg_event_loop_find_handle(PgEventLoop *loop,
-                                                    u64 os_handle) {
+static i64 pg_event_loop_find_handle_idx(PgEventLoop *loop, u64 os_handle) {
   for (u64 i = 0; i < loop->handles.len; i++) {
     PgEventLoopHandle *handle = PG_DYN_AT_PTR(&loop->handles, i);
     if (handle->os_handle == os_handle) {
-      return handle;
+      return (i64)i;
     }
   }
-  return nullptr;
+  return -1;
+}
+
+[[nodiscard]] [[maybe_unused]]
+static PgEventLoopHandle *pg_event_loop_find_handle(PgEventLoop *loop,
+                                                    u64 os_handle) {
+  i64 idx = pg_event_loop_find_handle_idx(loop, os_handle);
+  if (-1 == idx) {
+    return nullptr;
+  }
+  return PG_DYN_AT_PTR(&loop->handles, (u64)idx);
 }
 
 [[nodiscard]] [[maybe_unused]]
@@ -3766,6 +3788,8 @@ static PgError pg_event_loop_tcp_connect(PgEventLoop *loop, u64 os_handle,
     return err;
   }
 
+  handle->state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTING;
+
   PgAioEvent event = {
       .os_handle = os_handle,
       .kind = PG_AIO_EVENT_KIND_OUT, // Needed to be notified on a successful
@@ -3805,6 +3829,8 @@ static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, u64 os_handle,
   if (err) {
     return err;
   }
+
+  handle->state = PG_EVENT_LOOP_HANDLE_STATE_LISTENING;
 
   PgAioEvent event = {
       .os_handle = os_handle,
@@ -3852,6 +3878,33 @@ static Pgu64Result pg_event_loop_tcp_accept(PgEventLoop *loop, u64 os_handle,
 }
 
 [[nodiscard]] [[maybe_unused]]
+static PgError pg_event_loop_handle_close(PgEventLoop *loop, u64 os_handle) {
+  i64 idx = pg_event_loop_find_handle_idx(loop, os_handle);
+  if (-1 == idx) {
+    return PG_ERR_INVALID_VALUE;
+  }
+
+  PgEventLoopHandle *handle = PG_DYN_AT_PTR(&loop->handles, (u64)idx);
+  if (handle->on_close) {
+    handle->on_close(handle->ctx);
+  }
+
+  PgError err = 0;
+  switch (handle->kind) {
+  case PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET: {
+    err = pg_net_socket_close((PgSocket)handle->os_handle);
+  } break;
+  case PG_EVENT_LOOP_HANDLE_KIND_NONE:
+  default:
+    PG_ASSERT(0);
+  }
+
+  PG_SLICE_SWAP_REMOVE(&loop->handles, (u64)idx);
+
+  return err;
+}
+
+[[nodiscard]] [[maybe_unused]]
 static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms,
                                  PgArena arena) {
   PG_ASSERT(loop->queue != 0);
@@ -3867,10 +3920,37 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms,
     }
 
     for (u64 i = 0; i < res_wait.res; i++) {
-      PgAioEvent event = PG_SLICE_AT(events_watch, i);
+      PgAioEvent event_watch = PG_SLICE_AT(events_watch, i);
       PgEventLoopHandle *handle =
-          pg_event_loop_find_handle(loop, event.os_handle);
+          pg_event_loop_find_handle(loop, event_watch.os_handle);
       PG_ASSERT(handle);
+
+      PgError err = 0;
+      if (PG_AIO_EVENT_KIND_ERR & event_watch.kind) {
+        // TODO: Ask os to give a precise error.
+        err = PG_ERR_INVALID_VALUE; // FIXME.
+      }
+      if ((PG_AIO_EVENT_KIND_OUT & event_watch.kind) &&
+          (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
+          (PG_EVENT_LOOP_HANDLE_STATE_CONNECTING == handle->state) &&
+          handle->on_connect) {
+        handle->on_connect(handle->ctx, err);
+        handle->state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTED;
+
+        // Stop listening for 'connect'.
+        PgAioEvent event_change = {
+            .os_handle = handle->os_handle,
+            .action = PG_AIO_EVENT_ACTION_DEL,
+        };
+        PG_ASSERT(0 == pg_aio_queue_ctl_one(loop->queue, event_change));
+      }
+
+      if ((PG_AIO_EVENT_KIND_IN & event_watch.kind) &&
+          (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
+          (PG_EVENT_LOOP_HANDLE_STATE_LISTENING == handle->state) &&
+          handle->on_connect) {
+        handle->on_connect(handle->ctx, err);
+      }
     }
   }
 }
