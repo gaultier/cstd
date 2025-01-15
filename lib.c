@@ -2801,7 +2801,14 @@ pg_http_write_response(PgRing *rg, PgHttpResponse res, PgArena arena) {
 [[maybe_unused]] [[nodiscard]] static PgReader
 pg_reader_make_from_socket(PgSocket socket) {
   // TODO: Windows.
+  // TODO: recv?
   return (PgReader){.read_fn = pg_unix_read, .ctx = (void *)(u64)socket};
+}
+
+[[maybe_unused]] [[nodiscard]] static PgReader
+pg_reader_make_from_file(PgFile file) {
+  // TODO: Windows.
+  return (PgReader){.read_fn = pg_unix_read, .ctx = (void *)(u64)file};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgWriter
@@ -3706,6 +3713,7 @@ pg_make_unique_id_u128_string(PgArena *arena) {
 typedef enum : u8 {
   PG_EVENT_LOOP_HANDLE_KIND_NONE,
   PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET,
+  PG_EVENT_LOOP_HANDLE_KIND_TIMER,
   // TODO: More.
 } PgEventLoopHandleKind;
 
@@ -3723,6 +3731,8 @@ typedef void (*PgEventLoopOnRead)(PgEventLoop *loop, u64 os_handle, void *ctx,
 
 typedef void (*PgEventLoopOnWrite)(PgEventLoop *loop, u64 os_handle, void *ctx,
                                    PgError err);
+
+typedef void (*PgEventLoopOnTimer)(PgEventLoop *loop, u64 os_handle, void *ctx);
 
 typedef enum : u8 {
   PG_EVENT_LOOP_HANDLE_STATE_NONE,
@@ -3751,6 +3761,7 @@ struct PgEventLoopHandle {
   PgEventLoopOnClose on_close;
   PgEventLoopOnRead on_read;
   PgEventLoopOnWrite on_write;
+  PgEventLoopOnTimer on_timer;
   void *ctx;
 };
 
@@ -3796,6 +3807,18 @@ static PgEventLoopHandle pg_event_loop_make_tcp_handle(PgSocket socket,
   res.arena = pg_arena_make_from_virtual_mem(2 * 4096);
   res.ring_read = pg_ring_make(4096, &res.arena);
   res.ring_write = pg_ring_make(4096, &res.arena);
+
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]]
+static PgEventLoopHandle pg_event_loop_make_timer_handle(PgTimer timer,
+                                                         void *ctx) {
+  PgEventLoopHandle res = {0};
+  res.kind = PG_EVENT_LOOP_HANDLE_KIND_TIMER;
+  res.reader = pg_reader_make_from_file((PgFile)timer);
+  res.os_handle = (u64)timer;
+  res.ctx = ctx;
 
   return res;
 }
@@ -3995,6 +4018,9 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
     case PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET: {
       (void)pg_net_socket_close((PgSocket)handle->os_handle);
     } break;
+    case PG_EVENT_LOOP_HANDLE_KIND_TIMER: {
+      (void)pg_timer_release((PgTimer)handle->os_handle);
+    } break;
     case PG_EVENT_LOOP_HANDLE_KIND_NONE:
     default:
       PG_ASSERT(0);
@@ -4005,6 +4031,12 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
     PG_SLICE_SWAP_REMOVE(&loop->handles, i);
     i -= 1;
   }
+}
+
+[[nodiscard]] [[maybe_unused]]
+static PgError pg_event_loop_timer_stop(PgEventLoop *loop, u64 os_handle) {
+
+  return pg_event_loop_handle_close(loop, os_handle);
 }
 
 [[maybe_unused]]
@@ -4133,6 +4165,16 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
           }
         }
       }
+
+      // Timer.
+      if ((PG_AIO_EVENT_KIND_IN & event_watch.kind) &&
+          (PG_EVENT_LOOP_HANDLE_KIND_TIMER == handle->kind) &&
+          (PG_EVENT_LOOP_HANDLE_STATE_CLOSING != handle->state)) {
+        if (handle->on_timer) {
+          handle->on_timer(loop, handle->os_handle, handle->ctx);
+        }
+        (void)pg_event_loop_timer_stop(loop, handle->os_handle);
+      }
     }
 
     pg_event_loop_close_all_closing_handles(loop);
@@ -4228,4 +4270,37 @@ static PgError pg_event_loop_write(PgEventLoop *loop, u64 os_handle,
   };
   return pg_aio_queue_ctl_one(loop->queue, event_change);
 }
+
+[[nodiscard]] [[maybe_unused]]
+static Pgu64Result
+pg_event_loop_timer_start(PgEventLoop *loop, PgClockKind clock, u64 ns,
+                          void *ctx, PgEventLoopOnTimer on_timer) {
+  Pgu64Result res = {0};
+
+  PgTimerResult res_timer = pg_timer_create(clock, ns);
+  if (res_timer.err) {
+    res.err = res_timer.err;
+    return res;
+  }
+  PgEventLoopHandle handle =
+      pg_event_loop_make_timer_handle(res_timer.res, ctx);
+  handle.on_timer = on_timer;
+
+  *PG_DYN_PUSH(&loop->handles, &loop->arena) = handle;
+
+  PgAioEvent event_change = {
+      .os_handle = handle.os_handle,
+      .kind = PG_AIO_EVENT_KIND_IN,
+      .action = PG_AIO_EVENT_ACTION_ADD,
+  };
+  PgError err = pg_aio_queue_ctl_one(loop->queue, event_change);
+  if (err) {
+    res.err = err;
+    return res;
+  }
+
+  res.res = (u64)res_timer.res;
+  return res;
+}
+
 #endif

@@ -1806,6 +1806,17 @@ static void test_event_loop_on_server_connect(PgEventLoop *loop, u64 os_handle,
                                      test_event_loop_on_server_write));
 }
 
+static void test_event_loop_on_timer(PgEventLoop *loop, u64 os_handle,
+                                     void *ctx) {
+  PG_ASSERT(nullptr != loop);
+  PG_ASSERT(0 != os_handle);
+  PG_ASSERT(nullptr != ctx);
+
+  u64 *timer_state = (u64 *)ctx;
+  PG_ASSERT(10 == *timer_state);
+  *timer_state += 1;
+}
+
 static void test_event_loop() {
   PgEventLoopResult res_loop =
       pg_event_loop_make_loop(pg_arena_make_from_virtual_mem(256 * PG_KiB));
@@ -1824,6 +1835,12 @@ static void test_event_loop() {
   PG_ASSERT(0 == res_server.err);
   u64 server_handle = res_server.res;
 
+  u64 timer_state = 10;
+  Pgu64Result res_timer =
+      pg_event_loop_timer_start(&loop, PG_CLOCK_KIND_MONOTONIC, 2, &timer_state,
+                                test_event_loop_on_timer);
+  PG_ASSERT(0 == res_timer.err);
+
   {
     PG_ASSERT(0 == pg_event_loop_tcp_bind(&loop, server_handle, addr));
     PG_ASSERT(0 == pg_event_loop_tcp_listen(&loop, server_handle, 1,
@@ -1840,6 +1857,7 @@ static void test_event_loop() {
 
   PG_ASSERT(4 == client_state);
   PG_ASSERT(5 == server_state);
+  PG_ASSERT(11 == timer_state);
 }
 
 int main() {
