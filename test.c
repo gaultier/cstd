@@ -781,7 +781,7 @@ static void test_url_parse() {
     PG_ASSERT(pg_string_eq(PG_S("baz"), path_component2));
   }
 
-  // Url parameters.
+  // PgUrl parameters.
   {
     PgUrlResult res = pg_url_parse(PG_S("http://a/?foo"), &arena);
     PG_ASSERT(0 == res.err);

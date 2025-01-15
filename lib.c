@@ -1893,11 +1893,11 @@ typedef struct {
   PgKeyValueDyn query_parameters;
   u16 port;
   // TODO: fragment.
-} Url;
+} PgUrl;
 
 typedef struct {
   PgString id;
-  Url url; // Does not have a scheme, domain, port.
+  PgUrl url; // Does not have a scheme, domain, port.
   PgHttpMethod method;
   PgKeyValueDyn headers;
   u8 version_minor;
@@ -1909,7 +1909,7 @@ typedef struct {
   PgHttpMethod method;
   u8 version_minor;
   u8 version_major;
-  Url url; // Does not have a scheme, domain, port.
+  PgUrl url; // Does not have a scheme, domain, port.
 } PgHttpRequestStatusLine;
 
 PG_RESULT(PgHttpRequestStatusLine) PgHttpRequestStatusLineResult;
@@ -2121,19 +2121,19 @@ pg_http_write_header(RingBuffer *rg, PgKeyValue header, PgArena arena) {
 
 typedef struct {
   PgString username, password;
-} UrlUserInfo;
+} PgUrlUserInfo;
 
-PG_RESULT(UrlUserInfo) PgUrlUserInfoResult;
+PG_RESULT(PgUrlUserInfo) PgUrlUserInfoResult;
 
 typedef struct {
-  UrlUserInfo user_info;
+  PgUrlUserInfo user_info;
   PgString host;
   u16 port;
-} UrlAuthority;
+} PgUrlAuthority;
 
-PG_RESULT(UrlAuthority) PgUrlAuthorityResult;
+PG_RESULT(PgUrlAuthority) PgUrlAuthorityResult;
 
-PG_RESULT(Url) PgUrlResult;
+PG_RESULT(PgUrl) PgUrlResult;
 
 [[maybe_unused]] [[nodiscard]] static PgStringDynResult
 pg_url_parse_path_components(PgString s, PgArena *arena) {
@@ -2437,7 +2437,7 @@ pg_url_parse_after_authority(PgString s, PgArena *arena) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_http_url_is_valid(Url u) {
+[[maybe_unused]] [[nodiscard]] static bool pg_http_url_is_valid(PgUrl u) {
   // TODO: Support https.
   if (!pg_string_eq(u.scheme, PG_S("http"))) {
     return false;
