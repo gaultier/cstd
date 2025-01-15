@@ -37,13 +37,13 @@
   typedef struct {                                                             \
     T *data;                                                                   \
     u64 len, cap;                                                              \
-  } T##Dyn
+  } PgT##Dyn
 
 #define PG_SLICE(T)                                                            \
   typedef struct {                                                             \
     T *data;                                                                   \
     u64 len;                                                                   \
-  } T##Slice
+  } PgT##Slice
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -57,7 +57,7 @@ typedef int64_t i64;
 
 #define PG_RESULT(T)                                                           \
   typedef struct {                                                             \
-    PgError err;                                                                 \
+    PgError err;                                                               \
     T res;                                                                     \
   }
 
@@ -65,14 +65,14 @@ typedef int64_t i64;
   typedef struct {                                                             \
     T res;                                                                     \
     bool ok;                                                                   \
-  } T##Ok
+  } PgT##Ok
 
 typedef u32 PgError;
 PG_RESULT(u64) Pgu64Result;
 
 PG_DYN(u8);
 PG_SLICE(u8);
-typedef u8Slice String;
+typedef Pgu8Slice PgString;
 
 #define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -896,7 +896,7 @@ arena_make_from_virtual_mem(u64 size) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError os_sendfile(int fd_in, int fd_out,
-                                                        u64 n_bytes) {
+                                                          u64 n_bytes) {
 #if defined(__linux__)
 #include <sys/sendfile.h>
   ssize_t res = sendfile(fd_out, fd_in, nullptr, n_bytes);
@@ -1175,7 +1175,7 @@ PG_RESULT(Socket) CreateSocketResult;
 net_create_tcp_socket();
 [[maybe_unused]] [[nodiscard]] static PgError net_socket_close(Socket sock);
 [[maybe_unused]] [[nodiscard]] static PgError net_set_nodelay(Socket sock,
-                                                            bool enabled);
+                                                              bool enabled);
 [[maybe_unused]] [[nodiscard]] static PgError
 net_connect_ipv4(Socket sock, Ipv4Address address);
 typedef struct {
@@ -1188,8 +1188,8 @@ net_dns_resolve_ipv4_tcp(String host, u16 port, Arena arena);
 
 [[maybe_unused]] [[nodiscard]] static PgError net_tcp_listen(Socket sock);
 
-[[maybe_unused]] [[nodiscard]] static PgError net_tcp_bind_ipv4(Socket sock,
-                                                              Ipv4Address addr);
+[[maybe_unused]] [[nodiscard]] static PgError
+net_tcp_bind_ipv4(Socket sock, Ipv4Address addr);
 [[maybe_unused]] [[nodiscard]] static PgError
 net_socket_enable_reuse(Socket sock);
 
@@ -1232,11 +1232,11 @@ typedef struct {
 PG_SLICE(AioEvent);
 PG_DYN(AioEvent);
 
-[[maybe_unused]] [[nodiscard]] static PgError aio_queue_ctl(AioQueue queue,
-                                                          AioEventSlice events);
+[[maybe_unused]] [[nodiscard]] static PgError
+aio_queue_ctl(AioQueue queue, AioEventSlice events);
 
-[[maybe_unused]] [[nodiscard]] static PgError aio_queue_ctl_one(AioQueue queue,
-                                                              AioEvent event) {
+[[maybe_unused]] [[nodiscard]] static PgError
+aio_queue_ctl_one(AioQueue queue, AioEvent event) {
   AioEventSlice events = {.data = &event, .len = 1};
   return aio_queue_ctl(queue, events);
 }
@@ -1587,7 +1587,7 @@ typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
 [[maybe_unused]] [[nodiscard]] static Pgu64Result unix_read(void *self, u8 *buf,
-                                                          size_t buf_len) {
+                                                            size_t buf_len) {
   ASSERT(nullptr != self);
 
   int fd = (int)(u64)self;
@@ -1605,8 +1605,8 @@ typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
-[[maybe_unused]] [[nodiscard]] static Pgu64Result unix_write(void *self, u8 *buf,
-                                                           size_t buf_len) {
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+unix_write(void *self, u8 *buf, size_t buf_len) {
   ASSERT(nullptr != self);
 
   int fd = (int)(u64)self;
@@ -2688,8 +2688,8 @@ http_read_request(RingBuffer *rg, u64 max_http_headers, Arena *arena) {
   return res;
 }
 
-[[maybe_unused]] static PgError http_write_request(RingBuffer *rg,
-                                                 HttpRequest res, Arena arena) {
+[[maybe_unused]] static PgError
+http_write_request(RingBuffer *rg, HttpRequest res, Arena arena) {
   if (!http_request_write_status_line(rg, res, arena)) {
     return (PgError)ENOMEM;
   }
