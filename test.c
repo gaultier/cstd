@@ -317,8 +317,8 @@ static void test_dynu8_append_u8_hex_upper() {
 
   {
     Pgu8Dyn sb = {0};
-    dynu8_append_u8_hex_upper(&sb, 0xac, &arena);
-    dynu8_append_u8_hex_upper(&sb, 0x89, &arena);
+    pg_string_builder_append_u8_hex_upper(&sb, 0xac, &arena);
+    pg_string_builder_append_u8_hex_upper(&sb, 0x89, &arena);
 
     PgString s = PG_DYN_SLICE(PgString, sb);
     PG_ASSERT(pg_string_eq(s, PG_S("AC89")));

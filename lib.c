@@ -732,9 +732,10 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define PG_DYN_SLICE(T, dyn) ((T){.data = dyn.data, .len = dyn.len})
 
-[[maybe_unused]] static void dynu8_append_u64_to_string(Pgu8Dyn *dyn, u64 n,
-                                                        PgArena *arena) {
+[[maybe_unused]] static void
+pg_string_builder_append_u64_to_string(Pgu8Dyn *dyn, u64 n, PgArena *arena) {
   u8 tmp[30] = {0};
+  // TODO: Not use snprintf.
   const int written_count = snprintf((char *)tmp, sizeof(tmp), "%lu", n);
 
   PG_ASSERT(written_count > 0);
@@ -752,8 +753,8 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
   *(PG_SLICE_AT_PTR(dst, 3)) = (u8)(n >> 0);
 }
 
-[[maybe_unused]] static void dynu8_append_u32(Pgu8Dyn *dyn, u32 n,
-                                              PgArena *arena) {
+[[maybe_unused]] static void pg_string_builder_append_u32(Pgu8Dyn *dyn, u32 n,
+                                                          PgArena *arena) {
 
   u8 data[sizeof(n)] = {0};
   PgString s = {.data = data, .len = sizeof(n)};
@@ -764,7 +765,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 [[maybe_unused]] [[nodiscard]] static PgString u64_to_string(u64 n,
                                                              PgArena *arena) {
   Pgu8Dyn sb = {0};
-  dynu8_append_u64_to_string(&sb, n, arena);
+  pg_string_builder_append_u64_to_string(&sb, n, arena);
   return PG_DYN_SLICE(PgString, sb);
 }
 
@@ -810,7 +811,8 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
   PG_ASSERT(0);
 }
 
-static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, PgArena *arena) {
+static void pg_string_builder_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n,
+                                                  PgArena *arena) {
   PG_DYN_ENSURE_CAP(dyn, dyn->len + 2, arena);
   u64 PG_DYN_ORIGINAL_LEN = dyn->len;
 
@@ -821,8 +823,8 @@ static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, PgArena *arena) {
   PG_ASSERT(2 == (dyn->len - PG_DYN_ORIGINAL_LEN));
 }
 
-[[maybe_unused]] static void dynu8_append_u128_hex(Pgu8Dyn *dyn, u128 n,
-                                                   PgArena *arena) {
+[[maybe_unused]] static void
+pg_string_builder_append_u128_hex(Pgu8Dyn *dyn, u128 n, PgArena *arena) {
   PG_DYN_ENSURE_CAP(dyn, dyn->len + 32, arena);
   u64 PG_DYN_ORIGINAL_LEN = dyn->len;
 
@@ -1075,7 +1077,7 @@ make_unique_id_u128_string(PgArena *arena) {
   arc4random_buf(&id, sizeof(id));
 
   Pgu8Dyn dyn = {0};
-  dynu8_append_u128_hex(&dyn, id, arena);
+  pg_string_builder_append_u128_hex(&dyn, id, arena);
 
   return PG_DYN_SLICE(PgString, dyn);
 }
@@ -1088,7 +1090,7 @@ make_unique_id_u128_string(PgArena *arena) {
       *PG_DYN_PUSH(sb, arena) = c;
     } else {
       *PG_DYN_PUSH(sb, arena) = '%';
-      dynu8_append_u8_hex_upper(sb, c, arena);
+      pg_string_builder_append_u8_hex_upper(sb, c, arena);
     }
   }
 
@@ -1100,7 +1102,7 @@ make_unique_id_u128_string(PgArena *arena) {
       *PG_DYN_PUSH(sb, arena) = c;
     } else {
       *PG_DYN_PUSH(sb, arena) = '%';
-      dynu8_append_u8_hex_upper(sb, c, arena);
+      pg_string_builder_append_u8_hex_upper(sb, c, arena);
     }
   }
 }
@@ -1108,15 +1110,15 @@ make_unique_id_u128_string(PgArena *arena) {
 [[maybe_unused]] [[nodiscard]] static PgString
 ipv4_address_to_string(Ipv4Address address, PgArena *arena) {
   Pgu8Dyn sb = {0};
-  dynu8_append_u64_to_string(&sb, (address.ip >> 24) & 0xFF, arena);
+  pg_string_builder_append_u64_to_string(&sb, (address.ip >> 24) & 0xFF, arena);
   *PG_DYN_PUSH(&sb, arena) = '.';
-  dynu8_append_u64_to_string(&sb, (address.ip >> 16) & 0xFF, arena);
+  pg_string_builder_append_u64_to_string(&sb, (address.ip >> 16) & 0xFF, arena);
   *PG_DYN_PUSH(&sb, arena) = '.';
-  dynu8_append_u64_to_string(&sb, (address.ip >> 8) & 0xFF, arena);
+  pg_string_builder_append_u64_to_string(&sb, (address.ip >> 8) & 0xFF, arena);
   *PG_DYN_PUSH(&sb, arena) = '.';
-  dynu8_append_u64_to_string(&sb, (address.ip >> 0) & 0xFF, arena);
+  pg_string_builder_append_u64_to_string(&sb, (address.ip >> 0) & 0xFF, arena);
   *PG_DYN_PUSH(&sb, arena) = ':';
-  dynu8_append_u64_to_string(&sb, address.port, arena);
+  pg_string_builder_append_u64_to_string(&sb, address.port, arena);
 
   return PG_DYN_SLICE(PgString, sb);
 }
@@ -2075,12 +2077,12 @@ http_response_write_status_line(RingBuffer *rg, HttpResponse res,
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
   PG_DYN_APPEND_SLICE(&sb, PG_S("HTTP/"), &arena);
-  dynu8_append_u64_to_string(&sb, res.version_major, &arena);
+  pg_string_builder_append_u64_to_string(&sb, res.version_major, &arena);
   PG_DYN_APPEND_SLICE(&sb, PG_S("."), &arena);
-  dynu8_append_u64_to_string(&sb, res.version_minor, &arena);
+  pg_string_builder_append_u64_to_string(&sb, res.version_minor, &arena);
   PG_DYN_APPEND_SLICE(&sb, PG_S(" "), &arena);
 
-  dynu8_append_u64_to_string(&sb, res.status, &arena);
+  pg_string_builder_append_u64_to_string(&sb, res.status, &arena);
 
   PG_DYN_APPEND_SLICE(&sb, PG_S(" \r\n"), &arena);
 
@@ -3467,8 +3469,11 @@ json_unescape_string(PgString entry, PgArena *arena) {
   return PG_DYN_SLICE(PgString, sb);
 }
 
-[[maybe_unused]] static void dynu8_append_json_object_key_string_value_string(
-    Pgu8Dyn *sb, PgString key, PgString value, PgArena *arena) {
+[[maybe_unused]] static void
+pg_string_builder_append_json_object_key_string_value_string(Pgu8Dyn *sb,
+                                                             PgString key,
+                                                             PgString value,
+                                                             PgArena *arena) {
   PgString json_key = json_escape_string(key, arena);
   PG_DYN_APPEND_SLICE(sb, json_key, arena);
 
@@ -3481,14 +3486,16 @@ json_unescape_string(PgString entry, PgArena *arena) {
 }
 
 [[maybe_unused]] static void
-dynu8_append_json_object_key_string_value_u64(Pgu8Dyn *sb, PgString key,
-                                              u64 value, PgArena *arena) {
+pg_string_builder_append_json_object_key_string_value_u64(Pgu8Dyn *sb,
+                                                          PgString key,
+                                                          u64 value,
+                                                          PgArena *arena) {
   PgString json_key = json_escape_string(key, arena);
   PG_DYN_APPEND_SLICE(sb, json_key, arena);
 
   PG_DYN_APPEND_SLICE(sb, PG_S(":"), arena);
 
-  dynu8_append_u64_to_string(sb, value, arena);
+  pg_string_builder_append_u64_to_string(sb, value, arena);
 
   PG_DYN_APPEND_SLICE(sb, PG_S(","), arena);
 }
@@ -3508,14 +3515,14 @@ log_make_log_line(LogLevel level, PgString msg, PgArena *arena, i32 args_count,
   Pgu8Dyn sb = {0};
   *PG_DYN_PUSH(&sb, arena) = '{';
 
-  dynu8_append_json_object_key_string_value_string(
+  pg_string_builder_append_json_object_key_string_value_string(
       &sb, PG_S("level"), log_level_to_string(level), arena);
-  dynu8_append_json_object_key_string_value_u64(&sb, PG_S("timestamp_ns"),
-                                                timestamp_ns, arena);
-  dynu8_append_json_object_key_string_value_u64(&sb, PG_S("monotonic_ns"),
-                                                monotonic_ns, arena);
-  dynu8_append_json_object_key_string_value_string(&sb, PG_S("message"), msg,
-                                                   arena);
+  pg_string_builder_append_json_object_key_string_value_u64(
+      &sb, PG_S("timestamp_ns"), timestamp_ns, arena);
+  pg_string_builder_append_json_object_key_string_value_u64(
+      &sb, PG_S("monotonic_ns"), monotonic_ns, arena);
+  pg_string_builder_append_json_object_key_string_value_string(
+      &sb, PG_S("message"), msg, arena);
 
   va_list argp = {0};
   va_start(argp, args_count);
@@ -3524,13 +3531,13 @@ log_make_log_line(LogLevel level, PgString msg, PgArena *arena, i32 args_count,
 
     switch (entry.value.kind) {
     case LV_STRING: {
-      dynu8_append_json_object_key_string_value_string(&sb, entry.key,
-                                                       entry.value.s, arena);
+      pg_string_builder_append_json_object_key_string_value_string(
+          &sb, entry.key, entry.value.s, arena);
       break;
     }
     case LV_U64:
-      dynu8_append_json_object_key_string_value_u64(&sb, entry.key,
-                                                    entry.value.n64, arena);
+      pg_string_builder_append_json_object_key_string_value_u64(
+          &sb, entry.key, entry.value.n64, arena);
       break;
     default:
       PG_ASSERT(0 && "invalid LogValueKind");
