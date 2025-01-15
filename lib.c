@@ -1068,12 +1068,12 @@ end:
 typedef struct {
   u32 ip;   // Host order.
   u16 port; // Host order.
-} Ipv4Address;
+} PgIpv4Address;
 
-PG_DYN(Ipv4Address) PgIpv4AddressDyn;
+PG_DYN(PgIpv4Address) PgIpv4AddressDyn;
 
 [[maybe_unused]] [[nodiscard]] static PgString
-make_unique_id_u128_string(PgArena *arena) {
+pg_make_unique_id_u128_string(PgArena *arena) {
   u128 id = 0;
   arc4random_buf(&id, sizeof(id));
 
@@ -1083,7 +1083,7 @@ make_unique_id_u128_string(PgArena *arena) {
   return PG_DYN_SLICE(PgString, dyn);
 }
 
-[[maybe_unused]] static void url_encode_string(Pgu8Dyn *sb, PgString key,
+[[maybe_unused]] static void pg_url_encode_string(Pgu8Dyn *sb, PgString key,
                                                PgString value, PgArena *arena) {
   for (u64 i = 0; i < key.len; i++) {
     u8 c = PG_SLICE_AT(key, i);
@@ -1109,7 +1109,7 @@ make_unique_id_u128_string(PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-ipv4_address_to_string(Ipv4Address address, PgArena *arena) {
+ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
   Pgu8Dyn sb = {0};
   pg_string_builder_append_u64_to_string(&sb, (address.ip >> 24) & 0xFF, arena);
   *PG_DYN_PUSH(&sb, arena) = '.';
@@ -1182,9 +1182,9 @@ net_create_tcp_socket();
 [[maybe_unused]] [[nodiscard]] static PgError net_set_nodelay(Socket sock,
                                                               bool enabled);
 [[maybe_unused]] [[nodiscard]] static PgError
-net_connect_ipv4(Socket sock, Ipv4Address address);
+net_connect_ipv4(Socket sock, PgIpv4Address address);
 typedef struct {
-  Ipv4Address address;
+  PgIpv4Address address;
   Socket socket;
 } Ipv4AddressSocket;
 PG_RESULT(Ipv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
@@ -1194,7 +1194,7 @@ net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena);
 [[maybe_unused]] [[nodiscard]] static PgError net_tcp_listen(Socket sock);
 
 [[maybe_unused]] [[nodiscard]] static PgError
-net_tcp_bind_ipv4(Socket sock, Ipv4Address addr);
+net_tcp_bind_ipv4(Socket sock, PgIpv4Address addr);
 [[maybe_unused]] [[nodiscard]] static PgError
 net_socket_enable_reuse(Socket sock);
 
@@ -1202,7 +1202,7 @@ net_socket_enable_reuse(Socket sock);
 net_socket_set_blocking(Socket sock, bool blocking);
 
 typedef struct {
-  Ipv4Address addr;
+  PgIpv4Address addr;
   Socket socket;
   PgError err;
 } Ipv4AddressAcceptResult;
@@ -1281,7 +1281,7 @@ static PgError net_set_nodelay(Socket sock, bool enabled) {
   return 0;
 }
 
-static PgError net_connect_ipv4(Socket sock, Ipv4Address address) {
+static PgError net_connect_ipv4(Socket sock, PgIpv4Address address) {
   struct sockaddr_in addr = {
       .sin_family = AF_INET,
       .sin_port = htons(address.port),
@@ -1374,7 +1374,7 @@ net_socket_set_blocking(Socket sock, bool blocking) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-net_tcp_bind_ipv4(Socket sock, Ipv4Address addr) {
+net_tcp_bind_ipv4(Socket sock, PgIpv4Address addr) {
   struct sockaddr_in addrin = {0};
   addrin.sin_family = AF_INET;
   addrin.sin_port = htons(addr.port);
@@ -2057,7 +2057,7 @@ http_request_write_status_line(RingBuffer *rg, HttpRequest req, PgArena arena) {
     *PG_DYN_PUSH(&sb, &arena) = '?';
     for (u64 i = 0; i < req.url.query_parameters.len; i++) {
       KeyValue param = PG_DYN_AT(req.url.query_parameters, i);
-      url_encode_string(&sb, param.key, param.value, &arena);
+      pg_url_encode_string(&sb, param.key, param.value, &arena);
 
       if (i < req.url.query_parameters.len - 1) {
         *PG_DYN_PUSH(&sb, &arena) = '&';
@@ -2150,7 +2150,7 @@ PG_RESULT(UrlAuthority) PgUrlAuthorityResult;
 PG_RESULT(Url) PgUrlResult;
 
 [[maybe_unused]] [[nodiscard]] static PgStringDynResult
-url_parse_path_components(PgString s, PgArena *arena) {
+pg_url_parse_path_components(PgString s, PgArena *arena) {
   PgStringDynResult res = {0};
 
   if (-1 != pg_string_indexof_any_byte(s, PG_S("?#:"))) {
@@ -2188,7 +2188,7 @@ url_parse_path_components(PgString s, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgDynKeyValueResult
-url_parse_query_parameters(PgString s, PgArena *arena) {
+pg_url_parse_query_parameters(PgString s, PgArena *arena) {
   PgDynKeyValueResult res = {0};
 
   PgString remaining = s;
@@ -2225,7 +2225,7 @@ url_parse_query_parameters(PgString s, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgUrlUserInfoResult
-url_parse_user_info(PgString s) {
+pg_url_parse_user_info(PgString s) {
   PgUrlUserInfoResult res = {0};
   // https://www.rfc-editor.org/rfc/rfc3986#section-3.2.1:
   // Use of the format "user:password" in the userinfo field is
@@ -2245,7 +2245,7 @@ url_parse_user_info(PgString s) {
 
 PG_RESULT(u16) Pgu16Result;
 
-[[maybe_unused]] [[nodiscard]] static Pgu16Result url_parse_port(PgString s) {
+[[maybe_unused]] [[nodiscard]] static Pgu16Result pg_url_parse_port(PgString s) {
   Pgu16Result res = {0};
 
   // Allowed.
@@ -2267,7 +2267,7 @@ PG_RESULT(u16) Pgu16Result;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgUrlAuthorityResult
-url_parse_authority(PgString s) {
+pg_url_parse_authority(PgString s) {
   PgUrlAuthorityResult res = {0};
 
   PgString remaining = s;
@@ -2279,7 +2279,7 @@ url_parse_authority(PgString s) {
 
     if (user_info_and_rem.consumed) {
       PgUrlUserInfoResult res_user_info =
-          url_parse_user_info(user_info_and_rem.left);
+          pg_url_parse_user_info(user_info_and_rem.left);
       if (res_user_info.err) {
         res.err = res_user_info.err;
         return res;
@@ -2302,7 +2302,7 @@ url_parse_authority(PgString s) {
 
   // Port, optional.
   if (host_and_rem.consumed) {
-    Pgu16Result res_port = url_parse_port(host_and_rem.right);
+    Pgu16Result res_port = pg_url_parse_port(host_and_rem.right);
     if (res_port.err) {
       res.err = res_port.err;
       return res;
@@ -2314,7 +2314,7 @@ url_parse_authority(PgString s) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-url_is_scheme_valid(PgString scheme) {
+pg_url_is_scheme_valid(PgString scheme) {
   if (PG_SLICE_IS_EMPTY(scheme)) {
     return false;
   }
@@ -2336,7 +2336,7 @@ url_is_scheme_valid(PgString scheme) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgUrlResult
-url_parse_after_authority(PgString s, PgArena *arena) {
+pg_url_parse_after_authority(PgString s, PgArena *arena) {
   PgUrlResult res = {0};
   PgString remaining = s;
 
@@ -2349,7 +2349,7 @@ url_parse_after_authority(PgString s, PgArena *arena) {
     PG_ASSERT(!PG_SLICE_IS_EMPTY(path_components_and_rem.left));
 
     PgStringDynResult res_path_components =
-        url_parse_path_components(path_components_and_rem.left, arena);
+        pg_url_parse_path_components(path_components_and_rem.left, arena);
     if (res_path_components.err) {
       res.err = res_path_components.err;
       return res;
@@ -2361,7 +2361,7 @@ url_parse_after_authority(PgString s, PgArena *arena) {
   if (path_components_and_rem.consumed &&
       path_components_and_rem.matched == '?') {
     PgDynKeyValueResult res_query =
-        url_parse_query_parameters(path_components_and_rem.right, arena);
+        pg_url_parse_query_parameters(path_components_and_rem.right, arena);
     if (res_query.err) {
       res.err = res_query.err;
       return res;
@@ -2380,7 +2380,7 @@ url_parse_after_authority(PgString s, PgArena *arena) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgUrlResult url_parse(PgString s,
+[[maybe_unused]] [[nodiscard]] static PgUrlResult pg_url_parse(PgString s,
                                                             PgArena *arena) {
   PgUrlResult res = {0};
 
@@ -2397,7 +2397,7 @@ url_parse_after_authority(PgString s, PgArena *arena) {
       return res;
     }
 
-    if (!url_is_scheme_valid(scheme_and_rem.left)) {
+    if (!pg_url_is_scheme_valid(scheme_and_rem.left)) {
       res.err = EINVAL;
       return res;
     }
@@ -2427,7 +2427,7 @@ url_parse_after_authority(PgString s, PgArena *arena) {
     }
 
     PgUrlAuthorityResult res_authority =
-        url_parse_authority(authority_and_rem.left);
+        pg_url_parse_authority(authority_and_rem.left);
     if (res_authority.err) {
       res.err = res_authority.err;
       return res;
@@ -2438,7 +2438,7 @@ url_parse_after_authority(PgString s, PgArena *arena) {
     res.res.password = res_authority.res.user_info.password;
   }
 
-  PgUrlResult res_after_authority = url_parse_after_authority(remaining, arena);
+  PgUrlResult res_after_authority = pg_url_parse_after_authority(remaining, arena);
   if (res_after_authority.err) {
     res.err = res_after_authority.err;
     return res;
@@ -2497,7 +2497,7 @@ http_parse_request_status_line(PgString status_line, PgArena *arena) {
   PgString path = PG_SLICE_RANGE(remaining, 0, (u64)idx_space);
   remaining = PG_SLICE_RANGE_START(remaining, (u64)idx_space + 1);
   {
-    PgUrlResult res_url = url_parse_after_authority(path, arena);
+    PgUrlResult res_url = pg_url_parse_after_authority(path, arena);
     if (res_url.err) {
       res.err = EINVAL;
       return res;
