@@ -86,14 +86,14 @@ typedef Pgu8Slice PgString;
   // TODO
 }
 
-#define ASSERT(x)                                                              \
+#define PG_ASSERT(x)                                                              \
   (x) ? (0)                                                                    \
       : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),                \
          __builtin_trap(), 0)
 
 #define AT_PTR(arr, len, idx)                                                  \
   (((i64)(idx) >= (i64)(len)) ? (__builtin_trap(), &(arr)[0])                  \
-                              : (ASSERT(nullptr != (arr)), (&(arr)[idx])))
+                              : (PG_ASSERT(nullptr != (arr)), (&(arr)[idx])))
 
 #define AT(arr, len, idx) (*AT_PTR(arr, len, idx))
 
@@ -132,7 +132,7 @@ typedef Pgu8Slice PgString;
 }
 
 [[maybe_unused]] [[nodiscard]] static u8 ch_from_hex(u8 c) {
-  ASSERT(ch_is_hex_digit(c));
+  PG_ASSERT(ch_is_hex_digit(c));
 
   if ('0' <= c && c <= '9') {
     return c - '0';
@@ -146,7 +146,7 @@ typedef Pgu8Slice PgString;
     return 10 + c - 'a';
   }
 
-  ASSERT(false);
+  PG_ASSERT(false);
 }
 
 PG_RESULT(PgString) PgStringResult;
@@ -156,7 +156,7 @@ PG_SLICE(PgString) PgStringSlice;
 PG_RESULT(PgStringSlice) PgStringSliceResult;
 
 #define slice_is_empty(s)                                                      \
-  (((s).len == 0) ? true : (ASSERT(nullptr != (s).data), false))
+  (((s).len == 0) ? true : (PG_ASSERT(nullptr != (s).data), false))
 
 #define S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
 
@@ -179,7 +179,7 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
   PgString res = s;
 
   for (u64 s_i = 0; s_i < s.len; s_i++) {
-    ASSERT(s.data != nullptr);
+    PG_ASSERT(s.data != nullptr);
     if (AT(s.data, s.len, s_i) != c) {
       return res;
     }
@@ -195,7 +195,7 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
   PgString res = s;
 
   for (i64 s_i = (i64)s.len - 1; s_i >= 0; s_i--) {
-    ASSERT(s.data != nullptr);
+    PG_ASSERT(s.data != nullptr);
     if (AT(s.data, s.len, s_i) != c) {
       return res;
     }
@@ -271,9 +271,9 @@ string_split_string(PgString s, PgString sep) {
     return false;
   }
 
-  ASSERT(a.data != nullptr);
-  ASSERT(b.data != nullptr);
-  ASSERT(a.len == b.len);
+  PG_ASSERT(a.data != nullptr);
+  PG_ASSERT(b.data != nullptr);
+  PG_ASSERT(a.len == b.len);
 
   return memcmp(a.data, b.data, a.len) == 0;
 }
@@ -300,15 +300,15 @@ string_indexof_string(PgString haystack, PgString needle) {
     return -1;
   }
 
-  ASSERT(nullptr != haystack.data);
-  ASSERT(nullptr != needle.data);
+  PG_ASSERT(nullptr != haystack.data);
+  PG_ASSERT(nullptr != needle.data);
   void *ptr = memmem(haystack.data, haystack.len, needle.data, needle.len);
   if (nullptr == ptr) {
     return -1;
   }
 
   u64 res = (u64)((u8 *)ptr - haystack.data);
-  ASSERT(res < haystack.len);
+  PG_ASSERT(res < haystack.len);
   return (i64)res;
 }
 
@@ -360,7 +360,7 @@ string_consume_until_byte_excl(PgString haystack, u8 needle) {
   res.right = slice_range_start(haystack, (u64)idx);
   res.consumed = true;
 
-  ASSERT(needle == slice_at(res.right, 0));
+  PG_ASSERT(needle == slice_at(res.right, 0));
   return res;
 }
 
@@ -452,8 +452,8 @@ string_indexof_any_byte(PgString haystack, PgString needle) {
   if (haystack.len == 0 || haystack.len < needle.len) {
     return false;
   }
-  ASSERT(nullptr != haystack.data);
-  ASSERT(nullptr != needle.data);
+  PG_ASSERT(nullptr != haystack.data);
+  PG_ASSERT(nullptr != needle.data);
 
   PgString start = slice_range(haystack, 0, needle.len);
 
@@ -514,8 +514,8 @@ string_consume_any_string(PgString haystack, PgStringSlice needles) {
   if (haystack.len == 0 || haystack.len < needle.len) {
     return false;
   }
-  ASSERT(nullptr != haystack.data);
-  ASSERT(nullptr != needle.data);
+  PG_ASSERT(nullptr != haystack.data);
+  PG_ASSERT(nullptr != needle.data);
 
   PgString end = slice_range_start(haystack, haystack.len - needle.len);
 
@@ -563,22 +563,22 @@ typedef struct {
 __attribute((malloc, alloc_size(2, 4), alloc_align(3)))
 [[maybe_unused]] [[nodiscard]] static void *
 arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
-  ASSERT(a->start != nullptr);
+  PG_ASSERT(a->start != nullptr);
 
   const u64 padding = (-(u64)a->start & (align - 1));
-  ASSERT(padding <= align);
+  PG_ASSERT(padding <= align);
 
   const i64 available = (i64)a->end - (i64)a->start - (i64)padding;
-  ASSERT(available >= 0);
-  ASSERT(count <= (u64)available / size);
+  PG_ASSERT(available >= 0);
+  PG_ASSERT(count <= (u64)available / size);
 
   void *res = a->start + padding;
-  ASSERT(res != nullptr);
-  ASSERT(res <= (void *)a->end);
+  PG_ASSERT(res != nullptr);
+  PG_ASSERT(res <= (void *)a->end);
 
   a->start += padding + count * size;
-  ASSERT(a->start <= a->end);
-  ASSERT((u64)a->start % align == 0); // Aligned.
+  PG_ASSERT(a->start <= a->end);
+  PG_ASSERT((u64)a->start % align == 0); // Aligned.
 
   return memset(res, 0, count * size);
 }
@@ -600,7 +600,7 @@ arena_alloc(Arena *a, u64 size, u64 align, u64 count) {
     memcpy(res, s.data, s.len);
   }
 
-  ASSERT(0 == AT(res, s.len + 1, s.len));
+  PG_ASSERT(0 == AT(res, s.len + 1, s.len));
 
   return res;
 }
@@ -629,8 +629,8 @@ typedef enum {
     return STRING_CMP_EQ;
   }
 
-  ASSERT(0 == cmp);
-  ASSERT(a.len != b.len);
+  PG_ASSERT(0 == cmp);
+  PG_ASSERT(a.len != b.len);
 
   if (a.len < b.len) {
     return STRING_CMP_LESS;
@@ -643,7 +643,7 @@ typedef enum {
 
 [[maybe_unused]] static void dyn_grow(void *slice, u64 size, u64 align,
                                       u64 count, Arena *a) {
-  ASSERT(nullptr != slice);
+  PG_ASSERT(nullptr != slice);
 
   struct {
     void *data;
@@ -652,27 +652,27 @@ typedef enum {
   } replica;
 
   memcpy(&replica, slice, sizeof(replica));
-  ASSERT(replica.cap < count);
+  PG_ASSERT(replica.cap < count);
 
   u64 new_cap = replica.cap == 0 ? 2 : replica.cap;
   for (u64 i = 0; i < 64; i++) {
     if (new_cap < count) {
-      ASSERT(new_cap < UINT64_MAX / 2);
-      ASSERT(false == ckd_mul(&new_cap, new_cap, 2));
+      PG_ASSERT(new_cap < UINT64_MAX / 2);
+      PG_ASSERT(false == ckd_mul(&new_cap, new_cap, 2));
     } else {
       break;
     }
   }
-  ASSERT(new_cap >= 2);
-  ASSERT(new_cap >= count);
-  ASSERT(new_cap > replica.cap);
+  PG_ASSERT(new_cap >= 2);
+  PG_ASSERT(new_cap >= count);
+  PG_ASSERT(new_cap > replica.cap);
 
   u64 array_end = 0;
   u64 array_bytes_count = 0;
-  ASSERT(false == ckd_mul(&array_bytes_count, size, replica.cap));
-  ASSERT(false == ckd_add(&array_end, (u64)replica.data, array_bytes_count));
-  ASSERT((u64)replica.data <= array_end);
-  ASSERT(array_end < (u64)a->end);
+  PG_ASSERT(false == ckd_mul(&array_bytes_count, size, replica.cap));
+  PG_ASSERT(false == ckd_add(&array_end, (u64)replica.data, array_bytes_count));
+  PG_ASSERT((u64)replica.data <= array_end);
+  PG_ASSERT(array_end < (u64)a->end);
 
   if (nullptr ==
       replica.data) { // First allocation ever for this dynamic array.
@@ -685,14 +685,14 @@ typedef enum {
     void *data = arena_alloc(a, size, align, new_cap);
 
     // Import check to avoid overlapping memory ranges in memcpy.
-    ASSERT(data != replica.data);
+    PG_ASSERT(data != replica.data);
 
     memcpy(data, replica.data, array_bytes_count);
     replica.data = data;
   }
   replica.cap = new_cap;
 
-  ASSERT(nullptr != slice);
+  PG_ASSERT(nullptr != slice);
   memcpy(slice, &replica, sizeof(replica));
 }
 
@@ -713,7 +713,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define dyn_pop(s)                                                             \
   do {                                                                         \
-    ASSERT((s)->len > 0);                                                      \
+    PG_ASSERT((s)->len > 0);                                                      \
     memset(dyn_last_ptr(s), 0, sizeof((s)->data[(s)->len - 1]));               \
     (s)->len -= 1;                                                             \
   } while (0)
@@ -741,14 +741,14 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
   u8 tmp[30] = {0};
   const int written_count = snprintf((char *)tmp, sizeof(tmp), "%lu", n);
 
-  ASSERT(written_count > 0);
+  PG_ASSERT(written_count > 0);
 
   PgString s = {.data = tmp, .len = (u64)written_count};
   dyn_append_slice(dyn, s, arena);
 }
 
 [[maybe_unused]] static void u32_to_u8x4_be(u32 n, PgString *dst) {
-  ASSERT(sizeof(n) == dst->len);
+  PG_ASSERT(sizeof(n) == dst->len);
 
   *(slice_at_ptr(dst, 0)) = (u8)(n >> 24);
   *(slice_at_ptr(dst, 1)) = (u8)(n >> 16);
@@ -773,7 +773,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 }
 
 [[maybe_unused]] [[nodiscard]] static u8 u8_to_ch_hex(u8 n) {
-  ASSERT(n < 16);
+  PG_ASSERT(n < 16);
 
   if (n <= 9) {
     return n + '0';
@@ -790,11 +790,11 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
   } else if (15 == n) {
     return 'f';
   }
-  ASSERT(0);
+  PG_ASSERT(0);
 }
 
 [[maybe_unused]] [[nodiscard]] static u8 u8_to_ch_hex_upper(u8 n) {
-  ASSERT(n < 16);
+  PG_ASSERT(n < 16);
 
   if (n <= 9) {
     return n + '0';
@@ -811,7 +811,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
   } else if (15 == n) {
     return 'F';
   }
-  ASSERT(0);
+  PG_ASSERT(0);
 }
 
 static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
@@ -822,7 +822,7 @@ static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
   u8 c2 = n / 16;
   *dyn_push(dyn, arena) = u8_to_ch_hex_upper(c2);
   *dyn_push(dyn, arena) = u8_to_ch_hex_upper(c1);
-  ASSERT(2 == (dyn->len - dyn_original_len));
+  PG_ASSERT(2 == (dyn->len - dyn_original_len));
 }
 
 [[maybe_unused]] static void dynu8_append_u128_hex(Pgu8Dyn *dyn, u128 n,
@@ -831,7 +831,7 @@ static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
   u64 dyn_original_len = dyn->len;
 
   u8 it[16] = {0};
-  ASSERT(sizeof(it) == sizeof(n));
+  PG_ASSERT(sizeof(it) == sizeof(n));
   memcpy(it, (u8 *)&n, sizeof(n));
 
   for (u64 i = 0; i < sizeof(it); i++) {
@@ -840,7 +840,7 @@ static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
     *dyn_push(dyn, arena) = u8_to_ch_hex(c2);
     *dyn_push(dyn, arena) = u8_to_ch_hex(c1);
   }
-  ASSERT(32 == (dyn->len - dyn_original_len));
+  PG_ASSERT(32 == (dyn->len - dyn_original_len));
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString string_dup(PgString src,
@@ -853,7 +853,7 @@ static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
 
 [[maybe_unused]] [[nodiscard]] static u64 round_up_multiple_of(u64 n,
                                                                u64 multiple) {
-  ASSERT(0 != multiple);
+  PG_ASSERT(0 != multiple);
 
   if (0 == n % multiple) {
     return n; // No-op.
@@ -867,30 +867,30 @@ static void dynu8_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n, Arena *arena) {
 arena_make_from_virtual_mem(u64 size) {
   u64 page_size = (u64)sysconf(_SC_PAGE_SIZE); // FIXME
   u64 alloc_real_size = round_up_multiple_of(size, page_size);
-  ASSERT(0 == alloc_real_size % page_size);
+  PG_ASSERT(0 == alloc_real_size % page_size);
 
   u64 mmap_size = alloc_real_size;
   // Page guard before.
-  ASSERT(false == ckd_add(&mmap_size, mmap_size, page_size));
+  PG_ASSERT(false == ckd_add(&mmap_size, mmap_size, page_size));
   // Page guard after.
-  ASSERT(false == ckd_add(&mmap_size, mmap_size, page_size));
+  PG_ASSERT(false == ckd_add(&mmap_size, mmap_size, page_size));
 
   u8 *alloc = mmap(nullptr, mmap_size, PROT_READ | PROT_WRITE,
                    MAP_ANON | MAP_PRIVATE, -1, 0);
-  ASSERT(nullptr != alloc);
+  PG_ASSERT(nullptr != alloc);
 
   u64 page_guard_before = (u64)alloc;
 
-  ASSERT(false == ckd_add((u64 *)&alloc, (u64)alloc, page_size));
-  ASSERT(page_guard_before + page_size == (u64)alloc);
+  PG_ASSERT(false == ckd_add((u64 *)&alloc, (u64)alloc, page_size));
+  PG_ASSERT(page_guard_before + page_size == (u64)alloc);
 
   u64 page_guard_after = (u64)0;
-  ASSERT(false == ckd_add(&page_guard_after, (u64)alloc, alloc_real_size));
-  ASSERT((u64)alloc + alloc_real_size == page_guard_after);
-  ASSERT(page_guard_before + page_size + alloc_real_size == page_guard_after);
+  PG_ASSERT(false == ckd_add(&page_guard_after, (u64)alloc, alloc_real_size));
+  PG_ASSERT((u64)alloc + alloc_real_size == page_guard_after);
+  PG_ASSERT(page_guard_before + page_size + alloc_real_size == page_guard_after);
 
-  ASSERT(0 == mprotect((void *)page_guard_before, page_size, PROT_NONE));
-  ASSERT(0 == mprotect((void *)page_guard_after, page_size, PROT_NONE));
+  PG_ASSERT(0 == mprotect((void *)page_guard_before, page_size, PROT_NONE));
+  PG_ASSERT(0 == mprotect((void *)page_guard_after, page_size, PROT_NONE));
 
   // Trigger a page fault preemptively to detect invalid virtual memory
   // mappings.
@@ -946,7 +946,7 @@ string_indexof_unescaped_byte(PgString haystack, u8 needle) {
 
 [[maybe_unused]] [[nodiscard]] static u64 skip_over_whitespace(PgString s,
                                                                u64 idx_start) {
-  ASSERT(idx_start < s.len);
+  PG_ASSERT(idx_start < s.len);
 
   u64 idx = idx_start;
   for (; idx < s.len; idx++) {
@@ -994,9 +994,9 @@ string_ieq_ascii(PgString a, PgString b, Arena *arena) {
     return false;
   }
 
-  ASSERT(a.data != nullptr);
-  ASSERT(b.data != nullptr);
-  ASSERT(a.len == b.len);
+  PG_ASSERT(a.data != nullptr);
+  PG_ASSERT(b.data != nullptr);
+  PG_ASSERT(a.len == b.len);
 
   Arena tmp = *arena;
   PgString a_clone = string_clone(a, &tmp);
@@ -1054,7 +1054,7 @@ string_ieq_ascii(PgString a, PgString b, Arena *arena) {
       goto end;
     }
 
-    ASSERT((u64)read_n <= space.len);
+    PG_ASSERT((u64)read_n <= space.len);
 
     sb.len += (u64)read_n;
   }
@@ -1141,14 +1141,14 @@ ipv4_address_to_string(Ipv4Address address, Arena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static u32 u8x4_be_to_u32(PgString s) {
-  ASSERT(4 == s.len);
+  PG_ASSERT(4 == s.len);
   return (u32)(slice_at(s, 0) << 24) | (u32)(slice_at(s, 1) << 16) |
          (u32)(slice_at(s, 2) << 8) | (u32)(slice_at(s, 3) << 0);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool bitfield_get(PgString bitfield,
                                                         u64 idx_bit) {
-  ASSERT(idx_bit < bitfield.len * 8);
+  PG_ASSERT(idx_bit < bitfield.len * 8);
 
   u64 idx_byte = idx_bit / 8;
 
@@ -1401,7 +1401,7 @@ net_socket_enable_reuse(Socket sock) {
 
 [[maybe_unused]] [[nodiscard]] static Ipv4AddressAcceptResult
 net_tcp_accept(Socket sock) {
-  ASSERT(0 != sock);
+  PG_ASSERT(0 != sock);
 
   Ipv4AddressAcceptResult res = {0};
 
@@ -1444,7 +1444,7 @@ aio_queue_create() {
 aio_queue_ctl(AioQueue queue, PgAioEventSlice events) {
   for (u64 i = 0; i < events.len; i++) {
     PgAioEvent event = slice_at(events, i);
-    ASSERT(event.socket ^ event.timer);
+    PG_ASSERT(event.socket ^ event.timer);
 
     int op = 0;
     switch (event.action) {
@@ -1459,7 +1459,7 @@ aio_queue_ctl(AioQueue queue, PgAioEventSlice events) {
       break;
     case PG_AIO_EVENT_ACTION_NONE:
     default:
-      ASSERT(0);
+      PG_ASSERT(0);
     }
 
     struct epoll_event epoll_event = {0};
@@ -1533,7 +1533,7 @@ aio_queue_wait(AioQueue queue, PgAioEventSlice events, i64 timeout_ms,
   case CLOCK_KIND_MONOTONIC:
     return CLOCK_MONOTONIC;
   default:
-    ASSERT(0);
+    PG_ASSERT(0);
   }
 }
 
@@ -1594,7 +1594,7 @@ typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 // TODO: Windows?
 [[maybe_unused]] [[nodiscard]] static Pgu64Result unix_read(void *self, u8 *buf,
                                                             size_t buf_len) {
-  ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != self);
 
   int fd = (int)(u64)self;
   ssize_t n = read(fd, buf, buf_len);
@@ -1613,7 +1613,7 @@ typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 // TODO: Windows?
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 unix_write(void *self, u8 *buf, size_t buf_len) {
-  ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != self);
 
   int fd = (int)(u64)self;
   ssize_t n = write(fd, buf, buf_len);
@@ -1653,7 +1653,7 @@ ring_buffer_write_space(RingBuffer rg) {
     return rg.data.len - 1;
   } else if (rg.idx_write < rg.idx_read) { // Easy case.
     u64 res = rg.idx_read - rg.idx_write - 1;
-    ASSERT(res < rg.data.len);
+    PG_ASSERT(res < rg.data.len);
     return res;
   } else if (rg.idx_write > rg.idx_read) { // Hard case.
     u64 can_write1 = rg.data.len - rg.idx_write;
@@ -1661,14 +1661,14 @@ ring_buffer_write_space(RingBuffer rg) {
     if (can_write1 >= 1 && rg.idx_read == 0) {
       can_write1 -= 1; // Reserve empty slot.
     } else if (can_write2 >= 1) {
-      ASSERT(rg.idx_read > 0);
+      PG_ASSERT(rg.idx_read > 0);
       can_write2 -= 1;
     }
-    ASSERT(can_write1 <= rg.data.len - 1);
-    ASSERT(can_write2 <= rg.data.len - 1);
+    PG_ASSERT(can_write1 <= rg.data.len - 1);
+    PG_ASSERT(can_write2 <= rg.data.len - 1);
     return can_write1 + can_write2;
   }
-  ASSERT(0);
+  PG_ASSERT(0);
 }
 
 [[maybe_unused]] [[nodiscard]] static u64
@@ -1677,36 +1677,36 @@ ring_buffer_read_space(RingBuffer rg) {
     return 0;
   } else if (rg.idx_read < rg.idx_write) { // Easy case.
     u64 res = rg.idx_write - rg.idx_read;
-    ASSERT(res < rg.data.len);
+    PG_ASSERT(res < rg.data.len);
     return res;
   } else if (rg.idx_read > rg.idx_write) { // Hard case.
     u64 can_read1 = rg.data.len - rg.idx_read;
     u64 can_read2 = rg.idx_write;
     return can_read1 + can_read2;
   }
-  ASSERT(0);
+  PG_ASSERT(0);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
 ring_buffer_write_slice(RingBuffer *rg, PgString data) {
-  ASSERT(nullptr != rg->data.data);
-  ASSERT(rg->idx_read <= rg->data.len);
-  ASSERT(rg->idx_write <= rg->data.len);
-  ASSERT(rg->data.len > 0);
+  PG_ASSERT(nullptr != rg->data.data);
+  PG_ASSERT(rg->idx_read <= rg->data.len);
+  PG_ASSERT(rg->idx_write <= rg->data.len);
+  PG_ASSERT(rg->data.len > 0);
 
   if (rg->idx_write < rg->idx_read) { // Easy case.
     u64 space = rg->idx_read - rg->idx_write - 1;
-    ASSERT(space <= rg->data.len);
+    PG_ASSERT(space <= rg->data.len);
 
     if (data.len > space) {
       return false;
     }
     memcpy(rg->data.data + rg->idx_write, data.data, data.len);
     rg->idx_write += data.len;
-    ASSERT(rg->idx_write <= rg->data.len);
-    ASSERT(rg->idx_write < rg->idx_read);
+    PG_ASSERT(rg->idx_write <= rg->data.len);
+    PG_ASSERT(rg->idx_write < rg->idx_read);
   } else { // Hard case: need potentially two writes.
-    ASSERT(rg->idx_write >= rg->idx_read);
+    PG_ASSERT(rg->idx_write >= rg->idx_read);
 
     u64 can_write1 = rg->data.len - rg->idx_write;
 
@@ -1714,11 +1714,11 @@ ring_buffer_write_slice(RingBuffer *rg, PgString data) {
     if (can_write1 >= 1 && rg->idx_read == 0) {
       can_write1 -= 1; // Reserve empty slot.
     } else if (can_write2 >= 1) {
-      ASSERT(rg->idx_read > 0);
+      PG_ASSERT(rg->idx_read > 0);
       can_write2 -= 1;
     }
-    ASSERT(can_write1 <= rg->data.len - 1);
-    ASSERT(can_write2 <= rg->data.len - 1);
+    PG_ASSERT(can_write1 <= rg->data.len - 1);
+    PG_ASSERT(can_write2 <= rg->data.len - 1);
 
     u64 can_write = can_write1 + can_write2;
     if (can_write < data.len) {
@@ -1726,24 +1726,24 @@ ring_buffer_write_slice(RingBuffer *rg, PgString data) {
     }
 
     u64 write_len1 = PG_MIN(can_write1, data.len);
-    ASSERT(rg->idx_write + write_len1 <= rg->data.len);
-    ASSERT(write_len1 <= data.len);
+    PG_ASSERT(rg->idx_write + write_len1 <= rg->data.len);
+    PG_ASSERT(write_len1 <= data.len);
     memcpy(rg->data.data + rg->idx_write, data.data, write_len1);
     rg->idx_write += write_len1;
     if (rg->idx_write == rg->data.len) {
       rg->idx_write = 0;
     }
-    ASSERT(rg->idx_write < rg->data.len);
+    PG_ASSERT(rg->idx_write < rg->data.len);
 
     u64 write_len2 = data.len - write_len1;
     if (write_len2 > 0) {
-      ASSERT(rg->idx_write = rg->data.len - 1);
+      PG_ASSERT(rg->idx_write = rg->data.len - 1);
 
-      ASSERT(write_len2 + 1 <= rg->idx_read);
-      ASSERT(write_len1 + write_len2 <= data.len);
+      PG_ASSERT(write_len2 + 1 <= rg->idx_read);
+      PG_ASSERT(write_len1 + write_len2 <= data.len);
       memcpy(rg->data.data, data.data + write_len1, write_len2);
       rg->idx_write = write_len2;
-      ASSERT(rg->idx_write + 1 <= rg->idx_read);
+      PG_ASSERT(rg->idx_write + 1 <= rg->idx_read);
     }
   }
 
@@ -1752,15 +1752,15 @@ ring_buffer_write_slice(RingBuffer *rg, PgString data) {
 
 [[maybe_unused]] [[nodiscard]] static bool
 ring_buffer_read_slice(RingBuffer *rg, PgString data) {
-  ASSERT(nullptr != rg->data.data);
-  ASSERT(rg->idx_read <= rg->data.len);
-  ASSERT(rg->idx_write <= rg->data.len);
-  ASSERT(rg->data.len > 0);
+  PG_ASSERT(nullptr != rg->data.data);
+  PG_ASSERT(rg->idx_read <= rg->data.len);
+  PG_ASSERT(rg->idx_write <= rg->data.len);
+  PG_ASSERT(rg->data.len > 0);
 
   if (0 == data.len) {
     return true;
   }
-  ASSERT(nullptr != data.data);
+  PG_ASSERT(nullptr != data.data);
 
   if (rg->idx_write == rg->idx_read) { // Empty.
     return false;
@@ -1773,9 +1773,9 @@ ring_buffer_read_slice(RingBuffer *rg, PgString data) {
 
     memcpy(data.data, rg->data.data + rg->idx_read, n_read);
     rg->idx_read += n_read;
-    ASSERT(rg->idx_read < rg->data.len);
+    PG_ASSERT(rg->idx_read < rg->data.len);
   } else { // Hard case: potentially 2 reads.
-    ASSERT(rg->idx_read > rg->idx_write);
+    PG_ASSERT(rg->idx_read > rg->idx_write);
     u64 can_read1 = rg->data.len - rg->idx_read;
     u64 can_read2 = rg->idx_write;
     u64 can_read = can_read1 + can_read2;
@@ -1785,26 +1785,26 @@ ring_buffer_read_slice(RingBuffer *rg, PgString data) {
     }
 
     u64 read_len1 = PG_MIN(can_read1, data.len);
-    ASSERT(read_len1 <= data.len);
-    ASSERT(read_len1 <= rg->data.len);
+    PG_ASSERT(read_len1 <= data.len);
+    PG_ASSERT(read_len1 <= rg->data.len);
 
     memcpy(data.data, rg->data.data + rg->idx_read, read_len1);
     rg->idx_read += read_len1;
     if (rg->idx_read == rg->data.len) {
       rg->idx_read = 0;
     }
-    ASSERT(rg->idx_read < rg->data.len);
-    ASSERT(rg->idx_write < rg->data.len);
+    PG_ASSERT(rg->idx_read < rg->data.len);
+    PG_ASSERT(rg->idx_write < rg->data.len);
 
     u64 read_len2 = data.len - read_len1;
     if (read_len2 > 0) {
-      ASSERT(0 == rg->idx_read);
+      PG_ASSERT(0 == rg->idx_read);
 
       memcpy(data.data + read_len1, rg->data.data, read_len2);
       rg->idx_read += read_len2;
-      ASSERT(rg->idx_read <= data.len);
-      ASSERT(rg->idx_read <= rg->data.len);
-      ASSERT(rg->idx_read <= rg->idx_write);
+      PG_ASSERT(rg->idx_read <= data.len);
+      PG_ASSERT(rg->idx_read <= rg->data.len);
+      PG_ASSERT(rg->idx_read <= rg->idx_write);
     }
   }
 
@@ -1821,7 +1821,7 @@ ring_buffer_read_until_excl(RingBuffer *rg, PgString needle, Arena *arena) {
     Arena cpy_arena = *arena;
 
     PgString dst = string_make(ring_buffer_read_space(*rg), arena);
-    ASSERT(ring_buffer_read_slice(rg, dst));
+    PG_ASSERT(ring_buffer_read_slice(rg, dst));
     *rg = cpy_rg;       // Reset.
     *arena = cpy_arena; // Reset.
 
@@ -1833,14 +1833,14 @@ ring_buffer_read_until_excl(RingBuffer *rg, PgString needle, Arena *arena) {
 
   res.ok = true;
   res.res = string_make((u64)idx, arena);
-  ASSERT(ring_buffer_read_slice(rg, res.res));
+  PG_ASSERT(ring_buffer_read_slice(rg, res.res));
 
   // Read and throw away the needle.
   {
     Arena arena_tmp = *arena;
     PgString dst_needle = string_make(needle.len, &arena_tmp);
-    ASSERT(ring_buffer_read_slice(rg, dst_needle));
-    ASSERT(string_eq(needle, dst_needle));
+    PG_ASSERT(ring_buffer_read_slice(rg, dst_needle));
+    PG_ASSERT(string_eq(needle, dst_needle));
   }
 
   return res;
@@ -1857,12 +1857,12 @@ typedef struct {
 } Writer;
 
 [[maybe_unused]] [[nodiscard]] static Socket reader_socket(Reader *r) {
-  ASSERT(r->ctx);
+  PG_ASSERT(r->ctx);
   return (Socket)(u64)r->ctx;
 }
 
 [[maybe_unused]] [[nodiscard]] static Socket writer_socket(Writer *w) {
-  ASSERT(w->ctx);
+  PG_ASSERT(w->ctx);
   return (Socket)(u64)w->ctx;
 }
 
@@ -1882,7 +1882,7 @@ PgString static http_method_to_s(HttpMethod m) {
   case HTTP_METHOD_POST:
     return S("POST");
   default:
-    ASSERT(0);
+    PG_ASSERT(0);
   }
 }
 
@@ -2342,7 +2342,7 @@ url_parse_after_authority(PgString s, Arena *arena) {
 
   // Path, optional.
   if (string_starts_with(s, S("/"))) {
-    ASSERT(!slice_is_empty(path_components_and_rem.left));
+    PG_ASSERT(!slice_is_empty(path_components_and_rem.left));
 
     PgStringDynResult res_path_components =
         url_parse_path_components(path_components_and_rem.left, arena);
@@ -2367,11 +2367,11 @@ url_parse_after_authority(PgString s, Arena *arena) {
 
   // TODO: fragments.
 
-  ASSERT(slice_is_empty(res.res.scheme));
-  ASSERT(slice_is_empty(res.res.username));
-  ASSERT(slice_is_empty(res.res.password));
-  ASSERT(slice_is_empty(res.res.host));
-  ASSERT(0 == res.res.port);
+  PG_ASSERT(slice_is_empty(res.res.scheme));
+  PG_ASSERT(slice_is_empty(res.res.username));
+  PG_ASSERT(slice_is_empty(res.res.password));
+  PG_ASSERT(slice_is_empty(res.res.host));
+  PG_ASSERT(0 == res.res.port);
 
   return res;
 }
@@ -2462,12 +2462,12 @@ http_parse_request_status_line(PgString status_line, Arena *arena) {
   {
     if (string_starts_with(remaining, S("GET"))) {
       StringConsumeResult consume = string_consume_string(remaining, S("GET"));
-      ASSERT(consume.consumed);
+      PG_ASSERT(consume.consumed);
       remaining = consume.remaining;
       res.res.method = HTTP_METHOD_GET;
     } else if (string_starts_with(remaining, S("POST"))) {
       StringConsumeResult consume = string_consume_string(remaining, S("POST"));
-      ASSERT(consume.consumed);
+      PG_ASSERT(consume.consumed);
       remaining = consume.remaining;
       res.res.method = HTTP_METHOD_POST;
     } else {
@@ -2755,7 +2755,7 @@ writer_make_from_string_builder(StringBuilder *sb) {
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 reader_read(Reader *r, RingBuffer *rg, Arena arena) {
-  ASSERT(nullptr != r->read_fn);
+  PG_ASSERT(nullptr != r->read_fn);
 
   Pgu64Result res = {0};
 
@@ -2766,17 +2766,17 @@ reader_read(Reader *r, RingBuffer *rg, Arena arena) {
     return res;
   }
   dst.len = res.res;
-  ASSERT(true == ring_buffer_write_slice(rg, dst));
+  PG_ASSERT(true == ring_buffer_write_slice(rg, dst));
 
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 writer_write(Writer *w, RingBuffer *rg, Arena arena) {
-  ASSERT(nullptr != w->write_fn);
+  PG_ASSERT(nullptr != w->write_fn);
 
   PgString dst = string_make(ring_buffer_read_space(*rg), &arena);
-  ASSERT(true == ring_buffer_read_slice(rg, dst));
+  PG_ASSERT(true == ring_buffer_read_slice(rg, dst));
 
   return w->write_fn(w->ctx, dst.data, dst.len);
 }
@@ -2784,7 +2784,7 @@ writer_write(Writer *w, RingBuffer *rg, Arena arena) {
 #if 0
 [[nodiscard]] static ParseNumberResult
 request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
-  ASSERT(!req.err);
+  PG_ASSERT(!req.err);
 
   for (u64 i = 0; i < req.headers.len; i++) {
     KeyValue h = req.headers.data[i];
@@ -2818,7 +2818,7 @@ http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
       L("port", sock.address.port), L("serialized", http_request_serialized));
 
   // TODO: should not be an assert but a returned error.
-  ASSERT(send(sock.socket, http_request_serialized.data,
+  PG_ASSERT(send(sock.socket, http_request_serialized.data,
               http_request_serialized.len,
               0) == (i64)http_request_serialized.len);
 
@@ -2838,7 +2838,7 @@ http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
 
     PgString http1_1_version_needle = S("HTTP/1.1 ");
     PgString http1_0_version_needle = S("HTTP/1.0 ");
-    ASSERT(http1_0_version_needle.len == http1_1_version_needle.len);
+    PG_ASSERT(http1_0_version_needle.len == http1_1_version_needle.len);
 
     if (!(string_starts_with(io_result.res, http1_0_version_needle) ||
           string_starts_with(io_result.res, http1_1_version_needle))) {
@@ -3092,7 +3092,7 @@ static void html_attributes_to_string(DynKeyValue attributes, Pgu8Dyn *sb,
                                       Arena *arena) {
   for (u64 i = 0; i < attributes.len; i++) {
     KeyValue attr = dyn_at(attributes, i);
-    ASSERT(-1 == string_indexof_string(attr.key, S("\"")));
+    PG_ASSERT(-1 == string_indexof_string(attr.key, S("\"")));
 
     *dyn_push(sb, arena) = ' ';
     dyn_append_slice(sb, attr.key, arena);
@@ -3150,7 +3150,7 @@ static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, Arena *arena) {
       [HTML_LI] = S("li"),
   };
 
-  ASSERT(!(HTML_NONE == e.kind || HTML_MAX == e.kind));
+  PG_ASSERT(!(HTML_NONE == e.kind || HTML_MAX == e.kind));
 
   *dyn_push(sb, arena) = '<';
   dyn_append_slice(sb, tag_to_string[e.kind], arena);
@@ -3162,7 +3162,7 @@ static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, Arena *arena) {
   case HTML_LINK:
     [[fallthrough]];
   case HTML_META:
-    ASSERT(0 == e.children.len);
+    PG_ASSERT(0 == e.children.len);
     return;
 
   // 'Normal' tags.
@@ -3209,7 +3209,7 @@ static void html_tag_to_string(HtmlElement e, Pgu8Dyn *sb, Arena *arena) {
   case HTML_MAX:
     [[fallthrough]];
   default:
-    ASSERT(0);
+    PG_ASSERT(0);
   }
 
   dyn_append_slice(sb, S("</"), arena);
@@ -3313,7 +3313,7 @@ log_level_to_string(LogLevel level) {
   case LOG_LEVEL_FATAL:
     return S("fatal");
   default:
-    ASSERT(false);
+    PG_ASSERT(false);
   }
 }
 
@@ -3530,12 +3530,12 @@ log_make_log_line(LogLevel level, PgString msg, Arena *arena, i32 args_count,
                                                     entry.value.n64, arena);
       break;
     default:
-      ASSERT(0 && "invalid LogValueKind");
+      PG_ASSERT(0 && "invalid LogValueKind");
     }
   }
   va_end(argp);
 
-  ASSERT(string_ends_with(dyn_slice(PgString, sb), S(",")));
+  PG_ASSERT(string_ends_with(dyn_slice(PgString, sb), S(",")));
   dyn_pop(&sb);
   dyn_append_slice(&sb, S("}\n"), arena);
 
@@ -3592,7 +3592,7 @@ json_decode_string_slice(PgString s, Arena *arena) {
       return res;
     }
 
-    ASSERT(0 <= end_quote_idx);
+    PG_ASSERT(0 <= end_quote_idx);
 
     PgString str = slice_range(s, i, i + (u64)end_quote_idx);
     PgString unescaped = json_unescape_string(str, arena);
