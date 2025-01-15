@@ -3025,16 +3025,13 @@ typedef enum {
 } PgHtmlKind;
 
 typedef struct PgHtmlElement PgHtmlElement;
-typedef struct {
-  PgHtmlElement *data;
-  u64 len, cap;
-} DynHtmlElements;
+PG_DYN(PgHtmlElement) PgHtmlElementDyn;
 
 struct PgHtmlElement {
   PgHtmlKind kind;
   PgKeyValueDyn attributes;
   union {
-    DynHtmlElements children;
+    PgHtmlElementDyn children;
     PgString
         text; // Only for `PG_HTML_TEXT`, `PG_HTML_LEGEND`, `PG_HTML_TITLE`,
               // `PG_HTML_SCRIPT`, `PG_HTML_STYLE`, `PG_HTML_BUTTON`.
@@ -3091,11 +3088,11 @@ static void pg_html_attributes_to_string(PgKeyValueDyn attributes, Pgu8Dyn *sb,
   }
 }
 
-static void pg_html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
+static void pg_html_tags_to_string(PgHtmlElementDyn elements, Pgu8Dyn *sb,
                                    PgArena *arena);
 static void pg_html_tag_to_string(PgHtmlElement e, Pgu8Dyn *sb, PgArena *arena);
 
-static void pg_html_tags_to_string(DynHtmlElements elements, Pgu8Dyn *sb,
+static void pg_html_tags_to_string(PgHtmlElementDyn elements, Pgu8Dyn *sb,
                                    PgArena *arena) {
   for (u64 i = 0; i < elements.len; i++) {
     PgHtmlElement e = PG_DYN_AT(elements, i);
