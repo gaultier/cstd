@@ -74,11 +74,11 @@ PG_DYN(u8) Pgu8Dyn;
 PG_SLICE(u8) Pgu8Slice;
 typedef Pgu8Slice PgString;
 
-#define static_array_len(a) (sizeof(a) / sizeof((a)[0]))
+#define PG_STATIC_ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
-#define CLAMP(min, n, max) ((n) < (min) ? (min) : (n) > (max) ? (max) : n)
+#define PG_CLAMP(min, n, max) ((n) < (min) ? (min) : (n) > (max) ? (max) : n)
 
-#define SUB_SAT(a, b) ((a) > (b) ? ((a) - (b)) : 0)
+#define PG_SUB_SAT(a, b) ((a) > (b) ? ((a) - (b)) : 0)
 
 [[maybe_unused]] static void print_stacktrace(const char *file, int line,
                                               const char *function) {
@@ -243,10 +243,10 @@ string_split_string(PgString s, PgString sep) {
 
 #define slice_range(s, start, end)                                             \
   ((typeof((s))){                                                              \
-      .data = (s).len == CLAMP(0, start, (s).len)                              \
+      .data = (s).len == PG_CLAMP(0, start, (s).len)                              \
                   ? nullptr                                                    \
-                  : AT_PTR((s).data, (s).len, CLAMP(0, start, (s).len)),       \
-      .len = SUB_SAT(CLAMP(0, end, (s).len), CLAMP(0, start, (s).len)),        \
+                  : AT_PTR((s).data, (s).len, PG_CLAMP(0, start, (s).len)),       \
+      .len = PG_SUB_SAT(PG_CLAMP(0, end, (s).len), PG_CLAMP(0, start, (s).len)),        \
   })
 
 #define slice_range_start(s, start) slice_range(s, start, (s).len)

@@ -1385,7 +1385,7 @@ static void test_http_read_response() {
 static void test_http_request_response() {
   Arena arena = arena_make_from_virtual_mem(4 * PG_KiB);
 
-  u16 port = CLAMP(3000, (u16)arc4random_uniform(UINT16_MAX), UINT16_MAX);
+  u16 port = PG_CLAMP(3000, (u16)arc4random_uniform(UINT16_MAX), UINT16_MAX);
   Socket listen_socket = 0;
   {
     PgCreateSocketResult res_create_socket = net_create_tcp_socket();
