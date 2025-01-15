@@ -4167,6 +4167,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
       }
 
       // Timer.
+      // TODO: Repeating timer?
       if ((PG_AIO_EVENT_KIND_IN & event_watch.kind) &&
           (PG_EVENT_LOOP_HANDLE_KIND_TIMER == handle->kind) &&
           (PG_EVENT_LOOP_HANDLE_STATE_CLOSING != handle->state)) {
