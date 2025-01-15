@@ -13,8 +13,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h> // TODO: Windows.
-#include <unistd.h>   // TODO: Windows.
 
 #ifndef PG_MIN
 #define PG_MIN(a, b) (((a) < (b)) ? (a) : (b))
@@ -860,44 +858,6 @@ pg_round_up_multiple_of(u64 n, u64 multiple) {
   return (factor + 1) * n;
 }
 
-// FIXME: Windows.
-[[maybe_unused]] [[nodiscard]] static PgArena
-pg_arena_make_from_virtual_mem(u64 size) {
-  u64 page_size = (u64)sysconf(_SC_PAGE_SIZE);
-  u64 alloc_real_size = pg_round_up_multiple_of(size, page_size);
-  PG_ASSERT(0 == alloc_real_size % page_size);
-
-  u64 mmap_size = alloc_real_size;
-  // Page guard before.
-  PG_ASSERT(false == ckd_add(&mmap_size, mmap_size, page_size));
-  // Page guard after.
-  PG_ASSERT(false == ckd_add(&mmap_size, mmap_size, page_size));
-
-  u8 *alloc = mmap(nullptr, mmap_size, PROT_READ | PROT_WRITE,
-                   MAP_ANON | MAP_PRIVATE, -1, 0);
-  PG_ASSERT(nullptr != alloc);
-
-  u64 page_guard_before = (u64)alloc;
-
-  PG_ASSERT(false == ckd_add((u64 *)&alloc, (u64)alloc, page_size));
-  PG_ASSERT(page_guard_before + page_size == (u64)alloc);
-
-  u64 page_guard_after = (u64)0;
-  PG_ASSERT(false == ckd_add(&page_guard_after, (u64)alloc, alloc_real_size));
-  PG_ASSERT((u64)alloc + alloc_real_size == page_guard_after);
-  PG_ASSERT(page_guard_before + page_size + alloc_real_size ==
-            page_guard_after);
-
-  PG_ASSERT(0 == mprotect((void *)page_guard_before, page_size, PROT_NONE));
-  PG_ASSERT(0 == mprotect((void *)page_guard_after, page_size, PROT_NONE));
-
-  // Trigger a page fault preemptively to detect invalid virtual memory
-  // mappings.
-  *(u8 *)alloc = 0;
-
-  return (PgArena){.start = alloc, .end = (u8 *)alloc + size};
-}
-
 [[maybe_unused]] [[nodiscard]] static i64
 pg_string_indexof_unescaped_byte(PgString haystack, u8 needle) {
   for (u64 i = 0; i < haystack.len; i++) {
@@ -1089,6 +1049,10 @@ pg_time_ns_now(PgClockKind clock_kind);
 [[nodiscard]] [[maybe_unused]] static PgStringResult
 pg_file_read_full(PgString path, PgArena *arena);
 
+[[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size();
+[[maybe_unused]] [[nodiscard]] static PgArena
+pg_arena_make_from_virtual_mem(u64 size);
+
 PG_RESULT(PgSocket) PgCreateSocketResult;
 [[maybe_unused]] [[nodiscard]] static PgCreateSocketResult
 pg_net_create_tcp_socket();
@@ -1176,7 +1140,53 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
+#include <unistd.h>
+
+[[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size() {
+  i64 ret = sysconf(_SC_PAGE_SIZE);
+  PG_ASSERT(ret >= 0);
+
+  return (u64)ret;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgArena
+pg_arena_make_from_virtual_mem(u64 size) {
+  u64 page_size = pg_os_get_page_size();
+  u64 alloc_real_size = pg_round_up_multiple_of(size, page_size);
+  PG_ASSERT(0 == alloc_real_size % page_size);
+
+  u64 mmap_size = alloc_real_size;
+  // Page guard before.
+  PG_ASSERT(false == ckd_add(&mmap_size, mmap_size, page_size));
+  // Page guard after.
+  PG_ASSERT(false == ckd_add(&mmap_size, mmap_size, page_size));
+
+  u8 *alloc = mmap(nullptr, mmap_size, PROT_READ | PROT_WRITE,
+                   MAP_ANON | MAP_PRIVATE, -1, 0);
+  PG_ASSERT(nullptr != alloc);
+
+  u64 page_guard_before = (u64)alloc;
+
+  PG_ASSERT(false == ckd_add((u64 *)&alloc, (u64)alloc, page_size));
+  PG_ASSERT(page_guard_before + page_size == (u64)alloc);
+
+  u64 page_guard_after = (u64)0;
+  PG_ASSERT(false == ckd_add(&page_guard_after, (u64)alloc, alloc_real_size));
+  PG_ASSERT((u64)alloc + alloc_real_size == page_guard_after);
+  PG_ASSERT(page_guard_before + page_size + alloc_real_size ==
+            page_guard_after);
+
+  PG_ASSERT(0 == mprotect((void *)page_guard_before, page_size, PROT_NONE));
+  PG_ASSERT(0 == mprotect((void *)page_guard_after, page_size, PROT_NONE));
+
+  // Trigger a page fault preemptively to detect invalid virtual memory
+  // mappings.
+  *(u8 *)alloc = 0;
+
+  return (PgArena){.start = alloc, .end = (u8 *)alloc + size};
+}
 
 [[maybe_unused]] static PgStringResult pg_file_read_full(PgString path,
                                                          PgArena *arena) {
