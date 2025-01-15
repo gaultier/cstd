@@ -444,7 +444,7 @@ static void test_u8x4_be_to_u32_and_back() {
                                    "\x0cd"
                                    "\x15")));
 
-    PG_ASSERT(n == u8x4_be_to_u32(s));
+    PG_ASSERT(n == pg_u8x4_be_to_u32(s));
   }
 }
 
@@ -452,22 +452,22 @@ static void test_bitfield() {
   {
     PgString bitfield = PG_S("\x3"
                              "\x2");
-    PG_ASSERT(bitfield_get(bitfield, 0));
-    PG_ASSERT(bitfield_get(bitfield, 1));
-    PG_ASSERT(!bitfield_get(bitfield, 2));
-    PG_ASSERT(!bitfield_get(bitfield, 3));
-    PG_ASSERT(!bitfield_get(bitfield, 4));
-    PG_ASSERT(!bitfield_get(bitfield, 5));
-    PG_ASSERT(!bitfield_get(bitfield, 6));
-    PG_ASSERT(!bitfield_get(bitfield, 7));
-    PG_ASSERT(!bitfield_get(bitfield, 8));
-    PG_ASSERT(bitfield_get(bitfield, 9));
-    PG_ASSERT(!bitfield_get(bitfield, 10));
-    PG_ASSERT(!bitfield_get(bitfield, 11));
-    PG_ASSERT(!bitfield_get(bitfield, 12));
-    PG_ASSERT(!bitfield_get(bitfield, 13));
-    PG_ASSERT(!bitfield_get(bitfield, 14));
-    PG_ASSERT(!bitfield_get(bitfield, 15));
+    PG_ASSERT(pg_bitfield_get(bitfield, 0));
+    PG_ASSERT(pg_bitfield_get(bitfield, 1));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 2));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 3));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 4));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 5));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 6));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 7));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 8));
+    PG_ASSERT(pg_bitfield_get(bitfield, 9));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 10));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 11));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 12));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 13));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 14));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 15));
   }
 }
 

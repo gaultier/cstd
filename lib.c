@@ -1084,7 +1084,8 @@ pg_make_unique_id_u128_string(PgArena *arena) {
 }
 
 [[maybe_unused]] static void pg_url_encode_string(Pgu8Dyn *sb, PgString key,
-                                               PgString value, PgArena *arena) {
+                                                  PgString value,
+                                                  PgArena *arena) {
   for (u64 i = 0; i < key.len; i++) {
     u8 c = PG_SLICE_AT(key, i);
     if (pg_character_is_alphanumeric(c)) {
@@ -1124,29 +1125,13 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
   return PG_DYN_SLICE(PgString, sb);
 }
 
-[[maybe_unused]] [[nodiscard]] static u64 monotonic_now_ns() {
-  struct timespec now = {0};
-  if (-1 == clock_gettime(
-#ifdef CLOCK_MONOTONIC_COARSE
-                CLOCK_MONOTONIC_COARSE
-#else
-                CLOCK_MONOTONIC
-#endif
-                ,
-                &now)) {
-    exit(errno);
-  }
-  u64 now_ns = (u64)now.tv_sec * 1000'000'000 + (u64)now.tv_nsec;
-  return now_ns;
-}
-
-[[maybe_unused]] [[nodiscard]] static u32 u8x4_be_to_u32(PgString s) {
+[[maybe_unused]] [[nodiscard]] static u32 pg_u8x4_be_to_u32(PgString s) {
   PG_ASSERT(4 == s.len);
   return (u32)(PG_SLICE_AT(s, 0) << 24) | (u32)(PG_SLICE_AT(s, 1) << 16) |
          (u32)(PG_SLICE_AT(s, 2) << 8) | (u32)(PG_SLICE_AT(s, 3) << 0);
 }
 
-[[maybe_unused]] [[nodiscard]] static bool bitfield_get(PgString bitfield,
+[[maybe_unused]] [[nodiscard]] static bool pg_bitfield_get(PgString bitfield,
                                                         u64 idx_bit) {
   PG_ASSERT(idx_bit < bitfield.len * 8);
 
@@ -2245,7 +2230,8 @@ pg_url_parse_user_info(PgString s) {
 
 PG_RESULT(u16) Pgu16Result;
 
-[[maybe_unused]] [[nodiscard]] static Pgu16Result pg_url_parse_port(PgString s) {
+[[maybe_unused]] [[nodiscard]] static Pgu16Result
+pg_url_parse_port(PgString s) {
   Pgu16Result res = {0};
 
   // Allowed.
@@ -2381,7 +2367,7 @@ pg_url_parse_after_authority(PgString s, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgUrlResult pg_url_parse(PgString s,
-                                                            PgArena *arena) {
+                                                               PgArena *arena) {
   PgUrlResult res = {0};
 
   PgString remaining = s;
@@ -2438,7 +2424,8 @@ pg_url_parse_after_authority(PgString s, PgArena *arena) {
     res.res.password = res_authority.res.user_info.password;
   }
 
-  PgUrlResult res_after_authority = pg_url_parse_after_authority(remaining, arena);
+  PgUrlResult res_after_authority =
+      pg_url_parse_after_authority(remaining, arena);
   if (res_after_authority.err) {
     res.err = res_after_authority.err;
     return res;
