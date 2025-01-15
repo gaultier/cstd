@@ -1702,9 +1702,8 @@ static void test_timer() {
   PG_ASSERT(0 == pg_timer_release(res_timer.res));
 }
 
-static void test_event_loop_connect_on_client_write(PgEventLoop *loop,
-                                                    u64 os_handle, void *ctx,
-                                                    PgError err) {
+static void test_event_loop_on_client_write(PgEventLoop *loop, u64 os_handle,
+                                            void *ctx, PgError err) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1717,9 +1716,9 @@ static void test_event_loop_connect_on_client_write(PgEventLoop *loop,
   PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
 }
 
-static void test_event_loop_connect_on_server_read(PgEventLoop *loop,
-                                                   u64 os_handle, void *ctx,
-                                                   PgError err, PgString data) {
+static void test_event_loop_on_server_read(PgEventLoop *loop, u64 os_handle,
+                                           void *ctx, PgError err,
+                                           PgString data) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1736,9 +1735,9 @@ static void test_event_loop_connect_on_server_read(PgEventLoop *loop,
   pg_event_loop_stop(loop);
 }
 
-static void test_event_loop_connect_on_client_read(PgEventLoop *loop,
-                                                   u64 os_handle, void *ctx,
-                                                   PgError err, PgString data) {
+static void test_event_loop_on_client_read(PgEventLoop *loop, u64 os_handle,
+                                           void *ctx, PgError err,
+                                           PgString data) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1751,14 +1750,13 @@ static void test_event_loop_connect_on_client_read(PgEventLoop *loop,
   PG_ASSERT(pg_string_eq(data, PG_S("ping")));
 
   PG_ASSERT(0 == pg_event_loop_write(loop, os_handle, PG_S("pong"),
-                                     test_event_loop_connect_on_client_write));
+                                     test_event_loop_on_client_write));
 
   PG_ASSERT(0 == pg_event_loop_read_stop(loop, os_handle));
 }
 
-static void test_event_loop_connect_on_server_write(PgEventLoop *loop,
-                                                    u64 os_handle, void *ctx,
-                                                    PgError err) {
+static void test_event_loop_on_server_write(PgEventLoop *loop, u64 os_handle,
+                                            void *ctx, PgError err) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1768,13 +1766,12 @@ static void test_event_loop_connect_on_server_write(PgEventLoop *loop,
   PG_ASSERT(3 == *server_state);
   *server_state += 1;
 
-  PG_ASSERT(0 == pg_event_loop_read_start(
-                     loop, os_handle, test_event_loop_connect_on_server_read));
+  PG_ASSERT(0 == pg_event_loop_read_start(loop, os_handle,
+                                          test_event_loop_on_server_read));
 }
 
-static void test_event_loop_connect_on_client_connect(PgEventLoop *loop,
-                                                      u64 os_handle, void *ctx,
-                                                      PgError err) {
+static void test_event_loop_on_client_connect(PgEventLoop *loop, u64 os_handle,
+                                              void *ctx, PgError err) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1784,13 +1781,12 @@ static void test_event_loop_connect_on_client_connect(PgEventLoop *loop,
   PG_ASSERT(1 == *client_state);
   *client_state += 1;
 
-  PG_ASSERT(0 == pg_event_loop_read_start(
-                     loop, os_handle, test_event_loop_connect_on_client_read));
+  PG_ASSERT(0 == pg_event_loop_read_start(loop, os_handle,
+                                          test_event_loop_on_client_read));
 }
 
-static void test_event_loop_connect_on_server_connect(PgEventLoop *loop,
-                                                      u64 os_handle, void *ctx,
-                                                      PgError err) {
+static void test_event_loop_on_server_connect(PgEventLoop *loop, u64 os_handle,
+                                              void *ctx, PgError err) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1807,10 +1803,10 @@ static void test_event_loop_connect_on_server_connect(PgEventLoop *loop,
   }
 
   PG_ASSERT(0 == pg_event_loop_write(loop, res_accept.res, PG_S("ping"),
-                                     test_event_loop_connect_on_server_write));
+                                     test_event_loop_on_server_write));
 }
 
-static void test_event_loop_connect() {
+static void test_event_loop() {
   PgArena arena = pg_arena_make_from_virtual_mem(12 * PG_KiB);
 
   PgEventLoopResult res_loop = pg_event_loop_make_loop(&arena);
@@ -1831,15 +1827,14 @@ static void test_event_loop_connect() {
 
   {
     PG_ASSERT(0 == pg_event_loop_tcp_bind(&loop, server_handle, addr));
-    PG_ASSERT(0 == pg_event_loop_tcp_listen(
-                       &loop, server_handle, 1,
-                       test_event_loop_connect_on_server_connect));
+    PG_ASSERT(0 == pg_event_loop_tcp_listen(&loop, server_handle, 1,
+                                            test_event_loop_on_server_connect));
   }
 
   {
-    PG_ASSERT(0 == pg_event_loop_tcp_connect(
-                       &loop, client_handle, addr,
-                       test_event_loop_connect_on_client_connect));
+    PG_ASSERT(0 ==
+              pg_event_loop_tcp_connect(&loop, client_handle, addr,
+                                        test_event_loop_on_client_connect));
   }
 
   PG_ASSERT(0 == pg_event_loop_run(&loop, -1));
@@ -1883,5 +1878,5 @@ int main() {
   test_http_request_response();
   test_timer();
   test_log();
-  test_event_loop_connect();
+  test_event_loop();
 }
