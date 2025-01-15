@@ -1835,14 +1835,14 @@ pg_ring_read_until_excl(RingBuffer *rg, PgString needle, PgArena *arena) {
 typedef struct {
   void *ctx;
   ReadFn read_fn;
-} Reader;
+} PgReader;
 
 typedef struct {
   void *ctx;
   WriteFn write_fn;
 } Writer;
 
-[[maybe_unused]] [[nodiscard]] static PgSocket reader_socket(Reader *r) {
+[[maybe_unused]] [[nodiscard]] static PgSocket reader_socket(PgReader *r) {
   PG_ASSERT(r->ctx);
   return (PgSocket)(u64)r->ctx;
 }
@@ -2723,10 +2723,10 @@ http_write_response(RingBuffer *rg, HttpResponse res, PgArena arena) {
   return (PgError)0;
 }
 
-[[maybe_unused]] [[nodiscard]] static Reader
+[[maybe_unused]] [[nodiscard]] static PgReader
 reader_make_from_socket(PgSocket socket) {
   // TODO: Windows.
-  return (Reader){.read_fn = pg_unix_read, .ctx = (void *)(u64)socket};
+  return (PgReader){.read_fn = pg_unix_read, .ctx = (void *)(u64)socket};
 }
 
 [[maybe_unused]] [[nodiscard]] static Writer
@@ -2746,7 +2746,7 @@ writer_make_from_string_builder(StringBuilder *sb) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-reader_read(Reader *r, RingBuffer *rg, PgArena arena) {
+reader_read(PgReader *r, RingBuffer *rg, PgArena arena) {
   PG_ASSERT(nullptr != r->read_fn);
 
   Pgu64Result res = {0};
@@ -2874,7 +2874,7 @@ http_client_request(PgIpv4AddressSocket sock, HttpRequest req, PgArena *arena) {
 
   if (content_length.present) {
     IoResult res_io =
-        reader_read_exactly((Reader *)&reader, content_length.n, arena);
+        reader_read_exactly((PgReader *)&reader, content_length.n, arena);
     if (res_io.err) {
       res.err = res_io.err;
       return res;

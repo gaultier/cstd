@@ -935,7 +935,7 @@ static void test_net_socket() {
   }
 
   PgSocket bob_socket = 0;
-  Reader bob_reader = {0};
+  PgReader bob_reader = {0};
 
   Writer alice_writer = writer_make_from_socket(socket_alice);
 
@@ -1447,11 +1447,11 @@ static void test_http_request_response() {
   }
 
   PgSocket server_socket = 0;
-  Reader server_reader = {0};
+  PgReader server_reader = {0};
   Writer server_writer = {0};
 
   Writer client_writer = writer_make_from_socket(client_socket);
-  Reader client_reader = reader_make_from_socket(client_socket);
+  PgReader client_reader = reader_make_from_socket(client_socket);
 
   RingBuffer client_recv = {.data = pg_string_make(128, &arena)};
   RingBuffer client_send = {.data = pg_string_make(128, &arena)};
