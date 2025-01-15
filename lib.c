@@ -520,11 +520,11 @@ typedef struct {
   u64 n;
   bool present;
   PgString remaining;
-} ParseNumberResult;
+} PgParseNumberResult;
 
-[[maybe_unused]] [[nodiscard]] static ParseNumberResult
+[[maybe_unused]] [[nodiscard]] static PgParseNumberResult
 pg_string_parse_u64(PgString s) {
-  ParseNumberResult res = {0};
+  PgParseNumberResult res = {0};
   res.remaining = s;
 
   // Forbid leading zero(es) if there is more than one digit.
@@ -1962,7 +1962,7 @@ http_parse_response_status_line(PgString status_line) {
   }
 
   {
-    ParseNumberResult res_major = pg_string_parse_u64(remaining);
+    PgParseNumberResult res_major = pg_string_parse_u64(remaining);
     if (!res_major.present) {
       res.err = EINVAL;
       return res;
@@ -1985,7 +1985,7 @@ http_parse_response_status_line(PgString status_line) {
   }
 
   {
-    ParseNumberResult res_minor = pg_string_parse_u64(remaining);
+    PgParseNumberResult res_minor = pg_string_parse_u64(remaining);
     if (!res_minor.present) {
       res.err = EINVAL;
       return res;
@@ -2008,7 +2008,7 @@ http_parse_response_status_line(PgString status_line) {
   }
 
   {
-    ParseNumberResult res_status_code = pg_string_parse_u64(remaining);
+    PgParseNumberResult res_status_code = pg_string_parse_u64(remaining);
     if (!res_status_code.present) {
       res.err = EINVAL;
       return res;
@@ -2247,7 +2247,7 @@ PG_RESULT(u16) Pgu16Result;
     return res;
   }
 
-  ParseNumberResult port_parse = pg_string_parse_u64(s);
+  PgParseNumberResult port_parse = pg_string_parse_u64(s);
   if (!PG_SLICE_IS_EMPTY(port_parse.remaining)) {
     res.err = EINVAL;
     return res;
@@ -2510,7 +2510,7 @@ http_parse_request_status_line(PgString status_line, Arena *arena) {
   }
 
   {
-    ParseNumberResult res_major = pg_string_parse_u64(remaining);
+    PgParseNumberResult res_major = pg_string_parse_u64(remaining);
     if (!res_major.present) {
       res.err = EINVAL;
       return res;
@@ -2533,7 +2533,7 @@ http_parse_request_status_line(PgString status_line, Arena *arena) {
   }
 
   {
-    ParseNumberResult res_minor = pg_string_parse_u64(remaining);
+    PgParseNumberResult res_minor = pg_string_parse_u64(remaining);
     if (!res_minor.present) {
       res.err = EINVAL;
       return res;
@@ -2781,7 +2781,7 @@ writer_write(Writer *w, RingBuffer *rg, Arena arena) {
 }
 
 #if 0
-[[nodiscard]] static ParseNumberResult
+[[nodiscard]] static PgParseNumberResult
 request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
   PG_ASSERT(!req.err);
 
@@ -2794,7 +2794,7 @@ request_parse_content_length_maybe(HttpRequest req, Arena *arena) {
 
     return pg_string_parse_u64(h.value);
   }
-  return (ParseNumberResult){0};
+  return (PgParseNumberResult){0};
 }
 
 [[maybe_unused]] [[nodiscard]] static HttpResponse
@@ -2847,7 +2847,7 @@ http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
 
     PgString status_str =
         PG_SLICE_RANGE_START(io_result.res, http1_1_version_needle.len);
-    ParseNumberResult status_parsed = pg_string_parse_u64(status_str);
+    PgParseNumberResult status_parsed = pg_string_parse_u64(status_str);
     if (!status_parsed.present) {
       res.err = HS_ERR_INVALID_HTTP_RESPONSE;
       goto end;
@@ -2872,7 +2872,7 @@ http_client_request(Ipv4AddressSocket sock, HttpRequest req, Arena *arena) {
     goto end;
   }
 
-  ParseNumberResult content_length =
+  PgParseNumberResult content_length =
       request_parse_content_length_maybe(req, arena);
   if (!content_length.present) {
     res.err = HS_ERR_INVALID_HTTP_REQUEST;
