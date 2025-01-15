@@ -1623,7 +1623,7 @@ static void test_log() {
   // Simple log.
   {
     StringBuilder sb = {.arena = &arena};
-    Logger logger = log_logger_make_stdout_json(LOG_LEVEL_DEBUG);
+    PgLogger logger = log_logger_make_stdout_json(LOG_LEVEL_DEBUG);
     logger.writer = pg_writer_make_from_string_builder(&sb);
 
     logger_log(&logger, LOG_LEVEL_INFO, "hello world", arena,
@@ -1632,10 +1632,10 @@ static void test_log() {
     PgString out = PG_DYN_SLICE(PgString, sb.sb);
     PG_ASSERT(pg_string_starts_with(out, PG_S("{\"level\":\"info\"")));
   }
-  // Log but the logger level is higher.
+  // PgLog but the logger level is higher.
   {
     StringBuilder sb = {.arena = &arena};
-    Logger logger = log_logger_make_stdout_json(LOG_LEVEL_INFO);
+    PgLogger logger = log_logger_make_stdout_json(LOG_LEVEL_INFO);
     logger.writer = pg_writer_make_from_string_builder(&sb);
 
     logger_log(&logger, LOG_LEVEL_DEBUG, "hello world", arena,

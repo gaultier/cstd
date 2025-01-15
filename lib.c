@@ -3245,39 +3245,39 @@ pg_http_req_extract_cookie_with_name(PgHttpRequest req, PgString cookie_name,
 }
 
 typedef enum {
-  LV_STRING,
-  LV_U64,
-} LogValueKind;
+  PG_LOG_VALUE_STRING,
+  PG_LOG_VALUE_U64,
+} PgLogValueKind;
 
 typedef enum {
   LOG_LEVEL_DEBUG,
   LOG_LEVEL_INFO,
   LOG_LEVEL_ERROR,
   LOG_LEVEL_FATAL,
-} LogLevel;
+} PgLogLevel;
 
 typedef struct {
-  LogLevel level;
+  PgLogLevel level;
   PgWriter writer;
-} Logger;
+} PgLogger;
 
 typedef struct {
-  LogValueKind kind;
+  PgLogValueKind kind;
   union {
     PgString s;
     u64 n64;
     u128 n128;
   };
-} LogValue;
+} PgLogValue;
 
 typedef struct {
   PgString key;
-  LogValue value;
-} LogEntry;
+  PgLogValue value;
+} PgLogEntry;
 
-[[maybe_unused]] [[nodiscard]] static Logger
-log_logger_make_stdout_json(LogLevel level) {
-  Logger logger = {
+[[maybe_unused]] [[nodiscard]] static PgLogger
+log_logger_make_stdout_json(PgLogLevel level) {
+  PgLogger logger = {
       .level = level,
       .writer = pg_writer_make_from_file(
           (PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
@@ -3287,7 +3287,7 @@ log_logger_make_stdout_json(LogLevel level) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-log_level_to_string(LogLevel level) {
+log_level_to_string(PgLogLevel level) {
   switch (level) {
   case LOG_LEVEL_DEBUG:
     return PG_S("debug");
@@ -3302,47 +3302,47 @@ log_level_to_string(LogLevel level) {
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_int(PgString k,
+[[maybe_unused]] [[nodiscard]] static PgLogEntry log_entry_int(PgString k,
                                                              int v) {
-  return (LogEntry){
+  return (PgLogEntry){
       .key = k,
-      .value.kind = LV_U64,
+      .value.kind = PG_LOG_VALUE_U64,
       .value.n64 = (u64)v,
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_u16(PgString k,
+[[maybe_unused]] [[nodiscard]] static PgLogEntry log_entry_u16(PgString k,
                                                              u16 v) {
-  return (LogEntry){
+  return (PgLogEntry){
       .key = k,
-      .value.kind = LV_U64,
+      .value.kind = PG_LOG_VALUE_U64,
       .value.n64 = (u64)v,
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_u32(PgString k,
+[[maybe_unused]] [[nodiscard]] static PgLogEntry log_entry_u32(PgString k,
                                                              u32 v) {
-  return (LogEntry){
+  return (PgLogEntry){
       .key = k,
-      .value.kind = LV_U64,
+      .value.kind = PG_LOG_VALUE_U64,
       .value.n64 = (u64)v,
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_u64(PgString k,
+[[maybe_unused]] [[nodiscard]] static PgLogEntry log_entry_u64(PgString k,
                                                              u64 v) {
-  return (LogEntry){
+  return (PgLogEntry){
       .key = k,
-      .value.kind = LV_U64,
+      .value.kind = PG_LOG_VALUE_U64,
       .value.n64 = v,
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static LogEntry log_entry_slice(PgString k,
+[[maybe_unused]] [[nodiscard]] static PgLogEntry log_entry_slice(PgString k,
                                                                PgString v) {
-  return (LogEntry){
+  return (PgLogEntry){
       .key = k,
-      .value.kind = LV_STRING,
+      .value.kind = PG_LOG_VALUE_STRING,
       .value.s = v,
   };
 }
@@ -3356,7 +3356,7 @@ log_level_to_string(LogLevel level) {
        PgString: log_entry_slice)((PG_S(k)), (v)))
 
 #define LOG_ARGS_COUNT(...)                                                    \
-  (sizeof((LogEntry[]){__VA_ARGS__}) / sizeof(LogEntry))
+  (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
 #define logger_log(logger, lvl, msg, arena, ...)                               \
   do {                                                                         \
     if ((logger)->level > (lvl)) {                                             \
@@ -3480,7 +3480,7 @@ pg_string_builder_append_json_object_key_string_value_u64(Pgu8Dyn *sb,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-log_make_log_line(LogLevel level, PgString msg, PgArena *arena, i32 args_count,
+log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena, i32 args_count,
                   ...) {
   struct timespec monotonic = {0};
   clock_gettime(CLOCK_MONOTONIC, &monotonic);
@@ -3506,20 +3506,20 @@ log_make_log_line(LogLevel level, PgString msg, PgArena *arena, i32 args_count,
   va_list argp = {0};
   va_start(argp, args_count);
   for (i32 i = 0; i < args_count; i++) {
-    LogEntry entry = va_arg(argp, LogEntry);
+    PgLogEntry entry = va_arg(argp, PgLogEntry);
 
     switch (entry.value.kind) {
-    case LV_STRING: {
+    case PG_LOG_VALUE_STRING: {
       pg_string_builder_append_json_object_key_string_value_string(
           &sb, entry.key, entry.value.s, arena);
       break;
     }
-    case LV_U64:
+    case PG_LOG_VALUE_U64:
       pg_string_builder_append_json_object_key_string_value_u64(
           &sb, entry.key, entry.value.n64, arena);
       break;
     default:
-      PG_ASSERT(0 && "invalid LogValueKind");
+      PG_ASSERT(0 && "invalid PgLogValueKind");
     }
   }
   va_end(argp);
