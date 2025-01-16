@@ -4317,6 +4317,8 @@ static Pgu64Result
 pg_event_loop_dns_resolve_ipv4_tcp(PgEventLoop *loop, PgString host, u16 port,
                                    PgEventLoopOnDnsResolve on_dns_resolve,
                                    void *ctx) {
+  Pgu64Result res = {0};
+
   // TODO: Run in a thread (pool).
 
   PgDnsResolveIpv4AddressSocketResult res_dns =
@@ -4326,6 +4328,9 @@ pg_event_loop_dns_resolve_ipv4_tcp(PgEventLoop *loop, PgString host, u16 port,
     on_dns_resolve(loop, (u64)res_dns.res.socket, ctx, res_dns.err,
                    res_dns.res.address);
   }
+
+  res.res = (u64)res_dns.res.socket;
+  return res;
 }
 
 #endif
