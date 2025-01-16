@@ -759,44 +759,37 @@ typedef struct {
 typedef struct {
   void *ctx;
   WriteFn write_fn;
+  PgArena *arena; // TODO: Should it be instead in DYN_ structs?
 } PgWriter;
 
-typedef struct {
-  Pgu8Dyn *sb;
-  PgArena *arena;
-} PgWriterCtxSb;
-
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_sb_write(void *ctx, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != ctx);
+pg_writer_sb_write(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
 
-  PgWriterCtxSb *self = ctx;
+  PgWriter *w = self;
+  Pgu8Dyn *sb = w->ctx;
 
   PgString s = {.data = buf, .len = buf_len};
-  PG_DYN_APPEND_SLICE(self->sb, s, self->arena);
+  PG_DYN_APPEND_SLICE(sb, s, w->arena);
 
   return (Pgu64Result){.res = buf_len};
 }
 
-[[maybe_unused]] [[nodiscard]] static PgWriter
-pg_writer_from_sb(Pgu8Dyn *sb, PgArena *arena) {
-  // TODO: Is this allocation a problem?
-  PgWriterCtxSb *ctx = pg_arena_new(arena, PgWriterCtxSb, 1);
-  ctx->sb = sb;
-  ctx->arena = arena;
-
-  return (PgWriter){
-      .ctx = ctx,
-      .write_fn = pg_writer_sb_write,
-  };
+[[nodiscard]] [[maybe_unused]] static PgWriter
+pg_writer_make_from_sb(Pgu8Dyn *sb, PgArena *arena) {
+  PgWriter w = {0};
+  w.ctx = sb;
+  w.arena = arena;
+  w.write_fn = pg_writer_sb_write;
+  return w;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_writer_write_character(PgWriter w, u8 c) {
-  PG_ASSERT(nullptr != w.write_fn);
+pg_writer_write_character(PgWriter *w, u8 c) {
+  PG_ASSERT(nullptr != w->write_fn);
 
-  Pgu64Result res = w.write_fn(w.ctx, &c, 1);
+  Pgu64Result res = w->write_fn(w, &c, 1);
   if (res.err) {
     return res.err;
   }
@@ -805,8 +798,8 @@ pg_writer_write_character(PgWriter w, u8 c) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_writer_write_all_string(PgWriter w, PgString s) {
-  PG_ASSERT(nullptr != w.write_fn);
+pg_writer_write_all_string(PgWriter *w, PgString s) {
+  PG_ASSERT(nullptr != w->write_fn);
 
   PgString remaining = s;
   for (u64 _i = 0; _i < s.len; _i++) {
@@ -814,7 +807,7 @@ pg_writer_write_all_string(PgWriter w, PgString s) {
       break;
     }
 
-    Pgu64Result res = w.write_fn(w.ctx, remaining.data, remaining.len);
+    Pgu64Result res = w->write_fn(w, remaining.data, remaining.len);
     if (res.err) {
       return res.err;
     }
@@ -908,7 +901,7 @@ pg_u64_to_string(u64 n, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]]
-static PgError pg_writer_write_u8_hex_upper(PgWriter w, u8 n) {
+static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n) {
 
   u8 c1 = n % 16;
   u8 c2 = n / 16;
@@ -1714,10 +1707,13 @@ PG_RESULT(PgString) PgIoResult;
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_unix_read(void *self, u8 *buf, size_t buf_len) {
+pg_writer_unix_read(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
 
-  int fd = (int)(u64)self;
+  PgReader *r = self;
+
+  int fd = (int)(u64)r->ctx;
   ssize_t n = read(fd, buf, buf_len);
 
   Pgu64Result res = {0};
@@ -1733,10 +1729,13 @@ pg_unix_read(void *self, u8 *buf, size_t buf_len) {
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_unix_write(void *self, u8 *buf, size_t buf_len) {
+pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
 
-  int fd = (int)(u64)self;
+  PgWriter *w = self;
+
+  int fd = (int)(u64)w->ctx;
   ssize_t n = write(fd, buf, buf_len);
 
   Pgu64Result res = {0};
@@ -2145,7 +2144,7 @@ static void pg_http_push_header(PgKeyValueDyn *headers, PgString key,
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_url_encode_string(PgWriter w, PgString key, PgString value) {
+pg_url_encode_string(PgWriter *w, PgString key, PgString value) {
   PgError err = 0;
 
   for (u64 i = 0; i < key.len; i++) {
@@ -2195,7 +2194,7 @@ pg_url_encode_string(PgWriter w, PgString key, PgString value) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_http_request_write_status_line(PgWriter w, PgHttpRequest req) {
+pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req) {
   PgError err = 0;
 
   err = pg_writer_write_all_string(w, pg_http_method_to_string(req.method));
@@ -2284,7 +2283,7 @@ pg_http_write_header_ring(PgRing *rg, PgKeyValue header, PgArena arena) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_http_write_header(PgWriter w, PgKeyValue header) {
+pg_http_write_header(PgWriter *w, PgKeyValue header) {
   PgError err = 0;
 
   err = pg_writer_write_all_string(w, header.key);
@@ -2908,7 +2907,7 @@ pg_http_read_request(PgRing *rg, u64 max_http_headers, PgArena *arena) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_http_write_request(PgWriter w, PgHttpRequest req) {
+pg_http_write_request(PgWriter *w, PgHttpRequest req) {
   PgError err = 0;
 
   err = pg_http_request_write_status_line(w, req);
@@ -2940,9 +2939,9 @@ pg_http_write_request(PgWriter w, PgHttpRequest req) {
                         req.url.query_parameters.len * 64 +
                         req.headers.len * 128,
                     arena);
-  PgWriter w = pg_writer_from_sb(&sb, arena);
+  PgWriter w = pg_writer_make_from_sb(&sb, arena);
 
-  PG_ASSERT(0 == pg_http_write_request(w, req));
+  PG_ASSERT(0 == pg_http_write_request(&w, req));
 
   return PG_DYN_SLICE(PgString, sb);
 }
@@ -2969,25 +2968,26 @@ pg_http_write_response(PgRing *rg, PgHttpResponse res, PgArena arena) {
 pg_reader_make_from_socket(PgSocket socket) {
   // TODO: Windows.
   // TODO: recv?
-  return (PgReader){.read_fn = pg_unix_read, .ctx = (void *)(u64)socket};
+  return (PgReader){.read_fn = pg_writer_unix_read, .ctx = (void *)(u64)socket};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgReader
 pg_reader_make_from_file(PgFile file) {
   // TODO: Windows.
-  return (PgReader){.read_fn = pg_unix_read, .ctx = (void *)(u64)file};
+  return (PgReader){.read_fn = pg_writer_unix_read, .ctx = (void *)(u64)file};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgWriter
 pg_writer_make_from_socket(PgSocket socket) {
   // TODO: Windows.
-  return (PgWriter){.write_fn = pg_unix_write, .ctx = (void *)(u64)socket};
+  return (PgWriter){.write_fn = pg_writer_unix_write,
+                    .ctx = (void *)(u64)socket};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgWriter
 pg_writer_make_from_file(PgFile *file) {
   // TODO: Windows.
-  return (PgWriter){.write_fn = pg_unix_write, .ctx = (void *)file};
+  return (PgWriter){.write_fn = pg_writer_unix_write, .ctx = (void *)file};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgWriter
