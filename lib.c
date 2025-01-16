@@ -734,10 +734,6 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define PG_DYN_LAST(s) PG_C_ARRAY_AT((s).data, (s).len, (s).len - 1)
 
-#define PG_DYN_AT_PTR(s, idx) PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx)
-
-#define PG_DYN_AT(s, idx) PG_C_ARRAY_AT((s).data, (s).len, idx)
-
 #define PG_DYN_APPEND_SLICE(dst, src, arena)                                   \
   do {                                                                         \
     PG_DYN_ENSURE_CAP(dst, (dst)->len + (src).len, arena);                     \
@@ -2949,7 +2945,7 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req) {
   }
 
   for (u64 i = 0; i < req.headers.len; i++) {
-    PgKeyValue header = PG_DYN_AT(req.headers, i);
+    PgKeyValue header = PG_SLICE_AT(req.headers, i);
     err = pg_http_write_header(w, header);
     if (err) {
       return err;
@@ -2985,7 +2981,7 @@ pg_http_write_response(PgRing *rg, PgHttpResponse res, PgArena arena) {
     return (PgError)PG_ERR_OUT_OF_MEMORY;
   }
   for (u64 i = 0; i < res.headers.len; i++) {
-    PgKeyValue header = PG_DYN_AT(res.headers, i);
+    PgKeyValue header = PG_SLICE_AT(res.headers, i);
     if (!pg_http_write_header_ring(rg, header, arena)) {
       return (PgError)PG_ERR_OUT_OF_MEMORY;
     }
@@ -3348,7 +3344,7 @@ pg_html_make(PgString title, PgArena *arena) {
 static void pg_html_attributes_to_string(PgKeyValueDyn attributes, Pgu8Dyn *sb,
                                          PgArena *arena) {
   for (u64 i = 0; i < attributes.len; i++) {
-    PgKeyValue attr = PG_DYN_AT(attributes, i);
+    PgKeyValue attr = PG_SLICE_AT(attributes, i);
     PG_ASSERT(-1 == pg_string_indexof_string(attr.key, PG_S("\"")));
 
     *PG_DYN_PUSH(sb, arena) = ' ';
@@ -3368,7 +3364,7 @@ static void pg_html_tag_to_string(PgHtmlElement e, Pgu8Dyn *sb, PgArena *arena);
 static void pg_html_tags_to_string(PgHtmlElementDyn elements, Pgu8Dyn *sb,
                                    PgArena *arena) {
   for (u64 i = 0; i < elements.len; i++) {
-    PgHtmlElement e = PG_DYN_AT(elements, i);
+    PgHtmlElement e = PG_SLICE_AT(elements, i);
     pg_html_tag_to_string(e, sb, arena);
   }
 }
@@ -3805,7 +3801,7 @@ pg_json_encode_string_slice(PgStringSlice strings, PgArena *arena) {
   *PG_DYN_PUSH(&sb, arena) = '[';
 
   for (u64 i = 0; i < strings.len; i++) {
-    PgString s = PG_DYN_AT(strings, i);
+    PgString s = PG_SLICE_AT(strings, i);
     PgString encoded = pg_json_escape_string(s, arena);
     PG_DYN_APPEND_SLICE(&sb, encoded, arena);
 
@@ -4017,7 +4013,7 @@ static PgEventLoopHandle pg_event_loop_make_timer_handle(PgTimer timer,
 [[nodiscard]] [[maybe_unused]]
 static i64 pg_event_loop_find_handle_idx(PgEventLoop *loop, u64 os_handle) {
   for (u64 i = 0; i < loop->handles.len; i++) {
-    PgEventLoopHandle *handle = PG_DYN_AT_PTR(&loop->handles, i);
+    PgEventLoopHandle *handle = PG_SLICE_AT_PTR(&loop->handles, i);
     if (handle->os_handle == os_handle) {
       return (i64)i;
     }
@@ -4032,7 +4028,7 @@ static PgEventLoopHandle *pg_event_loop_find_handle(PgEventLoop *loop,
   if (-1 == idx) {
     return nullptr;
   }
-  return PG_DYN_AT_PTR(&loop->handles, (u64)idx);
+  return PG_SLICE_AT_PTR(&loop->handles, (u64)idx);
 }
 
 [[nodiscard]] [[maybe_unused]]
@@ -4187,7 +4183,7 @@ static PgError pg_event_loop_handle_close(PgEventLoop *loop, u64 os_handle) {
     return PG_ERR_INVALID_VALUE;
   }
 
-  PgEventLoopHandle *handle = PG_DYN_AT_PTR(&loop->handles, (u64)idx);
+  PgEventLoopHandle *handle = PG_SLICE_AT_PTR(&loop->handles, (u64)idx);
   handle->state = PG_EVENT_LOOP_HANDLE_STATE_CLOSING;
 
   return 0;
@@ -4196,7 +4192,7 @@ static PgError pg_event_loop_handle_close(PgEventLoop *loop, u64 os_handle) {
 [[maybe_unused]]
 static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
   for (u64 i = 0; i < loop->handles.len; i++) {
-    PgEventLoopHandle *handle = PG_DYN_AT_PTR(&loop->handles, i);
+    PgEventLoopHandle *handle = PG_SLICE_AT_PTR(&loop->handles, i);
     if (PG_EVENT_LOOP_HANDLE_STATE_CLOSING != handle->state) {
       continue;
     }
