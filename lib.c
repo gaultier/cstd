@@ -966,7 +966,7 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_sb_write(void *self, u8 *buf, size_t buf_len) {
+pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
 
@@ -998,7 +998,7 @@ pg_writer_make_from_sb(Pgu8Dyn *sb, PgArena *arena) {
   PgWriter w = {0};
   w.ctx = sb;
   w.arena = arena;
-  w.write_fn = pg_writer_sb_write;
+  w.write_fn = pg_writer_string_builder_write;
   return w;
 }
 
