@@ -2762,13 +2762,13 @@ pg_http_read_request(PgRing *rg, u64 max_http_headers, PgArena *arena) {
 }
 
 [[maybe_unused]] static PgError
-pg_http_write_request(PgRing *rg, PgHttpRequest res, PgArena arena) {
-  if (!pg_http_request_write_status_line(rg, res, arena)) {
+pg_http_write_request(PgRing *rg, PgHttpRequest req, PgArena arena) {
+  if (!pg_http_request_write_status_line(rg, req, arena)) {
     return (PgError)PG_ERR_OUT_OF_MEMORY;
   }
 
-  for (u64 i = 0; i < res.headers.len; i++) {
-    PgKeyValue header = PG_DYN_AT(res.headers, i);
+  for (u64 i = 0; i < req.headers.len; i++) {
+    PgKeyValue header = PG_DYN_AT(req.headers, i);
     if (!pg_http_write_header(rg, header, arena)) {
       return (PgError)PG_ERR_OUT_OF_MEMORY;
     }
@@ -2778,6 +2778,20 @@ pg_http_write_request(PgRing *rg, PgHttpRequest res, PgArena arena) {
   }
 
   return (PgError)0;
+}
+
+[[maybe_unused]] static PgString pg_http_request_to_string(PgHttpRequest req,
+                                                           PgArena *arena) {
+  // TODO: Tweak this number.
+  PgRing out = pg_ring_make(4096, arena);
+  // TODO: Maybe on error, retry with a larger ring?
+  PG_ASSERT(0 == pg_http_write_request(&out, req, *arena));
+
+  // FIXME: This approach requires 2x the memory!
+  PgString res = pg_string_make(pg_ring_read_space(out), arena);
+  PG_ASSERT(true == pg_ring_write_slice(&out, res));
+
+  return res;
 }
 
 [[maybe_unused]] static PgError
@@ -4323,6 +4337,8 @@ pg_event_loop_dns_resolve_ipv4_tcp(PgEventLoop *loop, PgString host, u16 port,
 
   PgDnsResolveIpv4AddressSocketResult res_dns =
       pg_net_dns_resolve_ipv4_tcp(host, port, loop->arena);
+
+  // FIXME: Add handle.
 
   if (on_dns_resolve) {
     on_dns_resolve(loop, (u64)res_dns.res.socket, ctx, res_dns.err,
