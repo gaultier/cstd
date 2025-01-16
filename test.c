@@ -1629,26 +1629,29 @@ static void test_log() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   // Simple log.
   {
-    StringBuilder sb = {.arena = &arena};
+    Pgu8Dyn sb = {0};
+    PG_DYN_ENSURE_CAP(&sb, 256, &arena);
+
     PgLogger logger = pg_log_make_logger_stdout_json(PG_LOG_LEVEL_DEBUG);
-    logger.writer = pg_writer_make_from_string_builder(&sb);
+    logger.writer = pg_writer_make_from_sb(&sb, &arena);
 
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world", arena,
            PG_L("foo", PG_S("bar")));
 
-    PgString out = PG_DYN_SLICE(PgString, sb.sb);
+    PgString out = PG_DYN_SLICE(PgString, sb);
     PG_ASSERT(pg_string_starts_with(out, PG_S("{\"level\":\"info\"")));
   }
   // PgLog but the logger level is higher.
   {
-    StringBuilder sb = {.arena = &arena};
+    Pgu8Dyn sb = {0};
+    PG_DYN_ENSURE_CAP(&sb, 256, &arena);
     PgLogger logger = pg_log_make_logger_stdout_json(PG_LOG_LEVEL_INFO);
-    logger.writer = pg_writer_make_from_string_builder(&sb);
+    logger.writer = pg_writer_make_from_sb(&sb, &arena);
 
     pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world", arena,
            PG_L("foo", PG_S("bar")));
 
-    PgString out = PG_DYN_SLICE(PgString, sb.sb);
+    PgString out = PG_DYN_SLICE(PgString, sb);
     PG_ASSERT(pg_string_is_empty(out));
   }
 }

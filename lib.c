@@ -1962,7 +1962,7 @@ PG_RESULT(PgString) PgIoResult;
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_unix_read(void *self, u8 *buf, size_t buf_len) {
+pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
 
@@ -2003,20 +2003,6 @@ pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
   }
 
   return res;
-}
-
-typedef struct {
-  Pgu8Dyn sb;
-  PgArena *arena;
-} StringBuilder;
-
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_string_builder_write(void *self, u8 *buf, size_t buf_len) {
-  StringBuilder *sb = self;
-  PgString s = {.data = buf, .len = buf_len};
-  PG_DYN_APPEND_SLICE(&sb->sb, s, sb->arena);
-
-  return (Pgu64Result){.res = buf_len};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgSocket pg_reader_socket(PgReader *r) {
@@ -3015,13 +3001,13 @@ pg_http_write_response(PgRing *rg, PgHttpResponse res, PgArena arena) {
 pg_reader_make_from_socket(PgSocket socket) {
   // TODO: Windows.
   // TODO: recv?
-  return (PgReader){.read_fn = pg_writer_unix_read, .ctx = (void *)(u64)socket};
+  return (PgReader){.read_fn = pg_reader_unix_read, .ctx = (void *)(u64)socket};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgReader
 pg_reader_make_from_file(PgFile file) {
   // TODO: Windows.
-  return (PgReader){.read_fn = pg_writer_unix_read, .ctx = (void *)(u64)file};
+  return (PgReader){.read_fn = pg_reader_unix_read, .ctx = (void *)(u64)file};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgWriter
@@ -3037,11 +3023,6 @@ pg_writer_make_from_file(PgFile *file) {
   return (PgWriter){.write_fn = pg_writer_unix_write, .ctx = (void *)file};
 }
 
-[[maybe_unused]] [[nodiscard]] static PgWriter
-pg_writer_make_from_string_builder(StringBuilder *sb) {
-  return (PgWriter){.write_fn = pg_string_builder_write, .ctx = (void *)sb};
-}
-
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_reader_read(PgReader *r, PgRing *rg, PgArena arena) {
   PG_ASSERT(nullptr != r->read_fn);
@@ -3049,7 +3030,7 @@ pg_reader_read(PgReader *r, PgRing *rg, PgArena arena) {
   Pgu64Result res = {0};
 
   PgString dst = pg_string_make(pg_ring_write_space(*rg), &arena);
-  res = r->read_fn(r->ctx, dst.data, dst.len);
+  res = r->read_fn(r, dst.data, dst.len);
 
   if (res.err) {
     return res;
