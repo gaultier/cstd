@@ -1051,6 +1051,33 @@ pg_reader_make_from_ring(PgRing *ring, PgArena *arena) {
   return r;
 }
 
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_writer_write_from_reader(PgWriter *w, PgReader *r) {
+  Pgu64Result res = {0};
+
+  // TODO: Get a hint from the reader?
+  u8 tmp[4096] = {0};
+  PgString s = {.data = tmp, .len = PG_STATIC_ARRAY_LEN(tmp)};
+
+  res = r->read_fn(r, s.data, s.len);
+  if (res.err) {
+    return res;
+  }
+  s.len = res.res;
+
+  res = w->write_fn(w, s.data, s.len);
+  if (res.err) {
+    return res;
+  }
+
+  if (res.res != s.len) {
+    res.err = PG_ERR_IO;
+    return res;
+  }
+
+  return res;
+}
+
 [[maybe_unused]] static void
 pg_string_builder_append_u64_to_string(Pgu8Dyn *dyn, u64 n, PgArena *arena) {
   u8 tmp[30] = {0};
