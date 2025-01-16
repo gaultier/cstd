@@ -2096,40 +2096,35 @@ static void pg_http_push_header(PgKeyValueDyn *headers, PgString key,
   *PG_DYN_PUSH(headers, arena) = (PgKeyValue){.key = key, .value = value};
 }
 
-[[maybe_unused]] [[nodiscard]] static bool
-pg_http_request_write_status_line(PgRing *rg, PgHttpRequest req,
-                                  PgArena arena) {
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 128, &arena);
-  PG_DYN_APPEND_SLICE(&sb, pg_http_method_to_string(req.method), &arena);
-  PG_DYN_APPEND_SLICE(&sb, PG_S(" /"), &arena);
+[[maybe_unused]] static void
+pg_http_request_write_status_line(Pgu8Dyn *sb, PgHttpRequest req,
+                                  PgArena *arena) {
+  PG_DYN_APPEND_SLICE(sb, pg_http_method_to_string(req.method), arena);
+  PG_DYN_APPEND_SLICE(sb, PG_S(" /"), arena);
 
   for (u64 i = 0; i < req.url.path_components.len; i++) {
     PgString path_component = PG_DYN_AT(req.url.path_components, i);
-    PG_DYN_APPEND_SLICE(&sb, path_component, &arena);
+    PG_DYN_APPEND_SLICE(sb, path_component, arena);
 
     if (i < req.url.path_components.len - 1) {
-      *PG_DYN_PUSH(&sb, &arena) = '/';
+      *PG_DYN_PUSH(sb, arena) = '/';
     }
   }
 
   if (req.url.query_parameters.len > 0) {
-    *PG_DYN_PUSH(&sb, &arena) = '?';
+    *PG_DYN_PUSH(sb, arena) = '?';
     for (u64 i = 0; i < req.url.query_parameters.len; i++) {
       PgKeyValue param = PG_DYN_AT(req.url.query_parameters, i);
-      pg_url_encode_string(&sb, param.key, param.value, &arena);
+      pg_url_encode_string(sb, param.key, param.value, arena);
 
       if (i < req.url.query_parameters.len - 1) {
-        *PG_DYN_PUSH(&sb, &arena) = '&';
+        *PG_DYN_PUSH(sb, arena) = '&';
       }
     }
   }
 
-  PG_DYN_APPEND_SLICE(&sb, PG_S(" HTTP/1.1"), &arena);
-  PG_DYN_APPEND_SLICE(&sb, PG_S("\r\n"), &arena);
-
-  PgString s = PG_DYN_SLICE(PgString, sb);
-  return pg_ring_write_slice(rg, s);
+  PG_DYN_APPEND_SLICE(sb, PG_S(" HTTP/1.1"), arena);
+  PG_DYN_APPEND_SLICE(sb, PG_S("\r\n"), arena);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -2150,9 +2145,8 @@ pg_http_response_write_status_line(PgRing *rg, PgHttpResponse res,
   PgString s = PG_DYN_SLICE(PgString, sb);
   return pg_ring_write_slice(rg, s);
 }
-
 [[maybe_unused]] [[nodiscard]] static bool
-pg_http_write_header(PgRing *rg, PgKeyValue header, PgArena arena) {
+pg_http_write_header_ring(PgRing *rg, PgKeyValue header, PgArena arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 128, &arena);
   PG_DYN_APPEND_SLICE(&sb, header.key, &arena);
@@ -2162,6 +2156,14 @@ pg_http_write_header(PgRing *rg, PgKeyValue header, PgArena arena) {
 
   PgString s = PG_DYN_SLICE(PgString, sb);
   return pg_ring_write_slice(rg, s);
+}
+
+[[maybe_unused]] static void
+pg_http_write_header(Pgu8Dyn *sb, PgKeyValue header, PgArena *arena) {
+  PG_DYN_APPEND_SLICE(sb, header.key, arena);
+  PG_DYN_APPEND_SLICE(sb, PG_S(": "), arena);
+  PG_DYN_APPEND_SLICE(sb, header.value, arena);
+  PG_DYN_APPEND_SLICE(sb, PG_S("\r\n"), arena);
 }
 
 // NOTE: Only sanitation for including the string inside an HTML tag e.g.:
@@ -2761,37 +2763,30 @@ pg_http_read_request(PgRing *rg, u64 max_http_headers, PgArena *arena) {
   return res;
 }
 
-[[maybe_unused]] static PgError
-pg_http_write_request(PgRing *rg, PgHttpRequest req, PgArena arena) {
-  if (!pg_http_request_write_status_line(rg, req, arena)) {
-    return (PgError)PG_ERR_OUT_OF_MEMORY;
-  }
+[[maybe_unused]] static void
+pg_http_write_request(Pgu8Dyn *sb, PgHttpRequest req, PgArena *arena) {
+  pg_http_request_write_status_line(sb, req, arena);
 
   for (u64 i = 0; i < req.headers.len; i++) {
     PgKeyValue header = PG_DYN_AT(req.headers, i);
-    if (!pg_http_write_header(rg, header, arena)) {
-      return (PgError)PG_ERR_OUT_OF_MEMORY;
-    }
+    pg_http_write_header(sb, header, arena);
   }
-  if (!pg_ring_write_slice(rg, PG_S("\r\n"))) {
-    return (PgError)PG_ERR_OUT_OF_MEMORY;
-  }
-
-  return (PgError)0;
+  PG_DYN_APPEND_SLICE(sb, PG_S("\r\n"), arena);
 }
 
 [[maybe_unused]] static PgString pg_http_request_to_string(PgHttpRequest req,
                                                            PgArena *arena) {
-  // TODO: Tweak this number.
-  PgRing out = pg_ring_make(128 + req.headers.len * 128, arena);
-  // TODO: Maybe on error, retry with a larger ring?
-  PG_ASSERT(0 == pg_http_write_request(&out, req, *arena));
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb,
+                    // TODO: Tweak this number?
+                    128 + req.url.path_components.len * 64 +
+                        req.url.query_parameters.len * 64 +
+                        req.headers.len * 128,
+                    arena);
 
-  // FIXME: This approach requires 2x the memory!
-  PgString res = pg_string_make(pg_ring_read_space(out), arena);
-  PG_ASSERT(true == pg_ring_write_slice(&out, res));
+  pg_http_write_request(&sb, req, arena);
 
-  return res;
+  return PG_DYN_SLICE(PgString, sb);
 }
 
 [[maybe_unused]] static PgError
@@ -2801,7 +2796,7 @@ pg_http_write_response(PgRing *rg, PgHttpResponse res, PgArena arena) {
   }
   for (u64 i = 0; i < res.headers.len; i++) {
     PgKeyValue header = PG_DYN_AT(res.headers, i);
-    if (!pg_http_write_header(rg, header, arena)) {
+    if (!pg_http_write_header_ring(rg, header, arena)) {
       return (PgError)PG_ERR_OUT_OF_MEMORY;
     }
   }

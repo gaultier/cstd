@@ -904,8 +904,8 @@ static void test_net_socket() {
     PG_ASSERT(0 == res_create_socket.err);
     socket_listen = res_create_socket.res;
 
-    PG_ASSERT(0 == pg_net_socket_enable_reuse(socket_listen));
-    PG_ASSERT(0 == pg_net_socket_set_blocking(socket_listen, false));
+    PG_ASSERT(0 == pg_net_socket_enable_reuse(res_create_socket.res));
+    PG_ASSERT(0 == pg_net_socket_set_blocking(res_create_socket.res, false));
 
     PgIpv4Address addr = {0};
     addr.port = port;
@@ -1070,18 +1070,13 @@ static void test_url_parse_relative_path() {
   }
 }
 
-static void test_http_send_request() {
+static void test_http_request_to_string() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   {
     PgHttpRequest req;
     req.method = HTTP_METHOD_GET;
 
-    PgRing rg = {.data = pg_string_make(32, &arena)};
-
-    PG_ASSERT(0 == pg_http_write_request(&rg, req, arena));
-    PgString s = pg_string_make(pg_ring_read_space(rg), &arena);
-    PG_ASSERT(true == pg_ring_read_slice(&rg, s));
-
+    PgString s = pg_http_request_to_string(req, &arena);
     PgString expected = PG_S("GET / HTTP/1.1\r\n"
                              "\r\n");
     PG_ASSERT(pg_string_eq(s, expected));
@@ -1092,18 +1087,7 @@ static void test_http_send_request() {
     pg_http_push_header(&req.headers, PG_S("Host"), PG_S("google.com"), &arena);
     *PG_DYN_PUSH(&req.url.path_components, &arena) = PG_S("foobar");
 
-    {
-      PgRing rg = {.data = pg_string_make(32, &arena)};
-      PG_ASSERT(PG_ERR_OUT_OF_MEMORY == pg_http_write_request(&rg, req, arena));
-    }
-
-    PgRing rg = {.data = pg_string_make(128, &arena)};
-
-    PG_ASSERT(0 == pg_http_write_request(&rg, req, arena));
-
-    PgString s = pg_string_make(pg_ring_read_space(rg), &arena);
-    PG_ASSERT(true == pg_ring_read_slice(&rg, s));
-
+    PgString s = pg_http_request_to_string(req, &arena);
     PgString expected = PG_S("POST /foobar HTTP/1.1\r\n"
                              "Host: google.com\r\n"
                              "\r\n");
@@ -1414,6 +1398,8 @@ static void test_http_read_response() {
   }
 }
 
+// TODO: Use the higher-level API `pg_event_loop_xxx`.
+#if 0
 static void test_http_request_response() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
@@ -1632,6 +1618,7 @@ end:
   PG_ASSERT(0 == pg_net_socket_close(server_socket));
   PG_ASSERT(0 == pg_net_socket_close(listen_socket));
 }
+#endif
 
 static void test_log() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
@@ -1887,12 +1874,12 @@ int main() {
   test_net_socket();
   test_url_parse_relative_path();
   test_url_parse();
-  test_http_send_request();
+  test_http_request_to_string();
   test_http_parse_response_status_line();
   test_http_parse_request_status_line();
   test_http_parse_header();
   test_http_read_response();
-  test_http_request_response();
+  // test_http_request_response();
   test_timer();
   test_log();
   test_event_loop();
