@@ -994,6 +994,21 @@ pg_reader_ring_read(void *self, u8 *buf, size_t buf_len) {
   return (Pgu64Result){.res = s.len};
 }
 
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_writer_ring_write(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
+
+  PgWriter *w = self;
+  PgRing *ring = w->ctx;
+
+  PgString s = {.data = buf,
+                .len = PG_MIN(buf_len, pg_ring_write_space(*ring))};
+  PG_ASSERT(true == pg_ring_write_slice(ring, s));
+
+  return (Pgu64Result){.res = s.len};
+}
+
 [[nodiscard]] [[maybe_unused]] static PgWriter
 pg_writer_make_from_string_builder(Pgu8Dyn *sb, PgArena *arena) {
   PgWriter w = {0};
@@ -1003,8 +1018,16 @@ pg_writer_make_from_string_builder(Pgu8Dyn *sb, PgArena *arena) {
   return w;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_writer_write_character(PgWriter *w, u8 c) {
+[[nodiscard]] [[maybe_unused]] static PgWriter
+pg_writer_make_from_ring(PgRing *ring) {
+  PgWriter w = {0};
+  w.ctx = ring;
+  w.write_fn = pg_writer_ring_write;
+  return w;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError pg_writer_write_u8(PgWriter *w,
+                                                                 u8 c) {
   PG_ASSERT(nullptr != w->write_fn);
 
   Pgu64Result res = w->write_fn(w, &c, 1);
@@ -1166,11 +1189,11 @@ static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n) {
   u8 c2 = n / 16;
 
   PgError err = 0;
-  err = pg_writer_write_character(w, pg_u8_to_character_hex_upper(c2));
+  err = pg_writer_write_u8(w, pg_u8_to_character_hex_upper(c2));
   if (err) {
     return err;
   }
-  err = pg_writer_write_character(w, pg_u8_to_character_hex_upper(c1));
+  err = pg_writer_write_u8(w, pg_u8_to_character_hex_upper(c1));
   if (err) {
     return err;
   }
@@ -1321,13 +1344,13 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
   PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
 
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, (address.ip >> 24) & 0xFF));
-  PG_ASSERT(0 == pg_writer_write_character(&w, '.'));
+  PG_ASSERT(0 == pg_writer_write_u8(&w, '.'));
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, (address.ip >> 16) & 0xFF));
-  PG_ASSERT(0 == pg_writer_write_character(&w, '.'));
+  PG_ASSERT(0 == pg_writer_write_u8(&w, '.'));
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, (address.ip >> 8) & 0xFF));
-  PG_ASSERT(0 == pg_writer_write_character(&w, '.'));
+  PG_ASSERT(0 == pg_writer_write_u8(&w, '.'));
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, (address.ip >> 0) & 0xFF));
-  PG_ASSERT(0 == pg_writer_write_character(&w, ':'));
+  PG_ASSERT(0 == pg_writer_write_u8(&w, ':'));
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, address.port));
 
   return PG_DYN_SLICE(PgString, sb);
@@ -2189,12 +2212,12 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value) {
   for (u64 i = 0; i < key.len; i++) {
     u8 c = PG_SLICE_AT(key, i);
     if (pg_character_is_alphanumeric(c)) {
-      err = pg_writer_write_character(w, c);
+      err = pg_writer_write_u8(w, c);
       if (err) {
         return err;
       }
     } else {
-      err = pg_writer_write_character(w, '%');
+      err = pg_writer_write_u8(w, '%');
       if (err) {
         return err;
       }
@@ -2206,7 +2229,7 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value) {
     }
   }
 
-  err = pg_writer_write_character(w, '=');
+  err = pg_writer_write_u8(w, '=');
   if (err) {
     return err;
   }
@@ -2214,12 +2237,12 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value) {
   for (u64 i = 0; i < value.len; i++) {
     u8 c = PG_SLICE_AT(value, i);
     if (pg_character_is_alphanumeric(c)) {
-      err = pg_writer_write_character(w, c);
+      err = pg_writer_write_u8(w, c);
       if (err) {
         return err;
       }
     } else {
-      err = pg_writer_write_character(w, '%');
+      err = pg_writer_write_u8(w, '%');
       if (err) {
         return err;
       }
@@ -2304,7 +2327,7 @@ pg_http_response_write_status_line(PgWriter *w, PgHttpResponse res) {
     return err;
   }
 
-  err = pg_writer_write_character(w, '.');
+  err = pg_writer_write_u8(w, '.');
   if (err) {
     return err;
   }
@@ -2314,7 +2337,7 @@ pg_http_response_write_status_line(PgWriter *w, PgHttpResponse res) {
     return err;
   }
 
-  err = pg_writer_write_character(w, ' ');
+  err = pg_writer_write_u8(w, ' ');
   if (err) {
     return err;
   }
@@ -3757,7 +3780,7 @@ pg_writer_write_json_object_key_string_value_string(PgWriter *w, PgString key,
     return err;
   }
 
-  err = pg_writer_write_character(w, ':');
+  err = pg_writer_write_u8(w, ':');
   if (err) {
     return err;
   }
@@ -3768,7 +3791,7 @@ pg_writer_write_json_object_key_string_value_string(PgWriter *w, PgString key,
     return err;
   }
 
-  err = pg_writer_write_character(w, ',');
+  err = pg_writer_write_u8(w, ',');
   if (err) {
     return err;
   }
@@ -3788,7 +3811,7 @@ pg_writer_write_json_object_key_string_value_u64(PgWriter *w, PgString key,
     return err;
   }
 
-  err = pg_writer_write_character(w, ':');
+  err = pg_writer_write_u8(w, ':');
   if (err) {
     return err;
   }
@@ -3798,7 +3821,7 @@ pg_writer_write_json_object_key_string_value_u64(PgWriter *w, PgString key,
     return err;
   }
 
-  err = pg_writer_write_character(w, ',');
+  err = pg_writer_write_u8(w, ',');
   if (err) {
     return err;
   }
@@ -3815,7 +3838,7 @@ pg_log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena,
   Pgu8Dyn sb = {0};
   PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
 
-  PG_ASSERT(0 == pg_writer_write_character(&w, '{'));
+  PG_ASSERT(0 == pg_writer_write_u8(&w, '{'));
 
   PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_string(
                      &w, PG_S("level"), pg_log_level_to_string(level), arena));

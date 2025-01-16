@@ -1403,7 +1403,6 @@ static void test_http_read_response() {
   }
 }
 
-// TODO: Use the higher-level API `pg_event_loop_xxx`.
 #if 0
 static void test_http_request_response() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
@@ -1464,6 +1463,9 @@ static void test_http_request_response() {
   PgRing server_recv = {.data = pg_string_make(128, &arena)};
   PgRing server_send = {.data = pg_string_make(128, &arena)};
 
+  PgWriter client_send_writer = pg_writer_make_from_ring(&client_send);
+  PgWriter server_send_writer = pg_writer_make_from_ring(&server_send);
+
   bool client_recv_http_io_done = false;
   bool client_send_http_io_done = false;
   bool server_recv_http_io_done = false;
@@ -1523,11 +1525,11 @@ static void test_http_request_response() {
       } else if (event.os_handle == (u64)client_socket) {
         if (PG_AIO_EVENT_KIND_OUT & event.kind) {
           if (!client_send_http_io_done) {
-            pg_http_write_request(&client_send, client_req, arena);
+            pg_http_write_request(&client_send_writer, client_req);
             PG_ASSERT(true == pg_ring_write_slice(&client_send,
                                                   PG_S("client request body")));
             PG_ASSERT(0 ==
-                      pg_writer_write(&client_writer, &client_send, arena).err);
+                      pg_writer_write(&client_send_writer, &client_send, arena).err);
             client_send_http_io_done = true;
 
             // Stop subscribing for writing, start subscribing for reading.
@@ -1577,10 +1579,10 @@ static void test_http_request_response() {
         }
         if (PG_AIO_EVENT_KIND_OUT & event.kind) {
           if (!server_send_http_io_done) {
-            PG_ASSERT(0 ==
-                      pg_http_write_response(&server_send, server_res, arena));
-            PG_ASSERT(0 ==
-                      pg_writer_write(&server_writer, &server_send, arena).err);
+            PG_ASSERT(0 == pg_http_write_response(&server_send, server_res));
+            PG_ASSERT(
+                0 ==
+                pg_writer_write_from_reader(&server_writer, &server_send).err);
             server_send_http_io_done = true;
 
             // Stop subscribing.
