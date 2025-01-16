@@ -4338,7 +4338,11 @@ pg_event_loop_dns_resolve_ipv4_tcp(PgEventLoop *loop, PgString host, u16 port,
   PgDnsResolveIpv4AddressSocketResult res_dns =
       pg_net_dns_resolve_ipv4_tcp(host, port, loop->arena);
 
-  // FIXME: Add handle.
+  PgEventLoopHandle handle =
+      pg_event_loop_make_tcp_handle(res_dns.res.socket, ctx);
+  handle.state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTED;
+
+  *PG_DYN_PUSH(&loop->handles, &loop->arena) = handle;
 
   if (on_dns_resolve) {
     on_dns_resolve(loop, (u64)res_dns.res.socket, ctx, res_dns.err,
