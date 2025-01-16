@@ -2783,7 +2783,7 @@ pg_http_write_request(PgRing *rg, PgHttpRequest req, PgArena arena) {
 [[maybe_unused]] static PgString pg_http_request_to_string(PgHttpRequest req,
                                                            PgArena *arena) {
   // TODO: Tweak this number.
-  PgRing out = pg_ring_make(4096, arena);
+  PgRing out = pg_ring_make(128 + req.headers.len * 128, arena);
   // TODO: Maybe on error, retry with a larger ring?
   PG_ASSERT(0 == pg_http_write_request(&out, req, *arena));
 
@@ -4327,10 +4327,9 @@ pg_event_loop_timer_start(PgEventLoop *loop, PgClockKind clock, u64 ns,
 }
 
 [[nodiscard]] [[maybe_unused]]
-static Pgu64Result
-pg_event_loop_dns_resolve_ipv4_tcp(PgEventLoop *loop, PgString host, u16 port,
-                                   PgEventLoopOnDnsResolve on_dns_resolve,
-                                   void *ctx) {
+static Pgu64Result pg_event_loop_dns_resolve_ipv4_tcp_start(
+    PgEventLoop *loop, PgString host, u16 port,
+    PgEventLoopOnDnsResolve on_dns_resolve, void *ctx) {
   Pgu64Result res = {0};
 
   // TODO: Run in a thread (pool).
