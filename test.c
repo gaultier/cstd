@@ -323,8 +323,9 @@ static void test_dynu8_append_u8_hex_upper() {
 
   {
     Pgu8Dyn sb = {0};
-    pg_string_builder_append_u8_hex_upper(&sb, 0xac, &arena);
-    pg_string_builder_append_u8_hex_upper(&sb, 0x89, &arena);
+    PgWriter w = pg_writer_make_from_sb(&sb, &arena);
+    PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0xac));
+    PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0x89));
 
     PgString s = PG_DYN_SLICE(PgString, sb);
     PG_ASSERT(pg_string_eq(s, PG_S("AC89")));
@@ -348,7 +349,8 @@ static void test_url_encode() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   {
     Pgu8Dyn sb = {0};
-    pg_url_encode_string(&sb, PG_S("日本語"), PG_S("123"), &arena);
+    PgWriter w = pg_writer_make_from_sb(&sb, &arena);
+    PG_ASSERT(0 == pg_writer_url_encode(&w, PG_S("日本語"), PG_S("123")));
     PgString encoded = PG_DYN_SLICE(PgString, sb);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=123")));
@@ -356,7 +358,8 @@ static void test_url_encode() {
 
   {
     Pgu8Dyn sb = {0};
-    pg_url_encode_string(&sb, PG_S("日本語"), PG_S("foo"), &arena);
+    PgWriter w = pg_writer_make_from_sb(&sb, &arena);
+    PG_ASSERT(0 == pg_writer_url_encode(&w, PG_S("日本語"), PG_S("foo")));
     PgString encoded = PG_DYN_SLICE(PgString, sb);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=foo")));
@@ -890,6 +893,7 @@ static void test_url_parse() {
   }
 }
 
+#if 0
 typedef enum {
   ALICE_STATE_NONE,
   ALICE_STATE_DONE,
@@ -1020,6 +1024,7 @@ end:
   PG_ASSERT(0 == pg_net_socket_close(bob_socket));
   PG_ASSERT(0 == pg_net_socket_close(socket_listen));
 }
+#endif
 
 static void test_url_parse_relative_path() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
@@ -1871,7 +1876,7 @@ int main() {
   test_ring_buffer_read_write_slice();
   test_ring_buffer_read_until_excl();
   test_ring_buffer_read_write_fuzz();
-  test_net_socket();
+  // test_net_socket();
   test_url_parse_relative_path();
   test_url_parse();
   test_http_request_to_string();

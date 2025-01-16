@@ -754,6 +754,7 @@ typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 typedef struct {
   void *ctx;
   ReadFn read_fn;
+  PgArena *arena; // TODO: Should it be instead in DYN_ structs?
 } PgReader;
 
 typedef struct {
@@ -761,6 +762,212 @@ typedef struct {
   WriteFn write_fn;
   PgArena *arena; // TODO: Should it be instead in DYN_ structs?
 } PgWriter;
+
+typedef struct {
+  u64 idx_read, idx_write;
+  PgString data;
+} PgRing;
+
+[[maybe_unused]] static PgRing pg_ring_make(u64 cap, PgArena *arena) {
+  return (PgRing){.data = pg_string_make(cap, arena)};
+}
+
+[[maybe_unused]] [[nodiscard]] static u64 pg_ring_write_space(PgRing rg) {
+  if (rg.idx_write == rg.idx_read) { // Empty.
+    return rg.data.len - 1;
+  } else if (rg.idx_write < rg.idx_read) { // Easy case.
+    u64 res = rg.idx_read - rg.idx_write - 1;
+    PG_ASSERT(res < rg.data.len);
+    return res;
+  } else if (rg.idx_write > rg.idx_read) { // Hard case.
+    u64 can_write1 = rg.data.len - rg.idx_write;
+    u64 can_write2 = rg.idx_read;
+    if (can_write1 >= 1 && rg.idx_read == 0) {
+      can_write1 -= 1; // Reserve empty slot.
+    } else if (can_write2 >= 1) {
+      PG_ASSERT(rg.idx_read > 0);
+      can_write2 -= 1;
+    }
+    PG_ASSERT(can_write1 <= rg.data.len - 1);
+    PG_ASSERT(can_write2 <= rg.data.len - 1);
+    return can_write1 + can_write2;
+  }
+  PG_ASSERT(0);
+}
+
+[[maybe_unused]] [[nodiscard]] static u64 pg_ring_read_space(PgRing rg) {
+  if (rg.idx_write == rg.idx_read) { // Empty.
+    return 0;
+  } else if (rg.idx_read < rg.idx_write) { // Easy case.
+    u64 res = rg.idx_write - rg.idx_read;
+    PG_ASSERT(res < rg.data.len);
+    return res;
+  } else if (rg.idx_read > rg.idx_write) { // Hard case.
+    u64 can_read1 = rg.data.len - rg.idx_read;
+    u64 can_read2 = rg.idx_write;
+    return can_read1 + can_read2;
+  }
+  PG_ASSERT(0);
+}
+
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_write_slice(PgRing *rg,
+                                                               PgString data) {
+  PG_ASSERT(nullptr != rg->data.data);
+  PG_ASSERT(rg->idx_read <= rg->data.len);
+  PG_ASSERT(rg->idx_write <= rg->data.len);
+  PG_ASSERT(rg->data.len > 0);
+
+  if (rg->idx_write < rg->idx_read) { // Easy case.
+    u64 space = rg->idx_read - rg->idx_write - 1;
+    PG_ASSERT(space <= rg->data.len);
+
+    if (data.len > space) {
+      return false;
+    }
+    memcpy(rg->data.data + rg->idx_write, data.data, data.len);
+    rg->idx_write += data.len;
+    PG_ASSERT(rg->idx_write <= rg->data.len);
+    PG_ASSERT(rg->idx_write < rg->idx_read);
+  } else { // Hard case: need potentially two writes.
+    PG_ASSERT(rg->idx_write >= rg->idx_read);
+
+    u64 can_write1 = rg->data.len - rg->idx_write;
+
+    u64 can_write2 = rg->idx_read;
+    if (can_write1 >= 1 && rg->idx_read == 0) {
+      can_write1 -= 1; // Reserve empty slot.
+    } else if (can_write2 >= 1) {
+      PG_ASSERT(rg->idx_read > 0);
+      can_write2 -= 1;
+    }
+    PG_ASSERT(can_write1 <= rg->data.len - 1);
+    PG_ASSERT(can_write2 <= rg->data.len - 1);
+
+    u64 can_write = can_write1 + can_write2;
+    if (can_write < data.len) {
+      return false;
+    }
+
+    u64 write_len1 = PG_MIN(can_write1, data.len);
+    PG_ASSERT(rg->idx_write + write_len1 <= rg->data.len);
+    PG_ASSERT(write_len1 <= data.len);
+    memcpy(rg->data.data + rg->idx_write, data.data, write_len1);
+    rg->idx_write += write_len1;
+    if (rg->idx_write == rg->data.len) {
+      rg->idx_write = 0;
+    }
+    PG_ASSERT(rg->idx_write < rg->data.len);
+
+    u64 write_len2 = data.len - write_len1;
+    if (write_len2 > 0) {
+      PG_ASSERT(rg->idx_write = rg->data.len - 1);
+
+      PG_ASSERT(write_len2 + 1 <= rg->idx_read);
+      PG_ASSERT(write_len1 + write_len2 <= data.len);
+      memcpy(rg->data.data, data.data + write_len1, write_len2);
+      rg->idx_write = write_len2;
+      PG_ASSERT(rg->idx_write + 1 <= rg->idx_read);
+    }
+  }
+
+  return true;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_read_slice(PgRing *rg,
+                                                              PgString data) {
+  PG_ASSERT(nullptr != rg->data.data);
+  PG_ASSERT(rg->idx_read <= rg->data.len);
+  PG_ASSERT(rg->idx_write <= rg->data.len);
+  PG_ASSERT(rg->data.len > 0);
+
+  if (0 == data.len) {
+    return true;
+  }
+  PG_ASSERT(nullptr != data.data);
+
+  if (rg->idx_write == rg->idx_read) { // Empty.
+    return false;
+  } else if (rg->idx_read < rg->idx_write) { // Easy case.
+    u64 can_read = rg->idx_write - rg->idx_read;
+    if (data.len > can_read) {
+      return false;
+    }
+    u64 n_read = PG_MIN(data.len, can_read);
+
+    memcpy(data.data, rg->data.data + rg->idx_read, n_read);
+    rg->idx_read += n_read;
+    PG_ASSERT(rg->idx_read < rg->data.len);
+  } else { // Hard case: potentially 2 reads.
+    PG_ASSERT(rg->idx_read > rg->idx_write);
+    u64 can_read1 = rg->data.len - rg->idx_read;
+    u64 can_read2 = rg->idx_write;
+    u64 can_read = can_read1 + can_read2;
+    if (can_read < data.len) {
+      // TODO: Should we do short reads like `read(2)`?
+      return false;
+    }
+
+    u64 read_len1 = PG_MIN(can_read1, data.len);
+    PG_ASSERT(read_len1 <= data.len);
+    PG_ASSERT(read_len1 <= rg->data.len);
+
+    memcpy(data.data, rg->data.data + rg->idx_read, read_len1);
+    rg->idx_read += read_len1;
+    if (rg->idx_read == rg->data.len) {
+      rg->idx_read = 0;
+    }
+    PG_ASSERT(rg->idx_read < rg->data.len);
+    PG_ASSERT(rg->idx_write < rg->data.len);
+
+    u64 read_len2 = data.len - read_len1;
+    if (read_len2 > 0) {
+      PG_ASSERT(0 == rg->idx_read);
+
+      memcpy(data.data + read_len1, rg->data.data, read_len2);
+      rg->idx_read += read_len2;
+      PG_ASSERT(rg->idx_read <= data.len);
+      PG_ASSERT(rg->idx_read <= rg->data.len);
+      PG_ASSERT(rg->idx_read <= rg->idx_write);
+    }
+  }
+
+  return true;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgStringOk
+pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
+  PgStringOk res = {0};
+  i64 idx = -1;
+
+  {
+    PgRing cpy_rg = *rg;
+    PgArena cpy_arena = *arena;
+
+    PgString dst = pg_string_make(pg_ring_read_space(*rg), arena);
+    PG_ASSERT(pg_ring_read_slice(rg, dst));
+    *rg = cpy_rg;       // Reset.
+    *arena = cpy_arena; // Reset.
+
+    idx = pg_string_indexof_string(dst, needle);
+    if (-1 == idx) {
+      return res;
+    }
+  }
+
+  res.ok = true;
+  res.res = pg_string_make((u64)idx, arena);
+  PG_ASSERT(pg_ring_read_slice(rg, res.res));
+
+  // Read and throw away the needle.
+  {
+    PgArena pg_arena_tmp = *arena;
+    PgString dst_needle = pg_string_make(needle.len, &pg_arena_tmp);
+    PG_ASSERT(pg_ring_read_slice(rg, dst_needle));
+    PG_ASSERT(pg_string_eq(needle, dst_needle));
+  }
+
+  return res;
+}
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_writer_sb_write(void *self, u8 *buf, size_t buf_len) {
@@ -774,6 +981,20 @@ pg_writer_sb_write(void *self, u8 *buf, size_t buf_len) {
   PG_DYN_APPEND_SLICE(sb, s, w->arena);
 
   return (Pgu64Result){.res = buf_len};
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_reader_ring_read(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
+
+  PgReader *r = self;
+  PgRing *ring = r->ctx;
+
+  PgString s = {.data = buf, .len = PG_MIN(buf_len, pg_ring_read_space(*ring))};
+  PG_ASSERT(true == pg_ring_read_slice(ring, s));
+
+  return (Pgu64Result){.res = s.len};
 }
 
 [[nodiscard]] [[maybe_unused]] static PgWriter
@@ -819,6 +1040,15 @@ pg_writer_write_all_string(PgWriter *w, PgString s) {
     remaining = PG_SLICE_RANGE_START(remaining, res.res);
   }
   return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgReader
+pg_reader_make_from_ring(PgRing *ring, PgArena *arena) {
+  PgReader r = {0};
+  r.ctx = ring;
+  r.arena = arena;
+  r.read_fn = pg_reader_ring_read;
+  return r;
 }
 
 [[maybe_unused]] static void
@@ -1712,6 +1942,7 @@ pg_writer_unix_read(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != buf);
 
   PgReader *r = self;
+  PG_ASSERT(0 != (u64)r->ctx);
 
   int fd = (int)(u64)r->ctx;
   ssize_t n = read(fd, buf, buf_len);
@@ -1734,6 +1965,7 @@ pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != buf);
 
   PgWriter *w = self;
+  PG_ASSERT(0 != (u64)w->ctx);
 
   int fd = (int)(u64)w->ctx;
   ssize_t n = write(fd, buf, buf_len);
@@ -1760,216 +1992,6 @@ pg_string_builder_write(void *self, u8 *buf, size_t buf_len) {
   PG_DYN_APPEND_SLICE(&sb->sb, s, sb->arena);
 
   return (Pgu64Result){.res = buf_len};
-}
-
-typedef struct {
-  u64 idx_read, idx_write;
-  PgString data;
-} PgRing;
-
-[[nodiscard]] [[maybe_unused]] static bool pg_ring_is_empty(PgRing rg) {
-  return rg.idx_read == rg.idx_write;
-}
-
-[[maybe_unused]] static PgRing pg_ring_make(u64 cap, PgArena *arena) {
-  return (PgRing){.data = pg_string_make(cap, arena)};
-}
-
-[[maybe_unused]] [[nodiscard]] static u64 pg_ring_write_space(PgRing rg) {
-  if (rg.idx_write == rg.idx_read) { // Empty.
-    return rg.data.len - 1;
-  } else if (rg.idx_write < rg.idx_read) { // Easy case.
-    u64 res = rg.idx_read - rg.idx_write - 1;
-    PG_ASSERT(res < rg.data.len);
-    return res;
-  } else if (rg.idx_write > rg.idx_read) { // Hard case.
-    u64 can_write1 = rg.data.len - rg.idx_write;
-    u64 can_write2 = rg.idx_read;
-    if (can_write1 >= 1 && rg.idx_read == 0) {
-      can_write1 -= 1; // Reserve empty slot.
-    } else if (can_write2 >= 1) {
-      PG_ASSERT(rg.idx_read > 0);
-      can_write2 -= 1;
-    }
-    PG_ASSERT(can_write1 <= rg.data.len - 1);
-    PG_ASSERT(can_write2 <= rg.data.len - 1);
-    return can_write1 + can_write2;
-  }
-  PG_ASSERT(0);
-}
-
-[[maybe_unused]] [[nodiscard]] static u64 pg_ring_read_space(PgRing rg) {
-  if (rg.idx_write == rg.idx_read) { // Empty.
-    return 0;
-  } else if (rg.idx_read < rg.idx_write) { // Easy case.
-    u64 res = rg.idx_write - rg.idx_read;
-    PG_ASSERT(res < rg.data.len);
-    return res;
-  } else if (rg.idx_read > rg.idx_write) { // Hard case.
-    u64 can_read1 = rg.data.len - rg.idx_read;
-    u64 can_read2 = rg.idx_write;
-    return can_read1 + can_read2;
-  }
-  PG_ASSERT(0);
-}
-
-[[maybe_unused]] [[nodiscard]] static bool pg_ring_write_slice(PgRing *rg,
-                                                               PgString data) {
-  PG_ASSERT(nullptr != rg->data.data);
-  PG_ASSERT(rg->idx_read <= rg->data.len);
-  PG_ASSERT(rg->idx_write <= rg->data.len);
-  PG_ASSERT(rg->data.len > 0);
-
-  if (rg->idx_write < rg->idx_read) { // Easy case.
-    u64 space = rg->idx_read - rg->idx_write - 1;
-    PG_ASSERT(space <= rg->data.len);
-
-    if (data.len > space) {
-      return false;
-    }
-    memcpy(rg->data.data + rg->idx_write, data.data, data.len);
-    rg->idx_write += data.len;
-    PG_ASSERT(rg->idx_write <= rg->data.len);
-    PG_ASSERT(rg->idx_write < rg->idx_read);
-  } else { // Hard case: need potentially two writes.
-    PG_ASSERT(rg->idx_write >= rg->idx_read);
-
-    u64 can_write1 = rg->data.len - rg->idx_write;
-
-    u64 can_write2 = rg->idx_read;
-    if (can_write1 >= 1 && rg->idx_read == 0) {
-      can_write1 -= 1; // Reserve empty slot.
-    } else if (can_write2 >= 1) {
-      PG_ASSERT(rg->idx_read > 0);
-      can_write2 -= 1;
-    }
-    PG_ASSERT(can_write1 <= rg->data.len - 1);
-    PG_ASSERT(can_write2 <= rg->data.len - 1);
-
-    u64 can_write = can_write1 + can_write2;
-    if (can_write < data.len) {
-      return false;
-    }
-
-    u64 write_len1 = PG_MIN(can_write1, data.len);
-    PG_ASSERT(rg->idx_write + write_len1 <= rg->data.len);
-    PG_ASSERT(write_len1 <= data.len);
-    memcpy(rg->data.data + rg->idx_write, data.data, write_len1);
-    rg->idx_write += write_len1;
-    if (rg->idx_write == rg->data.len) {
-      rg->idx_write = 0;
-    }
-    PG_ASSERT(rg->idx_write < rg->data.len);
-
-    u64 write_len2 = data.len - write_len1;
-    if (write_len2 > 0) {
-      PG_ASSERT(rg->idx_write = rg->data.len - 1);
-
-      PG_ASSERT(write_len2 + 1 <= rg->idx_read);
-      PG_ASSERT(write_len1 + write_len2 <= data.len);
-      memcpy(rg->data.data, data.data + write_len1, write_len2);
-      rg->idx_write = write_len2;
-      PG_ASSERT(rg->idx_write + 1 <= rg->idx_read);
-    }
-  }
-
-  return true;
-}
-
-[[maybe_unused]] [[nodiscard]] static bool pg_ring_read_slice(PgRing *rg,
-                                                              PgString data) {
-  PG_ASSERT(nullptr != rg->data.data);
-  PG_ASSERT(rg->idx_read <= rg->data.len);
-  PG_ASSERT(rg->idx_write <= rg->data.len);
-  PG_ASSERT(rg->data.len > 0);
-
-  if (0 == data.len) {
-    return true;
-  }
-  PG_ASSERT(nullptr != data.data);
-
-  if (rg->idx_write == rg->idx_read) { // Empty.
-    return false;
-  } else if (rg->idx_read < rg->idx_write) { // Easy case.
-    u64 can_read = rg->idx_write - rg->idx_read;
-    if (data.len > can_read) {
-      return false;
-    }
-    u64 n_read = PG_MIN(data.len, can_read);
-
-    memcpy(data.data, rg->data.data + rg->idx_read, n_read);
-    rg->idx_read += n_read;
-    PG_ASSERT(rg->idx_read < rg->data.len);
-  } else { // Hard case: potentially 2 reads.
-    PG_ASSERT(rg->idx_read > rg->idx_write);
-    u64 can_read1 = rg->data.len - rg->idx_read;
-    u64 can_read2 = rg->idx_write;
-    u64 can_read = can_read1 + can_read2;
-    if (can_read < data.len) {
-      // TODO: Should we do short reads like `read(2)`?
-      return false;
-    }
-
-    u64 read_len1 = PG_MIN(can_read1, data.len);
-    PG_ASSERT(read_len1 <= data.len);
-    PG_ASSERT(read_len1 <= rg->data.len);
-
-    memcpy(data.data, rg->data.data + rg->idx_read, read_len1);
-    rg->idx_read += read_len1;
-    if (rg->idx_read == rg->data.len) {
-      rg->idx_read = 0;
-    }
-    PG_ASSERT(rg->idx_read < rg->data.len);
-    PG_ASSERT(rg->idx_write < rg->data.len);
-
-    u64 read_len2 = data.len - read_len1;
-    if (read_len2 > 0) {
-      PG_ASSERT(0 == rg->idx_read);
-
-      memcpy(data.data + read_len1, rg->data.data, read_len2);
-      rg->idx_read += read_len2;
-      PG_ASSERT(rg->idx_read <= data.len);
-      PG_ASSERT(rg->idx_read <= rg->data.len);
-      PG_ASSERT(rg->idx_read <= rg->idx_write);
-    }
-  }
-
-  return true;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgStringOk
-pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
-  PgStringOk res = {0};
-  i64 idx = -1;
-
-  {
-    PgRing cpy_rg = *rg;
-    PgArena cpy_arena = *arena;
-
-    PgString dst = pg_string_make(pg_ring_read_space(*rg), arena);
-    PG_ASSERT(pg_ring_read_slice(rg, dst));
-    *rg = cpy_rg;       // Reset.
-    *arena = cpy_arena; // Reset.
-
-    idx = pg_string_indexof_string(dst, needle);
-    if (-1 == idx) {
-      return res;
-    }
-  }
-
-  res.ok = true;
-  res.res = pg_string_make((u64)idx, arena);
-  PG_ASSERT(pg_ring_read_slice(rg, res.res));
-
-  // Read and throw away the needle.
-  {
-    PgArena pg_arena_tmp = *arena;
-    PgString dst_needle = pg_string_make(needle.len, &pg_arena_tmp);
-    PG_ASSERT(pg_ring_read_slice(rg, dst_needle));
-    PG_ASSERT(pg_string_eq(needle, dst_needle));
-  }
-
-  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgSocket pg_reader_socket(PgReader *r) {
@@ -2144,7 +2166,7 @@ static void pg_http_push_header(PgKeyValueDyn *headers, PgString key,
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_url_encode_string(PgWriter *w, PgString key, PgString value) {
+pg_writer_url_encode(PgWriter *w, PgString key, PgString value) {
   PgError err = 0;
 
   for (u64 i = 0; i < key.len; i++) {
@@ -2230,7 +2252,7 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req) {
 
     for (u64 i = 0; i < req.url.query_parameters.len; i++) {
       PgKeyValue param = PG_SLICE_AT(req.url.query_parameters, i);
-      err = pg_url_encode_string(w, param.key, param.value);
+      err = pg_writer_url_encode(w, param.key, param.value);
       if (err) {
         return err;
       }
@@ -3013,16 +3035,6 @@ pg_reader_read(PgReader *r, PgRing *rg, PgArena arena) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_write(PgWriter *w, PgRing *rg, PgArena arena) {
-  PG_ASSERT(nullptr != w->write_fn);
-
-  PgString dst = pg_string_make(pg_ring_read_space(*rg), &arena);
-  PG_ASSERT(true == pg_ring_read_slice(rg, dst));
-
-  return w->write_fn(w->ctx, dst.data, dst.len);
-}
-
 #if 0
 [[nodiscard]] static PgParseNumberResult
 request_parse_content_length_maybe(PgHttpRequest req, PgArena *arena) {
@@ -3621,7 +3633,7 @@ pg_log_entry_slice(PgString k, PgString v) {
     PgString xxx_log_line =                                                    \
         pg_log_make_log_line(lvl, PG_S(msg), &xxx_tmp_arena,                   \
                              PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);     \
-    (logger)->writer.write_fn((logger)->writer.ctx, xxx_log_line.data,         \
+    (logger)->writer.write_fn(&(logger)->writer, xxx_log_line.data,            \
                               xxx_log_line.len);                               \
   } while (0)
 
@@ -4314,8 +4326,8 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
           pg_ring_read_space(handle->ring_write) > 0) {
         {
           PgArena arena_tmp = loop->arena;
-          Pgu64Result res_write =
-              pg_writer_write(&handle->writer, &handle->ring_write, arena_tmp);
+          Pgu64Result res_write = pg_writer_write_from_reader(
+              &handle->writer, &handle->ring_write, arena_tmp);
 
           if (handle->on_write) {
             handle->on_write(loop, handle->os_handle, handle->ctx,
