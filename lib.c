@@ -1076,16 +1076,17 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r) {
   return res;
 }
 
-[[maybe_unused]] static void
-pg_string_builder_append_u64_to_string(Pgu8Dyn *dyn, u64 n, PgArena *arena) {
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_writer_write_u64_as_string(PgWriter *w, u64 n) {
   u8 tmp[30] = {0};
-  // TODO: Not use snprintf.
+  // TODO: Not use snprintf?
   const int written_count = snprintf((char *)tmp, sizeof(tmp), "%lu", n);
 
   PG_ASSERT(written_count > 0);
 
   PgString s = {.data = tmp, .len = (u64)written_count};
-  PG_DYN_APPEND_SLICE(dyn, s, arena);
+
+  return pg_writer_write_all_string(w, s);
 }
 
 [[maybe_unused]] static void pg_u32_to_u8x4_be(u32 n, PgString *dst) {
@@ -1109,7 +1110,10 @@ pg_string_builder_append_u64_to_string(Pgu8Dyn *dyn, u64 n, PgArena *arena) {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_u64_to_string(u64 n, PgArena *arena) {
   Pgu8Dyn sb = {0};
-  pg_string_builder_append_u64_to_string(&sb, n, arena);
+  PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
+
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
+
   return PG_DYN_SLICE(PgString, sb);
 }
 
@@ -1314,15 +1318,17 @@ PG_DYN(PgIpv4Address) PgIpv4AddressDyn;
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
   Pgu8Dyn sb = {0};
-  pg_string_builder_append_u64_to_string(&sb, (address.ip >> 24) & 0xFF, arena);
-  *PG_DYN_PUSH(&sb, arena) = '.';
-  pg_string_builder_append_u64_to_string(&sb, (address.ip >> 16) & 0xFF, arena);
-  *PG_DYN_PUSH(&sb, arena) = '.';
-  pg_string_builder_append_u64_to_string(&sb, (address.ip >> 8) & 0xFF, arena);
-  *PG_DYN_PUSH(&sb, arena) = '.';
-  pg_string_builder_append_u64_to_string(&sb, (address.ip >> 0) & 0xFF, arena);
-  *PG_DYN_PUSH(&sb, arena) = ':';
-  pg_string_builder_append_u64_to_string(&sb, address.port, arena);
+  PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
+
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, (address.ip >> 24) & 0xFF));
+  PG_ASSERT(0 == pg_writer_write_character(&w, '.'));
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, (address.ip >> 16) & 0xFF));
+  PG_ASSERT(0 == pg_writer_write_character(&w, '.'));
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, (address.ip >> 8) & 0xFF));
+  PG_ASSERT(0 == pg_writer_write_character(&w, '.'));
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, (address.ip >> 0) & 0xFF));
+  PG_ASSERT(0 == pg_writer_write_character(&w, ':'));
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, address.port));
 
   return PG_DYN_SLICE(PgString, sb);
 }
@@ -2284,35 +2290,46 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool
-pg_http_response_write_status_line(PgRing *rg, PgHttpResponse res,
-                                   PgArena arena) {
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 128, &arena);
-  PG_DYN_APPEND_SLICE(&sb, PG_S("HTTP/"), &arena);
-  pg_string_builder_append_u64_to_string(&sb, res.version_major, &arena);
-  PG_DYN_APPEND_SLICE(&sb, PG_S("."), &arena);
-  pg_string_builder_append_u64_to_string(&sb, res.version_minor, &arena);
-  PG_DYN_APPEND_SLICE(&sb, PG_S(" "), &arena);
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_http_response_write_status_line(PgWriter *w, PgHttpResponse res) {
+  PgError err = 0;
 
-  pg_string_builder_append_u64_to_string(&sb, res.status, &arena);
+  err = pg_writer_write_all_string(w, PG_S("HTTP/"));
+  if (err) {
+    return err;
+  }
 
-  PG_DYN_APPEND_SLICE(&sb, PG_S(" \r\n"), &arena);
+  err = pg_writer_write_u64_as_string(w, res.version_major);
+  if (err) {
+    return err;
+  }
 
-  PgString s = PG_DYN_SLICE(PgString, sb);
-  return pg_ring_write_slice(rg, s);
-}
-[[maybe_unused]] [[nodiscard]] static bool
-pg_http_write_header_ring(PgRing *rg, PgKeyValue header, PgArena arena) {
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 128, &arena);
-  PG_DYN_APPEND_SLICE(&sb, header.key, &arena);
-  PG_DYN_APPEND_SLICE(&sb, PG_S(": "), &arena);
-  PG_DYN_APPEND_SLICE(&sb, header.value, &arena);
-  PG_DYN_APPEND_SLICE(&sb, PG_S("\r\n"), &arena);
+  err = pg_writer_write_character(w, '.');
+  if (err) {
+    return err;
+  }
 
-  PgString s = PG_DYN_SLICE(PgString, sb);
-  return pg_ring_write_slice(rg, s);
+  err = pg_writer_write_u64_as_string(w, res.version_minor);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_character(w, ' ');
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_u64_as_string(w, res.status);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_all_string(w, PG_S("\r\n"));
+  if (err) {
+    return err;
+  }
+
+  return 0;
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
@@ -2979,22 +2996,28 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req) {
   return PG_DYN_SLICE(PgString, sb);
 }
 
-[[maybe_unused]] static PgError
-pg_http_write_response(PgRing *rg, PgHttpResponse res, PgArena arena) {
-  if (!pg_http_response_write_status_line(rg, res, arena)) {
-    return (PgError)PG_ERR_OUT_OF_MEMORY;
+[[maybe_unused]] static PgError pg_http_write_response(PgWriter *w,
+                                                       PgHttpResponse res) {
+  PgError err = 0;
+
+  err = pg_http_response_write_status_line(w, res);
+  if (err) {
+    return err;
   }
+
   for (u64 i = 0; i < res.headers.len; i++) {
     PgKeyValue header = PG_SLICE_AT(res.headers, i);
-    if (!pg_http_write_header_ring(rg, header, arena)) {
-      return (PgError)PG_ERR_OUT_OF_MEMORY;
+    err = pg_http_write_header(w, header);
+    if (err) {
+      return err;
     }
   }
-  if (!pg_ring_write_slice(rg, PG_S("\r\n"))) {
-
-    return (PgError)PG_ERR_OUT_OF_MEMORY;
+  err = pg_writer_write_all_string(w, PG_S("\r\n"));
+  if (err) {
+    return err;
   }
-  return (PgError)0;
+
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgReader
@@ -3721,35 +3744,65 @@ pg_json_unescape_string(PgString entry, PgArena *arena) {
   return PG_DYN_SLICE(PgString, sb);
 }
 
-[[maybe_unused]] static void
-pg_string_builder_append_json_object_key_string_value_string(Pgu8Dyn *sb,
-                                                             PgString key,
-                                                             PgString value,
-                                                             PgArena *arena) {
-  PgString pg_json_key = pg_json_escape_string(key, arena);
-  PG_DYN_APPEND_SLICE(sb, pg_json_key, arena);
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_writer_write_json_object_key_string_value_string(PgWriter *w, PgString key,
+                                                    PgString value,
+                                                    PgArena *arena) {
+  PgError err = 0;
 
-  PG_DYN_APPEND_SLICE(sb, PG_S(":"), arena);
+  PgString pg_json_key = pg_json_escape_string(key, arena);
+
+  err = pg_writer_write_all_string(w, pg_json_key);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_character(w, ':');
+  if (err) {
+    return err;
+  }
 
   PgString pg_json_value = pg_json_escape_string(value, arena);
-  PG_DYN_APPEND_SLICE(sb, pg_json_value, arena);
+  err = pg_writer_write_all_string(w, pg_json_value);
+  if (err) {
+    return err;
+  }
 
-  PG_DYN_APPEND_SLICE(sb, PG_S(","), arena);
+  err = pg_writer_write_character(w, ',');
+  if (err) {
+    return err;
+  }
+
+  return 0;
 }
 
-[[maybe_unused]] static void
-pg_string_builder_append_json_object_key_string_value_u64(Pgu8Dyn *sb,
-                                                          PgString key,
-                                                          u64 value,
-                                                          PgArena *arena) {
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_writer_write_json_object_key_string_value_u64(PgWriter *w, PgString key,
+                                                 u64 value, PgArena *arena) {
+  PgError err = 0;
+
   PgString pg_json_key = pg_json_escape_string(key, arena);
-  PG_DYN_APPEND_SLICE(sb, pg_json_key, arena);
 
-  PG_DYN_APPEND_SLICE(sb, PG_S(":"), arena);
+  err = pg_writer_write_all_string(w, pg_json_key);
+  if (err) {
+    return err;
+  }
 
-  pg_string_builder_append_u64_to_string(sb, value, arena);
+  err = pg_writer_write_character(w, ':');
+  if (err) {
+    return err;
+  }
 
-  PG_DYN_APPEND_SLICE(sb, PG_S(","), arena);
+  err = pg_writer_write_u64_as_string(w, value);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_character(w, ',');
+  if (err) {
+    return err;
+  }
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
@@ -3760,16 +3813,18 @@ pg_log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena,
   // Ignore clock errors.
 
   Pgu8Dyn sb = {0};
-  *PG_DYN_PUSH(&sb, arena) = '{';
+  PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
 
-  pg_string_builder_append_json_object_key_string_value_string(
-      &sb, PG_S("level"), pg_log_level_to_string(level), arena);
-  pg_string_builder_append_json_object_key_string_value_u64(
-      &sb, PG_S("timestamp_ns"), res_timestamp_ns.res, arena);
-  pg_string_builder_append_json_object_key_string_value_u64(
-      &sb, PG_S("monotonic_ns"), res_monotonic_ns.res, arena);
-  pg_string_builder_append_json_object_key_string_value_string(
-      &sb, PG_S("message"), msg, arena);
+  PG_ASSERT(0 == pg_writer_write_character(&w, '{'));
+
+  PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_string(
+                     &w, PG_S("level"), pg_log_level_to_string(level), arena));
+  PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_u64(
+                     &w, PG_S("timestamp_ns"), res_timestamp_ns.res, arena));
+  PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_u64(
+                     &w, PG_S("monotonic_ns"), res_monotonic_ns.res, arena));
+  PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_string(
+                     &w, PG_S("message"), msg, arena));
 
   va_list argp = {0};
   va_start(argp, args_count);
@@ -3778,13 +3833,13 @@ pg_log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena,
 
     switch (entry.value.kind) {
     case PG_LOG_VALUE_STRING: {
-      pg_string_builder_append_json_object_key_string_value_string(
-          &sb, entry.key, entry.value.s, arena);
+      PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_string(
+                         &w, entry.key, entry.value.s, arena));
       break;
     }
     case PG_LOG_VALUE_U64:
-      pg_string_builder_append_json_object_key_string_value_u64(
-          &sb, entry.key, entry.value.n64, arena);
+      PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_u64(
+                         &w, entry.key, entry.value.n64, arena));
       break;
     default:
       PG_ASSERT(0 && "invalid PgLogValueKind");
