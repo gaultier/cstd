@@ -726,13 +726,14 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 #define PG_DYN_POP(s)                                                          \
   do {                                                                         \
     PG_ASSERT((s)->len > 0);                                                   \
-    memset(PG_DYN_LAST_PTR(s), 0, sizeof((s)->data[(s)->len - 1]));            \
+    memset(PG_SLICE_LAST_PTR(s), 0, sizeof((s)->data[(s)->len - 1]));          \
     (s)->len -= 1;                                                             \
   } while (0)
 
-#define PG_DYN_LAST_PTR(s) PG_C_ARRAY_AT_PTR((s)->data, (s)->len, (s)->len - 1)
+#define PG_SLICE_LAST_PTR(s)                                                   \
+  PG_C_ARRAY_AT_PTR((s)->data, (s)->len, (s)->len - 1)
 
-#define PG_DYN_LAST(s) PG_C_ARRAY_AT((s).data, (s).len, (s).len - 1)
+#define PG_SLICE_LAST(s) PG_C_ARRAY_AT((s).data, (s).len, (s).len - 1)
 
 #define PG_DYN_APPEND_SLICE(dst, src, arena)                                   \
   do {                                                                         \
