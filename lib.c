@@ -756,6 +756,7 @@ typedef struct {
 typedef struct {
   void *ctx;
   WriteFn write_fn;
+  // Only useful for writing to a string builder (aka `Pgu8Dyn`).
   PgArena *arena; // TODO: Should it be instead in DYN_ structs?
 } PgWriter;
 
