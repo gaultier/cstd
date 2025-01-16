@@ -1065,6 +1065,8 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r) {
     return res;
   }
 
+  // WARN: In that case, there is data loss.
+  // Not all readers support putting back data that could not be written out.
   if (res.res != s.len) {
     res.err = PG_ERR_IO;
     return res;
