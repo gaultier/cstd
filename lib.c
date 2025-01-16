@@ -3714,6 +3714,7 @@ typedef enum : u8 {
   PG_EVENT_LOOP_HANDLE_KIND_NONE,
   PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET,
   PG_EVENT_LOOP_HANDLE_KIND_TIMER,
+  PG_EVENT_LOOP_HANDLE_KIND_DNS,
   // TODO: More.
 } PgEventLoopHandleKind;
 
@@ -3733,6 +3734,10 @@ typedef void (*PgEventLoopOnWrite)(PgEventLoop *loop, u64 os_handle, void *ctx,
                                    PgError err);
 
 typedef void (*PgEventLoopOnTimer)(PgEventLoop *loop, u64 os_handle, void *ctx);
+
+typedef void (*PgEventLoopOnDnsResolve)(PgEventLoop *loop, u64 os_handle,
+                                        void *ctx, PgError err,
+                                        PgIpv4Address address);
 
 typedef enum : u8 {
   PG_EVENT_LOOP_HANDLE_STATE_NONE,
@@ -4022,6 +4027,8 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
     case PG_EVENT_LOOP_HANDLE_KIND_TIMER: {
       (void)pg_timer_release((PgTimer)handle->os_handle);
     } break;
+    case PG_EVENT_LOOP_HANDLE_KIND_DNS: {
+    } break;
     case PG_EVENT_LOOP_HANDLE_KIND_NONE:
     default:
       PG_ASSERT(0);
@@ -4303,6 +4310,22 @@ pg_event_loop_timer_start(PgEventLoop *loop, PgClockKind clock, u64 ns,
 
   res.res = (u64)res_timer.res;
   return res;
+}
+
+[[nodiscard]] [[maybe_unused]]
+static Pgu64Result
+pg_event_loop_dns_resolve_ipv4_tcp(PgEventLoop *loop, PgString host, u16 port,
+                                   PgEventLoopOnDnsResolve on_dns_resolve,
+                                   void *ctx) {
+  // TODO: Run in a thread (pool).
+
+  PgDnsResolveIpv4AddressSocketResult res_dns =
+      pg_net_dns_resolve_ipv4_tcp(host, port, loop->arena);
+
+  if (on_dns_resolve) {
+    on_dns_resolve(loop, (u64)res_dns.res.socket, ctx, res_dns.err,
+                   res_dns.res.address);
+  }
 }
 
 #endif
