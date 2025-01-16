@@ -754,7 +754,6 @@ typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 typedef struct {
   void *ctx;
   ReadFn read_fn;
-  PgArena *arena; // TODO: Should it be instead in DYN_ structs?
 } PgReader;
 
 typedef struct {
@@ -1043,10 +1042,9 @@ pg_writer_write_all_string(PgWriter *w, PgString s) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgReader
-pg_reader_make_from_ring(PgRing *ring, PgArena *arena) {
+pg_reader_make_from_ring(PgRing *ring) {
   PgReader r = {0};
   r.ctx = ring;
-  r.arena = arena;
   r.read_fn = pg_reader_ring_read;
   return r;
 }
@@ -2340,7 +2338,7 @@ pg_http_write_header(PgWriter *w, PgKeyValue header) {
     return err;
   }
 
-  err = pg_writer_write_all_string(w, PG_S(" :"));
+  err = pg_writer_write_all_string(w, PG_S(": "));
   if (err) {
     return err;
   }
@@ -4352,9 +4350,9 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
           (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state) &&
           pg_ring_read_space(handle->ring_write) > 0) {
         {
-          PgArena arena_tmp = loop->arena;
-          Pgu64Result res_write = pg_writer_write_from_reader(
-              &handle->writer, &handle->ring_write, arena_tmp);
+          PgReader reader = pg_reader_make_from_ring(&handle->ring_write);
+          Pgu64Result res_write =
+              pg_writer_write_from_reader(&handle->writer, &reader);
 
           if (handle->on_write) {
             handle->on_write(loop, handle->os_handle, handle->ctx,
