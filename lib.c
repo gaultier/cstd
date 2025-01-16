@@ -68,6 +68,7 @@ typedef int64_t i64;
 typedef u32 PgError;
 #define PG_ERR_INVALID_VALUE ((u32)0x701)
 #define PG_ERR_OUT_OF_MEMORY ((u32)0x702)
+#define PG_ERR_IO ((u32)0x703)
 
 PG_RESULT(u64) Pgu64Result;
 
@@ -747,6 +748,86 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define PG_DYN_SLICE(T, dyn) ((T){.data = dyn.data, .len = dyn.len})
 
+typedef Pgu64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
+typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
+
+typedef struct {
+  void *ctx;
+  ReadFn read_fn;
+} PgReader;
+
+typedef struct {
+  void *ctx;
+  WriteFn write_fn;
+} PgWriter;
+
+typedef struct {
+  Pgu8Dyn *sb;
+  PgArena *arena;
+} PgWriterCtxSb;
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_writer_sb_write(void *ctx, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(nullptr != buf);
+
+  PgWriterCtxSb *self = ctx;
+
+  PgString s = {.data = buf, .len = buf_len};
+  PG_DYN_APPEND_SLICE(self->sb, s, self->arena);
+
+  return (Pgu64Result){.res = buf_len};
+}
+
+[[maybe_unused]] [[nodiscard]] static PgWriter
+pg_writer_from_sb(Pgu8Dyn *sb, PgArena *arena) {
+  // TODO: Is this allocation a problem?
+  PgWriterCtxSb *ctx = pg_arena_new(arena, PgWriterCtxSb, 1);
+  ctx->sb = sb;
+  ctx->arena = arena;
+
+  return (PgWriter){
+      .ctx = ctx,
+      .write_fn = pg_writer_sb_write,
+  };
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_writer_write_character(PgWriter w, u8 c) {
+  PG_ASSERT(nullptr != w.write_fn);
+
+  Pgu64Result res = w.write_fn(w.ctx, &c, 1);
+  if (res.err) {
+    return res.err;
+  }
+
+  return res.res == 1 ? 0 : PG_ERR_IO;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_writer_write_all_string(PgWriter w, PgString s) {
+  PG_ASSERT(nullptr != w.write_fn);
+
+  PgString remaining = s;
+  for (u64 _i = 0; _i < s.len; _i++) {
+    if (pg_string_is_empty(remaining)) {
+      break;
+    }
+
+    Pgu64Result res = w.write_fn(w.ctx, remaining.data, remaining.len);
+    if (res.err) {
+      return res.err;
+    }
+
+    if (0 == res.res) {
+      return PG_ERR_IO;
+    }
+
+    remaining = PG_SLICE_RANGE_START(remaining, res.res);
+  }
+  return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
+}
+
 [[maybe_unused]] static void
 pg_string_builder_append_u64_to_string(Pgu8Dyn *dyn, u64 n, PgArena *arena) {
   u8 tmp[30] = {0};
@@ -826,16 +907,22 @@ pg_u64_to_string(u64 n, PgArena *arena) {
   PG_ASSERT(0);
 }
 
-static void pg_string_builder_append_u8_hex_upper(Pgu8Dyn *dyn, u8 n,
-                                                  PgArena *arena) {
-  PG_DYN_ENSURE_CAP(dyn, dyn->len + 2, arena);
-  u64 PG_DYN_ORIGINAL_LEN = dyn->len;
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_writer_write_u8_hex_upper(PgWriter w, u8 n) {
 
   u8 c1 = n % 16;
   u8 c2 = n / 16;
-  *PG_DYN_PUSH(dyn, arena) = pg_u8_to_character_hex_upper(c2);
-  *PG_DYN_PUSH(dyn, arena) = pg_u8_to_character_hex_upper(c1);
-  PG_ASSERT(2 == (dyn->len - PG_DYN_ORIGINAL_LEN));
+
+  PgError err = 0;
+  err = pg_writer_write_character(w, pg_u8_to_character_hex_upper(c2));
+  if (err) {
+    return err;
+  }
+  err = pg_writer_write_character(w, pg_u8_to_character_hex_upper(c1));
+  if (err) {
+    return err;
+  }
+  return 0;
 }
 
 [[maybe_unused]] static void
@@ -975,32 +1062,6 @@ typedef struct {
 } PgIpv4Address;
 
 PG_DYN(PgIpv4Address) PgIpv4AddressDyn;
-
-[[maybe_unused]] static void pg_url_encode_string(Pgu8Dyn *sb, PgString key,
-                                                  PgString value,
-                                                  PgArena *arena) {
-  for (u64 i = 0; i < key.len; i++) {
-    u8 c = PG_SLICE_AT(key, i);
-    if (pg_character_is_alphanumeric(c)) {
-      *PG_DYN_PUSH(sb, arena) = c;
-    } else {
-      *PG_DYN_PUSH(sb, arena) = '%';
-      pg_string_builder_append_u8_hex_upper(sb, c, arena);
-    }
-  }
-
-  *PG_DYN_PUSH(sb, arena) = '=';
-
-  for (u64 i = 0; i < value.len; i++) {
-    u8 c = PG_SLICE_AT(value, i);
-    if (pg_character_is_alphanumeric(c)) {
-      *PG_DYN_PUSH(sb, arena) = c;
-    } else {
-      *PG_DYN_PUSH(sb, arena) = '%';
-      pg_string_builder_append_u8_hex_upper(sb, c, arena);
-    }
-  }
-}
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
@@ -1650,9 +1711,6 @@ pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
 
 PG_RESULT(PgString) PgIoResult;
 
-typedef Pgu64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
-typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
-
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
@@ -1915,16 +1973,6 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
   return res;
 }
 
-typedef struct {
-  void *ctx;
-  ReadFn read_fn;
-} PgReader;
-
-typedef struct {
-  void *ctx;
-  WriteFn write_fn;
-} PgWriter;
-
 [[maybe_unused]] [[nodiscard]] static PgSocket pg_reader_socket(PgReader *r) {
   PG_ASSERT(r->ctx);
   return (PgSocket)(u64)r->ctx;
@@ -2096,35 +2144,112 @@ static void pg_http_push_header(PgKeyValueDyn *headers, PgString key,
   *PG_DYN_PUSH(headers, arena) = (PgKeyValue){.key = key, .value = value};
 }
 
-[[maybe_unused]] static void
-pg_http_request_write_status_line(Pgu8Dyn *sb, PgHttpRequest req,
-                                  PgArena *arena) {
-  PG_DYN_APPEND_SLICE(sb, pg_http_method_to_string(req.method), arena);
-  PG_DYN_APPEND_SLICE(sb, PG_S(" /"), arena);
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_url_encode_string(PgWriter w, PgString key, PgString value) {
+  PgError err = 0;
 
-  for (u64 i = 0; i < req.url.path_components.len; i++) {
-    PgString path_component = PG_DYN_AT(req.url.path_components, i);
-    PG_DYN_APPEND_SLICE(sb, path_component, arena);
+  for (u64 i = 0; i < key.len; i++) {
+    u8 c = PG_SLICE_AT(key, i);
+    if (pg_character_is_alphanumeric(c)) {
+      err = pg_writer_write_character(w, c);
+      if (err) {
+        return err;
+      }
+    } else {
+      err = pg_writer_write_character(w, '%');
+      if (err) {
+        return err;
+      }
 
-    if (i < req.url.path_components.len - 1) {
-      *PG_DYN_PUSH(sb, arena) = '/';
-    }
-  }
-
-  if (req.url.query_parameters.len > 0) {
-    *PG_DYN_PUSH(sb, arena) = '?';
-    for (u64 i = 0; i < req.url.query_parameters.len; i++) {
-      PgKeyValue param = PG_DYN_AT(req.url.query_parameters, i);
-      pg_url_encode_string(sb, param.key, param.value, arena);
-
-      if (i < req.url.query_parameters.len - 1) {
-        *PG_DYN_PUSH(sb, arena) = '&';
+      err = pg_writer_write_u8_hex_upper(w, c);
+      if (err) {
+        return err;
       }
     }
   }
 
-  PG_DYN_APPEND_SLICE(sb, PG_S(" HTTP/1.1"), arena);
-  PG_DYN_APPEND_SLICE(sb, PG_S("\r\n"), arena);
+  err = pg_writer_write_character(w, '=');
+  if (err) {
+    return err;
+  }
+
+  for (u64 i = 0; i < value.len; i++) {
+    u8 c = PG_SLICE_AT(value, i);
+    if (pg_character_is_alphanumeric(c)) {
+      err = pg_writer_write_character(w, c);
+      if (err) {
+        return err;
+      }
+    } else {
+      err = pg_writer_write_character(w, '%');
+      if (err) {
+        return err;
+      }
+      err = pg_writer_write_u8_hex_upper(w, c);
+      if (err) {
+        return err;
+      }
+    }
+  }
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_http_request_write_status_line(PgWriter w, PgHttpRequest req) {
+  PgError err = 0;
+
+  err = pg_writer_write_all_string(w, pg_http_method_to_string(req.method));
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_all_string(w, PG_S(" /"));
+  if (err) {
+    return err;
+  }
+
+  for (u64 i = 0; i < req.url.path_components.len; i++) {
+    PgString path_component = PG_SLICE_AT(req.url.path_components, i);
+    err = pg_writer_write_all_string(w, path_component);
+    if (err) {
+      return err;
+    }
+
+    if (i < req.url.path_components.len - 1) {
+      err = pg_writer_write_all_string(w, PG_S("/"));
+      if (err) {
+        return err;
+      }
+    }
+  }
+
+  if (req.url.query_parameters.len > 0) {
+    err = pg_writer_write_all_string(w, PG_S("?"));
+    if (err) {
+      return err;
+    }
+
+    for (u64 i = 0; i < req.url.query_parameters.len; i++) {
+      PgKeyValue param = PG_SLICE_AT(req.url.query_parameters, i);
+      err = pg_url_encode_string(w, param.key, param.value);
+      if (err) {
+        return err;
+      }
+
+      if (i < req.url.query_parameters.len - 1) {
+        err = pg_writer_write_all_string(w, PG_S("&"));
+        if (err) {
+          return err;
+        }
+      }
+    }
+  }
+
+  err = pg_writer_write_all_string(w, PG_S(" HTTP/1.1\r\n"));
+  if (err) {
+    return err;
+  }
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -2158,12 +2283,31 @@ pg_http_write_header_ring(PgRing *rg, PgKeyValue header, PgArena arena) {
   return pg_ring_write_slice(rg, s);
 }
 
-[[maybe_unused]] static void
-pg_http_write_header(Pgu8Dyn *sb, PgKeyValue header, PgArena *arena) {
-  PG_DYN_APPEND_SLICE(sb, header.key, arena);
-  PG_DYN_APPEND_SLICE(sb, PG_S(": "), arena);
-  PG_DYN_APPEND_SLICE(sb, header.value, arena);
-  PG_DYN_APPEND_SLICE(sb, PG_S("\r\n"), arena);
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_http_write_header(PgWriter w, PgKeyValue header) {
+  PgError err = 0;
+
+  err = pg_writer_write_all_string(w, header.key);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_all_string(w, PG_S(" :"));
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_all_string(w, header.value);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_all_string(w, PG_S("\r\n"));
+  if (err) {
+    return err;
+  }
+
+  return 0;
 }
 
 // NOTE: Only sanitation for including the string inside an HTML tag e.g.:
@@ -2763,15 +2907,28 @@ pg_http_read_request(PgRing *rg, u64 max_http_headers, PgArena *arena) {
   return res;
 }
 
-[[maybe_unused]] static void
-pg_http_write_request(Pgu8Dyn *sb, PgHttpRequest req, PgArena *arena) {
-  pg_http_request_write_status_line(sb, req, arena);
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_http_write_request(PgWriter w, PgHttpRequest req) {
+  PgError err = 0;
+
+  err = pg_http_request_write_status_line(w, req);
+  if (err) {
+    return err;
+  }
 
   for (u64 i = 0; i < req.headers.len; i++) {
     PgKeyValue header = PG_DYN_AT(req.headers, i);
-    pg_http_write_header(sb, header, arena);
+    err = pg_http_write_header(w, header);
+    if (err) {
+      return err;
+    }
   }
-  PG_DYN_APPEND_SLICE(sb, PG_S("\r\n"), arena);
+  err = pg_writer_write_all_string(w, PG_S("\r\n"));
+  if (err) {
+    return err;
+  }
+
+  return 0;
 }
 
 [[maybe_unused]] static PgString pg_http_request_to_string(PgHttpRequest req,
@@ -2783,8 +2940,9 @@ pg_http_write_request(Pgu8Dyn *sb, PgHttpRequest req, PgArena *arena) {
                         req.url.query_parameters.len * 64 +
                         req.headers.len * 128,
                     arena);
+  PgWriter w = pg_writer_from_sb(&sb, arena);
 
-  pg_http_write_request(&sb, req, arena);
+  PG_ASSERT(0 == pg_http_write_request(w, req));
 
   return PG_DYN_SLICE(PgString, sb);
 }
