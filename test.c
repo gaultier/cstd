@@ -323,7 +323,7 @@ static void test_dynu8_append_u8_hex_upper() {
 
   {
     Pgu8Dyn sb = {0};
-    PgWriter w = pg_writer_make_from_sb(&sb, &arena);
+    PgWriter w = pg_writer_make_from_string_builder(&sb, &arena);
     PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0xac));
     PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0x89));
 
@@ -349,7 +349,7 @@ static void test_url_encode() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   {
     Pgu8Dyn sb = {0};
-    PgWriter w = pg_writer_make_from_sb(&sb, &arena);
+    PgWriter w = pg_writer_make_from_string_builder(&sb, &arena);
     PG_ASSERT(0 == pg_writer_url_encode(&w, PG_S("日本語"), PG_S("123")));
     PgString encoded = PG_DYN_SLICE(PgString, sb);
 
@@ -358,7 +358,7 @@ static void test_url_encode() {
 
   {
     Pgu8Dyn sb = {0};
-    PgWriter w = pg_writer_make_from_sb(&sb, &arena);
+    PgWriter w = pg_writer_make_from_string_builder(&sb, &arena);
     PG_ASSERT(0 == pg_writer_url_encode(&w, PG_S("日本語"), PG_S("foo")));
     PgString encoded = PG_DYN_SLICE(PgString, sb);
 
@@ -1633,7 +1633,7 @@ static void test_log() {
     PG_DYN_ENSURE_CAP(&sb, 256, &arena);
 
     PgLogger logger = pg_log_make_logger_stdout_json(PG_LOG_LEVEL_DEBUG);
-    logger.writer = pg_writer_make_from_sb(&sb, &arena);
+    logger.writer = pg_writer_make_from_string_builder(&sb, &arena);
 
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world", arena,
            PG_L("foo", PG_S("bar")));
@@ -1646,7 +1646,7 @@ static void test_log() {
     Pgu8Dyn sb = {0};
     PG_DYN_ENSURE_CAP(&sb, 256, &arena);
     PgLogger logger = pg_log_make_logger_stdout_json(PG_LOG_LEVEL_INFO);
-    logger.writer = pg_writer_make_from_sb(&sb, &arena);
+    logger.writer = pg_writer_make_from_string_builder(&sb, &arena);
 
     pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world", arena,
            PG_L("foo", PG_S("bar")));

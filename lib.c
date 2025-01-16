@@ -994,7 +994,7 @@ pg_reader_ring_read(void *self, u8 *buf, size_t buf_len) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgWriter
-pg_writer_make_from_sb(Pgu8Dyn *sb, PgArena *arena) {
+pg_writer_make_from_string_builder(Pgu8Dyn *sb, PgArena *arena) {
   PgWriter w = {0};
   w.ctx = sb;
   w.arena = arena;
@@ -2969,7 +2969,7 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req) {
                         req.url.query_parameters.len * 64 +
                         req.headers.len * 128,
                     arena);
-  PgWriter w = pg_writer_make_from_sb(&sb, arena);
+  PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
 
   PG_ASSERT(0 == pg_http_write_request(&w, req));
 
