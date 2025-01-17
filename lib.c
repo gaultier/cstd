@@ -3474,6 +3474,7 @@ typedef enum {
 typedef struct {
   PgLogLevel level;
   PgWriter writer;
+  PgArena arena;
 } PgLogger;
 
 typedef struct {
@@ -3496,6 +3497,7 @@ pg_log_make_logger_stdout_json(PgLogLevel level) {
       .level = level,
       .writer = pg_writer_make_from_file(
           (PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
+      .arena = pg_arena_make_from_virtual_mem(4 * PG_KiB),
   };
 
   return logger;
@@ -3572,12 +3574,12 @@ pg_log_entry_slice(PgString k, PgString v) {
 
 #define PG_LOG_ARGS_COUNT(...)                                                 \
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
-#define pg_log(logger, lvl, msg, arena, ...)                                   \
+#define pg_log(logger, lvl, msg, ...)                                          \
   do {                                                                         \
     if ((logger)->level > (lvl)) {                                             \
       break;                                                                   \
     };                                                                         \
-    PgArena xxx_tmp_arena = (arena);                                           \
+    PgArena xxx_tmp_arena = (logger)->arena;                                   \
     PgString xxx_log_line =                                                    \
         pg_log_make_log_line(lvl, PG_S(msg), &xxx_tmp_arena,                   \
                              PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);     \

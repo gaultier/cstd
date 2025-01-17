@@ -1638,8 +1638,7 @@ static void test_log() {
     PgLogger logger = pg_log_make_logger_stdout_json(PG_LOG_LEVEL_DEBUG);
     logger.writer = pg_writer_make_from_string_builder(&sb, &arena);
 
-    pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world", arena,
-           PG_L("foo", PG_S("bar")));
+    pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world", PG_L("foo", PG_S("bar")));
 
     PgString out = PG_DYN_SLICE(PgString, sb);
     PG_ASSERT(pg_string_starts_with(out, PG_S("{\"level\":\"info\"")));
@@ -1651,7 +1650,7 @@ static void test_log() {
     PgLogger logger = pg_log_make_logger_stdout_json(PG_LOG_LEVEL_INFO);
     logger.writer = pg_writer_make_from_string_builder(&sb, &arena);
 
-    pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world", arena,
+    pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world",
            PG_L("foo", PG_S("bar")));
 
     PgString out = PG_DYN_SLICE(PgString, sb);
