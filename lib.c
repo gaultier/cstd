@@ -4556,6 +4556,42 @@ static PgError pg_event_loop_read_stop(PgEventLoop *loop, u64 os_handle) {
   return pg_aio_queue_ctl_one(loop->queue, event_change);
 }
 
+#if 0
+struct PgEventLoopWriteRequest;
+struct PgEventLoopWriteRequest {
+  PgString data;
+  PgEventLoopOnWrite on_write;
+  u64 os_handle;
+};
+typedef struct PgEventLoopWriteRequest PgEventLoopWriteRequest;
+#endif
+
+[[maybe_unused]]
+static void pg_event_loop_try_write(PgEventLoop *loop, u64 os_handle,
+                                    PgEventLoopHandle *handle, PgString data,
+                                    PgEventLoopOnWrite on_write) {
+
+  Pgu64Result res =
+      handle->writer.write_fn(&handle->writer, data.data, data.len);
+  if (res.err) {
+    if (on_write) {
+      on_write(loop, os_handle, handle->ctx, 0);
+    }
+    return;
+  }
+
+  if (res.res == data.len) { // Full write
+    if (on_write) {
+      on_write(loop, os_handle, handle->ctx, 0);
+    }
+    return;
+  }
+
+  // Partial write.
+  // TODO: Enqueue and register interest in OUT.
+  PG_ASSERT(0 && "TODO");
+}
+
 [[nodiscard]] [[maybe_unused]]
 static PgError pg_event_loop_write(PgEventLoop *loop, u64 os_handle,
                                    PgString data, PgEventLoopOnWrite on_write) {
@@ -4568,22 +4604,9 @@ static PgError pg_event_loop_write(PgEventLoop *loop, u64 os_handle,
     return PG_ERR_INVALID_VALUE;
   }
 
-  if (!pg_ring_write_slice(&handle->ring_write, data)) {
-    return PG_ERR_OUT_OF_MEMORY;
-  }
+  pg_event_loop_try_write(loop, os_handle, handle, data, on_write);
 
-  handle->event_kind |= PG_AIO_EVENT_KIND_OUT;
-  handle->on_write = on_write;
-  bool event_in_os_queue_before = handle->event_in_os_queue;
-  handle->event_in_os_queue = true;
-
-  PgAioEvent event_change = {
-      .os_handle = handle->os_handle,
-      .kind = handle->event_kind,
-      .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
-                                         : PG_AIO_EVENT_ACTION_ADD,
-  };
-  return pg_aio_queue_ctl_one(loop->queue, event_change);
+  return 0;
 }
 
 [[nodiscard]] [[maybe_unused]]
