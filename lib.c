@@ -3462,6 +3462,7 @@ pg_http_req_extract_cookie_with_name(PgHttpRequest req, PgString cookie_name,
 typedef enum {
   PG_LOG_VALUE_STRING,
   PG_LOG_VALUE_U64,
+  PG_LOG_VALUE_IPV4_ADDRESS,
 } PgLogValueKind;
 
 typedef enum {
@@ -3486,6 +3487,7 @@ typedef struct {
     PgString s;
     u64 n64;
     u128 n128;
+    PgIpv4Address ipv4_address;
   };
 } PgLogValue;
 
@@ -3588,12 +3590,22 @@ pg_log_entry_slice(PgString k, PgString v) {
   };
 }
 
+[[maybe_unused]] [[nodiscard]] static PgLogEntry
+pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
+  return (PgLogEntry){
+      .key = k,
+      .value.kind = PG_LOG_VALUE_IPV4_ADDRESS,
+      .value.ipv4_address = v,
+  };
+}
+
 #define PG_L(k, v)                                                             \
   (_Generic((v),                                                               \
        int: pg_log_entry_int,                                                  \
        u16: pg_log_entry_u16,                                                  \
        u32: pg_log_entry_u32,                                                  \
        u64: pg_log_entry_u64,                                                  \
+       PgIpv4Address: pg_log_entry_ipv4_address,                               \
        PgString: pg_log_entry_slice)((PG_S(k)), (v)))
 
 #define PG_LOG_ARGS_COUNT(...)                                                 \
@@ -3825,6 +3837,12 @@ pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
       PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_u64(
                          &w, entry.key, entry.value.n64, arena));
       break;
+    case PG_LOG_VALUE_IPV4_ADDRESS: {
+      PgString ipv4_addr_str =
+          pg_net_ipv4_address_to_string(entry.value.ipv4_address, arena);
+      PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_string(
+                         &w, entry.key, ipv4_addr_str, arena));
+    } break;
     default:
       PG_ASSERT(0 && "invalid PgLogValueKind");
     }
@@ -3879,6 +3897,11 @@ pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
     case PG_LOG_VALUE_U64:
       PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, entry.value.n64));
       break;
+    case PG_LOG_VALUE_IPV4_ADDRESS: {
+      PgString ipv4_addr_str =
+          pg_net_ipv4_address_to_string(entry.value.ipv4_address, arena);
+      PG_ASSERT(0 == pg_writer_write_all_string(&w, ipv4_addr_str));
+    } break;
     default:
       PG_ASSERT(0 && "invalid PgLogValueKind");
     }
