@@ -3497,6 +3497,9 @@ typedef struct {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
                           i32 args_count, ...);
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
+                            i32 args_count, ...);
 
 [[maybe_unused]] [[nodiscard]] static PgLogger
 pg_log_make_logger_stdout_json(PgLogLevel level) {
@@ -3506,6 +3509,19 @@ pg_log_make_logger_stdout_json(PgLogLevel level) {
           (PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
       .arena = pg_arena_make_from_virtual_mem(4 * PG_KiB),
       .make_log_line = pg_log_make_log_line_json,
+  };
+
+  return logger;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgLogger
+pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
+  PgLogger logger = {
+      .level = level,
+      .writer = pg_writer_make_from_file(
+          (PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
+      .arena = pg_arena_make_from_virtual_mem(4 * PG_KiB),
+      .make_log_line = pg_log_make_log_line_logfmt,
   };
 
   return logger;
@@ -3783,6 +3799,55 @@ pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
   PG_ASSERT(pg_string_ends_with(PG_DYN_SLICE(PgString, sb), PG_S(",")));
   PG_DYN_POP(&sb);
   PG_DYN_APPEND_SLICE(&sb, PG_S("}\n"), arena);
+
+  return PG_DYN_SLICE(PgString, sb);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
+                            i32 args_count, ...) {
+  Pgu64Result res_monotonic_ns = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
+  Pgu64Result res_timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME);
+  // Ignore clock errors.
+
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, 256, arena);
+  PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
+
+  PG_ASSERT(0 == pg_writer_write_all_string(&w, PG_S("level=")));
+  PG_ASSERT(0 == pg_writer_write_all_string(&w, pg_log_level_to_string(level)));
+
+  PG_ASSERT(0 == pg_writer_write_all_string(&w, PG_S(" timestamp_ns=")));
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, res_timestamp_ns.res));
+
+  PG_ASSERT(0 == pg_writer_write_all_string(&w, PG_S(" monotonic_ns=")));
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, res_monotonic_ns.res));
+
+  PG_ASSERT(0 == pg_writer_write_all_string(&w, PG_S(" message=")));
+  PG_ASSERT(0 == pg_writer_write_all_string(&w, msg));
+
+  va_list argp = {0};
+  va_start(argp, args_count);
+  for (i32 i = 0; i < args_count; i++) {
+    PgLogEntry entry = va_arg(argp, PgLogEntry);
+    PG_ASSERT(0 == pg_writer_write_all_string(&w, entry.key));
+    PG_ASSERT(0 == pg_writer_write_u8(&w, '='));
+
+    switch (entry.value.kind) {
+    case PG_LOG_VALUE_STRING: {
+      PG_ASSERT(0 == pg_writer_write_all_string(&w, entry.value.s));
+      break;
+    }
+    case PG_LOG_VALUE_U64:
+      PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, entry.value.n64));
+      break;
+    default:
+      PG_ASSERT(0 && "invalid PgLogValueKind");
+    }
+  }
+  va_end(argp);
+
+  PG_ASSERT(0 == pg_writer_write_u8(&w, '\n'));
 
   return PG_DYN_SLICE(PgString, sb);
 }
