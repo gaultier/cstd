@@ -3615,7 +3615,7 @@ pg_log_entry_slice(PgString k, PgString v) {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_json_escape_string(PgString entry, PgArena *arena) {
   Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, entry.len * 2, arena);
+  PG_DYN_ENSURE_CAP(&sb, 2 + entry.len * 2, arena);
   *PG_DYN_PUSH(&sb, arena) = '"';
 
   for (u64 i = 0; i < entry.len; i++) {
@@ -3626,6 +3626,41 @@ pg_json_escape_string(PgString entry, PgArena *arena) {
     } else if ('\\' == c) {
       *PG_DYN_PUSH(&sb, arena) = '\\';
       *PG_DYN_PUSH(&sb, arena) = '\\';
+    } else if ('\b' == c) {
+      *PG_DYN_PUSH(&sb, arena) = '\\';
+      *PG_DYN_PUSH(&sb, arena) = 'b';
+    } else if ('\f' == c) {
+      *PG_DYN_PUSH(&sb, arena) = '\\';
+      *PG_DYN_PUSH(&sb, arena) = 'f';
+    } else if ('\n' == c) {
+      *PG_DYN_PUSH(&sb, arena) = '\\';
+      *PG_DYN_PUSH(&sb, arena) = 'n';
+    } else if ('\r' == c) {
+      *PG_DYN_PUSH(&sb, arena) = '\\';
+      *PG_DYN_PUSH(&sb, arena) = 'r';
+    } else if ('\t' == c) {
+      *PG_DYN_PUSH(&sb, arena) = '\\';
+      *PG_DYN_PUSH(&sb, arena) = 't';
+    } else {
+      *PG_DYN_PUSH(&sb, arena) = c;
+    }
+  }
+  *PG_DYN_PUSH(&sb, arena) = '"';
+
+  return PG_DYN_SLICE(PgString, sb);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_logfmt_escape_string(PgString entry, PgArena *arena) {
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, 2 + entry.len * 2, arena);
+  *PG_DYN_PUSH(&sb, arena) = '"';
+
+  for (u64 i = 0; i < entry.len; i++) {
+    u8 c = PG_SLICE_AT(entry, i);
+    if ('"' == c) {
+      *PG_DYN_PUSH(&sb, arena) = '\\';
+      *PG_DYN_PUSH(&sb, arena) = '"';
     } else if ('\b' == c) {
       *PG_DYN_PUSH(&sb, arena) = '\\';
       *PG_DYN_PUSH(&sb, arena) = 'b';
@@ -3824,19 +3859,22 @@ pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, res_monotonic_ns.res));
 
   PG_ASSERT(0 == pg_writer_write_all_string(&w, PG_S(" message=")));
-  PG_ASSERT(0 == pg_writer_write_all_string(&w, msg));
+  PG_ASSERT(
+      0 == pg_writer_write_all_string(&w, pg_logfmt_escape_string(msg, arena)));
 
   va_list argp = {0};
   va_start(argp, args_count);
   for (i32 i = 0; i < args_count; i++) {
     PgLogEntry entry = va_arg(argp, PgLogEntry);
     PG_ASSERT(0 == pg_writer_write_u8(&w, ' '));
-    PG_ASSERT(0 == pg_writer_write_all_string(&w, entry.key));
+    PG_ASSERT(0 == pg_writer_write_all_string(
+                       &w, pg_logfmt_escape_string(entry.key, arena)));
     PG_ASSERT(0 == pg_writer_write_u8(&w, '='));
 
     switch (entry.value.kind) {
     case PG_LOG_VALUE_STRING: {
-      PG_ASSERT(0 == pg_writer_write_all_string(&w, entry.value.s));
+      PG_ASSERT(0 == pg_writer_write_all_string(
+                         &w, pg_logfmt_escape_string(entry.value.s, arena)));
       break;
     }
     case PG_LOG_VALUE_U64:
