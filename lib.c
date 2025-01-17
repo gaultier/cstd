@@ -4089,7 +4089,6 @@ struct PgEventLoopHandle {
   PgAioEventKind event_kind;
   u64 os_handle;
 
-  PgRing ring_write;
   PgRing ring_read;
 
   PgReader reader;
@@ -4152,7 +4151,6 @@ static PgEventLoopHandle pg_event_loop_make_tcp_handle(PgSocket socket,
 
   res.arena = pg_arena_make_from_virtual_mem(ring_read_size + ring_write_size);
   res.ring_read = pg_ring_make(ring_read_size, &res.arena);
-  res.ring_write = pg_ring_make(ring_write_size, &res.arena);
 
   return res;
 }
@@ -4485,6 +4483,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
         }
       }
 
+#if 0
       // Socket write.
       if ((PG_AIO_EVENT_KIND_OUT & event_watch.kind) &&
           (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
@@ -4518,6 +4517,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
           }
         }
       }
+#endif
 
       // Timer.
       // TODO: Repeating timer?
