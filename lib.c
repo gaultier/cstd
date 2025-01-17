@@ -4462,22 +4462,18 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
                             err_event_watch, (PgString){0});
           } else {
             PgArena arena_tmp = loop->arena;
-            PgWriter w = pg_writer_make_from_ring(&handle->ring_read);
-            Pgu64Result res_read =
-                pg_writer_write_from_reader(&w, &handle->reader);
 
-            PgError err_read = 0;
-            PgString data = {0};
-            if (res_read.err) {
-              err_read = res_read.err;
-            } else {
-              data = pg_string_make(res_read.res, &arena_tmp);
-              PG_ASSERT(true == pg_ring_read_slice(&handle->ring_read, data));
-            }
+            // TODO: Ask OS for a hint.
+            u64 read_try_len = 4096;
+
+            PgString data = pg_string_make(read_try_len, &arena_tmp);
+            Pgu64Result res_read =
+                handle->reader.read_fn(&handle->reader, data.data, data.len);
+            data.len = res_read.res;
 
             if (handle->on_read) {
-              handle->on_read(loop, handle->os_handle, handle->ctx, err_read,
-                              data);
+              handle->on_read(loop, handle->os_handle, handle->ctx,
+                              res_read.err, data);
             }
           }
         }
