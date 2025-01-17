@@ -4459,23 +4459,28 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
           (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
           (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state)) {
         {
-          PgArena arena_tmp = loop->arena;
-          PgWriter w = pg_writer_make_from_ring(&handle->ring_read);
-          Pgu64Result res_read =
-              pg_writer_write_from_reader(&w, &handle->reader);
-
-          PgError err_read = 0;
-          PgString data = {0};
-          if (res_read.err) {
-            err_read = res_read.err;
+          if (err_event_watch && handle->on_read) {
+            handle->on_read(loop, handle->os_handle, handle->ctx,
+                            err_event_watch, (PgString){0});
           } else {
-            data = pg_string_make(res_read.res, &arena_tmp);
-            PG_ASSERT(true == pg_ring_read_slice(&handle->ring_read, data));
-          }
+            PgArena arena_tmp = loop->arena;
+            PgWriter w = pg_writer_make_from_ring(&handle->ring_read);
+            Pgu64Result res_read =
+                pg_writer_write_from_reader(&w, &handle->reader);
 
-          if (handle->on_read) {
-            handle->on_read(loop, handle->os_handle, handle->ctx, err_read,
-                            data);
+            PgError err_read = 0;
+            PgString data = {0};
+            if (res_read.err) {
+              err_read = res_read.err;
+            } else {
+              data = pg_string_make(res_read.res, &arena_tmp);
+              PG_ASSERT(true == pg_ring_read_slice(&handle->ring_read, data));
+            }
+
+            if (handle->on_read) {
+              handle->on_read(loop, handle->os_handle, handle->ctx, err_read,
+                              data);
+            }
           }
         }
       }
