@@ -3746,7 +3746,15 @@ pg_logfmt_escape_string(PgString entry, PgArena *arena) {
       *PG_DYN_PUSH(&sb, arena) = '\\';
       *PG_DYN_PUSH(&sb, arena) = 't';
     } else {
-      *PG_DYN_PUSH(&sb, arena) = c;
+      if (32 <= c && c <= 126) {
+        *PG_DYN_PUSH(&sb, arena) = c;
+      } else {
+        u8 c1 = c % 16;
+        u8 c2 = c / 16;
+        PG_DYN_APPEND_SLICE(&sb, PG_S("\\x"), arena);
+        *PG_DYN_PUSH(&sb, arena) = pg_u8_to_character_hex(c2);
+        *PG_DYN_PUSH(&sb, arena) = pg_u8_to_character_hex(c1);
+      }
     }
   }
   *PG_DYN_PUSH(&sb, arena) = '"';
