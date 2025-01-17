@@ -893,7 +893,6 @@ static void test_url_parse() {
   }
 }
 
-#if 0
 typedef enum {
   ALICE_STATE_NONE,
   ALICE_STATE_DONE,
@@ -952,6 +951,7 @@ static void test_net_socket() {
 
   PgRing bob_recv = {.data = pg_string_make(4 + 1, &arena)};
   PgRing alice_send = {.data = pg_string_make(4 + 1, &arena)};
+  PgReader alice_reader = pg_reader_make_from_ring(&alice_send);
 
   AliceState alice_state = ALICE_STATE_NONE;
 
@@ -992,8 +992,9 @@ static void test_net_socket() {
         switch (alice_state) {
         case ALICE_STATE_NONE: {
           PG_ASSERT(true == pg_ring_write_slice(&alice_send, PG_S("ping")));
-          PG_ASSERT(0 ==
-                    pg_writer_write(&alice_writer, &alice_send, arena).err);
+          PG_ASSERT(
+              0 ==
+              pg_writer_write_from_reader(&alice_writer, &alice_reader).err);
           alice_state = ALICE_STATE_DONE;
         } break;
         case ALICE_STATE_DONE:
@@ -1024,7 +1025,6 @@ end:
   PG_ASSERT(0 == pg_net_socket_close(bob_socket));
   PG_ASSERT(0 == pg_net_socket_close(socket_listen));
 }
-#endif
 
 static void test_url_parse_relative_path() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
@@ -1881,7 +1881,7 @@ int main() {
   test_ring_buffer_read_write_slice();
   test_ring_buffer_read_until_excl();
   test_ring_buffer_read_write_fuzz();
-  // test_net_socket();
+  test_net_socket();
   test_url_parse_relative_path();
   test_url_parse();
   test_http_request_to_string();
