@@ -1296,7 +1296,7 @@ pg_skip_over_whitespace(PgString s, u64 idx_start) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_string_ieq_ascii(PgString a, PgString b, PgArena *arena) {
+pg_string_ieq_ascii(PgString a, PgString b, PgArena arena) {
   if (a.data == nullptr && b.data == nullptr && a.len == b.len) {
     return true;
   }
@@ -1315,9 +1315,8 @@ pg_string_ieq_ascii(PgString a, PgString b, PgArena *arena) {
   PG_ASSERT(b.data != nullptr);
   PG_ASSERT(a.len == b.len);
 
-  PgArena tmp = *arena;
-  PgString a_clone = pg_string_clone(a, &tmp);
-  PgString b_clone = pg_string_clone(b, &tmp);
+  PgString a_clone = pg_string_clone(a, &arena);
+  PgString b_clone = pg_string_clone(b, &arena);
 
   pg_string_lowercase_ascii_mut(a_clone);
   pg_string_lowercase_ascii_mut(b_clone);
@@ -2071,9 +2070,8 @@ typedef struct {
 } PgKeyValue;
 
 PG_RESULT(PgKeyValue) PgKeyValueResult;
-
 PG_DYN(PgKeyValue) PgKeyValueDyn;
-
+PG_SLICE(PgKeyValue) PgKeyValueSlice;
 PG_RESULT(PgKeyValueDyn) PgDynKeyValueResult;
 
 typedef struct {
@@ -3071,23 +3069,32 @@ pg_writer_make_from_file(PgFile *file) {
   return (PgWriter){.write_fn = pg_writer_unix_write, .ctx = (void *)file};
 }
 
-#if 0
-[[nodiscard]] static PgParseNumberResult
-request_parse_content_length_maybe(PgHttpRequest req, PgArena *arena) {
-  PG_ASSERT(!req.err);
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_http_headers_parse_content_length(PgKeyValueSlice headers, PgArena arena) {
+  Pgu64Result res = {0};
 
-  for (u64 i = 0; i < req.headers.len; i++) {
-    PgKeyValue h = req.headers.data[i];
+  for (u64 i = 0; i < headers.len; i++) {
+    PgKeyValue h = PG_SLICE_AT(headers, i);
 
     if (!pg_string_ieq_ascii(PG_S("Content-Length"), h.key, arena)) {
       continue;
     }
 
-    return pg_string_parse_u64(h.value);
+    PgParseNumberResult res_parse = pg_string_parse_u64(h.value);
+    if (!res_parse.present) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    if (!pg_string_is_empty(res_parse.remaining)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+
+    res.res = res_parse.n;
+    return res;
   }
-  return (PgParseNumberResult){0};
+  return res;
 }
-#endif
 
 typedef struct {
   PgString key, value;
@@ -3411,7 +3418,7 @@ static void pg_html_tag_to_string(PgHtmlElement e, Pgu8Dyn *sb,
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_http_req_extract_cookie_with_name(PgHttpRequest req, PgString cookie_name,
-                                     PgArena *arena) {
+                                     PgArena arena) {
   PgString res = {0};
   {
     for (u64 i = 0; i < req.headers.len; i++) {
