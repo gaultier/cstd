@@ -71,6 +71,7 @@ typedef u32 PgError;
 #define PG_ERR_IO ((u32)0x703)
 
 PG_RESULT(u64) Pgu64Result;
+PG_RESULT(bool) PgBoolResult;
 
 PG_DYN(u8) Pgu8Dyn;
 PG_SLICE(u8) Pgu8Slice;
