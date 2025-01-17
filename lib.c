@@ -1338,6 +1338,7 @@ typedef struct {
 } PgIpv4Address;
 
 PG_DYN(PgIpv4Address) PgIpv4AddressDyn;
+PG_SLICE(PgIpv4Address) PgIpv4AddressSlice;
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
