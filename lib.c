@@ -4113,6 +4113,7 @@ static PgEventLoopHandle pg_event_loop_make_tcp_handle(PgSocket socket,
   // TODO: Could lazily allocate memory for the rings in
   // `pg_event_loop_read_start`, `pg_event_loop_write` only if needed.
   res.arena = pg_arena_make_from_virtual_mem(2 * 4096);
+  // TODO: Get socket read/write size from OS for useful ring buffer sizes.
   res.ring_read = pg_ring_make(4096, &res.arena);
   res.ring_write = pg_ring_make(4096, &res.arena);
 
