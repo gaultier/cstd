@@ -1709,7 +1709,7 @@ pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
     res.res.socket = res_create_socket.res;
 
     res.res.address.ip =
-        inet_netof(((struct sockaddr_in *)(void *)rp->ai_addr)->sin_addr);
+        ntohl(((struct sockaddr_in *)(void *)rp->ai_addr)->sin_addr.s_addr);
     res.res.address.port = port;
     break;
   }
