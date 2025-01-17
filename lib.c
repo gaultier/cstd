@@ -3867,8 +3867,7 @@ pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
   for (i32 i = 0; i < args_count; i++) {
     PgLogEntry entry = va_arg(argp, PgLogEntry);
     PG_ASSERT(0 == pg_writer_write_u8(&w, ' '));
-    PG_ASSERT(0 == pg_writer_write_all_string(
-                       &w, pg_logfmt_escape_string(entry.key, arena)));
+    PG_ASSERT(0 == pg_writer_write_all_string(&w, entry.key));
     PG_ASSERT(0 == pg_writer_write_u8(&w, '='));
 
     switch (entry.value.kind) {
