@@ -1630,6 +1630,7 @@ end:
   return res;
 }
 
+// TODO: Windows.
 static PgSocketResult pg_net_create_tcp_socket() {
   PgSocketResult res = {0};
 
@@ -1638,6 +1639,16 @@ static PgSocketResult pg_net_create_tcp_socket() {
     res.err = (PgError)errno;
     return res;
   }
+
+#if defined(SO_NOSIGPIPE)
+  {
+    int on = 1;
+    if (-1 == setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof(on))) {
+      res.err = (PgError)errno;
+      return res;
+    }
+  }
+#endif
 
   res.res = sock_fd;
 
@@ -2025,6 +2036,29 @@ pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
 
   int fd = (int)(u64)w->ctx;
   ssize_t n = write(fd, buf, buf_len);
+
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+// TODO: Guard with `ifdef`?
+// TODO: Windows?
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_writer_unix_send(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
+
+  PgWriter *w = self;
+  PG_ASSERT(0 != (u64)w->ctx);
+
+  int fd = (int)(u64)w->ctx;
+  ssize_t n = send(fd, buf, buf_len, MSG_NOSIGNAL);
 
   Pgu64Result res = {0};
   if (n < 0) {
@@ -3060,7 +3094,7 @@ pg_reader_make_from_file(PgFile file) {
 [[maybe_unused]] [[nodiscard]] static PgWriter
 pg_writer_make_from_socket(PgSocket socket) {
   // TODO: Windows.
-  return (PgWriter){.write_fn = pg_writer_unix_write,
+  return (PgWriter){.write_fn = pg_writer_unix_send,
                     .ctx = (void *)(u64)socket};
 }
 
@@ -4575,7 +4609,7 @@ static void pg_event_loop_try_write(PgEventLoop *loop, u64 os_handle,
       handle->writer.write_fn(&handle->writer, data.data, data.len);
   if (res.err) {
     if (on_write) {
-      on_write(loop, os_handle, handle->ctx, 0);
+      on_write(loop, os_handle, handle->ctx, res.err);
     }
     return;
   }
