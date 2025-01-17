@@ -3566,7 +3566,7 @@ pg_log_make_logger_stdout_json(PgLogLevel level) {
       .level = level,
       .writer = pg_writer_make_from_file(
           (PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
-      .arena = pg_arena_make_from_virtual_mem(4 * PG_KiB),
+      .arena = pg_arena_make_from_virtual_mem(8 * PG_KiB),
       .make_log_line = pg_log_make_log_line_json,
   };
 
@@ -3579,7 +3579,7 @@ pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
       .level = level,
       .writer = pg_writer_make_from_file(
           (PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
-      .arena = pg_arena_make_from_virtual_mem(4 * PG_KiB),
+      .arena = pg_arena_make_from_virtual_mem(8 * PG_KiB),
       .make_log_line = pg_log_make_log_line_logfmt,
   };
 
