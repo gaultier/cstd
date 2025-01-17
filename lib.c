@@ -3471,10 +3471,13 @@ typedef enum {
   PG_LOG_LEVEL_FATAL,
 } PgLogLevel;
 
+typedef PgString (*PgMakeLogLineFn)(PgLogLevel level, PgString msg,
+                                    PgArena *arena, i32 args_count, ...);
 typedef struct {
   PgLogLevel level;
   PgWriter writer;
   PgArena arena;
+  PgMakeLogLineFn make_log_line;
 } PgLogger;
 
 typedef struct {
@@ -3491,6 +3494,10 @@ typedef struct {
   PgLogValue value;
 } PgLogEntry;
 
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
+                          i32 args_count, ...);
+
 [[maybe_unused]] [[nodiscard]] static PgLogger
 pg_log_make_logger_stdout_json(PgLogLevel level) {
   PgLogger logger = {
@@ -3498,6 +3505,7 @@ pg_log_make_logger_stdout_json(PgLogLevel level) {
       .writer = pg_writer_make_from_file(
           (PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
       .arena = pg_arena_make_from_virtual_mem(4 * PG_KiB),
+      .make_log_line = pg_log_make_log_line_json,
   };
 
   return logger;
@@ -3576,13 +3584,14 @@ pg_log_entry_slice(PgString k, PgString v) {
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
 #define pg_log(logger, lvl, msg, ...)                                          \
   do {                                                                         \
+    PG_ASSERT(nullptr != (logger)->make_log_line);                             \
     if ((logger)->level > (lvl)) {                                             \
       break;                                                                   \
     };                                                                         \
     PgArena xxx_tmp_arena = (logger)->arena;                                   \
     PgString xxx_log_line =                                                    \
-        pg_log_make_log_line(lvl, PG_S(msg), &xxx_tmp_arena,                   \
-                             PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);     \
+        (logger)->make_log_line(lvl, PG_S(msg), &xxx_tmp_arena,                \
+                                PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);  \
     (logger)->writer.write_fn(&(logger)->writer, xxx_log_line.data,            \
                               xxx_log_line.len);                               \
   } while (0)
