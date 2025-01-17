@@ -2027,6 +2027,29 @@ pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
 // TODO: Guard with `ifdef`?
 // TODO: Windows?
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_reader_unix_recv(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
+
+  PgReader *r = self;
+  PG_ASSERT(0 != (u64)r->ctx);
+
+  int fd = (int)(u64)r->ctx;
+  ssize_t n = recv(fd, buf, buf_len, 0);
+
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+// TODO: Guard with `ifdef`?
+// TODO: Windows?
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
@@ -3082,7 +3105,7 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req) {
 pg_reader_make_from_socket(PgSocket socket) {
   // TODO: Windows.
   // TODO: recv?
-  return (PgReader){.read_fn = pg_reader_unix_read, .ctx = (void *)(u64)socket};
+  return (PgReader){.read_fn = pg_reader_unix_recv, .ctx = (void *)(u64)socket};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgReader
