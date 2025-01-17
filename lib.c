@@ -1526,10 +1526,10 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 [[maybe_unused]] [[nodiscard]] static PgArena
 pg_arena_make_from_virtual_mem(u64 size) {
   u64 page_size = pg_os_get_page_size();
-  u64 alloc_real_size = pg_round_up_multiple_of(size, page_size);
-  PG_ASSERT(0 == alloc_real_size % page_size);
+  u64 os_alloc_size = pg_round_up_multiple_of(size, page_size);
+  PG_ASSERT(0 == os_alloc_size % page_size);
 
-  u64 mmap_size = alloc_real_size;
+  u64 mmap_size = os_alloc_size;
   // Page guard before.
   PG_ASSERT(false == ckd_add(&mmap_size, mmap_size, page_size));
   // Page guard after.
@@ -1545,10 +1545,9 @@ pg_arena_make_from_virtual_mem(u64 size) {
   PG_ASSERT(page_guard_before + page_size == (u64)alloc);
 
   u64 page_guard_after = (u64)0;
-  PG_ASSERT(false == ckd_add(&page_guard_after, (u64)alloc, alloc_real_size));
-  PG_ASSERT((u64)alloc + alloc_real_size == page_guard_after);
-  PG_ASSERT(page_guard_before + page_size + alloc_real_size ==
-            page_guard_after);
+  PG_ASSERT(false == ckd_add(&page_guard_after, (u64)alloc, os_alloc_size));
+  PG_ASSERT((u64)alloc + os_alloc_size == page_guard_after);
+  PG_ASSERT(page_guard_before + page_size + os_alloc_size == page_guard_after);
 
   PG_ASSERT(0 == mprotect((void *)page_guard_before, page_size, PROT_NONE));
   PG_ASSERT(0 == mprotect((void *)page_guard_after, page_size, PROT_NONE));
@@ -1561,7 +1560,7 @@ pg_arena_make_from_virtual_mem(u64 size) {
       .start = alloc,
       .end = (u8 *)alloc + size,
       .os_start = (void *)page_guard_before,
-      .os_alloc_size = alloc_real_size,
+      .os_alloc_size = os_alloc_size,
   };
 }
 
