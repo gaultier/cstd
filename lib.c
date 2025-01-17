@@ -1133,6 +1133,7 @@ pg_writer_write_u64_as_string(PgWriter *w, u64 n) {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_u64_to_string(u64 n, PgArena *arena) {
   Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, 25, arena);
   PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
 
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
@@ -1341,6 +1342,7 @@ PG_DYN(PgIpv4Address) PgIpv4AddressDyn;
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
   Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, 3 * 4 + 4 + 5, arena);
   PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
 
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, (address.ip >> 24) & 0xFF));
@@ -3069,24 +3071,6 @@ pg_writer_make_from_file(PgFile *file) {
   return (PgWriter){.write_fn = pg_writer_unix_write, .ctx = (void *)file};
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_reader_read(PgReader *r, PgRing *rg, PgArena arena) {
-  PG_ASSERT(nullptr != r->read_fn);
-
-  Pgu64Result res = {0};
-
-  PgString dst = pg_string_make(pg_ring_write_space(*rg), &arena);
-  res = r->read_fn(r, dst.data, dst.len);
-
-  if (res.err) {
-    return res;
-  }
-  dst.len = res.res;
-  PG_ASSERT(true == pg_ring_write_slice(rg, dst));
-
-  return res;
-}
-
 #if 0
 [[nodiscard]] static PgParseNumberResult
 request_parse_content_length_maybe(PgHttpRequest req, PgArena *arena) {
@@ -3231,6 +3215,7 @@ pg_form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
                               PgArena *arena) {
   PgFormDataKVElementParseResult res = {0};
   Pgu8Dyn data = {0};
+  PG_DYN_ENSURE_CAP(&data, in.len * 2, arena);
 
   u64 i = 0;
   for (; i < in.len; i++) {
@@ -3692,6 +3677,7 @@ pg_log_entry_slice(PgString k, PgString v) {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_json_escape_string(PgString entry, PgArena *arena) {
   Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, entry.len * 2, arena);
   *PG_DYN_PUSH(&sb, arena) = '"';
 
   for (u64 i = 0; i < entry.len; i++) {
@@ -3729,6 +3715,7 @@ pg_json_escape_string(PgString entry, PgArena *arena) {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_json_unescape_string(PgString entry, PgArena *arena) {
   Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, entry.len, arena);
 
   for (u64 i = 0; i < entry.len; i++) {
     u8 c = PG_SLICE_AT(entry, i);
@@ -3836,6 +3823,7 @@ pg_log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena,
   // Ignore clock errors.
 
   Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, 256, arena);
   PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
 
   PG_ASSERT(0 == pg_writer_write_u8(&w, '{'));
@@ -3880,6 +3868,7 @@ pg_log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena,
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_json_encode_string_slice(PgStringSlice strings, PgArena *arena) {
   Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, strings.len * 128, arena);
   *PG_DYN_PUSH(&sb, arena) = '[';
 
   for (u64 i = 0; i < strings.len; i++) {
@@ -3967,10 +3956,11 @@ pg_json_decode_string_slice(PgString s, PgArena *arena) {
 pg_make_unique_id_u128_string(PgArena *arena) {
   u128 id = pg_rand_u128();
 
-  Pgu8Dyn dyn = {0};
-  pg_string_builder_append_u128_hex(&dyn, id, arena);
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, 32, arena);
+  pg_string_builder_append_u128_hex(&sb, id, arena);
 
-  return PG_DYN_SLICE(PgString, dyn);
+  return PG_DYN_SLICE(PgString, sb);
 }
 
 typedef enum : u8 {
@@ -4384,8 +4374,9 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
           (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state)) {
         {
           PgArena arena_tmp = loop->arena;
+          PgWriter w = pg_writer_make_from_ring(&handle->ring_read);
           Pgu64Result res_read =
-              pg_reader_read(&handle->reader, &handle->ring_read, arena_tmp);
+              pg_writer_write_from_reader(&w, &handle->reader);
 
           PgError err_read = 0;
           PgString data = {0};

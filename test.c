@@ -1005,7 +1005,8 @@ static void test_net_socket() {
       } else if (event.os_handle == (u64)bob_socket) {
         PG_ASSERT(PG_AIO_EVENT_KIND_IN & event.kind);
 
-        PG_ASSERT(0 == pg_reader_read(&bob_reader, &bob_recv, arena).err);
+        PgWriter w = pg_writer_make_from_ring(&bob_recv);
+        PG_ASSERT(0 == pg_writer_write_from_reader(&w, &bob_reader).err);
 
         if (4 == pg_ring_read_space(bob_recv)) {
           goto end; // End of test.
