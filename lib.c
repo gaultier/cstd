@@ -3830,6 +3830,7 @@ pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
   va_start(argp, args_count);
   for (i32 i = 0; i < args_count; i++) {
     PgLogEntry entry = va_arg(argp, PgLogEntry);
+    PG_ASSERT(0 == pg_writer_write_u8(&w, ' '));
     PG_ASSERT(0 == pg_writer_write_all_string(&w, entry.key));
     PG_ASSERT(0 == pg_writer_write_u8(&w, '='));
 
