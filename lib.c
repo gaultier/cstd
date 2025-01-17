@@ -3729,8 +3729,8 @@ pg_writer_write_json_object_key_string_value_u64(PgWriter *w, PgString key,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_log_make_log_line(PgLogLevel level, PgString msg, PgArena *arena,
-                     i32 args_count, ...) {
+pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
+                          i32 args_count, ...) {
   Pgu64Result res_monotonic_ns = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
   Pgu64Result res_timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME);
   // Ignore clock errors.

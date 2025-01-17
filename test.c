@@ -431,9 +431,9 @@ static void test_log_entry_quote_value() {
 static void test_make_log_line() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
-  PgString pg_log_line =
-      pg_log_make_log_line(PG_LOG_LEVEL_DEBUG, PG_S("foobar"), &arena, 2,
-                           PG_L("num", 42), PG_L("s", PG_S("hello \"world\"")));
+  PgString pg_log_line = pg_log_make_log_line_json(
+      PG_LOG_LEVEL_DEBUG, PG_S("foobar"), &arena, 2, PG_L("num", 42),
+      PG_L("s", PG_S("hello \"world\"")));
 
   PgString expected_suffix = PG_S(
       "\"message\":\"foobar\",\"num\":42,\"s\":\"hello \\\"world\\\"\"}\n");
