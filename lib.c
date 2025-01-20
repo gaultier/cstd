@@ -1246,7 +1246,7 @@ pg_round_up_multiple_of(u64 n, u64 multiple) {
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
-pg_string_indexof_unescaped_byte(PgString haystack, u8 needle) {
+pg_string_indexof_unescaped_byte(PgString haystack, u8 needle, u8 escape) {
   for (u64 i = 0; i < haystack.len; i++) {
     u8 c = PG_SLICE_AT(haystack, i);
 
@@ -1259,7 +1259,7 @@ pg_string_indexof_unescaped_byte(PgString haystack, u8 needle) {
     }
 
     u8 previous = PG_SLICE_AT(haystack, i - 1);
-    if ('\\' != previous) {
+    if (escape != previous) {
       return (i64)i;
     }
   }
@@ -1392,6 +1392,8 @@ typedef enum {
 
 PG_RESULT(PgTimer) PgTimerResult;
 
+[[maybe_unused]] [[nodiscard]] static u8 pg_path_sep();
+
 [[maybe_unused]] [[nodiscard]] static PgTimerResult
 pg_timer_create(PgClockKind clock_kind, u64 ns);
 
@@ -1492,7 +1494,7 @@ pg_aio_queue_ctl_one(PgAioQueue queue, PgAioEvent event) {
 pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
                   PgArena arena);
 
-#if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
+#ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -1502,6 +1504,8 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+[[maybe_unused]] [[nodiscard]] static u8 pg_path_sep() { return '/'; }
 
 [[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min_incl,
                                                       u32 max_excl) {
@@ -1820,6 +1824,9 @@ pg_net_tcp_accept(PgSocket sock) {
 }
 
 #else
+
+[[maybe_unused]] [[nodiscard]] static u8 pg_path_sep() { return '\\'; }
+
 #error "TODO"
 #endif
 
@@ -4028,7 +4035,7 @@ pg_json_decode_string_slice(PgString s, PgArena *arena) {
     i += 1;
 
     PgString remaining = PG_SLICE_RANGE_START(s, i);
-    i64 end_quote_idx = pg_string_indexof_unescaped_byte(remaining, '"');
+    i64 end_quote_idx = pg_string_indexof_unescaped_byte(remaining, '"', '\\');
     if (-1 == end_quote_idx) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -4735,6 +4742,35 @@ static Pgu64Result pg_event_loop_dns_resolve_ipv4_tcp_start(
   }
 
   res.res = (u64)res_dns.res.socket;
+  return res;
+}
+
+typedef struct {
+  PgStringSlice components;
+  PgString extension;
+} PgPath;
+
+PG_RESULT(PgPath) PgPathResult;
+
+[[nodiscard]] [[maybe_unused]] static PgPathResult
+pg_string_to_path(PgString s, PgArena *arena) {
+  PgPathResult res = {0};
+
+  PgString remaining = s;
+
+  for (u64 i = 0; i < s.len; i++) {
+    if (pg_string_is_empty(remaining)) {
+      return res;
+    }
+
+    // TODO: Check if the escape byte on Windows is the same as on Unix.
+    i64 idx = pg_string_indexof_unescaped_byte(remaining, pg_path_sep(), '\\');
+    // TODO!
+    if (-1 == idx) {
+      return res;
+    }
+  }
+
   return res;
 }
 
