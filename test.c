@@ -1857,6 +1857,15 @@ static void test_event_loop() {
   PG_ASSERT(11 == timer_state);
 }
 
+static void test_div_ceil() {
+  PG_ASSERT(1 == pg_div_ceil(1, 1));
+  PG_ASSERT(1 == pg_div_ceil(1, 2));
+  PG_ASSERT(2 == pg_div_ceil(2, 1));
+  PG_ASSERT(1 == pg_div_ceil(2, 2));
+  PG_ASSERT(1 == pg_div_ceil(2, 3));
+  PG_ASSERT(2 == pg_div_ceil(5, 4));
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_string();
@@ -1893,4 +1902,5 @@ int main() {
   test_timer();
   test_log();
   test_event_loop();
+  test_div_ceil();
 }

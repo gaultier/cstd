@@ -94,6 +94,11 @@ typedef Pgu8Slice PgString;
       : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),                \
          __builtin_trap(), 0)
 
+[[maybe_unused]] [[nodiscard]] static u64 pg_div_ceil(u64 a, u64 b) {
+  PG_ASSERT(b > 0);
+  return a / b + (a % b != 0);
+}
+
 #define PG_C_ARRAY_AT_PTR(arr, len, idx)                                       \
   (((i64)(idx) >= (i64)(len)) ? (__builtin_trap(), &(arr)[0])                  \
                               : (PG_ASSERT(nullptr != (arr)), (&(arr)[idx])))
