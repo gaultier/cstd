@@ -1392,8 +1392,6 @@ typedef enum {
 
 PG_RESULT(PgTimer) PgTimerResult;
 
-[[maybe_unused]] [[nodiscard]] static u8 pg_path_sep();
-
 [[maybe_unused]] [[nodiscard]] static PgTimerResult
 pg_timer_create(PgClockKind clock_kind, u64 ns);
 
@@ -1505,7 +1503,7 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 #include <sys/stat.h>
 #include <unistd.h>
 
-[[maybe_unused]] [[nodiscard]] static u8 pg_path_sep() { return '/'; }
+#define PG_PATH_SEP '/'
 
 [[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min_incl,
                                                       u32 max_excl) {
@@ -1825,7 +1823,7 @@ pg_net_tcp_accept(PgSocket sock) {
 
 #else
 
-[[maybe_unused]] [[nodiscard]] static u8 pg_path_sep() { return '\\'; }
+#define PG_PATH_SEP '\\'
 
 #error "TODO"
 #endif
@@ -4746,29 +4744,65 @@ static Pgu64Result pg_event_loop_dns_resolve_ipv4_tcp_start(
 }
 
 typedef struct {
-  PgStringSlice components;
-  PgString extension;
+  PgStringSlice
+      components; // E.g. `[foo, bar, baz, song]` for `/foo/bar/baz/song.mp3`.
+  PgString file_name; // E.g. `song.mp3`.
+  PgString extension; // E.g. `mp3`.
 } PgPath;
 
 PG_RESULT(PgPath) PgPathResult;
 
-[[nodiscard]] [[maybe_unused]] static PgPathResult
-pg_string_to_path(PgString s, PgArena *arena) {
-  PgPathResult res = {0};
+[[nodiscard]] [[maybe_unused]] static PgPath pg_string_to_path(PgString s,
+                                                               PgArena *arena) {
+  PgPath res = {0};
+
+  PgStringDyn components = {0};
+  // TODO: Initialize cap to `count_of_unescaped_byte(remaining, PG_PATH_SEP)`.
 
   PgString remaining = s;
+  i64 idx_dot = pg_string_indexof_byte(remaining, '.');
+  if (-1 != idx_dot) {
+    res.extension = PG_SLICE_RANGE_START(remaining, (u64)idx_dot + 1);
+    // TODO: Is the extension allowed to have path separators inside?
+
+    remaining = PG_SLICE_RANGE(remaining, 0, (u64)idx_dot);
+  }
 
   for (u64 i = 0; i < s.len; i++) {
     if (pg_string_is_empty(remaining)) {
-      return res;
+      break;
     }
 
     // TODO: Check if the escape byte on Windows is the same as on Unix.
-    i64 idx = pg_string_indexof_unescaped_byte(remaining, pg_path_sep(), '\\');
-    // TODO!
+    i64 idx = pg_string_indexof_unescaped_byte(remaining, PG_PATH_SEP, '\\');
     if (-1 == idx) {
-      return res;
+      *PG_DYN_PUSH(&components, arena) = remaining;
+      break;
     }
+
+    PgString component = PG_SLICE_RANGE(remaining, 0, (u64)idx);
+    *PG_DYN_PUSH(&components, arena) = component;
+    remaining = PG_SLICE_RANGE_START(remaining, (u64)idx + 1);
+  }
+
+  res.components = PG_DYN_SLICE(PgStringSlice, components);
+
+  // Fill `file_name`.
+  if (res.components.len > 0 && pg_string_is_empty(res.extension)) {
+    res.file_name = PG_SLICE_LAST(res.components);
+  } else if (res.components.len == 0 && !pg_string_is_empty(res.extension)) {
+    Pgu8Dyn sb = {0};
+    PG_DYN_ENSURE_CAP(&sb, 1 + res.extension.len, arena);
+    *PG_DYN_PUSH(&sb, arena) = '.';
+    PG_DYN_APPEND_SLICE(&sb, res.extension, arena);
+  } else if (res.components.len > 0 && !pg_string_is_empty(res.extension)) {
+    PgString stem = PG_SLICE_LAST(res.components);
+    Pgu8Dyn sb = {0};
+    PG_DYN_ENSURE_CAP(&sb, stem.len + 1 + res.extension.len, arena);
+
+    PG_DYN_APPEND_SLICE(&sb, stem, arena);
+    *PG_DYN_PUSH(&sb, arena) = '.';
+    PG_DYN_APPEND_SLICE(&sb, res.extension, arena);
   }
 
   return res;
