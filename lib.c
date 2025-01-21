@@ -1601,6 +1601,8 @@ pg_file_set_size(PgString path, u64 size, PgArena arena) {
 }
 
 typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
+
+// TODO: Async.
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
                     void *ctx, PgArena arena) {
