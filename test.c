@@ -1874,6 +1874,12 @@ static void test_string_to_path() {
     PG_ASSERT(pg_string_is_empty(p.file_name));
     PG_ASSERT(pg_string_is_empty(p.extension));
   }
+  {
+    PgPath p = pg_string_to_path(PG_S(PG_PATH_SEP_S), &arena);
+    PG_ASSERT(0 == p.components.len);
+    PG_ASSERT(pg_string_is_empty(p.file_name));
+    PG_ASSERT(pg_string_is_empty(p.extension));
+  }
 }
 
 int main() {

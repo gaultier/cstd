@@ -1504,6 +1504,7 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 #include <unistd.h>
 
 #define PG_PATH_SEP '/'
+#define PG_PATH_SEP_S "/"
 
 [[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min_incl,
                                                       u32 max_excl) {
@@ -1824,6 +1825,7 @@ pg_net_tcp_accept(PgSocket sock) {
 #else
 
 #define PG_PATH_SEP '\\'
+#define PG_PATH_SEP_S "\\"
 
 #error "TODO"
 #endif
@@ -4743,38 +4745,43 @@ static Pgu64Result pg_event_loop_dns_resolve_ipv4_tcp_start(
   return res;
 }
 
+typedef enum {
+  PG_PATH_COMPONENT_KIND_ROOT_DIR,
+  PG_PATH_COMPONENT_KIND_CURRENT_DIR,
+  PG_PATH_COMPONENT_KIND_PARENT_DIR,
+  PG_PATH_COMPONENT_KIND_STRING,
+} PgPathComponentKind;
 typedef struct {
-  PgStringSlice
+  PgPathComponentKind kind;
+  PgString s; // If `kind == PG_PATH_COMPONENT_KIND_STRING`.
+} PgPathComponent;
+
+PG_DYN(PgPathComponent) PgPathComponentDyn;
+PG_SLICE(PgPathComponent) PgPathComponentSlice;
+
+typedef struct {
+  PgPathComponentSlice
       components; // E.g. `[foo, bar, baz, song]` for `/foo/bar/baz/song.mp3`.
   PgString file_name; // E.g. `song.mp3`.
   PgString extension; // E.g. `mp3`.
 } PgPath;
 
-PG_RESULT(PgPath) PgPathResult;
-
 [[nodiscard]] [[maybe_unused]] static PgPath pg_string_to_path(PgString s,
                                                                PgArena *arena) {
   PgPath res = {0};
 
-  PgStringDyn components = {0};
-  // TODO: Initialize cap to `count_of_unescaped_byte(remaining, PG_PATH_SEP)`.
+  PgPathComponentDyn components = {0};
+  // TODO: Initialize cap to `count_of_xxx`.
 
   PgString remaining = s;
-  i64 idx_dot = pg_string_indexof_byte(remaining, '.');
-  if (-1 != idx_dot) {
-    res.extension = PG_SLICE_RANGE_START(remaining, (u64)idx_dot + 1);
-    // TODO: Is the extension allowed to have path separators inside?
-
-    remaining = PG_SLICE_RANGE(remaining, 0, (u64)idx_dot);
-  }
-
   for (u64 i = 0; i < s.len; i++) {
     if (pg_string_is_empty(remaining)) {
       break;
     }
 
     // TODO: Check if the escape byte on Windows is the same as on Unix.
-    i64 idx = pg_string_indexof_unescaped_byte(remaining, PG_PATH_SEP, '\\');
+    i64 idx = pg_string_indexof_any_byte(remaining, PG_S(PG_PATH_SEP_S "\\"
+                                                                       "."));
     if (-1 == idx) {
       *PG_DYN_PUSH(&components, arena) = remaining;
       break;
