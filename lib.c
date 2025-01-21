@@ -1638,6 +1638,9 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
       if (err) {
         goto end;
       }
+
+      chunk.len = 0;
+      space = PG_DYN_SPACE(PgString, &chunk);
     }
 
     PG_ASSERT(space.len > 0);
@@ -1653,6 +1656,8 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
       err = on_chunk(PG_DYN_SLICE(PgString, chunk), ctx);
       goto end;
     }
+
+    chunk.len += (u64)ret;
   }
 
 end:
