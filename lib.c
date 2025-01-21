@@ -23,9 +23,9 @@
 #endif
 
 #define PG_KiB (1024ULL)
-#define PG_MiB (1024ULL * PG_Ki)
-#define PG_GiB (1024ULL * PG_Mi)
-#define PG_TiB (1024ULL * PG_Gi)
+#define PG_MiB (1024ULL * PG_KiB)
+#define PG_GiB (1024ULL * PG_MiB)
+#define PG_TiB (1024ULL * PG_GiB)
 
 #define PG_Microseconds (1000ULL)
 #define PG_Milliseconds (1000ULL * PG_Microseconds)
@@ -1418,7 +1418,20 @@ pg_file_read_full(PgString path, PgArena *arena);
 
 typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_file_read_chunks(PgString path, u64 chunk_size, PgArena arena);
+pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
+                    void *ctx, PgArena arena);
+
+typedef enum [[clang::flag_enum]] : u8 {
+  PG_FILE_FLAGS_READ = 1,
+  PG_FILE_FLAGS_WRITE = 2,
+  PG_FILE_FLAGS_CREATE = 4,
+} PgFileFlags;
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_create(PgString path, PgFileFlags flags, PgArena arena);
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_set_size(PgString path, u64 size, PgArena arena);
 
 [[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min_incl,
                                                       u32 max_excl);
@@ -1547,6 +1560,87 @@ pg_string_to_filename(PgString s);
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_create(PgString path, PgFileFlags flags, PgArena arena) {
+  PgError res = 0;
+
+  int os_flags = 0;
+  if (PG_FILE_FLAGS_READ & flags) {
+    os_flags |= O_RDONLY;
+  }
+  if (PG_FILE_FLAGS_WRITE & flags) {
+    os_flags |= O_WRONLY;
+  }
+  if (PG_FILE_FLAGS_CREATE & flags) {
+    os_flags |= O_CREAT;
+  }
+
+  char *path_c = pg_string_to_cstr(path, &arena);
+  int ret = open(path_c, os_flags);
+  if (-1 == ret) {
+    res = (PgError)errno;
+  } else {
+    close(ret);
+  }
+
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_set_size(PgString path, u64 size, PgArena arena) {
+  PgError res = 0;
+
+  char *path_c = pg_string_to_cstr(path, &arena);
+  int ret = truncate(path_c, (i64)size);
+  if (-1 == ret) {
+    res = (PgError)errno;
+    return res;
+  }
+  return 0;
+}
+
+typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
+                    void *ctx, PgArena arena) {
+
+  char *path_c = pg_string_to_cstr(path, &arena);
+
+  int fd = open(path_c, O_RDONLY);
+  if (fd < 0) {
+    return (PgError)errno;
+  }
+
+  PgString chunk = pg_string_make(chunk_size, &arena);
+  PgError err = 0;
+
+  for (;;) {
+    ssize_t ret = read(fd, chunk.data, chunk_size);
+    if (-1 == ret) {
+      err = (PgError)errno;
+      goto end;
+    }
+    if (0 == ret) {
+      err = 0;
+      goto end;
+    }
+    if ((u64)ret < chunk_size) { // Short read.
+      PG_ASSERT(0 && "TODO");
+    }
+    chunk.len = (u64)ret;
+
+    err = on_chunk(chunk, ctx);
+    if (err) {
+      goto end;
+    }
+  }
+
+end:
+  close(fd);
+
+  return err;
+}
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_to_filename(PgString s) {
