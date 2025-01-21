@@ -1392,12 +1392,21 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
   return PG_SLICE_AT(bitfield, idx_byte) & (1 << (idx_bit % 8));
 }
 
+[[maybe_unused]] static void pg_bitfield_set(PgString bitfield, u64 idx_bit,
+                                             bool val) {
+  PG_ASSERT(idx_bit < bitfield.len * 8);
+
+  u64 idx_byte = idx_bit / 8;
+
+  *PG_SLICE_AT_PTR(&bitfield, idx_byte) |= val << (idx_byte % 8);
+}
+
 [[maybe_unused]] [[nodiscard]] static u64 pg_bitfield_count(PgString bitfield,
                                                             bool val) {
 
   u64 res = 0;
   for (u64 i = 0; i < bitfield.len; i++) {
-    res = PG_SLICE_AT(bitfield, i) == val;
+    res += PG_SLICE_AT(bitfield, i) == val;
   }
   return res;
 }
