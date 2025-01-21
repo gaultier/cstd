@@ -1866,20 +1866,16 @@ static void test_div_ceil() {
   PG_ASSERT(2 == pg_div_ceil(5, 4));
 }
 
-static void test_string_to_path() {
-  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-  {
-    PgPath p = pg_string_to_path(PG_S(""), &arena);
-    PG_ASSERT(0 == p.components.len);
-    PG_ASSERT(pg_string_is_empty(p.file_name));
-    PG_ASSERT(pg_string_is_empty(p.extension));
-  }
-  {
-    PgPath p = pg_string_to_path(PG_S(PG_PATH_SEP_S), &arena);
-    PG_ASSERT(0 == p.components.len);
-    PG_ASSERT(pg_string_is_empty(p.file_name));
-    PG_ASSERT(pg_string_is_empty(p.extension));
-  }
+static void test_string_to_filename() {
+  PG_ASSERT(pg_string_eq(PG_S(""), pg_string_to_filename(PG_S(""))));
+  PG_ASSERT(pg_string_eq(PG_S(""), pg_string_to_filename(PG_S("/"))));
+  PG_ASSERT(pg_string_eq(PG_S("foo"), pg_string_to_filename(PG_S("foo"))));
+  PG_ASSERT(
+      pg_string_eq(PG_S("foo.mp3"), pg_string_to_filename(PG_S("foo.mp3"))));
+  PG_ASSERT(pg_string_eq(PG_S("foo.mp3"),
+                         pg_string_to_filename(PG_S("/a/b/foo.mp3"))));
+  PG_ASSERT(pg_string_eq(PG_S("b\\/foo.mp3"),
+                         pg_string_to_filename(PG_S("/a/b\\/foo.mp3"))));
 }
 
 int main() {
@@ -1919,5 +1915,5 @@ int main() {
   test_log();
   test_event_loop();
   test_div_ceil();
-  test_string_to_path();
+  test_string_to_filename();
 }
