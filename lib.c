@@ -1392,6 +1392,16 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
   return PG_SLICE_AT(bitfield, idx_byte) & (1 << (idx_bit % 8));
 }
 
+[[maybe_unused]] [[nodiscard]] static u64 pg_bitfield_count(PgString bitfield,
+                                                            bool val) {
+
+  u64 res = 0;
+  for (u64 i = 0; i < bitfield.len; i++) {
+    res = PG_SLICE_AT(bitfield, i) == val;
+  }
+  return res;
+}
+
 // FIXME: Windows.
 typedef int PgSocket;
 typedef int PgFile;
@@ -1616,26 +1626,31 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
     return (PgError)errno;
   }
 
-  PgString chunk = pg_string_make(chunk_size, &arena);
+  Pgu8Dyn chunk = {0};
+  PG_DYN_ENSURE_CAP(&chunk, chunk_size, &arena);
   PgError err = 0;
 
   for (;;) {
-    ssize_t ret = read(fd, chunk.data, chunk_size);
+    PgString space = PG_DYN_SPACE(PgString, &chunk);
+    if (pg_string_is_empty(space)) {
+      PG_ASSERT(chunk_size == chunk.len);
+      err = on_chunk(PG_DYN_SLICE(PgString, chunk), ctx);
+      if (err) {
+        goto end;
+      }
+    }
+
+    PG_ASSERT(space.len > 0);
+    PG_ASSERT(space.len <= chunk_size);
+
+    ssize_t ret = read(fd, space.data, space.len);
     if (-1 == ret) {
       err = (PgError)errno;
       goto end;
     }
-    if (0 == ret) {
-      err = 0;
-      goto end;
-    }
-    if ((u64)ret < chunk_size) { // Short read.
-      PG_ASSERT(0 && "TODO");
-    }
-    chunk.len = (u64)ret;
 
-    err = on_chunk(chunk, ctx);
-    if (err) {
+    if (0 == ret) { // EOF.
+      err = on_chunk(PG_DYN_SLICE(PgString, chunk), ctx);
       goto end;
     }
   }
