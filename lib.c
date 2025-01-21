@@ -1576,8 +1576,10 @@ pg_file_create(PgString path, PgFileFlags flags, PgArena arena) {
     os_flags |= O_CREAT;
   }
 
+  int mode = 0666; // TODO
+
   char *path_c = pg_string_to_cstr(path, &arena);
-  int ret = open(path_c, os_flags);
+  int ret = open(path_c, os_flags, mode);
   if (-1 == ret) {
     res = (PgError)errno;
   } else {
