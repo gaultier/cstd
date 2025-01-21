@@ -1401,12 +1401,11 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
   *PG_SLICE_AT_PTR(&bitfield, idx_byte) |= val << (idx_byte % 8);
 }
 
-[[maybe_unused]] [[nodiscard]] static u64 pg_bitfield_count(PgString bitfield,
-                                                            bool val) {
+[[maybe_unused]] [[nodiscard]] static u64 pg_bitfield_count(PgString bitfield) {
 
   u64 res = 0;
   for (u64 i = 0; i < bitfield.len; i++) {
-    res += PG_SLICE_AT(bitfield, i) == val;
+    res += PG_SLICE_AT(bitfield, i) != 0;
   }
   return res;
 }
