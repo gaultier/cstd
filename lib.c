@@ -4783,7 +4783,10 @@ typedef struct {
     i64 idx = pg_string_indexof_any_byte(remaining, PG_S(PG_PATH_SEP_S "\\"
                                                                        "."));
     if (-1 == idx) {
-      *PG_DYN_PUSH(&components, arena) = remaining;
+      *PG_DYN_PUSH(&components, arena) = (PgPathComponent){
+          .kind = PG_PATH_COMPONENT_KIND_STRING,
+          .s = remaining,
+      };
       break;
     }
 
