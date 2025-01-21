@@ -1866,6 +1866,16 @@ static void test_div_ceil() {
   PG_ASSERT(2 == pg_div_ceil(5, 4));
 }
 
+static void test_string_to_path() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  {
+    PgPath p = pg_string_to_path(PG_S(""), &arena);
+    PG_ASSERT(0 == p.components.len);
+    PG_ASSERT(pg_string_is_empty(p.file_name));
+    PG_ASSERT(pg_string_is_empty(p.extension));
+  }
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_string();
@@ -1903,4 +1913,5 @@ int main() {
   test_log();
   test_event_loop();
   test_div_ceil();
+  test_string_to_path();
 }
