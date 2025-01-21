@@ -1876,6 +1876,10 @@ static void test_string_to_filename() {
                          pg_string_to_filename(PG_S("/a/b/foo.mp3"))));
   PG_ASSERT(pg_string_eq(PG_S("b\\/foo.mp3"),
                          pg_string_to_filename(PG_S("/a/b\\/foo.mp3"))));
+  PG_ASSERT(pg_string_eq(PG_S("foo.mp3"),
+                         pg_string_to_filename(PG_S("/a/b/../foo.mp3"))));
+  PG_ASSERT(
+      pg_string_eq(PG_S("foo.mp3"), pg_string_to_filename(PG_S("./foo.mp3"))));
 }
 
 int main() {
