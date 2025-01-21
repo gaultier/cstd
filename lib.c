@@ -1416,6 +1416,10 @@ pg_time_ns_now(PgClockKind clock_kind);
 [[nodiscard]] [[maybe_unused]] static PgStringResult
 pg_file_read_full(PgString path, PgArena *arena);
 
+typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_read_chunks(PgString path, u64 chunk_size, PgArena arena);
+
 [[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min_incl,
                                                       u32 max_excl);
 [[maybe_unused]] static void pg_rand_string_mut(PgString s);
