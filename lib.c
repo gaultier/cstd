@@ -1402,7 +1402,6 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_bitfield_count(PgString bitfield) {
-
   u64 res = 0;
   for (u64 i = 0; i < bitfield.len; i++) {
     res += PG_SLICE_AT(bitfield, i) != 0;
