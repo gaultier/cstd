@@ -3918,34 +3918,15 @@ pg_logfmt_escape_string(PgString entry, PgArena *arena) {
 
   for (u64 i = 0; i < entry.len; i++) {
     u8 c = PG_SLICE_AT(entry, i);
-    if ('"' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = '"';
-    } else if ('\b' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = 'b';
-    } else if ('\f' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = 'f';
-    } else if ('\n' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = 'n';
-    } else if ('\r' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = 'r';
-    } else if ('\t' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = 't';
+    if (' ' == c || c == '-' || c == '_' || c == ':' ||
+        pg_character_is_alphanumeric(c)) {
+      *PG_DYN_PUSH(&sb, arena) = c;
     } else {
-      if (32 <= c && c <= 126) {
-        *PG_DYN_PUSH(&sb, arena) = c;
-      } else {
-        u8 c1 = c % 16;
-        u8 c2 = c / 16;
-        PG_DYN_APPEND_SLICE(&sb, PG_S("\\x"), arena);
-        *PG_DYN_PUSH(&sb, arena) = pg_u8_to_character_hex(c2);
-        *PG_DYN_PUSH(&sb, arena) = pg_u8_to_character_hex(c1);
-      }
+      u8 c1 = c % 16;
+      u8 c2 = c / 16;
+      PG_DYN_APPEND_SLICE(&sb, PG_S("\\x"), arena);
+      *PG_DYN_PUSH(&sb, arena) = pg_u8_to_character_hex(c2);
+      *PG_DYN_PUSH(&sb, arena) = pg_u8_to_character_hex(c1);
     }
   }
   *PG_DYN_PUSH(&sb, arena) = '"';
