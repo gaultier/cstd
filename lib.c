@@ -3,6 +3,7 @@
 
 // TODO: Test untested functions.
 // TODO: `try_alloc` functions.
+// TODO: Enqueue I/O write if `try_write` is partial.
 // TODO: Windows.
 // TODO: [Unix] Retry syscalls on EINTR.
 // TODO: [Unix] Human-readable stacktrace.
