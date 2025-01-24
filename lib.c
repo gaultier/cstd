@@ -85,10 +85,14 @@ typedef int64_t i64;
   }
 
 typedef u32 PgError;
-#define PG_ERR_INVALID_VALUE ((u32)0x701)
-#define PG_ERR_OUT_OF_MEMORY ((u32)0x702)
-#define PG_ERR_IO ((u32)0x703)
-#define PG_ERR_AGAIN ((u32)0x704)
+#ifdef PG_OS_UNIX
+#include <errno.h>
+#define PG_ERR_INVALID_VALUE EINVAL
+#define PG_ERR_IO EIO
+#define PG_ERR_AGAIN EAGAIN
+#else
+// TODO: Windows
+#endif
 
 PG_RESULT(u64) Pgu64Result;
 PG_RESULT(bool) PgBoolResult;
