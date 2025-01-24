@@ -99,10 +99,22 @@ typedef Pgu8Slice PgString;
 
 #define PG_SUB_SAT(a, b) ((a) > (b) ? ((a) - (b)) : 0)
 
+#define PG_STACKTRACE_MAX 64
+
+[[maybe_unused]] static u64
+pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
+
 [[maybe_unused]] static void pg_stacktrace_print(const char *file, int line,
                                                  const char *function) {
-  fprintf(stderr, "%s:%d:%s\n", file, line, function);
-  // TODO
+  fprintf(stderr, "%s:%d:%s", file, line, function);
+
+  u64 call_stack[PG_STACKTRACE_MAX] = {0};
+  u64 callstack_len = pg_fill_call_stack(call_stack);
+  for (u64 i = 0; i < callstack_len; i++) {
+    fprintf(stderr, "%#08lx\n", call_stack[i]);
+  }
+
+  puts("");
 }
 
 #define PG_ASSERT(x)                                                           \
@@ -1624,6 +1636,32 @@ pg_string_to_filename(PgString s);
 #include <sys/stat.h>
 #include <unistd.h>
 
+// TODO: ARM.
+#ifdef __x86_64
+[[maybe_unused]] static u64
+pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
+  u64 *rbp = __builtin_frame_address(0);
+  u64 res = 0;
+
+  while (rbp != 0 && ((uint64_t)rbp & 7) == 0 && *rbp != 0) {
+    u64 rip = *(rbp + 1);
+    rbp = (u64 *)*rbp;
+
+    // `rip` points to the return instruction in the caller, once this call is
+    // done. But: We want the location of the call i.e. the `call xxx`
+    // instruction, so we subtract one byte to point inside it, which is not
+    // quite 'at' it, but good enough.
+    call_stack[res++] = rip - 1;
+
+    if (res >= PG_STACKTRACE_MAX) {
+      break;
+    }
+  }
+
+  return res;
+}
+#endif
+
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
@@ -2355,8 +2393,6 @@ pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
   return 0;
 }
 #endif
-
-PG_RESULT(PgString) PgIoResult;
 
 [[maybe_unused]] [[nodiscard]] static PgSocket pg_reader_socket(PgReader *r) {
   PG_ASSERT(r->ctx);
