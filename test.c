@@ -517,6 +517,14 @@ static void test_bitfield() {
     PG_ASSERT(!pg_bitfield_get(bitfield, 14));
     PG_ASSERT(!pg_bitfield_get(bitfield, 15));
   }
+  {
+    PgString bitfield = pg_string_dup(PG_S("\x20"
+                                           "\x01"
+                                           "0x80"
+                                           "0x90"),
+                                      &arena);
+    pg_bitfield_set(bitfield, 28, false);
+  }
 }
 
 static void test_ring_buffer_write_slice() {
