@@ -1,6 +1,7 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
 
+// TODO: Test untested functions.
 // TODO: Windows.
 // TODO: [Unix] Retry syscalls on EINTR.
 // TODO: [Unix] Human-readable stacktrace.
@@ -3971,7 +3972,7 @@ pg_logfmt_escape_string(PgString entry, PgArena *arena) {
 
   for (u64 i = 0; i < entry.len; i++) {
     u8 c = PG_SLICE_AT(entry, i);
-    if (' ' == c || c == '-' || c == '_' || c == ':' ||
+    if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' ||
         pg_character_is_alphanumeric(c)) {
       *PG_DYN_PUSH(&sb, arena) = c;
     } else {
