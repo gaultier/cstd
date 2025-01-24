@@ -1425,6 +1425,8 @@ typedef int PgSocket;
 typedef int PgFile;
 typedef int PgTimer;
 
+PG_RESULT(PgFile) PgFileResult;
+
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len);
 
@@ -1470,8 +1472,10 @@ typedef enum [[clang::flag_enum]] : u8 {
   PG_FILE_FLAGS_CREATE = 4,
 } PgFileFlags;
 
-[[nodiscard]] [[maybe_unused]] static PgError
-pg_file_create(PgString path, PgFileFlags flags, PgArena arena);
+[[nodiscard]] [[maybe_unused]] static PgFileResult
+pg_file_open(PgString path, PgFileFlags flags, PgArena arena);
+
+[[nodiscard]] [[maybe_unused]] static PgError pg_file_close(PgFile file);
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_set_size(PgString path, u64 size, PgArena arena);
@@ -1704,9 +1708,9 @@ pg_file_write_data_at_offset_from_start(PgFile file, u64 offset,
   return pg_writer_write_all_string(&w, data);
 }
 
-[[nodiscard]] [[maybe_unused]] static PgError
-pg_file_create(PgString path, PgFileFlags flags, PgArena arena) {
-  PgError res = 0;
+[[nodiscard]] [[maybe_unused]] static PgFileResult
+pg_file_open(PgString path, PgFileFlags flags, PgArena arena) {
+  PgFileResult res = {0};
 
   int os_flags = 0;
   if (PG_FILE_FLAGS_READ & flags) {
@@ -1724,12 +1728,20 @@ pg_file_create(PgString path, PgFileFlags flags, PgArena arena) {
   char *path_c = pg_string_to_cstr(path, &arena);
   int ret = open(path_c, os_flags, mode);
   if (-1 == ret) {
-    res = (PgError)errno;
-  } else {
-    close(ret);
+    res.err = (PgError)errno;
+    return res;
   }
 
+  res.res = (PgFile)ret;
   return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError pg_file_close(PgFile file) {
+  if (-1 == close(file)) {
+    return (PgError)errno;
+  }
+
+  return 0;
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
