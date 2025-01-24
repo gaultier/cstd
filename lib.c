@@ -654,7 +654,7 @@ pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString cstr_to_string(char *s) {
+[[maybe_unused]] [[nodiscard]] static PgString pg_cstr_to_string(char *s) {
   return (PgString){
       .data = (u8 *)s,
       .len = strlen(s),
@@ -4133,7 +4133,7 @@ pg_log_level_to_string(PgLogLevel level) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgLogEntry
-pg_log_entry_slice(PgString k, PgString v) {
+pg_log_entry_string(PgString k, PgString v) {
   return (PgLogEntry){
       .key = k,
       .value.kind = PG_LOG_VALUE_STRING,
@@ -4157,7 +4157,7 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
       u32: pg_log_entry_u32,                                                   \
       u64: pg_log_entry_u64,                                                   \
       PgIpv4Address: pg_log_entry_ipv4_address,                                \
-      PgString: pg_log_entry_slice)((PG_S(k)), (v)))
+      PgString: pg_log_entry_string)((PG_S(k)), (v)))
 
 #define PG_LOG_ARGS_COUNT(...)                                                 \
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
