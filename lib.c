@@ -1487,6 +1487,8 @@ pg_timer_start(PgTimer timer, u64 initial_expiration_ns, u64 interval_ns);
 
 [[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(PgTimer timer);
 
+[[maybe_unused]] [[nodiscard]] static PgError pg_timer_flush(PgTimer timer);
+
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_time_ns_now(PgClockKind clock_kind);
 
@@ -1679,7 +1681,7 @@ pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(0 != (u64)r->ctx);
 
   int fd = (int)(u64)r->ctx;
-  ssize_t n = 0;
+  i64 n = 0;
   do {
     n = read(fd, buf, buf_len);
   } while (-1 == n && EINTR == errno);
@@ -1703,7 +1705,7 @@ pg_reader_unix_recv(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(0 != (u64)r->ctx);
 
   int fd = (int)(u64)r->ctx;
-  ssize_t n = 0;
+  i64 n = 0;
   do {
     n = recv(fd, buf, buf_len, 0);
   } while (-1 == n && EINTR == errno);
@@ -1727,7 +1729,7 @@ pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(0 != (u64)w->ctx);
 
   int fd = (int)(u64)w->ctx;
-  ssize_t n = 0;
+  i64 n = 0;
   do {
     n = write(fd, buf, buf_len);
   } while (-1 == n && EINTR == errno);
@@ -1756,7 +1758,7 @@ pg_writer_unix_send(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(0 != (u64)w->ctx);
 
   int fd = (int)(u64)w->ctx;
-  ssize_t n = 0;
+  i64 n = 0;
   do {
     n = send(fd, buf, buf_len, MSG_NOSIGNAL);
   } while (-1 == n && EINTR == errno);
@@ -1885,7 +1887,7 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
     PG_ASSERT(space.len > 0);
     PG_ASSERT(space.len <= chunk_size);
 
-    ssize_t ret = 0;
+    i64 ret = 0;
     do {
       ret = read(fd, space.data, space.len);
     } while (-1 == ret && EINTR == errno);
@@ -2048,7 +2050,7 @@ pg_arena_make_from_virtual_mem(u64 size) {
     }
 
     PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
-    ssize_t read_n = 0;
+    i64 read_n = 0;
     do {
       read_n = read(fd, space.data, space.len);
     } while (-1 == read_n && EINTR == errno);
@@ -2338,7 +2340,7 @@ pg_net_get_socket_error(PgSocket socket) {
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
-  ssize_t res = 0;
+  i64 res = 0;
   do {
     res = sendfile(fd_out, fd_in, nullptr, n_bytes);
   } while (-1 == res && EINTR == errno);
@@ -2346,7 +2348,7 @@ pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
   if (res == -1) {
     return (PgError)errno;
   }
-  if (res != (ssize_t)n_bytes) {
+  if (res != (i64)n_bytes) {
     return (PgError)PG_ERR_AGAIN;
   }
   return 0;
@@ -2531,6 +2533,24 @@ pg_timer_start(PgTimer timer, u64 initial_expiration_ns, u64 interval_ns) {
   if (-1 == ret) {
     return (PgError)errno;
   }
+  return (PgError)0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError pg_timer_flush(PgTimer timer) {
+  i64 ret = 0;
+  u64 dummy = 0;
+  do {
+    ret = read((int)timer, &dummy, sizeof(dummy));
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  if (sizeof(dummy) != ret) {
+    return PG_ERR_AGAIN;
+  }
+
   return (PgError)0;
 }
 
@@ -5026,6 +5046,8 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
         if (handle->on_timer) {
           handle->on_timer(loop, handle->os_handle, handle->ctx);
         }
+        // TODO: Release the timer if it cannot be cleared?
+        (void)pg_timer_flush((PgTimer)handle->os_handle);
       }
     }
 
