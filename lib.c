@@ -4,9 +4,9 @@
 // TODO: Test untested functions.
 // TODO: `try_alloc` functions.
 // TODO: Enqueue I/O write if `try_write` is partial.
-// TODO: Windows.
-// TODO: BSD/Macos kqueue.
-// TODO: Illumos async I/O.
+// TODO: [Windows] support.
+// TODO: [BSD/Macos] kqueue.
+// TODO: [Illumos] async I/O.
 // TODO: [Unix] Retry syscalls on EINTR.
 // TODO: [Unix] CLI argument parser.
 // TODO: [Unix] Human-readable stacktrace.
@@ -16,6 +16,7 @@
 // TODO: Sha1 hardware accelerated?
 // TODO: HTTP compression (gzip, etc)
 // TODO: TLS 1.3
+// TODO: Try using actors to structure async I/O instead of callbacks.
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #define PG_OS_UNIX
