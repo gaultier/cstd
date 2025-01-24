@@ -4024,7 +4024,7 @@ pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
       .level = level,
       .writer = pg_writer_make_from_file(
           (PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
-      .arena = pg_arena_make_from_virtual_mem(128 * PG_KiB),
+      .arena = pg_arena_make_from_virtual_mem(8 * PG_KiB),
       .make_log_line = pg_log_make_log_line_logfmt,
   };
 
@@ -4181,7 +4181,8 @@ pg_json_escape_string(PgString entry, PgArena *arena) {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_logfmt_escape_string(PgString entry, PgArena *arena) {
   Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 2 + entry.len * 2, arena);
+  PG_DYN_ENSURE_CAP(&sb, 2 + PG_CLAMP(0, entry.len, PG_LOG_STRING_MAX + 4) * 2,
+                    arena);
   *PG_DYN_PUSH(&sb, arena) = '"';
 
   if (entry.len <= PG_LOG_STRING_MAX) {
