@@ -86,6 +86,7 @@ typedef u32 PgError;
 #define PG_ERR_INVALID_VALUE ((u32)0x701)
 #define PG_ERR_OUT_OF_MEMORY ((u32)0x702)
 #define PG_ERR_IO ((u32)0x703)
+#define PG_ERR_AGAIN ((u32)0x704)
 
 PG_RESULT(u64) Pgu64Result;
 PG_RESULT(bool) PgBoolResult;
@@ -2281,8 +2282,11 @@ pg_net_tcp_accept(PgSocket sock) {
 
   struct sockaddr_in sockaddrin = {0};
   socklen_t sockaddrin_len = sizeof(sockaddrin);
-  int sock_client =
-      accept(sock, (struct sockaddr *)&sockaddrin, &sockaddrin_len);
+  int sock_client = 0;
+  do {
+    sock_client = accept(sock, (struct sockaddr *)&sockaddrin, &sockaddrin_len);
+  } while (-1 == sock_client && EINTR == errno);
+
   if (-1 == sock_client) {
     res.err = (PgError)errno;
     return res;
@@ -2299,7 +2303,11 @@ pg_net_tcp_accept(PgSocket sock) {
 pg_net_get_socket_error(PgSocket socket) {
   int socket_error = -1;
   socklen_t len = sizeof(socket_error);
-  int ret = getsockopt(socket, SOL_SOCKET, SO_ERROR, &socket_error, &len);
+  int ret = 0;
+  do {
+    ret = getsockopt(socket, SOL_SOCKET, SO_ERROR, &socket_error, &len);
+  } while (-1 == ret && EINTR == errno);
+
   if (-1 == ret) {
     return (PgError)errno;
   }
@@ -2321,19 +2329,27 @@ pg_net_get_socket_error(PgSocket socket) {
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
-  ssize_t res = sendfile(fd_out, fd_in, nullptr, n_bytes);
+  ssize_t res = 0;
+  do {
+    res = sendfile(fd_out, fd_in, nullptr, n_bytes);
+  } while (-1 == res && EINTR == errno);
+
   if (res == -1) {
     return (PgError)errno;
   }
   if (res != (ssize_t)n_bytes) {
-    return (PgError)EAGAIN;
+    return (PgError)PG_ERR_AGAIN;
   }
   return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgAioQueueResult pg_aio_queue_create() {
   PgAioQueueResult res = {0};
-  int queue = epoll_create(1 /* Ignored */);
+  int queue = 0;
+  do {
+    queue = epoll_create(1 /* Ignored */);
+  } while (-1 == queue && EINTR == errno);
+
   if (-1 == queue) {
     res.err = (PgError)errno;
   }
@@ -2375,8 +2391,11 @@ pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events) {
 
     epoll_event.data.u64 = event.os_handle;
 
-    int res_epoll =
-        epoll_ctl((int)queue, op, epoll_event.data.fd, &epoll_event);
+    int res_epoll = 0;
+    do {
+      res_epoll = epoll_ctl((int)queue, op, epoll_event.data.fd, &epoll_event);
+    } while (-1 == res_epoll && EINTR == errno);
+
     if (-1 == res_epoll) {
       return (PgError)errno;
     }
@@ -2396,8 +2415,12 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
   struct epoll_event *epoll_events =
       pg_arena_new(&arena, struct epoll_event, events.len);
 
-  int res_epoll =
-      epoll_wait((int)queue, epoll_events, (int)events.len, (int)timeout_ms);
+  int res_epoll = 0;
+  do {
+    res_epoll =
+        epoll_wait((int)queue, epoll_events, (int)events.len, (int)timeout_ms);
+  } while (-1 == res_epoll && EINTR == errno);
+
   if (-1 == res_epoll) {
     res.err = (PgError)errno;
     return res;
@@ -2440,7 +2463,11 @@ pg_linux_clock(PgClockKind clock_kind) {
 pg_timer_create(PgClockKind clock, u64 ns) {
   PgTimerResult res = {0};
 
-  int ret = timerfd_create(pg_linux_clock(clock), TFD_NONBLOCK);
+  int ret = 0;
+  do {
+    ret = timerfd_create(pg_linux_clock(clock), TFD_NONBLOCK);
+  } while (-1 == ret && EINTR == errno);
+
   if (-1 == ret) {
     res.err = (PgError)errno;
     return res;
@@ -2451,7 +2478,10 @@ pg_timer_create(PgClockKind clock, u64 ns) {
   struct itimerspec ts = {0};
   ts.it_value.tv_sec = ns / PG_Seconds;
   ts.it_value.tv_nsec = ns % PG_Seconds;
-  ret = timerfd_settime((int)res.res, 0, &ts, nullptr);
+  do {
+    ret = timerfd_settime((int)res.res, 0, &ts, nullptr);
+  } while (-1 == ret && EINTR == errno);
+
   if (-1 == ret) {
     res.err = (PgError)errno;
     return res;
@@ -2461,7 +2491,12 @@ pg_timer_create(PgClockKind clock, u64 ns) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(PgTimer timer) {
-  if (-1 == close((int)timer)) {
+  int ret = 0;
+  do {
+    ret = close((int)timer);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
     return (PgError)errno;
   }
   return (PgError)0;
@@ -2472,7 +2507,11 @@ pg_time_ns_now(PgClockKind clock) {
   Pgu64Result res = {0};
 
   struct timespec ts = {0};
-  int ret = clock_gettime(pg_linux_clock(clock), &ts);
+  int ret = 0;
+  do {
+    ret = clock_gettime(pg_linux_clock(clock), &ts);
+  } while (-1 == ret && EINTR == errno);
+
   if (-1 == ret) {
     res.err = (PgError)errno;
     return res;
@@ -2487,7 +2526,11 @@ pg_time_ns_now(PgClockKind clock) {
 #if defined(__FreeBSD__)
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
-  int res = sendfile(fd_in, fd_out, 0, n_bytes, nullptr, nullptr, 0);
+  int res = 0;
+  do {
+    res = sendfile(fd_in, fd_out, 0, n_bytes, nullptr, nullptr, 0);
+  } while (-1 == res && EINTR == errno);
+
   if (res == -1) {
     return (PgError)errno;
   }
