@@ -43,28 +43,29 @@ typedef struct {
               1))
 
 /*
- * (R0+R1), R2, R3, R4 are the different operations (rounds) used in pg_SHA1
+ * (PG_R0+PG_R1), PG_R2, PG_R3, PG_R4 are the different operations (rounds) used
+ * in pg_SHA1
  */
-#define R0(v, w, x, y, z, i)                                                   \
+#define PG_R0(v, w, x, y, z, i)                                                \
   z += ((w & (x ^ y)) ^ y) + pg_blk0(i) + 0x5A827999 + pg_rol(v, 5);           \
   w = pg_rol(w, 30);
-#define R1(v, w, x, y, z, i)                                                   \
+#define PG_R1(v, w, x, y, z, i)                                                \
   z += ((w & (x ^ y)) ^ y) + pg_blk(i) + 0x5A827999 + pg_rol(v, 5);            \
   w = pg_rol(w, 30);
-#define R2(v, w, x, y, z, i)                                                   \
+#define PG_R2(v, w, x, y, z, i)                                                \
   z += (w ^ x ^ y) + pg_blk(i) + 0x6ED9EBA1 + pg_rol(v, 5);                    \
   w = pg_rol(w, 30);
-#define R3(v, w, x, y, z, i)                                                   \
+#define PG_R3(v, w, x, y, z, i)                                                \
   z += (((w | x) & y) | (w & x)) + pg_blk(i) + 0x8F1BBCDC + pg_rol(v, 5);      \
   w = pg_rol(w, 30);
-#define R4(v, w, x, y, z, i)                                                   \
+#define PG_R4(v, w, x, y, z, i)                                                \
   z += (w ^ x ^ y) + pg_blk(i) + 0xCA62C1D6 + pg_rol(v, 5);                    \
   w = pg_rol(w, 30);
 
 typedef union {
   u_int8_t c[64];
   u_int32_t l[16];
-} CHAR64LONG16;
+} PG_CHAR64LONG16;
 
 /*
  * Hash a single 512-bit block. This is the core of the algorithm.
@@ -73,7 +74,7 @@ static void pg_SHA1Transform(u_int32_t state[5],
                              const u_int8_t buffer[pg_SHA1_BLOCK_LENGTH]) {
   u_int32_t a, b, c, d, e;
   u_int8_t workspace[pg_SHA1_BLOCK_LENGTH];
-  CHAR64LONG16 *block = (CHAR64LONG16 *)workspace;
+  PG_CHAR64LONG16 *block = (PG_CHAR64LONG16 *)workspace;
 
   (void)memcpy(block, buffer, pg_SHA1_BLOCK_LENGTH);
 
@@ -85,86 +86,86 @@ static void pg_SHA1Transform(u_int32_t state[5],
   e = state[4];
 
   /* 4 rounds of 20 operations each. Loop unrolled. */
-  R0(a, b, c, d, e, 0)
-  R0(e, a, b, c, d, 1)
-  R0(d, e, a, b, c, 2)
-  R0(c, d, e, a, b, 3)
-  R0(b, c, d, e, a, 4)
-  R0(a, b, c, d, e, 5)
-  R0(e, a, b, c, d, 6)
-  R0(d, e, a, b, c, 7)
-  R0(c, d, e, a, b, 8)
-  R0(b, c, d, e, a, 9)
-  R0(a, b, c, d, e, 10)
-  R0(e, a, b, c, d, 11)
-  R0(d, e, a, b, c, 12)
-  R0(c, d, e, a, b, 13)
-  R0(b, c, d, e, a, 14)
-  R0(a, b, c, d, e, 15)
-  R1(e, a, b, c, d, 16)
-  R1(d, e, a, b, c, 17)
-  R1(c, d, e, a, b, 18)
-  R1(b, c, d, e, a, 19)
-  R2(a, b, c, d, e, 20)
-  R2(e, a, b, c, d, 21)
-  R2(d, e, a, b, c, 22)
-  R2(c, d, e, a, b, 23)
-  R2(b, c, d, e, a, 24)
-  R2(a, b, c, d, e, 25)
-  R2(e, a, b, c, d, 26)
-  R2(d, e, a, b, c, 27)
-  R2(c, d, e, a, b, 28)
-  R2(b, c, d, e, a, 29)
-  R2(a, b, c, d, e, 30)
-  R2(e, a, b, c, d, 31)
-  R2(d, e, a, b, c, 32)
-  R2(c, d, e, a, b, 33)
-  R2(b, c, d, e, a, 34)
-  R2(a, b, c, d, e, 35)
-  R2(e, a, b, c, d, 36)
-  R2(d, e, a, b, c, 37)
-  R2(c, d, e, a, b, 38)
-  R2(b, c, d, e, a, 39)
-  R3(a, b, c, d, e, 40)
-  R3(e, a, b, c, d, 41)
-  R3(d, e, a, b, c, 42)
-  R3(c, d, e, a, b, 43)
-  R3(b, c, d, e, a, 44)
-  R3(a, b, c, d, e, 45)
-  R3(e, a, b, c, d, 46)
-  R3(d, e, a, b, c, 47)
-  R3(c, d, e, a, b, 48)
-  R3(b, c, d, e, a, 49)
-  R3(a, b, c, d, e, 50)
-  R3(e, a, b, c, d, 51)
-  R3(d, e, a, b, c, 52)
-  R3(c, d, e, a, b, 53)
-  R3(b, c, d, e, a, 54)
-  R3(a, b, c, d, e, 55)
-  R3(e, a, b, c, d, 56)
-  R3(d, e, a, b, c, 57)
-  R3(c, d, e, a, b, 58)
-  R3(b, c, d, e, a, 59)
-  R4(a, b, c, d, e, 60)
-  R4(e, a, b, c, d, 61)
-  R4(d, e, a, b, c, 62)
-  R4(c, d, e, a, b, 63)
-  R4(b, c, d, e, a, 64)
-  R4(a, b, c, d, e, 65)
-  R4(e, a, b, c, d, 66)
-  R4(d, e, a, b, c, 67)
-  R4(c, d, e, a, b, 68)
-  R4(b, c, d, e, a, 69)
-  R4(a, b, c, d, e, 70)
-  R4(e, a, b, c, d, 71)
-  R4(d, e, a, b, c, 72)
-  R4(c, d, e, a, b, 73)
-  R4(b, c, d, e, a, 74)
-  R4(a, b, c, d, e, 75)
-  R4(e, a, b, c, d, 76)
-  R4(d, e, a, b, c, 77)
-  R4(c, d, e, a, b, 78)
-  R4(b, c, d, e, a, 79)
+  PG_R0(a, b, c, d, e, 0)
+  PG_R0(e, a, b, c, d, 1)
+  PG_R0(d, e, a, b, c, 2)
+  PG_R0(c, d, e, a, b, 3)
+  PG_R0(b, c, d, e, a, 4)
+  PG_R0(a, b, c, d, e, 5)
+  PG_R0(e, a, b, c, d, 6)
+  PG_R0(d, e, a, b, c, 7)
+  PG_R0(c, d, e, a, b, 8)
+  PG_R0(b, c, d, e, a, 9)
+  PG_R0(a, b, c, d, e, 10)
+  PG_R0(e, a, b, c, d, 11)
+  PG_R0(d, e, a, b, c, 12)
+  PG_R0(c, d, e, a, b, 13)
+  PG_R0(b, c, d, e, a, 14)
+  PG_R0(a, b, c, d, e, 15)
+  PG_R1(e, a, b, c, d, 16)
+  PG_R1(d, e, a, b, c, 17)
+  PG_R1(c, d, e, a, b, 18)
+  PG_R1(b, c, d, e, a, 19)
+  PG_R2(a, b, c, d, e, 20)
+  PG_R2(e, a, b, c, d, 21)
+  PG_R2(d, e, a, b, c, 22)
+  PG_R2(c, d, e, a, b, 23)
+  PG_R2(b, c, d, e, a, 24)
+  PG_R2(a, b, c, d, e, 25)
+  PG_R2(e, a, b, c, d, 26)
+  PG_R2(d, e, a, b, c, 27)
+  PG_R2(c, d, e, a, b, 28)
+  PG_R2(b, c, d, e, a, 29)
+  PG_R2(a, b, c, d, e, 30)
+  PG_R2(e, a, b, c, d, 31)
+  PG_R2(d, e, a, b, c, 32)
+  PG_R2(c, d, e, a, b, 33)
+  PG_R2(b, c, d, e, a, 34)
+  PG_R2(a, b, c, d, e, 35)
+  PG_R2(e, a, b, c, d, 36)
+  PG_R2(d, e, a, b, c, 37)
+  PG_R2(c, d, e, a, b, 38)
+  PG_R2(b, c, d, e, a, 39)
+  PG_R3(a, b, c, d, e, 40)
+  PG_R3(e, a, b, c, d, 41)
+  PG_R3(d, e, a, b, c, 42)
+  PG_R3(c, d, e, a, b, 43)
+  PG_R3(b, c, d, e, a, 44)
+  PG_R3(a, b, c, d, e, 45)
+  PG_R3(e, a, b, c, d, 46)
+  PG_R3(d, e, a, b, c, 47)
+  PG_R3(c, d, e, a, b, 48)
+  PG_R3(b, c, d, e, a, 49)
+  PG_R3(a, b, c, d, e, 50)
+  PG_R3(e, a, b, c, d, 51)
+  PG_R3(d, e, a, b, c, 52)
+  PG_R3(c, d, e, a, b, 53)
+  PG_R3(b, c, d, e, a, 54)
+  PG_R3(a, b, c, d, e, 55)
+  PG_R3(e, a, b, c, d, 56)
+  PG_R3(d, e, a, b, c, 57)
+  PG_R3(c, d, e, a, b, 58)
+  PG_R3(b, c, d, e, a, 59)
+  PG_R4(a, b, c, d, e, 60)
+  PG_R4(e, a, b, c, d, 61)
+  PG_R4(d, e, a, b, c, 62)
+  PG_R4(c, d, e, a, b, 63)
+  PG_R4(b, c, d, e, a, 64)
+  PG_R4(a, b, c, d, e, 65)
+  PG_R4(e, a, b, c, d, 66)
+  PG_R4(d, e, a, b, c, 67)
+  PG_R4(c, d, e, a, b, 68)
+  PG_R4(b, c, d, e, a, 69)
+  PG_R4(a, b, c, d, e, 70)
+  PG_R4(e, a, b, c, d, 71)
+  PG_R4(d, e, a, b, c, 72)
+  PG_R4(c, d, e, a, b, 73)
+  PG_R4(b, c, d, e, a, 74)
+  PG_R4(a, b, c, d, e, 75)
+  PG_R4(e, a, b, c, d, 76)
+  PG_R4(d, e, a, b, c, 77)
+  PG_R4(c, d, e, a, b, 78)
+  PG_R4(b, c, d, e, a, 79)
 
   /* Add the working vars back into context.state[] */
   state[0] += a;
