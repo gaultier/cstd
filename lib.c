@@ -3,6 +3,7 @@
 
 // TODO: Test untested functions.
 // TODO: `try_alloc` functions.
+// TODO: Get error from OS on async socket error.
 // TODO: Enqueue I/O write if `try_write` is partial.
 // TODO: Windows.
 // TODO: BSD/Macos kqueue.
