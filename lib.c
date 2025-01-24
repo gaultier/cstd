@@ -2007,14 +2007,24 @@ pg_arena_make_from_virtual_mem(u64 size) {
   PgStringResult res = {0};
   char *path_c = pg_string_to_cstr(path, arena);
 
-  int fd = open(path_c, O_RDONLY);
+  int fd = 0;
+  do {
+    fd = open(path_c, O_RDONLY);
+  } while (-1 == fd && EINTR == errno);
+
   if (fd < 0) {
     res.err = (PgError)errno;
     return res;
   }
 
   struct stat st = {0};
-  if (-1 == stat(path_c, &st)) {
+
+  int ret = 0;
+  do {
+    ret = stat(path_c, &st);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
     res.err = (PgError)errno;
     goto end;
   }
@@ -2028,7 +2038,11 @@ pg_arena_make_from_virtual_mem(u64 size) {
     }
 
     PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
-    ssize_t read_n = read(fd, space.data, space.len);
+    ssize_t read_n = 0;
+    do {
+      read_n = read(fd, space.data, space.len);
+    } while (-1 == read_n && EINTR == errno);
+
     if (-1 == read_n) {
       res.err = (PgError)errno;
       goto end;
@@ -2045,7 +2059,10 @@ pg_arena_make_from_virtual_mem(u64 size) {
   }
 
 end:
-  close(fd);
+  do {
+    ret = close(fd);
+  } while (-1 == ret && EINTR == errno);
+
   res.res = PG_DYN_SLICE(PgString, sb);
   return res;
 }
@@ -2054,21 +2071,15 @@ end:
 static PgSocketResult pg_net_create_tcp_socket() {
   PgSocketResult res = {0};
 
-  PgSocket sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+  PgSocket sock_fd = 0;
+  do {
+    sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+  } while (-1 == sock_fd && EINTR == errno);
+
   if (-1 == sock_fd) {
     res.err = (PgError)errno;
     return res;
   }
-
-#if defined(SO_NOSIGPIPE)
-  {
-    int on = 1;
-    if (-1 == setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof(on))) {
-      res.err = (PgError)errno;
-      return res;
-    }
-  }
-#endif
 
   res.res = sock_fd;
 
@@ -2076,12 +2087,17 @@ static PgSocketResult pg_net_create_tcp_socket() {
 }
 
 static PgError pg_net_socket_close(PgSocket sock) {
-  return (PgError)close(sock);
+  return pg_file_close((PgFile)sock);
 }
 
 static PgError pg_net_set_nodelay(PgSocket sock, bool enabled) {
   int opt = enabled;
-  if (-1 == setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+  int ret = 0;
+  do {
+    ret = setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
     return (PgError)errno;
   }
 
@@ -2095,7 +2111,12 @@ static PgError pg_net_connect_ipv4(PgSocket sock, PgIpv4Address address) {
       .sin_addr = {htonl(address.ip)},
   };
 
-  if (-1 == connect(sock, (struct sockaddr *)&addr, sizeof(addr))) {
+  int ret = 0;
+  do {
+    ret = connect(sock, (struct sockaddr *)&addr, sizeof(addr));
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
     if (EINPROGRESS != errno) {
       return (PgError)errno;
     }
