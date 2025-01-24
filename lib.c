@@ -2,6 +2,7 @@
 #define CSTD_LIB_C
 
 // TODO: Test untested functions.
+// TODO: `try_alloc` functions.
 // TODO: Windows.
 // TODO: [Unix] Retry syscalls on EINTR.
 // TODO: [Unix] Human-readable stacktrace.
