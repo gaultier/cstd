@@ -2134,11 +2134,15 @@ pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
   hints.ai_protocol = IPPROTO_TCP;
 
   struct addrinfo *addr_info = nullptr;
-  int res_getaddrinfo =
-      getaddrinfo(pg_string_to_cstr(host, &arena),
-                  pg_string_to_cstr(pg_u64_to_string(port, &arena), &arena),
-                  &hints, &addr_info);
-  if (res_getaddrinfo != 0) {
+  int res_getaddrinfo = 0;
+  do {
+    res_getaddrinfo =
+        getaddrinfo(pg_string_to_cstr(host, &arena),
+                    pg_string_to_cstr(pg_u64_to_string(port, &arena), &arena),
+                    &hints, &addr_info);
+  } while (-1 == res_getaddrinfo && EINTR == errno);
+
+  if (-1 == res_getaddrinfo) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
@@ -2152,7 +2156,12 @@ pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
     }
 
     // TODO: Use pg_net_connect_ipv4?
-    if (-1 == connect(res_create_socket.res, rp->ai_addr, rp->ai_addrlen)) {
+    int ret = 0;
+    do {
+      ret = connect(res_create_socket.res, rp->ai_addr, rp->ai_addrlen);
+    } while (-1 == ret && EINTR == errno);
+
+    if (-1 == ret) {
       if (EINPROGRESS != errno) {
         (void)pg_net_socket_close(res_create_socket.res);
         continue;
@@ -2179,7 +2188,11 @@ pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_socket_set_blocking(PgSocket sock, bool blocking) {
-  int flags = fcntl(sock, F_GETFL);
+  int flags = 0;
+  do {
+    flags = fcntl(sock, F_GETFL);
+  } while (-1 == flags && EINTR == errno);
+
   if (-1 == flags) {
     return (PgError)errno;
   }
@@ -2189,7 +2202,13 @@ pg_net_socket_set_blocking(PgSocket sock, bool blocking) {
   } else {
     flags |= O_NONBLOCK;
   }
-  if (-1 == fcntl(sock, F_SETFL, flags)) {
+
+  int ret = 0;
+  do {
+    ret = fcntl(sock, F_SETFL, flags);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
     return (PgError)errno;
   }
 
@@ -2200,7 +2219,12 @@ pg_net_socket_set_blocking(PgSocket sock, bool blocking) {
                                                                 u64 backlog) {
   PG_ASSERT(backlog <= INT32_MAX);
 
-  if (-1 == listen(sock, (int)backlog)) {
+  int ret = 0;
+  do {
+    ret = listen(sock, (int)backlog);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
     return (PgError)errno;
   }
 
@@ -2214,7 +2238,12 @@ pg_net_tcp_bind_ipv4(PgSocket sock, PgIpv4Address addr) {
   addrin.sin_port = htons(addr.port);
   addrin.sin_addr.s_addr = htonl(addr.ip);
 
-  if (-1 == bind(sock, (struct sockaddr *)&addrin, sizeof(addrin))) {
+  int ret = 0;
+  do {
+    ret = bind(sock, (struct sockaddr *)&addrin, sizeof(addrin));
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
     return (PgError)errno;
   }
 
@@ -2224,13 +2253,23 @@ pg_net_tcp_bind_ipv4(PgSocket sock, PgIpv4Address addr) {
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_socket_enable_reuse(PgSocket sock) {
   int val = 1;
-  if (-1 == setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val))) {
+  int ret = 0;
+  do {
+    ret = setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
     return (PgError)errno;
   }
 
-  if (-1 == setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val))) {
+  do {
+    ret = setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val));
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
     return (PgError)errno;
   }
+
   return 0;
 }
 
