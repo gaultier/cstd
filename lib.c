@@ -3,6 +3,10 @@
 
 // TODO: Windows.
 // TODO: [Unix] Retry syscalls on EINTR.
+// TODO: [Unix] Human-readable stacktrace.
+// TODO: [Unix] Thread pool.
+// TODO: [Unix] Async File I/O using thread pool.
+// TODO: Sha1 hardware accelerated?
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #define PG_OS_UNIX
