@@ -1425,6 +1425,17 @@ typedef int PgSocket;
 typedef int PgFile;
 typedef int PgTimer;
 
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_writer_file_write(void *self, u8 *buf, size_t buf_len);
+
+[[nodiscard]] [[maybe_unused]] static PgWriter
+pg_writer_make_from_file_handle(PgFile file) {
+  PgWriter w = {0};
+  w.ctx = (void *)(u64)file;
+  w.write_fn = pg_writer_file_write;
+  return w;
+}
+
 typedef enum {
   PG_CLOCK_KIND_MONOTONIC,
   PG_CLOCK_KIND_REALTIME,
@@ -1448,6 +1459,10 @@ typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
                     void *ctx, PgArena arena);
+
+// TODO: Async.
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_write_data_at_offset_from_start(PgFile file, u64 offset, PgString data);
 
 typedef enum [[clang::flag_enum]] : u8 {
   PG_FILE_FLAGS_READ = 1,
@@ -1588,6 +1603,106 @@ pg_string_to_filename(PgString s);
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
+
+  PgReader *r = self;
+  PG_ASSERT(0 != (u64)r->ctx);
+
+  int fd = (int)(u64)r->ctx;
+  ssize_t n = read(fd, buf, buf_len);
+
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_reader_unix_recv(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
+
+  PgReader *r = self;
+  PG_ASSERT(0 != (u64)r->ctx);
+
+  int fd = (int)(u64)r->ctx;
+  ssize_t n = recv(fd, buf, buf_len, 0);
+
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
+
+  PgWriter *w = self;
+  PG_ASSERT(0 != (u64)w->ctx);
+
+  int fd = (int)(u64)w->ctx;
+  ssize_t n = write(fd, buf, buf_len);
+
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_writer_file_write(void *self, u8 *buf, size_t buf_len) {
+  return pg_writer_unix_write(self, buf, buf_len);
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_writer_unix_send(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
+
+  PgWriter *w = self;
+  PG_ASSERT(0 != (u64)w->ctx);
+
+  int fd = (int)(u64)w->ctx;
+  ssize_t n = send(fd, buf, buf_len, MSG_NOSIGNAL);
+
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_write_data_at_offset_from_start(PgFile file, u64 offset,
+                                        PgString data) {
+  if (-1 == lseek(file, (off_t)offset, SEEK_SET)) {
+    return (PgError)errno;
+  }
+
+  PgWriter w = pg_writer_make_from_file_handle(file);
+  return pg_writer_write_all_string(&w, data);
+}
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_create(PgString path, PgFileFlags flags, PgArena arena) {
@@ -2202,98 +2317,6 @@ pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
 #endif
 
 PG_RESULT(PgString) PgIoResult;
-
-// TODO: Guard with `ifdef`?
-// TODO: Windows?
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
-
-  PgReader *r = self;
-  PG_ASSERT(0 != (u64)r->ctx);
-
-  int fd = (int)(u64)r->ctx;
-  ssize_t n = read(fd, buf, buf_len);
-
-  Pgu64Result res = {0};
-  if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.res = (u64)n;
-  }
-
-  return res;
-}
-
-// TODO: Guard with `ifdef`?
-// TODO: Windows?
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_reader_unix_recv(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
-
-  PgReader *r = self;
-  PG_ASSERT(0 != (u64)r->ctx);
-
-  int fd = (int)(u64)r->ctx;
-  ssize_t n = recv(fd, buf, buf_len, 0);
-
-  Pgu64Result res = {0};
-  if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.res = (u64)n;
-  }
-
-  return res;
-}
-
-// TODO: Guard with `ifdef`?
-// TODO: Windows?
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
-
-  PgWriter *w = self;
-  PG_ASSERT(0 != (u64)w->ctx);
-
-  int fd = (int)(u64)w->ctx;
-  ssize_t n = write(fd, buf, buf_len);
-
-  Pgu64Result res = {0};
-  if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.res = (u64)n;
-  }
-
-  return res;
-}
-
-// TODO: Guard with `ifdef`?
-// TODO: Windows?
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_unix_send(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
-
-  PgWriter *w = self;
-  PG_ASSERT(0 != (u64)w->ctx);
-
-  int fd = (int)(u64)w->ctx;
-  ssize_t n = send(fd, buf, buf_len, MSG_NOSIGNAL);
-
-  Pgu64Result res = {0};
-  if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.res = (u64)n;
-  }
-
-  return res;
-}
 
 [[maybe_unused]] [[nodiscard]] static PgSocket pg_reader_socket(PgReader *r) {
   PG_ASSERT(r->ctx);
