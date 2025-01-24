@@ -1372,7 +1372,8 @@ pg_string_ieq_ascii(PgString a, PgString b, PgArena arena) {
   return pg_string_eq(a_clone, b_clone);
 }
 
-[[maybe_unused]] static void pg_sha1(PgString s, u8 hash[20]) {
+[[maybe_unused]] static void pg_sha1(PgString s,
+                                     u8 hash[PG_SHA1_DIGEST_LENGTH]) {
   PG_SHA1_CTX ctx = {0};
   PG_SHA1Init(&ctx);
   PG_SHA1Update(&ctx, s.data, s.len);

@@ -2,14 +2,10 @@
 
 static void test_string_indexof_string() {
   // Empty haystack.
-  {
-    PG_ASSERT(-1 == pg_string_indexof_string((PgString){0}, PG_S("fox")));
-  }
+  { PG_ASSERT(-1 == pg_string_indexof_string((PgString){0}, PG_S("fox"))); }
 
   // Empty needle.
-  {
-    PG_ASSERT(-1 == pg_string_indexof_string(PG_S("hello"), (PgString){0}));
-  }
+  { PG_ASSERT(-1 == pg_string_indexof_string(PG_S("hello"), (PgString){0})); }
 
   // Not found.
   {
@@ -41,9 +37,7 @@ static void test_string_indexof_string() {
               pg_string_indexof_string(PG_S("hello world"), PG_S("worldly")));
   }
 
-  {
-    PG_ASSERT(0 == pg_string_indexof_string(PG_S("/"), PG_S("/")));
-  }
+  { PG_ASSERT(0 == pg_string_indexof_string(PG_S("/"), PG_S("/"))); }
 }
 
 static void test_string_trim() {
@@ -296,10 +290,10 @@ static void test_string_cmp() {
 
 static void test_sha1() {
   {
-    u8 hash[20] = {0};
+    u8 hash[PG_SHA1_DIGEST_LENGTH] = {0};
     pg_sha1(PG_S("abc"), hash);
 
-    u8 expected_hash[20] = {
+    u8 expected_hash[PG_SHA1_DIGEST_LENGTH] = {
         0xA9, 0x99, 0x3E, 0x36, 0x47, 0x06, 0x81, 0x6A, 0xBA, 0x3E,
         0x25, 0x71, 0x78, 0x50, 0xC2, 0x6C, 0x9C, 0xD0, 0xD8, 0x9D,
     };
@@ -1154,9 +1148,7 @@ static void test_http_request_to_string() {
 
 static void test_http_parse_response_status_line() {
   // Empty.
-  {
-    PG_ASSERT(pg_http_parse_response_status_line(PG_S("")).err);
-  }
+  { PG_ASSERT(pg_http_parse_response_status_line(PG_S("")).err); }
   // Missing prefix.
   {
     PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTT")).err);
@@ -1239,9 +1231,7 @@ static void test_http_parse_request_status_line() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   // Empty.
-  {
-    PG_ASSERT(pg_http_parse_request_status_line(PG_S(""), &arena).err);
-  }
+  { PG_ASSERT(pg_http_parse_request_status_line(PG_S(""), &arena).err); }
   // Missing prefix.
   {
     PG_ASSERT(pg_http_parse_request_status_line(PG_S("GE"), &arena).err);
@@ -1335,21 +1325,13 @@ static void test_http_parse_request_status_line() {
 
 static void test_http_parse_header() {
   // Empty.
-  {
-    PG_ASSERT(pg_http_parse_header(PG_S("")).err);
-  }
+  { PG_ASSERT(pg_http_parse_header(PG_S("")).err); }
   // Missing `:`.
-  {
-    PG_ASSERT(pg_http_parse_header(PG_S("foo bar")).err);
-  }
+  { PG_ASSERT(pg_http_parse_header(PG_S("foo bar")).err); }
   // Missing key.
-  {
-    PG_ASSERT(pg_http_parse_header(PG_S(":bcd")).err);
-  }
+  { PG_ASSERT(pg_http_parse_header(PG_S(":bcd")).err); }
   // Missing value.
-  {
-    PG_ASSERT(pg_http_parse_header(PG_S("foo:")).err);
-  }
+  { PG_ASSERT(pg_http_parse_header(PG_S("foo:")).err); }
   // Multiple colons.
   {
     PgKeyValueResult res = pg_http_parse_header(PG_S("foo: bar : baz"));
