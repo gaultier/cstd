@@ -1398,7 +1398,7 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
 
   u64 idx_byte = idx_bit / 8;
 
-  *PG_SLICE_AT_PTR(&bitfield, idx_byte) |= val << (idx_byte % 8);
+  *PG_SLICE_AT_PTR(&bitfield, idx_byte) |= val << (idx_bit % 8);
 }
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_bitfield_count(PgString bitfield) {

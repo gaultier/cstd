@@ -489,6 +489,33 @@ static void test_bitfield() {
     pg_bitfield_set(bitfield, 0, true);
     PG_ASSERT(3 == pg_bitfield_count(bitfield));
     PG_ASSERT(pg_bitfield_get(bitfield, 0));
+
+    pg_bitfield_set(bitfield, 1, true);
+    PG_ASSERT(3 == pg_bitfield_count(bitfield));
+    PG_ASSERT(pg_bitfield_get(bitfield, 1));
+
+    pg_bitfield_set(bitfield, 2, true);
+    PG_ASSERT(4 == pg_bitfield_count(bitfield));
+    PG_ASSERT(pg_bitfield_get(bitfield, 2));
+
+    pg_bitfield_set(bitfield, 8, true);
+    PG_ASSERT(5 == pg_bitfield_count(bitfield));
+    PG_ASSERT(pg_bitfield_get(bitfield, 0));
+    PG_ASSERT(pg_bitfield_get(bitfield, 1));
+    PG_ASSERT(pg_bitfield_get(bitfield, 2));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 3));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 4));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 5));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 6));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 7));
+    PG_ASSERT(pg_bitfield_get(bitfield, 8));
+    PG_ASSERT(pg_bitfield_get(bitfield, 9));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 10));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 11));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 12));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 13));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 14));
+    PG_ASSERT(!pg_bitfield_get(bitfield, 15));
   }
 }
 
