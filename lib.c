@@ -3,12 +3,12 @@
 
 // TODO: Test untested functions.
 // TODO: `try_alloc` functions.
-// TODO: Get error from OS on async socket error.
 // TODO: Enqueue I/O write if `try_write` is partial.
 // TODO: Windows.
 // TODO: BSD/Macos kqueue.
 // TODO: Illumos async I/O.
 // TODO: [Unix] Retry syscalls on EINTR.
+// TODO: [Unix] Address stacktrace.
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: [Unix] Thread pool.
 // TODO: [Unix] Async File I/O using thread pool.
