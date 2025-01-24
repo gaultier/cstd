@@ -17,6 +17,7 @@
 // TODO: TLS 1.3
 // TODO: Try using actors to structure async I/O instead of callbacks.
 // TODO: Enqueue I/O write if `try_write` is partial.
+// TODO: Repeating timers.
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #define PG_OS_UNIX
