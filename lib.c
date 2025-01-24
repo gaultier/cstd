@@ -2,15 +2,14 @@
 #define CSTD_LIB_C
 
 // TODO: Test untested functions.
-// TODO: `try_alloc` functions.
+// TODO: `try_alloc` functions?
 // TODO: Enqueue I/O write if `try_write` is partial.
 // TODO: [Windows] support.
 // TODO: [BSD/Macos] kqueue.
 // TODO: [Illumos] async I/O.
 // TODO: [Unix] CLI argument parser.
 // TODO: [Unix] Human-readable stacktrace.
-// TODO: [Unix] Thread pool.
-// TODO: [Unix] Async File I/O using thread pool.
+// TODO: [Linux] Async File I/O using thread pool or io_uring.
 // TODO: Pool allocator.
 // TODO: Sha1 hardware accelerated?
 // TODO: HTTP compression (gzip, etc)
