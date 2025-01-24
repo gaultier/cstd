@@ -458,6 +458,7 @@ static void test_u8x4_be_to_u32_and_back() {
 }
 
 static void test_bitfield() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   {
     PgString bitfield = PG_S("\x3"
                              "\x2");
@@ -478,6 +479,16 @@ static void test_bitfield() {
     PG_ASSERT(!pg_bitfield_get(bitfield, 13));
     PG_ASSERT(!pg_bitfield_get(bitfield, 14));
     PG_ASSERT(!pg_bitfield_get(bitfield, 15));
+  }
+  {
+    PgString bitfield = pg_string_dup(PG_S("\x3"
+                                           "\x2"),
+                                      &arena);
+    PG_ASSERT(3 == pg_bitfield_count(bitfield));
+
+    pg_bitfield_set(bitfield, 0, true);
+    PG_ASSERT(3 == pg_bitfield_count(bitfield));
+    PG_ASSERT(pg_bitfield_get(bitfield, 0));
   }
 }
 
