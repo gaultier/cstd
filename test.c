@@ -1698,9 +1698,9 @@ static void test_timer() {
   PG_ASSERT(0 == res_queue_create.err);
   PgAioQueue queue = res_queue_create.res;
 
-  PgTimerResult res_timer =
-      pg_timer_create(PG_CLOCK_KIND_MONOTONIC, 10 * PG_Milliseconds);
+  PgTimerResult res_timer = pg_timer_create(PG_CLOCK_KIND_MONOTONIC);
   PG_ASSERT(0 == res_timer.err);
+  PG_ASSERT(0 == pg_timer_start(res_timer.res, 10 * PG_Milliseconds, 0));
 
   Pgu64Result res_start = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
   PG_ASSERT(0 == res_start.err);
@@ -1762,7 +1762,6 @@ static void test_event_loop_on_server_read(PgEventLoop *loop, u64 os_handle,
 
   PG_ASSERT(0 == pg_event_loop_read_stop(loop, os_handle));
   PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
-  pg_event_loop_stop(loop);
 }
 
 static void test_event_loop_on_client_read(PgEventLoop *loop, u64 os_handle,
@@ -1783,6 +1782,7 @@ static void test_event_loop_on_client_read(PgEventLoop *loop, u64 os_handle,
                                      test_event_loop_on_client_write));
 
   PG_ASSERT(0 == pg_event_loop_read_stop(loop, os_handle));
+  PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
 }
 
 static void test_event_loop_on_server_write(PgEventLoop *loop, u64 os_handle,
@@ -1843,8 +1843,12 @@ static void test_event_loop_on_timer(PgEventLoop *loop, u64 os_handle,
   PG_ASSERT(nullptr != ctx);
 
   u64 *timer_state = (u64 *)ctx;
-  PG_ASSERT(10 == *timer_state);
   *timer_state += 1;
+
+  if (15 == *timer_state) {
+    PG_ASSERT(0 == pg_timer_stop((PgTimer)os_handle));
+    pg_event_loop_stop(loop);
+  }
 }
 
 static void test_event_loop() {
@@ -1866,9 +1870,9 @@ static void test_event_loop() {
   u64 server_handle = res_server.res;
 
   u64 timer_state = 10;
-  Pgu64Result res_timer =
-      pg_event_loop_timer_start(&loop, PG_CLOCK_KIND_MONOTONIC, 2, &timer_state,
-                                test_event_loop_on_timer);
+  Pgu64Result res_timer = pg_event_loop_timer_start(
+      &loop, PG_CLOCK_KIND_MONOTONIC, 2 * PG_Nanoseconds, 1 * PG_Nanoseconds,
+      &timer_state, test_event_loop_on_timer);
   PG_ASSERT(0 == res_timer.err);
 
   {
@@ -1887,7 +1891,9 @@ static void test_event_loop() {
 
   PG_ASSERT(4 == client_state);
   PG_ASSERT(5 == server_state);
-  PG_ASSERT(11 == timer_state);
+  PG_ASSERT(15 == timer_state);
+
+  PG_ASSERT(0 == pg_timer_release((PgTimer)res_timer.res));
 }
 
 static void test_div_ceil() {

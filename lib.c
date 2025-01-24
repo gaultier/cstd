@@ -45,7 +45,8 @@
 #define PG_GiB (1024ULL * PG_MiB)
 #define PG_TiB (1024ULL * PG_GiB)
 
-#define PG_Microseconds (1000ULL)
+#define PG_Nanoseconds (1ULL)
+#define PG_Microseconds (1000ULL * PG_Nanoseconds)
 #define PG_Milliseconds (1000ULL * PG_Microseconds)
 #define PG_Seconds (1000ULL * PG_Milliseconds)
 
@@ -1477,7 +1478,12 @@ typedef enum {
 PG_RESULT(PgTimer) PgTimerResult;
 
 [[maybe_unused]] [[nodiscard]] static PgTimerResult
-pg_timer_create(PgClockKind clock_kind, u64 ns);
+pg_timer_create(PgClockKind clock);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_timer_start(PgTimer timer, u64 initial_expiration_ns, u64 interval_ns);
+
+[[maybe_unused]] [[nodiscard]] static PgError pg_timer_stop(PgTimer timer);
 
 [[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(PgTimer timer);
 
@@ -2463,7 +2469,7 @@ pg_clock_to_linux(PgClockKind clock_kind) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgTimerResult
-pg_timer_create(PgClockKind clock, u64 ns) {
+pg_timer_create(PgClockKind clock) {
   PgTimerResult res = {0};
 
   int ret = 0;
@@ -2477,20 +2483,43 @@ pg_timer_create(PgClockKind clock, u64 ns) {
   }
 
   res.res = (PgTimer)ret;
+  return res;
+}
 
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_timer_start(PgTimer timer, u64 initial_expiration_ns, u64 interval_ns) {
   struct itimerspec ts = {0};
-  ts.it_value.tv_sec = ns / PG_Seconds;
-  ts.it_value.tv_nsec = ns % PG_Seconds;
+  ts.it_value.tv_sec = initial_expiration_ns / PG_Seconds;
+  ts.it_value.tv_nsec = initial_expiration_ns % PG_Seconds;
+
+  ts.it_interval.tv_sec = interval_ns / PG_Seconds;
+  ts.it_interval.tv_nsec = interval_ns % PG_Seconds;
+
+  int ret = 0;
   do {
-    ret = timerfd_settime((int)res.res, 0, &ts, nullptr);
+    ret = timerfd_settime((int)timer, 0, &ts, nullptr);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return (PgError)errno;
   }
 
-  return res;
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError pg_timer_stop(PgTimer timer) {
+  struct itimerspec ts = {0};
+
+  int ret = 0;
+  do {
+    ret = timerfd_settime((int)timer, 0, &ts, nullptr);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(PgTimer timer) {
@@ -4991,14 +5020,12 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
 #endif
 
       // Timer.
-      // TODO: Repeating timer?
       if ((PG_AIO_EVENT_KIND_IN & event_watch.kind) &&
           (PG_EVENT_LOOP_HANDLE_KIND_TIMER == handle->kind) &&
           (PG_EVENT_LOOP_HANDLE_STATE_CLOSING != handle->state)) {
         if (handle->on_timer) {
           handle->on_timer(loop, handle->os_handle, handle->ctx);
         }
-        (void)pg_event_loop_timer_stop(loop, handle->os_handle);
       }
     }
 
@@ -5121,11 +5148,12 @@ static PgError pg_event_loop_write(PgEventLoop *loop, u64 os_handle,
 
 [[nodiscard]] [[maybe_unused]]
 static Pgu64Result
-pg_event_loop_timer_start(PgEventLoop *loop, PgClockKind clock, u64 ns,
-                          void *ctx, PgEventLoopOnTimer on_timer) {
+pg_event_loop_timer_start(PgEventLoop *loop, PgClockKind clock,
+                          u64 initial_expiration_ns, u64 interval_ns, void *ctx,
+                          PgEventLoopOnTimer on_timer) {
   Pgu64Result res = {0};
 
-  PgTimerResult res_timer = pg_timer_create(clock, ns);
+  PgTimerResult res_timer = pg_timer_create(clock);
   if (res_timer.err) {
     res.err = res_timer.err;
     return res;
@@ -5133,6 +5161,11 @@ pg_event_loop_timer_start(PgEventLoop *loop, PgClockKind clock, u64 ns,
   PgEventLoopHandle handle =
       pg_event_loop_make_timer_handle(res_timer.res, ctx);
   handle.on_timer = on_timer;
+
+  res.err = pg_timer_start(res_timer.res, initial_expiration_ns, interval_ns);
+  if (res.err) {
+    return res;
+  }
 
   *PG_DYN_PUSH(&loop->handles, &loop->arena) = handle;
 
