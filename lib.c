@@ -1644,7 +1644,8 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
   u64 *rbp = __builtin_frame_address(0);
   u64 res = 0;
 
-  while (rbp != 0 && ((uint64_t)rbp & 7) == 0 && *rbp != 0) {
+  while (res < PG_STACKTRACE_MAX && rbp != 0 && ((uint64_t)rbp & 7) == 0 &&
+         *rbp != 0) {
     u64 rip = *(rbp + 1);
     rbp = (u64 *)*rbp;
 
@@ -1653,10 +1654,6 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
     // instruction, so we subtract one byte to point inside it, which is not
     // quite 'at' it, but good enough.
     call_stack[res++] = rip - 1;
-
-    if (res >= PG_STACKTRACE_MAX) {
-      break;
-    }
   }
 
   return res;
