@@ -3970,7 +3970,6 @@ typedef enum {
   PG_LOG_LEVEL_DEBUG,
   PG_LOG_LEVEL_INFO,
   PG_LOG_LEVEL_ERROR,
-  PG_LOG_LEVEL_FATAL,
 } PgLogLevel;
 
 typedef PgString (*PgMakeLogLineFn)(PgLogLevel level, PgString msg,
@@ -4039,8 +4038,6 @@ pg_log_level_to_string(PgLogLevel level) {
     return PG_S("info");
   case PG_LOG_LEVEL_ERROR:
     return PG_S("error");
-  case PG_LOG_LEVEL_FATAL:
-    return PG_S("fatal");
   default:
     PG_ASSERT(false);
   }
