@@ -1373,10 +1373,10 @@ pg_string_ieq_ascii(PgString a, PgString b, PgArena arena) {
 }
 
 [[maybe_unused]] static void pg_sha1(PgString s, u8 hash[20]) {
-  pg_SHA1_CTX ctx = {0};
-  pg_SHA1Init(&ctx);
-  pg_SHA1Update(&ctx, s.data, s.len);
-  pg_SHA1Final(hash, &ctx);
+  PG_SHA1_CTX ctx = {0};
+  PG_SHA1Init(&ctx);
+  PG_SHA1Update(&ctx, s.data, s.len);
+  PG_SHA1Final(hash, &ctx);
 }
 
 typedef struct {

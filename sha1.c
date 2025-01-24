@@ -17,15 +17,15 @@
 #include <string.h>
 #include <sys/types.h>
 
-#define pg_SHA1_BLOCK_LENGTH 64
-#define pg_SHA1_DIGEST_LENGTH 20
-#define pg_SHA1_DIGEST_STRING_LENGTH (pg_SHA1_DIGEST_LENGTH * 2 + 1)
+#define PG_SHA1_BLOCK_LENGTH 64
+#define PG_SHA1_DIGEST_LENGTH 20
+#define PG_SHA1_DIGEST_STRING_LENGTH (PG_SHA1_DIGEST_LENGTH * 2 + 1)
 
 typedef struct {
   u_int32_t state[5];
   u_int64_t count;
-  u_int8_t buffer[pg_SHA1_BLOCK_LENGTH];
-} pg_SHA1_CTX;
+  u_int8_t buffer[PG_SHA1_BLOCK_LENGTH];
+} PG_SHA1_CTX;
 
 #define pg_rol(value, bits) (((value) << (bits)) | ((value) >> (32 - (bits))))
 
@@ -44,7 +44,7 @@ typedef struct {
 
 /*
  * (PG_R0+PG_R1), PG_R2, PG_R3, PG_R4 are the different operations (rounds) used
- * in pg_SHA1
+ * in PG_SHA1
  */
 #define PG_R0(v, w, x, y, z, i)                                                \
   z += ((w & (x ^ y)) ^ y) + pg_blk0(i) + 0x5A827999 + pg_rol(v, 5);           \
@@ -70,13 +70,13 @@ typedef union {
 /*
  * Hash a single 512-bit block. This is the core of the algorithm.
  */
-static void pg_SHA1Transform(u_int32_t state[5],
-                             const u_int8_t buffer[pg_SHA1_BLOCK_LENGTH]) {
+static void PG_SHA1Transform(u_int32_t state[5],
+                             const u_int8_t buffer[PG_SHA1_BLOCK_LENGTH]) {
   u_int32_t a, b, c, d, e;
-  u_int8_t workspace[pg_SHA1_BLOCK_LENGTH];
+  u_int8_t workspace[PG_SHA1_BLOCK_LENGTH];
   PG_CHAR64LONG16 *block = (PG_CHAR64LONG16 *)workspace;
 
-  (void)memcpy(block, buffer, pg_SHA1_BLOCK_LENGTH);
+  (void)memcpy(block, buffer, PG_SHA1_BLOCK_LENGTH);
 
   /* Copy context->state[] to working vars */
   a = state[0];
@@ -179,11 +179,11 @@ static void pg_SHA1Transform(u_int32_t state[5],
 }
 
 /*
- * pg_SHA1Init - Initialize new context
+ * PG_SHA1Init - Initialize new context
  */
-static void pg_SHA1Init(pg_SHA1_CTX *context) {
+static void PG_SHA1Init(PG_SHA1_CTX *context) {
 
-  /* pg_SHA1 initialization constants */
+  /* PG_SHA1 initialization constants */
   context->count = 0;
   context->state[0] = 0x67452301;
   context->state[1] = 0xEFCDAB89;
@@ -195,7 +195,7 @@ static void pg_SHA1Init(pg_SHA1_CTX *context) {
 /*
  * Run your data through this.
  */
-static void pg_SHA1Update(pg_SHA1_CTX *context, const u_int8_t *data,
+static void PG_SHA1Update(PG_SHA1_CTX *context, const u_int8_t *data,
                           size_t len) {
   size_t i, j;
 
@@ -203,9 +203,9 @@ static void pg_SHA1Update(pg_SHA1_CTX *context, const u_int8_t *data,
   context->count += ((u_int64_t)len << 3);
   if ((j + len) > 63) {
     (void)memcpy(&context->buffer[j], data, (i = 64 - j));
-    pg_SHA1Transform(context->state, context->buffer);
+    PG_SHA1Transform(context->state, context->buffer);
     for (; i + 63 < len; i += 64)
-      pg_SHA1Transform(context->state, (u_int8_t *)&data[i]);
+      PG_SHA1Transform(context->state, (u_int8_t *)&data[i]);
     j = 0;
   } else {
     i = 0;
@@ -216,7 +216,7 @@ static void pg_SHA1Update(pg_SHA1_CTX *context, const u_int8_t *data,
 /*
  * Add padding and return the message digest.
  */
-static void pg_SHA1Pad(pg_SHA1_CTX *context) {
+static void PG_SHA1Pad(PG_SHA1_CTX *context) {
   u_int8_t finalcount[8];
   size_t i;
 
@@ -224,18 +224,18 @@ static void pg_SHA1Pad(pg_SHA1_CTX *context) {
     finalcount[i] = (u_int8_t)((context->count >> ((7 - (i & 7)) * 8)) &
                                255); /* Endian independent */
   }
-  pg_SHA1Update(context, (u_int8_t *)"\200", 1);
+  PG_SHA1Update(context, (u_int8_t *)"\200", 1);
   while ((context->count & 504) != 448)
-    pg_SHA1Update(context, (u_int8_t *)"\0", 1);
-  pg_SHA1Update(context, finalcount, 8); /* Should cause a pg_SHA1Transform() */
+    PG_SHA1Update(context, (u_int8_t *)"\0", 1);
+  PG_SHA1Update(context, finalcount, 8); /* Should cause a PG_SHA1Transform() */
 }
 
-static void pg_SHA1Final(u_int8_t digest[pg_SHA1_DIGEST_LENGTH],
-                         pg_SHA1_CTX *context) {
+static void PG_SHA1Final(u_int8_t digest[PG_SHA1_DIGEST_LENGTH],
+                         PG_SHA1_CTX *context) {
   size_t i;
 
-  pg_SHA1Pad(context);
-  for (i = 0; i < pg_SHA1_DIGEST_LENGTH; i++) {
+  PG_SHA1Pad(context);
+  for (i = 0; i < PG_SHA1_DIGEST_LENGTH; i++) {
     digest[i] =
         (u_int8_t)((context->state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);
   }
