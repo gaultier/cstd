@@ -1542,6 +1542,9 @@ typedef struct {
 [[maybe_unused]] [[nodiscard]] static PgIpv4AddressAcceptResult
 pg_net_tcp_accept(PgSocket sock);
 
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_get_socket_error(PgSocket socket);
+
 typedef u64 PgAioQueue;
 PG_RESULT(PgAioQueue) PgAioQueueResult;
 [[maybe_unused]] [[nodiscard]] static PgAioQueueResult pg_aio_queue_create();
@@ -2151,6 +2154,17 @@ pg_net_tcp_accept(PgSocket sock) {
   res.addr.ip = ntohl(sockaddrin.sin_addr.s_addr);
 
   return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_get_socket_error(PgSocket socket) {
+  int socket_error = -1;
+  socklen_t len = sizeof(socket_error);
+  int ret = getsockopt(socket, SOL_SOCKET, SO_ERROR, &socket_error, &len);
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+  return (PgError)socket_error;
 }
 
 #else
@@ -4677,8 +4691,8 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
 
       PgError err_event_watch = 0;
       if (PG_AIO_EVENT_KIND_ERR & event_watch.kind) {
-        // TODO: Ask os to give a precise error.
-        err_event_watch = PG_ERR_INVALID_VALUE; // FIXME.
+        err_event_watch =
+            pg_net_get_socket_error((PgSocket)event_watch.os_handle);
       }
 
       // Socket connect.
