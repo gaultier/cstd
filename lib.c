@@ -2050,9 +2050,10 @@ pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena) {
 
     // TODO: Use pg_net_connect_ipv4?
     if (-1 == connect(res_create_socket.res, rp->ai_addr, rp->ai_addrlen)) {
-      // TODO: EINPROGRESS in case of non-blocking.
-      (void)pg_net_socket_close(res_create_socket.res);
-      continue;
+      if (EINPROGRESS != errno) {
+        (void)pg_net_socket_close(res_create_socket.res);
+        continue;
+      }
     }
 
     res.res.socket = res_create_socket.res;
@@ -3908,12 +3909,12 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
 
 #define PG_L(k, v)                                                             \
   (_Generic((v),                                                               \
-       int: pg_log_entry_int,                                                  \
-       u16: pg_log_entry_u16,                                                  \
-       u32: pg_log_entry_u32,                                                  \
-       u64: pg_log_entry_u64,                                                  \
-       PgIpv4Address: pg_log_entry_ipv4_address,                               \
-       PgString: pg_log_entry_slice)((PG_S(k)), (v)))
+      int: pg_log_entry_int,                                                   \
+      u16: pg_log_entry_u16,                                                   \
+      u32: pg_log_entry_u32,                                                   \
+      u64: pg_log_entry_u64,                                                   \
+      PgIpv4Address: pg_log_entry_ipv4_address,                                \
+      PgString: pg_log_entry_slice)((PG_S(k)), (v)))
 
 #define PG_LOG_ARGS_COUNT(...)                                                 \
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
