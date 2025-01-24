@@ -1,6 +1,9 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
 
+// TODO: Windows.
+// TODO: [Unix] Retry syscalls on EINTR.
+
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #define PG_OS_UNIX
 #endif
