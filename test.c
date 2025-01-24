@@ -461,6 +461,7 @@ static void test_bitfield() {
   {
     PgString bitfield = PG_S("\x3"
                              "\x2");
+    PG_ASSERT(3 == pg_bitfield_count(bitfield));
     PG_ASSERT(pg_bitfield_get(bitfield, 0));
     PG_ASSERT(pg_bitfield_get(bitfield, 1));
     PG_ASSERT(!pg_bitfield_get(bitfield, 2));
