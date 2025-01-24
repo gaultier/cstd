@@ -8,7 +8,7 @@
 // TODO: BSD/Macos kqueue.
 // TODO: Illumos async I/O.
 // TODO: [Unix] Retry syscalls on EINTR.
-// TODO: [Unix] Address stacktrace.
+// TODO: [Unix] CLI argument parser.
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: [Unix] Thread pool.
 // TODO: [Unix] Async File I/O using thread pool.
