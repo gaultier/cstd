@@ -520,10 +520,14 @@ static void test_bitfield() {
   {
     PgString bitfield = pg_string_dup(PG_S("\x20"
                                            "\x01"
-                                           "0x80"
-                                           "0x90"),
+                                           "\x80"
+                                           "\x90"),
                                       &arena);
-    pg_bitfield_set(bitfield, 28, false);
+    PG_ASSERT(5 == pg_bitfield_count(bitfield));
+    pg_bitfield_set(bitfield, 28, true);
+    PG_ASSERT(5 == pg_bitfield_count(bitfield));
+    pg_bitfield_set(bitfield, 29, true);
+    PG_ASSERT(6 == pg_bitfield_count(bitfield));
   }
 }
 
