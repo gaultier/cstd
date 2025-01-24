@@ -1009,6 +1009,18 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_read_u8(PgRing *rg,
+                                                           u8 *val) {
+  PgString s = {.len = sizeof(*val), .data = val};
+  return pg_ring_read_slice(rg, s);
+}
+
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_read_u32(PgRing *rg,
+                                                            u32 *val) {
+  PgString s = {.len = sizeof(*val), .data = (u8 *)val};
+  return pg_ring_read_slice(rg, s);
+}
+
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
