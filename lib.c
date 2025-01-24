@@ -7,7 +7,6 @@
 // TODO: [Windows] support.
 // TODO: [BSD/Macos] kqueue.
 // TODO: [Illumos] async I/O.
-// TODO: [Unix] Retry syscalls on EINTR.
 // TODO: [Unix] CLI argument parser.
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: [Unix] Thread pool.
@@ -102,6 +101,7 @@ typedef Pgu8Slice PgString;
 #define PG_SUB_SAT(a, b) ((a) > (b) ? ((a) - (b)) : 0)
 
 #define PG_STACKTRACE_MAX 64
+#define PG_LOG_STRING_MAX 256
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
@@ -4164,23 +4164,40 @@ pg_json_escape_string(PgString entry, PgArena *arena) {
   return PG_DYN_SLICE(PgString, sb);
 }
 
+[[maybe_unused]] static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c,
+                                                 PgArena *arena) {
+  if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' ||
+      pg_character_is_alphanumeric(c)) {
+    *PG_DYN_PUSH(sb, arena) = c;
+  } else {
+    u8 c1 = c % 16;
+    u8 c2 = c / 16;
+    PG_DYN_APPEND_SLICE(sb, PG_S("\\x"), arena);
+    *PG_DYN_PUSH(sb, arena) = pg_u8_to_character_hex(c2);
+    *PG_DYN_PUSH(sb, arena) = pg_u8_to_character_hex(c1);
+  }
+}
+
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_logfmt_escape_string(PgString entry, PgArena *arena) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 2 + entry.len * 2, arena);
   *PG_DYN_PUSH(&sb, arena) = '"';
 
-  for (u64 i = 0; i < entry.len; i++) {
-    u8 c = PG_SLICE_AT(entry, i);
-    if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' ||
-        pg_character_is_alphanumeric(c)) {
-      *PG_DYN_PUSH(&sb, arena) = c;
-    } else {
-      u8 c1 = c % 16;
-      u8 c2 = c / 16;
-      PG_DYN_APPEND_SLICE(&sb, PG_S("\\x"), arena);
-      *PG_DYN_PUSH(&sb, arena) = pg_u8_to_character_hex(c2);
-      *PG_DYN_PUSH(&sb, arena) = pg_u8_to_character_hex(c1);
+  if (entry.len <= PG_LOG_STRING_MAX) {
+    for (u64 i = 0; i < entry.len; i++) {
+      u8 c = PG_SLICE_AT(entry, i);
+      pg_logfmt_escape_u8(&sb, c, arena);
+    }
+  } else {
+    for (u64 i = 0; i < PG_LOG_STRING_MAX / 2; i++) {
+      u8 c = PG_SLICE_AT(entry, i);
+      pg_logfmt_escape_u8(&sb, c, arena);
+    }
+    PG_DYN_APPEND_SLICE(&sb, PG_S("[..]"), arena);
+    for (u64 i = (entry.len - PG_LOG_STRING_MAX / 2); i < entry.len; i++) {
+      u8 c = PG_SLICE_AT(entry, i);
+      pg_logfmt_escape_u8(&sb, c, arena);
     }
   }
   *PG_DYN_PUSH(&sb, arena) = '"';
