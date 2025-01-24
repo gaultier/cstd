@@ -1669,7 +1669,10 @@ pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(0 != (u64)r->ctx);
 
   int fd = (int)(u64)r->ctx;
-  ssize_t n = read(fd, buf, buf_len);
+  ssize_t n = 0;
+  do {
+    n = read(fd, buf, buf_len);
+  } while (-1 == n && EINTR == errno);
 
   Pgu64Result res = {0};
   if (n < 0) {
@@ -1690,7 +1693,10 @@ pg_reader_unix_recv(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(0 != (u64)r->ctx);
 
   int fd = (int)(u64)r->ctx;
-  ssize_t n = recv(fd, buf, buf_len, 0);
+  ssize_t n = 0;
+  do {
+    n = recv(fd, buf, buf_len, 0);
+  } while (-1 == n && EINTR == errno);
 
   Pgu64Result res = {0};
   if (n < 0) {
@@ -1711,7 +1717,10 @@ pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(0 != (u64)w->ctx);
 
   int fd = (int)(u64)w->ctx;
-  ssize_t n = write(fd, buf, buf_len);
+  ssize_t n = 0;
+  do {
+    n = write(fd, buf, buf_len);
+  } while (-1 == n && EINTR == errno);
 
   Pgu64Result res = {0};
   if (n < 0) {
@@ -1737,7 +1746,10 @@ pg_writer_unix_send(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(0 != (u64)w->ctx);
 
   int fd = (int)(u64)w->ctx;
-  ssize_t n = send(fd, buf, buf_len, MSG_NOSIGNAL);
+  ssize_t n = 0;
+  do {
+    n = send(fd, buf, buf_len, MSG_NOSIGNAL);
+  } while (-1 == n && EINTR == errno);
 
   Pgu64Result res = {0};
   if (n < 0) {
@@ -1752,7 +1764,11 @@ pg_writer_unix_send(void *self, u8 *buf, size_t buf_len) {
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_write_data_at_offset_from_start(PgFile file, u64 offset,
                                         PgString data) {
-  if (-1 == lseek(file, (off_t)offset, SEEK_SET)) {
+  i64 ret = 0;
+  do {
+    ret = lseek(file, (off_t)offset, SEEK_SET);
+  } while (-1 == ret && EINTR == errno);
+  if (-1 == ret) {
     return (PgError)errno;
   }
 
@@ -1778,7 +1794,11 @@ pg_file_open(PgString path, PgFileFlags flags, PgArena arena) {
   int mode = 0666; // TODO
 
   char *path_c = pg_string_to_cstr(path, &arena);
-  int ret = open(path_c, os_flags, mode);
+  int ret = 0;
+  do {
+    ret = open(path_c, os_flags, mode);
+  } while (-1 == ret && EINTR == errno);
+
   if (-1 == ret) {
     res.err = (PgError)errno;
     return res;
@@ -1789,7 +1809,11 @@ pg_file_open(PgString path, PgFileFlags flags, PgArena arena) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError pg_file_close(PgFile file) {
-  if (-1 == close(file)) {
+  i32 ret = 0;
+  do {
+    ret = close(file);
+  } while (-1 == ret && EINTR == errno);
+  if (-1 == ret) {
     return (PgError)errno;
   }
 
@@ -1801,7 +1825,11 @@ pg_file_set_size(PgString path, u64 size, PgArena arena) {
   PgError res = 0;
 
   char *path_c = pg_string_to_cstr(path, &arena);
-  int ret = truncate(path_c, (i64)size);
+  int ret = 0;
+  do {
+    ret = truncate(path_c, (i64)size);
+  } while (-1 == ret && EINTR == errno);
+
   if (-1 == ret) {
     res = (PgError)errno;
     return res;
@@ -1818,7 +1846,11 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
 
   char *path_c = pg_string_to_cstr(path, &arena);
 
-  int fd = open(path_c, O_RDONLY);
+  int fd = 0;
+  do {
+    fd = open(path_c, O_RDONLY);
+  } while (-1 == fd && EINTR == errno);
+
   if (fd < 0) {
     return (PgError)errno;
   }
@@ -1843,7 +1875,11 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
     PG_ASSERT(space.len > 0);
     PG_ASSERT(space.len <= chunk_size);
 
-    ssize_t ret = read(fd, space.data, space.len);
+    ssize_t ret = 0;
+    do {
+      ret = read(fd, space.data, space.len);
+    } while (-1 == ret && EINTR == errno);
+
     if (-1 == ret) {
       err = (PgError)errno;
       goto end;
@@ -1858,7 +1894,10 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
   }
 
 end:
-  close(fd);
+  int ret = 0;
+  do {
+    ret = close(fd);
+  } while (-1 == ret && EINTR == errno);
 
   return err;
 }
@@ -1895,7 +1934,11 @@ pg_string_to_filename(PgString s) {
 }
 
 [[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size() {
-  i64 ret = sysconf(_SC_PAGE_SIZE);
+  i64 ret = 0;
+  do {
+    ret = sysconf(_SC_PAGE_SIZE);
+  } while (-1 == ret && EINTR == errno);
+
   PG_ASSERT(ret >= 0);
 
   return (u64)ret;
