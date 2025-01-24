@@ -27,38 +27,39 @@ typedef struct {
   u_int8_t buffer[pg_SHA1_BLOCK_LENGTH];
 } pg_SHA1_CTX;
 
-#define rol(value, bits) (((value) << (bits)) | ((value) >> (32 - (bits))))
+#define pg_rol(value, bits) (((value) << (bits)) | ((value) >> (32 - (bits))))
 
 /*
- * blk0() and blk() perform the initial expand.
+ * pg_blk0() and pg_blk() perform the initial expand.
  * I got the idea of expanding during the round function from SSLeay
  */
-#define blk0(i)                                                                \
-  (block->l[i] = (rol(block->l[i], 24) & 0xFF00FF00) |                         \
-                 (rol(block->l[i], 8) & 0x00FF00FF))
-#define blk(i)                                                                 \
-  (block->l[i & 15] = rol(block->l[(i + 13) & 15] ^ block->l[(i + 8) & 15] ^   \
-                              block->l[(i + 2) & 15] ^ block->l[i & 15],       \
-                          1))
+#define pg_blk0(i)                                                             \
+  (block->l[i] = (pg_rol(block->l[i], 24) & 0xFF00FF00) |                      \
+                 (pg_rol(block->l[i], 8) & 0x00FF00FF))
+#define pg_blk(i)                                                              \
+  (block->l[i & 15] =                                                          \
+       pg_rol(block->l[(i + 13) & 15] ^ block->l[(i + 8) & 15] ^               \
+                  block->l[(i + 2) & 15] ^ block->l[i & 15],                   \
+              1))
 
 /*
  * (R0+R1), R2, R3, R4 are the different operations (rounds) used in pg_SHA1
  */
 #define R0(v, w, x, y, z, i)                                                   \
-  z += ((w & (x ^ y)) ^ y) + blk0(i) + 0x5A827999 + rol(v, 5);                 \
-  w = rol(w, 30);
+  z += ((w & (x ^ y)) ^ y) + pg_blk0(i) + 0x5A827999 + pg_rol(v, 5);           \
+  w = pg_rol(w, 30);
 #define R1(v, w, x, y, z, i)                                                   \
-  z += ((w & (x ^ y)) ^ y) + blk(i) + 0x5A827999 + rol(v, 5);                  \
-  w = rol(w, 30);
+  z += ((w & (x ^ y)) ^ y) + pg_blk(i) + 0x5A827999 + pg_rol(v, 5);            \
+  w = pg_rol(w, 30);
 #define R2(v, w, x, y, z, i)                                                   \
-  z += (w ^ x ^ y) + blk(i) + 0x6ED9EBA1 + rol(v, 5);                          \
-  w = rol(w, 30);
+  z += (w ^ x ^ y) + pg_blk(i) + 0x6ED9EBA1 + pg_rol(v, 5);                    \
+  w = pg_rol(w, 30);
 #define R3(v, w, x, y, z, i)                                                   \
-  z += (((w | x) & y) | (w & x)) + blk(i) + 0x8F1BBCDC + rol(v, 5);            \
-  w = rol(w, 30);
+  z += (((w | x) & y) | (w & x)) + pg_blk(i) + 0x8F1BBCDC + pg_rol(v, 5);      \
+  w = pg_rol(w, 30);
 #define R4(v, w, x, y, z, i)                                                   \
-  z += (w ^ x ^ y) + blk(i) + 0xCA62C1D6 + rol(v, 5);                          \
-  w = rol(w, 30);
+  z += (w ^ x ^ y) + pg_blk(i) + 0xCA62C1D6 + pg_rol(v, 5);                    \
+  w = pg_rol(w, 30);
 
 typedef union {
   u_int8_t c[64];
@@ -69,7 +70,7 @@ typedef union {
  * Hash a single 512-bit block. This is the core of the algorithm.
  */
 static void pg_SHA1Transform(u_int32_t state[5],
-                          const u_int8_t buffer[pg_SHA1_BLOCK_LENGTH]) {
+                             const u_int8_t buffer[pg_SHA1_BLOCK_LENGTH]) {
   u_int32_t a, b, c, d, e;
   u_int8_t workspace[pg_SHA1_BLOCK_LENGTH];
   CHAR64LONG16 *block = (CHAR64LONG16 *)workspace;
@@ -193,7 +194,8 @@ static void pg_SHA1Init(pg_SHA1_CTX *context) {
 /*
  * Run your data through this.
  */
-static void pg_SHA1Update(pg_SHA1_CTX *context, const u_int8_t *data, size_t len) {
+static void pg_SHA1Update(pg_SHA1_CTX *context, const u_int8_t *data,
+                          size_t len) {
   size_t i, j;
 
   j = (size_t)((context->count >> 3) & 63);
@@ -227,7 +229,8 @@ static void pg_SHA1Pad(pg_SHA1_CTX *context) {
   pg_SHA1Update(context, finalcount, 8); /* Should cause a pg_SHA1Transform() */
 }
 
-static void pg_SHA1Final(u_int8_t digest[pg_SHA1_DIGEST_LENGTH], pg_SHA1_CTX *context) {
+static void pg_SHA1Final(u_int8_t digest[pg_SHA1_DIGEST_LENGTH],
+                         pg_SHA1_CTX *context) {
   size_t i;
 
   pg_SHA1Pad(context);

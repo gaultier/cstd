@@ -10,7 +10,7 @@
 // TODO: [Unix] CLI argument parser.
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: [Linux] Async File I/O using thread pool or io_uring.
-// TODO: Pool allocator.
+// TODO: Pool allocator?
 // TODO: Sha1 hardware accelerated?
 // TODO: HTTP compression (gzip, etc)
 // TODO: TLS 1.3
