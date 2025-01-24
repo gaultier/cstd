@@ -6,7 +6,10 @@
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: [Unix] Thread pool.
 // TODO: [Unix] Async File I/O using thread pool.
+// TODO: Pool allocator.
 // TODO: Sha1 hardware accelerated?
+// TODO: HTTP compression (gzip, etc)
+// TODO: TLS 1.3
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #define PG_OS_UNIX
