@@ -9,7 +9,7 @@
 // TODO: [Unix] CLI argument parser.
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: [Linux/Unix] Async File I/O using thread pool or io_uring.
-// TODO: Pool allocator?
+// TODO: *Pool allocator?*
 // TODO: Get PIE offset for better call stack.
 // TODO: Randomize arena guard pages.
 // TODO: Sha1 hardware accelerated?
