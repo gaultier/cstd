@@ -2451,7 +2451,7 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 }
 
 [[maybe_unused]] [[nodiscard]] static int
-pg_linux_clock(PgClockKind clock_kind) {
+pg_clock_to_linux(PgClockKind clock_kind) {
   switch (clock_kind) {
   case PG_CLOCK_KIND_MONOTONIC:
     return CLOCK_MONOTONIC;
@@ -2468,7 +2468,7 @@ pg_timer_create(PgClockKind clock, u64 ns) {
 
   int ret = 0;
   do {
-    ret = timerfd_create(pg_linux_clock(clock), TFD_NONBLOCK);
+    ret = timerfd_create(pg_clock_to_linux(clock), TFD_NONBLOCK);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
@@ -2512,7 +2512,7 @@ pg_time_ns_now(PgClockKind clock) {
   struct timespec ts = {0};
   int ret = 0;
   do {
-    ret = clock_gettime(pg_linux_clock(clock), &ts);
+    ret = clock_gettime(pg_clock_to_linux(clock), &ts);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
