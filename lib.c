@@ -106,7 +106,7 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 
 [[maybe_unused]] static void pg_stacktrace_print(const char *file, int line,
                                                  const char *function) {
-  fprintf(stderr, "%s:%d:%s", file, line, function);
+  fprintf(stderr, "ASSERT: %s:%d:%s\nCallstack:\n", file, line, function);
 
   u64 call_stack[PG_STACKTRACE_MAX] = {0};
   u64 callstack_len = pg_fill_call_stack(call_stack);
