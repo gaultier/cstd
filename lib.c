@@ -96,6 +96,7 @@ typedef u32 PgError;
 
 PG_RESULT(u64) Pgu64Result;
 PG_RESULT(bool) PgBoolResult;
+PG_OK(u32) Pgu32Ok;
 
 PG_DYN(u8) Pgu8Dyn;
 PG_SLICE(u8) Pgu8Slice;
@@ -4168,12 +4169,12 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
 
 #define PG_L(k, v)                                                             \
   (_Generic((v),                                                               \
-      int: pg_log_entry_int,                                                   \
-      u16: pg_log_entry_u16,                                                   \
-      u32: pg_log_entry_u32,                                                   \
-      u64: pg_log_entry_u64,                                                   \
-      PgIpv4Address: pg_log_entry_ipv4_address,                                \
-      PgString: pg_log_entry_string)((PG_S(k)), (v)))
+       int: pg_log_entry_int,                                                  \
+       u16: pg_log_entry_u16,                                                  \
+       u32: pg_log_entry_u32,                                                  \
+       u64: pg_log_entry_u64,                                                  \
+       PgIpv4Address: pg_log_entry_ipv4_address,                               \
+       PgString: pg_log_entry_string)((PG_S(k)), (v)))
 
 #define PG_LOG_ARGS_COUNT(...)                                                 \
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
