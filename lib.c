@@ -4180,6 +4180,9 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
 #define pg_log(logger, lvl, msg, ...)                                          \
   do {                                                                         \
+    if (nullptr == (logger)) {                                                 \
+      break;                                                                   \
+    }                                                                          \
     PG_ASSERT(nullptr != (logger)->make_log_line);                             \
     if ((logger)->level > (lvl)) {                                             \
       break;                                                                   \
