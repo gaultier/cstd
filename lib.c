@@ -24,7 +24,7 @@
 #define PG_OS_UNIX
 #endif
 
-#if __linux__
+#if defined(__linux__)
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE 1
 #endif
@@ -2365,7 +2365,6 @@ pg_net_get_socket_error(PgSocket socket) {
 #if defined(__linux__)
 #include <sys/epoll.h>
 #include <sys/sendfile.h>
-#include <sys/timerfd.h>
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
@@ -2488,6 +2487,11 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 
   return res;
 }
+#endif
+
+#if defined(__linux__) || defined(__FreeBSD__)
+
+#include <sys/timerfd.h>
 
 [[maybe_unused]] [[nodiscard]] static int
 pg_clock_to_linux(PgClockKind clock_kind) {
