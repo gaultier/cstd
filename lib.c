@@ -2690,33 +2690,33 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
     return res;
   }
 
-  struct epoll_event *epoll_events =
-      pg_arena_new(&arena, struct epoll_event, events.len);
+  struct kevent *kqueue_events =
+      pg_arena_new(&arena, struct kevent, events.len);
 
-  int res_epoll = 0;
+  int res = 0;
   do {
-    res_epoll =
-        epoll_wait((int)queue, epoll_events, (int)events.len, (int)timeout_ms);
-  } while (-1 == res_epoll && EINTR == errno);
+    res = kqueue((int)queue, nullptr, 0, kqueue_events, events.len,
+                 (int)timeout_ms);
+  } while (-1 == res && EINTR == errno);
 
-  if (-1 == res_epoll) {
+  if (-1 == res) {
     res.err = (PgError)errno;
     return res;
   }
-  res.res = (u64)res_epoll;
+  res.res = (u64)res;
 
   for (u64 i = 0; i < res.res; i++) {
     PgAioEvent *event = PG_SLICE_AT_PTR(&events, i);
     *event = (PgAioEvent){0};
 
-    struct epoll_event epoll_event = epoll_events[i];
-    if (epoll_event.events & EPOLLIN) {
+    struct kevent kqueue_event = kqueue_events[i];
+    if (epoll_event.filter & EVFILT_READ) {
       event->kind |= PG_AIO_EVENT_KIND_IN;
     }
-    if (epoll_event.events & EPOLLOUT) {
+    if (epoll_event.filter & EVFILT_WRITE) {
       event->kind |= PG_AIO_EVENT_KIND_OUT;
     }
-    if (epoll_event.events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+    if (epoll_event.flags & EV_ERROR) {
       event->kind |= PG_AIO_EVENT_KIND_ERR;
     }
     event->os_handle = (u64)epoll_event.data.fd;
