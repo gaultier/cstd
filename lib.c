@@ -74,7 +74,6 @@ typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
-typedef __uint128_t u128;
 typedef int8_t i8;
 typedef int16_t i16;
 typedef int32_t i32;
@@ -1269,24 +1268,6 @@ static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n) {
   return 0;
 }
 
-[[maybe_unused]] static void
-pg_string_builder_append_u128_hex(Pgu8Dyn *dyn, u128 n, PgArena *arena) {
-  PG_DYN_ENSURE_CAP(dyn, dyn->len + 32, arena);
-  u64 PG_DYN_ORIGINAL_LEN = dyn->len;
-
-  u8 it[16] = {0};
-  PG_ASSERT(sizeof(it) == sizeof(n));
-  memcpy(it, (u8 *)&n, sizeof(n));
-
-  for (u64 i = 0; i < sizeof(it); i++) {
-    u8 c1 = it[i] % 16;
-    u8 c2 = it[i] / 16;
-    *PG_DYN_PUSH(dyn, arena) = pg_u8_to_character_hex(c2);
-    *PG_DYN_PUSH(dyn, arena) = pg_u8_to_character_hex(c1);
-  }
-  PG_ASSERT(32 == (dyn->len - PG_DYN_ORIGINAL_LEN));
-}
-
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_dup(PgString src,
                                                              PgArena *arena) {
   PgString dst = pg_string_make(src.len, arena);
@@ -1555,7 +1536,6 @@ typedef struct {
 [[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(PgRng *rng, u32 min_incl,
                                                       u32 max_excl);
 [[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s);
-[[nodiscard]] [[maybe_unused]] static u128 pg_rand_u128(PgRng *rng);
 
 [[nodiscard]] [[maybe_unused]] static PgRng pg_rand_make() {
   PgRng rng = {0};
@@ -1987,26 +1967,6 @@ pg_string_to_filename(PgString s) {
   PG_ASSERT(min_incl <= res);
   PG_ASSERT(res < max_excl);
   return res;
-}
-
-[[nodiscard]] [[maybe_unused]] static u128 pg_rand_u128(PgRng *rng) {
-  u32 res[4] = {0};
-  u32 rand = 0;
-
-  rand = pg_rand_u32(rng, 0, UINT32_MAX);
-  memcpy(&res[0], &rand, sizeof(u32));
-
-  rand = pg_rand_u32(rng, 0, UINT32_MAX);
-  memcpy(&res[1], &rand, sizeof(u32));
-
-  rand = pg_rand_u32(rng, 0, UINT32_MAX);
-  memcpy(&res[2], &rand, sizeof(u32));
-
-  rand = pg_rand_u32(rng, 0, UINT32_MAX);
-  memcpy(&res[3], &rand, sizeof(u32));
-
-  u128 ret = *(u128 *)(res);
-  return ret;
 }
 
 [[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s) {
@@ -4230,7 +4190,6 @@ typedef struct {
   union {
     PgString s;
     u64 n64;
-    u128 n128;
     PgIpv4Address ipv4_address;
   };
 } PgLogValue;
@@ -4750,17 +4709,6 @@ pg_json_decode_string_slice(PgString s, PgArena *arena) {
 
   res.res = PG_DYN_SLICE(PgStringSlice, dyn);
   return res;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_make_unique_id_u128_string(PgRng *rng, PgArena *arena) {
-  u128 id = pg_rand_u128(rng);
-
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 32, arena);
-  pg_string_builder_append_u128_hex(&sb, id, arena);
-
-  return PG_DYN_SLICE(PgString, sb);
 }
 
 typedef enum : u8 {
