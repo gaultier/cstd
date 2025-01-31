@@ -2711,15 +2711,14 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
     PgAioEvent *event = PG_SLICE_AT_PTR(&events, i);
     *event = (PgAioEvent){0};
 
-    struct kevent kqueue_event =
-        PG_C_ARRAY_AT_PTR(kqueue_events, events.len, i);
-    if (epoll_event.filter & EVFILT_READ) {
+    struct kevent kqueue_event = PG_C_ARRAY_AT(kqueue_events, events.len, i);
+    if (kqueue_event.filter & EVFILT_READ) {
       event->kind |= PG_AIO_EVENT_KIND_IN;
     }
-    if (epoll_event.filter & EVFILT_WRITE) {
+    if (kqueue_event.filter & EVFILT_WRITE) {
       event->kind |= PG_AIO_EVENT_KIND_OUT;
     }
-    if (epoll_event.flags & EV_ERROR) {
+    if (kqueue_event.flags & EV_ERROR) {
       event->kind |= PG_AIO_EVENT_KIND_ERR;
     }
     event->os_handle = (u64)epoll_event.data.fd;
