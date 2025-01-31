@@ -36,6 +36,7 @@
 #endif
 
 #include "sha1.c"
+#include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdckdint.h>
@@ -127,8 +128,9 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 
   u64 call_stack[PG_STACKTRACE_MAX] = {0};
   u64 callstack_len = pg_fill_call_stack(call_stack);
+
   for (u64 i = 0; i < callstack_len; i++) {
-    fprintf(stderr, "%#08lx\n", call_stack[i]);
+    fprintf(stderr, "%#" PRIx64 "\n", call_stack[i]);
   }
 
   puts("");
@@ -1169,7 +1171,7 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r) {
 pg_writer_write_u64_as_string(PgWriter *w, u64 n) {
   u8 tmp[30] = {0};
   // TODO: Not use snprintf?
-  const int written_count = snprintf((char *)tmp, sizeof(tmp), "%lu", n);
+  const int written_count = snprintf((char *)tmp, sizeof(tmp), "%" PRIu64, n);
 
   PG_ASSERT(written_count > 0);
 
@@ -1970,6 +1972,7 @@ pg_string_to_filename(PgString s) {
 // From https://www.pcg-random.org.
 [[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(PgRng *rng, u32 min_incl,
                                                       u32 max_excl) {
+  PG_ASSERT(rng);
   PG_ASSERT(min_incl < max_excl);
 
   u64 oldstate = rng->state;
