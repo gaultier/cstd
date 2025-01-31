@@ -767,6 +767,9 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 #define PG_DYN_PUSH(s, arena)                                                  \
   (PG_DYN_ENSURE_CAP(s, (s)->len + 1, arena), (s)->data + (s)->len++)
 
+#define PG_DYN_TRY_PUSH(s, v)                                                  \
+  (((s)->len + 1 == (s)->cap) ? false : *((s)->data + (s)->len++) = (v), true)
+
 #define PG_DYN_POP(s)                                                          \
   do {                                                                         \
     PG_ASSERT((s)->len > 0);                                                   \
@@ -4169,12 +4172,12 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
 
 #define PG_L(k, v)                                                             \
   (_Generic((v),                                                               \
-       int: pg_log_entry_int,                                                  \
-       u16: pg_log_entry_u16,                                                  \
-       u32: pg_log_entry_u32,                                                  \
-       u64: pg_log_entry_u64,                                                  \
-       PgIpv4Address: pg_log_entry_ipv4_address,                               \
-       PgString: pg_log_entry_string)((PG_S(k)), (v)))
+      int: pg_log_entry_int,                                                   \
+      u16: pg_log_entry_u16,                                                   \
+      u32: pg_log_entry_u32,                                                   \
+      u64: pg_log_entry_u64,                                                   \
+      PgIpv4Address: pg_log_entry_ipv4_address,                                \
+      PgString: pg_log_entry_string)((PG_S(k)), (v)))
 
 #define PG_LOG_ARGS_COUNT(...)                                                 \
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
