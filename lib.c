@@ -2677,7 +2677,7 @@ pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena) {
     res = kqueue((int)queue, changelist, events.len, nullptr, 0, nullptr);
   } while (-1 == res && EINTR == errno);
 
-  if (-1 == res_epoll) {
+  if (-1 == res) {
     return (PgError)errno;
   }
 
