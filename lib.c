@@ -17,7 +17,7 @@
 // TODO: TLS 1.3
 // TODO: Try using actors to structure async I/O instead of callbacks.
 // TODO: Enqueue I/O write if `try_write` is partial.
-// TODO: Repeating timers.
+// TODO: Pprof memory profiling.
 
 #if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
 #define PG_OS_UNIX
@@ -4172,12 +4172,12 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
 
 #define PG_L(k, v)                                                             \
   (_Generic((v),                                                               \
-      int: pg_log_entry_int,                                                   \
-      u16: pg_log_entry_u16,                                                   \
-      u32: pg_log_entry_u32,                                                   \
-      u64: pg_log_entry_u64,                                                   \
-      PgIpv4Address: pg_log_entry_ipv4_address,                                \
-      PgString: pg_log_entry_string)((PG_S(k)), (v)))
+       int: pg_log_entry_int,                                                  \
+       u16: pg_log_entry_u16,                                                  \
+       u32: pg_log_entry_u32,                                                  \
+       u64: pg_log_entry_u64,                                                  \
+       PgIpv4Address: pg_log_entry_ipv4_address,                               \
+       PgString: pg_log_entry_string)((PG_S(k)), (v)))
 
 #define PG_LOG_ARGS_COUNT(...)                                                 \
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
