@@ -2674,7 +2674,7 @@ pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena) {
 
   int res = 0;
   do {
-    res = kqueue((int)queue, changelist, events.len, nullptr, 0, nullptr);
+    res = kevent((int)queue, changelist, events.len, nullptr, 0, nullptr);
   } while (-1 == res && EINTR == errno);
 
   if (-1 == res) {
@@ -2695,23 +2695,24 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
   struct kevent *kqueue_events =
       pg_arena_new(&arena, struct kevent, events.len);
 
-  int res = 0;
+  int res_kevent = 0;
   do {
-    res = kqueue((int)queue, nullptr, 0, kqueue_events, events.len,
-                 (int)timeout_ms);
-  } while (-1 == res && EINTR == errno);
+    res_kevent = kevent((int)queue, nullptr, 0, kqueue_events, events.len,
+                        (int)timeout_ms);
+  } while (-1 == res_kevent && EINTR == errno);
 
-  if (-1 == res) {
+  if (-1 == res_kevent) {
     res.err = (PgError)errno;
     return res;
   }
-  res.res = (u64)res;
+  res.res = (u64)res_kevent;
 
   for (u64 i = 0; i < res.res; i++) {
     PgAioEvent *event = PG_SLICE_AT_PTR(&events, i);
     *event = (PgAioEvent){0};
 
-    struct kevent kqueue_event = PG_C_ARRAY_AT_PTR(kqueue_events, i);
+    struct kevent kqueue_event =
+        PG_C_ARRAY_AT_PTR(kqueue_events, events.len, i);
     if (epoll_event.filter & EVFILT_READ) {
       event->kind |= PG_AIO_EVENT_KIND_IN;
     }
