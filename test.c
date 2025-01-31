@@ -2,10 +2,14 @@
 
 static void test_string_indexof_string() {
   // Empty haystack.
-  { PG_ASSERT(-1 == pg_string_indexof_string((PgString){0}, PG_S("fox"))); }
+  {
+    PG_ASSERT(-1 == pg_string_indexof_string((PgString){0}, PG_S("fox")));
+  }
 
   // Empty needle.
-  { PG_ASSERT(-1 == pg_string_indexof_string(PG_S("hello"), (PgString){0})); }
+  {
+    PG_ASSERT(-1 == pg_string_indexof_string(PG_S("hello"), (PgString){0}));
+  }
 
   // Not found.
   {
@@ -37,7 +41,9 @@ static void test_string_indexof_string() {
               pg_string_indexof_string(PG_S("hello world"), PG_S("worldly")));
   }
 
-  { PG_ASSERT(0 == pg_string_indexof_string(PG_S("/"), PG_S("/"))); }
+  {
+    PG_ASSERT(0 == pg_string_indexof_string(PG_S("/"), PG_S("/")));
+  }
 }
 
 static void test_string_trim() {
@@ -986,7 +992,7 @@ static void test_net_socket() {
     event_bob_listen->kind = PG_AIO_EVENT_KIND_IN;
     event_bob_listen->action = PG_AIO_EVENT_ACTION_ADD;
 
-    PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
+    PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change, arena));
   }
 
   PgSocket bob_socket = 0;
@@ -1029,7 +1035,7 @@ static void test_net_socket() {
         event_bob->kind = PG_AIO_EVENT_KIND_IN;
         event_bob->action = PG_AIO_EVENT_ACTION_ADD;
 
-        PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change));
+        PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change, arena));
         events_change.len = 0;
       } else if (event.os_handle == (u64)socket_alice) {
         PG_ASSERT(PG_AIO_EVENT_KIND_OUT & event.kind);
@@ -1148,7 +1154,9 @@ static void test_http_request_to_string() {
 
 static void test_http_parse_response_status_line() {
   // Empty.
-  { PG_ASSERT(pg_http_parse_response_status_line(PG_S("")).err); }
+  {
+    PG_ASSERT(pg_http_parse_response_status_line(PG_S("")).err);
+  }
   // Missing prefix.
   {
     PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTT")).err);
@@ -1231,7 +1239,9 @@ static void test_http_parse_request_status_line() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   // Empty.
-  { PG_ASSERT(pg_http_parse_request_status_line(PG_S(""), &arena).err); }
+  {
+    PG_ASSERT(pg_http_parse_request_status_line(PG_S(""), &arena).err);
+  }
   // Missing prefix.
   {
     PG_ASSERT(pg_http_parse_request_status_line(PG_S("GE"), &arena).err);
@@ -1325,13 +1335,21 @@ static void test_http_parse_request_status_line() {
 
 static void test_http_parse_header() {
   // Empty.
-  { PG_ASSERT(pg_http_parse_header(PG_S("")).err); }
+  {
+    PG_ASSERT(pg_http_parse_header(PG_S("")).err);
+  }
   // Missing `:`.
-  { PG_ASSERT(pg_http_parse_header(PG_S("foo bar")).err); }
+  {
+    PG_ASSERT(pg_http_parse_header(PG_S("foo bar")).err);
+  }
   // Missing key.
-  { PG_ASSERT(pg_http_parse_header(PG_S(":bcd")).err); }
+  {
+    PG_ASSERT(pg_http_parse_header(PG_S(":bcd")).err);
+  }
   // Missing value.
-  { PG_ASSERT(pg_http_parse_header(PG_S("foo:")).err); }
+  {
+    PG_ASSERT(pg_http_parse_header(PG_S("foo:")).err);
+  }
   // Multiple colons.
   {
     PgKeyValueResult res = pg_http_parse_header(PG_S("foo: bar : baz"));
@@ -1711,7 +1729,7 @@ static void test_timer() {
         .kind = PG_AIO_EVENT_KIND_IN,
         .action = PG_AIO_EVENT_ACTION_ADD,
     };
-    PgError err = pg_aio_queue_ctl_one(queue, event_change);
+    PgError err = pg_aio_queue_ctl_one(queue, event_change, arena);
     PG_ASSERT(0 == err);
   }
 

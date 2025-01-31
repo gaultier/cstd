@@ -1624,12 +1624,12 @@ PG_SLICE(PgAioEvent) PgAioEventSlice;
 PG_DYN(PgAioEvent) PgAioEventDyn;
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events);
+pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena);
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_aio_queue_ctl_one(PgAioQueue queue, PgAioEvent event) {
+pg_aio_queue_ctl_one(PgAioQueue queue, PgAioEvent event, PgArena arena) {
   PgAioEventSlice events = {.data = &event, .len = 1};
-  return pg_aio_queue_ctl(queue, events);
+  return pg_aio_queue_ctl(queue, events, arena);
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
@@ -2395,7 +2395,9 @@ pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events) {
+pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena) {
+  (void)arena;
+
   for (u64 i = 0; i < events.len; i++) {
     PgAioEvent event = PG_SLICE_AT(events, i);
 
@@ -2617,7 +2619,111 @@ pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
 #endif
 
 #if defined(PG_HAS_KQUEUE)
-// TODO
+#include <sys/event.h>
+
+[[maybe_unused]] [[nodiscard]] static PgAioQueueResult pg_aio_queue_create() {
+  PgAioQueueResult res = {0};
+  int queue = 0;
+  do {
+    queue = kqueue();
+  } while (-1 == queue && EINTR == errno);
+
+  if (-1 == queue) {
+    res.err = (PgError)errno;
+  }
+  res.res = (PgAioQueue)queue;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena) {
+  struct kevent *changelist = pg_arena_new(&arena, struct kevent, events.len);
+
+  for (u64 i = 0; i < events.len; i++) {
+    PgAioEvent event = PG_SLICE_AT(events, i);
+    struct kevent *change = PG_SLICE_AT_PTR(changelist, i);
+    change->ident = (uintptr_t)event.os_handle;
+
+    switch (event.action) {
+    case PG_AIO_EVENT_ACTION_ADD:
+      change->flags = EV_ADD;
+      break;
+    case PG_AIO_EVENT_ACTION_MOD:
+      change->flags = EV_ADD;
+      break;
+    case PG_AIO_EVENT_ACTION_DEL:
+      change->flags = EV_DELETE;
+      break;
+    case PG_AIO_EVENT_ACTION_NONE:
+    default:
+      PG_ASSERT(0);
+    }
+
+    if (event.kind & PG_AIO_EVENT_KIND_IN) {
+      change->filter |= EVFILT_READ;
+    }
+    if (event.kind & PG_AIO_EVENT_KIND_OUT) {
+      change->filter |= EVFILT_WRITE;
+    }
+    if (event.kind & PG_AIO_EVENT_KIND_ERR) {
+      change->filter |= EV_ERROR;
+    }
+  }
+
+  int res = 0;
+  do {
+    res = kqueue((int)queue, changelist, events.len, nullptr, 0, nullptr);
+  } while (-1 == res && EINTR == errno);
+
+  if (-1 == res_epoll) {
+    return (PgError)errno;
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
+                  PgArena arena) {
+  Pgu64Result res = {0};
+  if (PG_SLICE_IS_EMPTY(events)) {
+    return res;
+  }
+
+  struct epoll_event *epoll_events =
+      pg_arena_new(&arena, struct epoll_event, events.len);
+
+  int res_epoll = 0;
+  do {
+    res_epoll =
+        epoll_wait((int)queue, epoll_events, (int)events.len, (int)timeout_ms);
+  } while (-1 == res_epoll && EINTR == errno);
+
+  if (-1 == res_epoll) {
+    res.err = (PgError)errno;
+    return res;
+  }
+  res.res = (u64)res_epoll;
+
+  for (u64 i = 0; i < res.res; i++) {
+    PgAioEvent *event = PG_SLICE_AT_PTR(&events, i);
+    *event = (PgAioEvent){0};
+
+    struct epoll_event epoll_event = epoll_events[i];
+    if (epoll_event.events & EPOLLIN) {
+      event->kind |= PG_AIO_EVENT_KIND_IN;
+    }
+    if (epoll_event.events & EPOLLOUT) {
+      event->kind |= PG_AIO_EVENT_KIND_OUT;
+    }
+    if (epoll_event.events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+      event->kind |= PG_AIO_EVENT_KIND_ERR;
+    }
+    event->os_handle = (u64)epoll_event.data.fd;
+  }
+
+  return res;
+}
 #endif
 
 [[maybe_unused]] [[nodiscard]] static PgSocket pg_reader_socket(PgReader *r) {
@@ -4801,7 +4907,7 @@ static PgError pg_event_loop_tcp_connect(PgEventLoop *loop, u64 os_handle,
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
   };
-  return pg_aio_queue_ctl_one(loop->queue, event);
+  return pg_aio_queue_ctl_one(loop->queue, event, loop->arena);
 }
 
 [[nodiscard]] [[maybe_unused]]
@@ -4848,7 +4954,7 @@ static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, u64 os_handle,
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
   };
-  return pg_aio_queue_ctl_one(loop->queue, event);
+  return pg_aio_queue_ctl_one(loop->queue, event, loop->arena);
 }
 
 [[nodiscard]] [[maybe_unused]]
@@ -4994,7 +5100,8 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
               .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                                  : PG_AIO_EVENT_ACTION_ADD,
           };
-          PG_ASSERT(0 == pg_aio_queue_ctl_one(loop->queue, event_change));
+          PG_ASSERT(0 == pg_aio_queue_ctl_one(loop->queue, event_change,
+                                              loop->arena));
         }
         handle->on_connect(loop, handle->os_handle, handle->ctx,
                            err_event_watch);
@@ -5117,7 +5224,7 @@ static PgError pg_event_loop_read_start(PgEventLoop *loop, u64 os_handle,
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
   };
-  return pg_aio_queue_ctl_one(loop->queue, event_change);
+  return pg_aio_queue_ctl_one(loop->queue, event_change, loop->arena);
 }
 
 [[nodiscard]] [[maybe_unused]]
@@ -5145,7 +5252,7 @@ static PgError pg_event_loop_read_stop(PgEventLoop *loop, u64 os_handle) {
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
   };
-  return pg_aio_queue_ctl_one(loop->queue, event_change);
+  return pg_aio_queue_ctl_one(loop->queue, event_change, loop->arena);
 }
 
 #if 0
@@ -5229,7 +5336,7 @@ pg_event_loop_timer_start(PgEventLoop *loop, PgClockKind clock,
       .kind = PG_AIO_EVENT_KIND_IN,
       .action = PG_AIO_EVENT_ACTION_ADD,
   };
-  PgError err = pg_aio_queue_ctl_one(loop->queue, event_change);
+  PgError err = pg_aio_queue_ctl_one(loop->queue, event_change, loop->arena);
   if (err) {
     res.err = err;
     return res;
