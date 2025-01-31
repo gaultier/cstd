@@ -688,7 +688,7 @@ static void test_ring_buffer_read_write_fuzz() {
   PgArena pg_arena_strings =
       pg_arena_make_from_virtual_mem(ROUNDS * 8 * PG_KiB);
 
-  PgRng rng = {0};
+  PgRng rng = pg_rand_make();
   // TODO: Print seed for reproducability?
   for (u64 i = 0; i < ROUNDS; i++) {
     u32 len = pg_rand_u32(&rng, 0, (u32)rg.data.len + 1);
@@ -952,7 +952,7 @@ typedef enum {
 static void test_net_socket() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
-  PgRng rng = {0};
+  PgRng rng = pg_rand_make();
   u16 port = (u16)pg_rand_u32(&rng, 3000, UINT16_MAX);
   PgSocket socket_listen = 0;
   {
@@ -1877,7 +1877,7 @@ static void test_event_loop() {
   PG_ASSERT(0 == res_loop.err);
   PgEventLoop loop = res_loop.res;
 
-  PgRng rng = {0};
+  PgRng rng = pg_rand_make();
   PgIpv4Address addr = {.port = (u16)pg_rand_u32(&rng, 3000, UINT16_MAX)};
 
   u64 client_state = 1;

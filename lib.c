@@ -1555,6 +1555,15 @@ typedef struct {
 [[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s);
 [[nodiscard]] [[maybe_unused]] static u128 pg_rand_u128(PgRng *rng);
 
+[[nodiscard]] [[maybe_unused]] static PgRng pg_rand_make() {
+  PgRng rng = {0};
+  // Rely on ASLR.
+  rng.inc = (u64)(&pg_rand_make) | 1u;
+  (void)pg_rand_u32(&rng, 0, UINT32_MAX);
+
+  return rng;
+}
+
 [[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size();
 [[maybe_unused]] [[nodiscard]] static PgArena
 pg_arena_make_from_virtual_mem(u64 size);
