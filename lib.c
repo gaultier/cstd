@@ -1678,28 +1678,25 @@ pg_string_to_filename(PgString s);
 #include <sys/types.h>
 #include <unistd.h>
 
-// TODO: ARM.
-#ifdef __x86_64
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
-  u64 *rbp = __builtin_frame_address(0);
+  u64 *frame_pointer = __builtin_frame_address(0);
   u64 res = 0;
 
-  while (res < PG_STACKTRACE_MAX && rbp != 0 && ((uint64_t)rbp & 7) == 0 &&
-         *rbp != 0) {
-    u64 rip = *(rbp + 1);
-    rbp = (u64 *)*rbp;
+  while (res < PG_STACKTRACE_MAX && frame_pointer != 0 &&
+         ((uint64_t)frame_pointer & 7) == 0 && *frame_pointer != 0) {
+    u64 instruction_pointer = *(frame_pointer + 1);
+    frame_pointer = (u64 *)*frame_pointer;
 
-    // `rip` points to the return instruction in the caller, once this call is
+    // `ip` points to the return instruction in the caller, once this call is
     // done. But: We want the location of the call i.e. the `call xxx`
     // instruction, so we subtract one byte to point inside it, which is not
     // quite 'at' it, but good enough.
-    call_stack[res++] = rip - 1;
+    call_stack[res++] = instruction_pointer - 1;
   }
 
   return res;
 }
-#endif
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
