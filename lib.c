@@ -18,6 +18,7 @@
 // TODO: Try using actors to structure async I/O instead of callbacks.
 // TODO: Enqueue I/O write if `try_write` is partial.
 // TODO: Pprof memory profiling.
+// TODO: IPv6.
 
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__) ||        \
     defined(__unix__)
