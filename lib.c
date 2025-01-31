@@ -2643,7 +2643,7 @@ pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena) {
 
   for (u64 i = 0; i < events.len; i++) {
     PgAioEvent event = PG_SLICE_AT(events, i);
-    struct kevent *change = PG_C_ARRAY_AT_PTR(changelist, i);
+    struct kevent *change = PG_C_ARRAY_AT_PTR(changelist, events.len, i);
     change->ident = (uintptr_t)event.os_handle;
 
     switch (event.action) {
@@ -2674,7 +2674,7 @@ pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena) {
 
   int res = 0;
   do {
-    res = kevent((int)queue, changelist, events.len, nullptr, 0, nullptr);
+    res = kevent((int)queue, changelist, (int)events.len, nullptr, 0, nullptr);
   } while (-1 == res && EINTR == errno);
 
   if (-1 == res) {
@@ -2696,9 +2696,12 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
       pg_arena_new(&arena, struct kevent, events.len);
 
   int res_kevent = 0;
+  struct timespec ts = {0};
+  ts.tv_sec = ((u64)timeout_ms * PG_Milliseconds) / PG_Seconds;
+  ts.tv_nsec = ((u64)timeout_ms * PG_Milliseconds) % PG_Seconds;
   do {
-    res_kevent = kevent((int)queue, nullptr, 0, kqueue_events, (int)events.len,
-                        (int)timeout_ms);
+    res_kevent =
+        kevent((int)queue, nullptr, 0, kqueue_events, (int)events.len, &ts);
   } while (-1 == res_kevent && EINTR == errno);
 
   if (-1 == res_kevent) {
