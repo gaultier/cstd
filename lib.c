@@ -1545,10 +1545,15 @@ pg_file_open(PgString path, PgFileFlags flags, PgArena arena);
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_set_size(PgString path, u64 size, PgArena arena);
 
-[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min_incl,
+typedef struct {
+  u64 state;
+  u64 inc;
+} PgRng;
+
+[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(PgRng *rng, u32 min_incl,
                                                       u32 max_excl);
-[[maybe_unused]] static void pg_rand_string_mut(PgString s);
-[[nodiscard]] [[maybe_unused]] static u128 pg_rand_u128();
+[[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s);
+[[nodiscard]] [[maybe_unused]] static u128 pg_rand_u128(PgRng *rng);
 
 [[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size();
 [[maybe_unused]] [[nodiscard]] static PgArena
@@ -1953,23 +1958,49 @@ pg_string_to_filename(PgString s) {
   return s;
 }
 
-[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(u32 min_incl,
+// From https://www.pcg-random.org.
+[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(PgRng *rng, u32 min_incl,
                                                       u32 max_excl) {
   PG_ASSERT(min_incl < max_excl);
 
-  u32 res = min_incl + arc4random_uniform(max_excl - min_incl);
-  res = PG_CLAMP(min_incl, res, max_excl);
+  u64 oldstate = rng->state;
+  // Advance internal state
+  rng->state = oldstate * 6364136223846793005ULL + (rng->inc | 1);
+  // Calculate output function (XSH RR), uses old state for max ILP
+  u32 xorshifted = (u32)(((oldstate >> 18u) ^ oldstate) >> 27u);
+  u32 rot = oldstate >> 59u;
+  u32 rand = (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+
+  u32 res = min_incl + (rand % (max_excl - min_incl));
+  PG_ASSERT(min_incl <= res);
+  PG_ASSERT(res < max_excl);
   return res;
 }
 
-[[nodiscard]] [[maybe_unused]] static u128 pg_rand_u128() {
-  u128 res = 0;
-  arc4random_buf(&res, sizeof(res));
-  return res;
+[[nodiscard]] [[maybe_unused]] static u128 pg_rand_u128(PgRng *rng) {
+  u32 res[4] = {0};
+  u32 rand = 0;
+
+  rand = pg_rand_u32(rng, 0, UINT32_MAX);
+  memcpy(&res[0], &rand, sizeof(u32));
+
+  rand = pg_rand_u32(rng, 0, UINT32_MAX);
+  memcpy(&res[1], &rand, sizeof(u32));
+
+  rand = pg_rand_u32(rng, 0, UINT32_MAX);
+  memcpy(&res[2], &rand, sizeof(u32));
+
+  rand = pg_rand_u32(rng, 0, UINT32_MAX);
+  memcpy(&res[3], &rand, sizeof(u32));
+
+  u128 ret = *(u128 *)(res);
+  return ret;
 }
 
-[[maybe_unused]] static void pg_rand_string_mut(PgString s) {
-  arc4random_buf(s.data, s.len);
+[[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s) {
+  for (u64 i = 0; i < s.len; i++) {
+    *PG_C_ARRAY_AT_PTR(s.data, s.len, i) = (u8)pg_rand_u32(rng, 0, UINT8_MAX);
+  }
 }
 
 [[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size() {
@@ -4710,8 +4741,8 @@ pg_json_decode_string_slice(PgString s, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_make_unique_id_u128_string(PgArena *arena) {
-  u128 id = pg_rand_u128();
+pg_make_unique_id_u128_string(PgRng *rng, PgArena *arena) {
+  u128 id = pg_rand_u128(rng);
 
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 32, arena);

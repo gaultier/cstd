@@ -688,14 +688,15 @@ static void test_ring_buffer_read_write_fuzz() {
   PgArena pg_arena_strings =
       pg_arena_make_from_virtual_mem(ROUNDS * 8 * PG_KiB);
 
-  // TODO: Random seed for reproducability?
+  PgRng rng = {0};
+  // TODO: Print seed for reproducability?
   for (u64 i = 0; i < ROUNDS; i++) {
-    u32 len = pg_rand_u32(0, (u32)rg.data.len + 1);
+    u32 len = pg_rand_u32(&rng, 0, (u32)rg.data.len + 1);
     PgString from = pg_string_make(len, &pg_arena_strings);
-    pg_rand_string_mut(from);
+    pg_rand_string_mut(&rng, from);
 
     PgString to = pg_string_make(len, &pg_arena_strings);
-    pg_rand_string_mut(to);
+    pg_rand_string_mut(&rng, to);
 
     bool ok_write = pg_ring_write_slice(&rg, from);
     (void)ok_write;
@@ -951,7 +952,8 @@ typedef enum {
 static void test_net_socket() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
-  u16 port = (u16)pg_rand_u32(3000, UINT16_MAX);
+  PgRng rng = {0};
+  u16 port = (u16)pg_rand_u32(&rng, 3000, UINT16_MAX);
   PgSocket socket_listen = 0;
   {
     PgSocketResult res_create_socket = pg_net_create_tcp_socket();
@@ -1875,7 +1877,8 @@ static void test_event_loop() {
   PG_ASSERT(0 == res_loop.err);
   PgEventLoop loop = res_loop.res;
 
-  PgIpv4Address addr = {.port = (u16)pg_rand_u32(3000, UINT16_MAX)};
+  PgRng rng = {0};
+  PgIpv4Address addr = {.port = (u16)pg_rand_u32(&rng, 3000, UINT16_MAX)};
 
   u64 client_state = 1;
   Pgu64Result res_client = pg_event_loop_tcp_init(&loop, &client_state);
