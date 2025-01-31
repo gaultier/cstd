@@ -5134,26 +5134,25 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
       if ((PG_AIO_EVENT_KIND_IN & event_watch.kind) &&
           (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
           (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state)) {
-        {
-          if (err_event_watch && handle->on_read) {
-            handle->on_read(loop, handle->os_handle, handle->ctx,
-                            err_event_watch, (PgString){0});
-          } else {
-            PgArena arena_tmp = loop->arena;
+        // Note: Even if epoll/kqueue/etc return an error for the handle, we
+        // still try to read.
 
-            // TODO: Ask OS for a hint.
-            u64 read_try_len = 4096;
+        PgArena arena_tmp = loop->arena;
 
-            PgString data = pg_string_make(read_try_len, &arena_tmp);
-            Pgu64Result res_read =
-                handle->reader.read_fn(&handle->reader, data.data, data.len);
-            data.len = res_read.res;
+        // TODO: Ask OS for a hint.
+        u64 read_try_len = 4096;
 
-            if (handle->on_read) {
-              handle->on_read(loop, handle->os_handle, handle->ctx,
-                              res_read.err, data);
-            }
-          }
+        PgString data = pg_string_make(read_try_len, &arena_tmp);
+        Pgu64Result res_read =
+            handle->reader.read_fn(&handle->reader, data.data, data.len);
+        data.len = res_read.res;
+
+        if (res_read.err == EAGAIN || res_read.err == EINPROGRESS) {
+          res_read.err = 0;
+        }
+        if (handle->on_read) {
+          handle->on_read(loop, handle->os_handle, handle->ctx, res_read.err,
+                          data);
         }
       }
 
