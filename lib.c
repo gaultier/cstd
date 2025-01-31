@@ -2643,7 +2643,7 @@ pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena) {
 
   for (u64 i = 0; i < events.len; i++) {
     PgAioEvent event = PG_SLICE_AT(events, i);
-    struct kevent *change = PG_SLICE_AT_PTR(changelist, i);
+    struct kevent *change = PG_C_ARRAY_AT_PTR(changelist, i);
     change->ident = (uintptr_t)event.os_handle;
 
     switch (event.action) {
@@ -2711,7 +2711,7 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
     PgAioEvent *event = PG_SLICE_AT_PTR(&events, i);
     *event = (PgAioEvent){0};
 
-    struct kevent kqueue_event = kqueue_events[i];
+    struct kevent kqueue_event = PG_C_ARRAY_AT_PTR(kqueue_events, i);
     if (epoll_event.filter & EVFILT_READ) {
       event->kind |= PG_AIO_EVENT_KIND_IN;
     }
