@@ -2709,8 +2709,8 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
   ts.tv_sec = ((u64)timeout_ms * PG_Milliseconds) / PG_Seconds;
   ts.tv_nsec = ((u64)timeout_ms * PG_Milliseconds) % PG_Seconds;
   do {
-    res_kevent =
-        kevent((int)queue, nullptr, 0, kqueue_events, (int)events.len, &ts);
+    res_kevent = kevent((int)queue, nullptr, 0, kqueue_events, (int)events.len,
+                        (-1 == timeout_ms) ? nullptr : &ts);
   } while (-1 == res_kevent && EINTR == errno);
 
   if (-1 == res_kevent) {

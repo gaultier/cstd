@@ -1734,7 +1734,7 @@ static void test_timer() {
   }
 
   PgAioEventSlice events_watch = PG_SLICE_MAKE(PgAioEvent, 1, &arena);
-  Pgu64Result res_wait = pg_aio_queue_wait(queue, events_watch, 1'000, arena);
+  Pgu64Result res_wait = pg_aio_queue_wait(queue, events_watch, -1, arena);
   PG_ASSERT(0 == res_wait.err);
   PG_ASSERT(1 == res_wait.res);
 
