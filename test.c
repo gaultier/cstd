@@ -1130,7 +1130,7 @@ static void test_url_parse_relative_path() {
 static void test_http_request_to_string() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   {
-    PgHttpRequest req;
+    PgHttpRequest req = {0};
     req.method = HTTP_METHOD_GET;
 
     PgString s = pg_http_request_to_string(req, &arena);
@@ -1139,7 +1139,7 @@ static void test_http_request_to_string() {
     PG_ASSERT(pg_string_eq(s, expected));
   }
   {
-    PgHttpRequest req;
+    PgHttpRequest req = {0};
     req.method = HTTP_METHOD_POST;
     pg_http_push_header(&req.headers, PG_S("Host"), PG_S("google.com"), &arena);
     *PG_DYN_PUSH(&req.url.path_components, &arena) = PG_S("foobar");
