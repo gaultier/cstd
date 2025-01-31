@@ -24,7 +24,7 @@
 #define PG_OS_UNIX
 #endif
 
-#ifdef PG_OS_UNIX
+#if __linux__
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE 1
 #endif
@@ -2135,7 +2135,7 @@ static PgError pg_net_set_nodelay(PgSocket sock, bool enabled) {
   int opt = enabled;
   int ret = 0;
   do {
-    ret = setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
+    ret = setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
