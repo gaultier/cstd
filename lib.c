@@ -1675,6 +1675,7 @@ pg_string_to_filename(PgString s);
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 // TODO: ARM.
@@ -2606,6 +2607,10 @@ pg_time_ns_now(PgClockKind clock) {
 #endif
 
 #if defined(__FreeBSD__)
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/uio.h>
+
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
   int res = 0;
