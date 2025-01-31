@@ -19,13 +19,19 @@
 // TODO: Enqueue I/O write if `try_write` is partial.
 // TODO: Pprof memory profiling.
 
-#if defined(__linux__) || defined(__FreeBSD__) // TODO: More Unices.
+#if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__) ||        \
+    defined(__unix__)
 #define PG_OS_UNIX
 #endif
 
 #ifdef PG_OS_UNIX
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE 1
+#endif
+
+#if defined(__FreeBSD__) || defined(__APPLE__) || defined(__NetBSD__) ||       \
+    defined(__OpenBSD__)
+#define PG_HAS_KQUEUE
 #endif
 
 #include "sha1.c"
@@ -2608,6 +2614,10 @@ pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
   }
   return 0;
 }
+#endif
+
+#if defined(PG_HAS_KQUEUE)
+// TODO
 #endif
 
 [[maybe_unused]] [[nodiscard]] static PgSocket pg_reader_socket(PgReader *r) {
