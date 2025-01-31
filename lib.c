@@ -1672,6 +1672,7 @@ pg_string_to_filename(PgString s);
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
