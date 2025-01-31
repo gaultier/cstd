@@ -4368,7 +4368,7 @@ pg_json_escape_string(PgString entry, PgArena *arena) {
 
 [[maybe_unused]] static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c,
                                                  PgArena *arena) {
-  if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' ||
+  if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' || c == '.' ||
       pg_character_is_alphanumeric(c)) {
     *PG_DYN_PUSH(sb, arena) = c;
   } else {
