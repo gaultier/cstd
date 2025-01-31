@@ -1,15 +1,11 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
 
-// TODO: Test untested functions.
-// TODO: `try_alloc` functions?
+// TODO: IPv6.
 // TODO: [Windows] support.
 // TODO: [Macos] timers.
-// TODO: [Unix] CLI argument parser.
-// TODO: [Unix] Human-readable stacktrace.
 // TODO: [Linux/Unix] Async File I/O using thread pool or io_uring.
 // TODO: *Pool allocator?*
-// TODO: Get PIE offset for better call stack.
 // TODO: Randomize arena guard pages.
 // TODO: Sha1 hardware accelerated?
 // TODO: HTTP compression (gzip, etc)
@@ -17,8 +13,13 @@
 // TODO: Try using actors to structure async I/O instead of callbacks.
 // TODO: Enqueue I/O write if `try_write` is partial.
 // TODO: Pprof memory profiling.
-// TODO: IPv6.
+// TODO: [Unix] Human-readable stacktrace.
+// TODO: Get PIE offset for better call stack.
+//
+// TODO: Test untested functions.
+// TODO: `try_alloc` functions?
 // TODO: [Illumos] async I/O.
+// TODO: [Unix] CLI argument parser.
 
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__) ||        \
     defined(__unix__)
