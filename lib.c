@@ -4,8 +4,7 @@
 // TODO: Test untested functions.
 // TODO: `try_alloc` functions?
 // TODO: [Windows] support.
-// TODO: [BSD/Macos] kqueue.
-// TODO: [Illumos] async I/O.
+// TODO: [Macos] timers.
 // TODO: [Unix] CLI argument parser.
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: [Linux/Unix] Async File I/O using thread pool or io_uring.
@@ -19,6 +18,7 @@
 // TODO: Enqueue I/O write if `try_write` is partial.
 // TODO: Pprof memory profiling.
 // TODO: IPv6.
+// TODO: [Illumos] async I/O.
 
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__) ||        \
     defined(__unix__)
