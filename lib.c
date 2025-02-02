@@ -5258,15 +5258,19 @@ static PgError pg_event_loop_read_stop(PgEventLoop *loop, u64 os_handle) {
   return pg_aio_queue_ctl_one(loop->queue, event_change, loop->arena);
 }
 
-#if 0
-struct PgEventLoopWriteRequest;
-struct PgEventLoopWriteRequest {
+typedef enum {
+  PG_IO_EVENT_KIND_NONE,
+  PG_IO_EVENT_KIND_READ,
+  PG_IO_EVENT_KIND_WRITE,
+  PG_IO_EVENT_KIND_READ_WRITE,
+} PgIoEventKind;
+
+typedef struct {
+  PgIoEventKind kind;
+  u64 os_handle_src;
+  u64 os_handle_dst;
   PgString data;
-  PgEventLoopOnWrite on_write;
-  u64 os_handle;
-};
-typedef struct PgEventLoopWriteRequest PgEventLoopWriteRequest;
-#endif
+} PgIoEvent;
 
 [[maybe_unused]]
 static void pg_event_loop_try_write(PgEventLoop *loop, u64 os_handle,
