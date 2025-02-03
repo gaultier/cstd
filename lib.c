@@ -99,7 +99,10 @@ typedef u32 PgError;
 #define PG_ERR_IO EIO
 #define PG_ERR_AGAIN EAGAIN
 #else
-// TODO: Windows
+// Use the x86_64 Linux errno values.
+#define PG_ERR_INVALID_VALUE 22
+#define PG_ERR_IO 5
+#define PG_ERR_AGAIN 11
 #endif
 
 PG_RESULT(u64) Pgu64Result;
