@@ -5415,7 +5415,6 @@ static Pgu64Result pg_event_loop_dns_resolve_ipv4_tcp_start(
 }
 
 typedef enum {
-  PG_TASK_STATE_NONE,
   PG_TASK_STATE_RUN,
   PG_TASK_STATE_STOP,
 } PgTaskState;
