@@ -992,6 +992,27 @@ typedef struct {
   return true;
 }
 
+[[maybe_unused]] [[nodiscard]] static bool
+pg_ring_read_ptr(PgRing *rg, u8 *data, u64 data_len) {
+  PgString s = {.data = data, .len = data_len};
+  return pg_ring_read_slice(rg, s);
+}
+[[maybe_unused]] [[nodiscard]] static bool
+pg_ring_write_ptr(PgRing *rg, u8 *data, u64 data_len) {
+  PgString s = {.data = data, .len = data_len};
+  return pg_ring_write_slice(rg, s);
+}
+
+#define pg_ring_read_struct(ring, val)                                         \
+  ((sizeof(*(val)) < pg_ring_read_space(*(ring)))                              \
+       ? false                                                                 \
+       : (pg_ring_read_ptr(ring, (u8 *)val, sizeof(*val))))
+
+#define pg_ring_write_struct(ring, val)                                        \
+  ((sizeof((val)) < pg_ring_write_space(*(ring)))                              \
+       ? false                                                                 \
+       : (pg_ring_write_ptr(ring, (u8 *)&val, sizeof(val))))
+
 [[maybe_unused]] [[nodiscard]] static PgStringOk
 pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
   PgStringOk res = {0};
@@ -5276,6 +5297,7 @@ typedef enum {
   PG_IO_EVENT_KIND_READ,
   PG_IO_EVENT_KIND_WRITE,
   PG_IO_EVENT_KIND_READ_WRITE,
+  PG_IO_EVENT_KIND_CLOSE,
 } PgIoEventKind;
 
 typedef struct {
@@ -5391,5 +5413,11 @@ static Pgu64Result pg_event_loop_dns_resolve_ipv4_tcp_start(
   res.res = (u64)res_dns.res.socket;
   return res;
 }
+
+typedef enum {
+  PG_TASK_STATE_NONE,
+  PG_TASK_STATE_RUN,
+  PG_TASK_STATE_STOP,
+} PgTaskState;
 
 #endif
