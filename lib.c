@@ -653,6 +653,13 @@ pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
 
 #define pg_arena_new(a, t, n) (t *)pg_arena_alloc(a, sizeof(t), _Alignof(t), n)
 
+// TODO
+#define PG_POOL(T)                                                             \
+  typedef struct {                                                             \
+    T *data;                                                                   \
+    u64 len, cap                                                               \
+  }
+
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_make(u64 len,
                                                               PgArena *arena) {
   PgString res = {0};
