@@ -5644,6 +5644,8 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
       for (u64 i = 0; i < res_queue_wait.res; i++) {
         PgAioEvent event = PG_SLICE_AT(events, i);
         PgTask *task = nullptr;
+        // TODO: Find task by using event.user_data (which is sqe->user_data).
+        // Store tasks in pool.
         for (u64 j = 0; j < runner->tasks.len; j++) {
           PgTask *t = PG_SLICE_AT_PTR(&runner->tasks, j);
           if (t->os_handle == event.os_handle) {
