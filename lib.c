@@ -5434,13 +5434,14 @@ typedef struct {
   u64 inbox_item_size;
   PgTaskRunFn run;
   bool did_run_at_least_once;
+  u64 os_handle; // TODO: Probably need to be stored separately.
 } PgTask;
 
 PG_DYN(PgTask) PgTaskDyn;
 
 typedef struct {
   PgTaskDyn tasks; // TODO: Use a tree.
-  PgEventLoop event_loop;
+  PgAioQueue os_queue;
   PgArena arena;
 } PgTaskRunner;
 
@@ -5491,7 +5492,7 @@ static void pg_task_runner_on_task_tcp_listen(PgEventLoop *loop, u64 os_handle,
 }
 
 [[maybe_unused]]
-static void pg_task_runner_run_tasks(PgTaskRunner *runner) {
+static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
   while (runner->tasks.len > 0) {
     for (u64 i = 0; i < runner->tasks.len; i++) {
       PgTask *task = PG_SLICE_AT_PTR(&runner->tasks, i);
@@ -5514,26 +5515,51 @@ static void pg_task_runner_run_tasks(PgTaskRunner *runner) {
           PG_ASSERT(0 && "TODO");
           break;
         case PG_IO_EVENT_KIND_TCP_CONNECT: {
-          Pgu64Result res_tcp_init =
-              pg_event_loop_tcp_init(&runner->event_loop, task);
-          if (res_tcp_init.err) {
+          PgSocketResult res_socket = pg_net_create_tcp_socket();
+          if (res_socket.err) {
             PgIoEvent io_event_out = {
                 .kind = io_event_in.kind,
-                .err = res_tcp_init.err,
+                .err = res_socket.err,
             };
             (void)pg_ring_write_struct(&task->inbox, io_event_out);
             break;
           }
 
-          u64 handle = res_tcp_init.res;
-          PgError err_tcp_connect = pg_event_loop_tcp_connect(
-              &runner->event_loop, handle, io_event_in.address,
-              pg_task_runner_on_task_tcp_connect);
+          PgSocket sock = res_socket.res;
+          task->os_handle = (u64)sock;
+          {
+            PgError err = pg_net_socket_set_blocking(sock, false);
+            if (err) {
+              PgIoEvent io_event_out = {
+                  .kind = io_event_in.kind,
+                  .err = err,
+              };
+              (void)pg_ring_write_struct(&task->inbox, io_event_out);
+              break;
+            }
+          }
 
-          if (err_tcp_connect) {
+          PgError err = pg_net_connect_ipv4(sock, io_event_in.address);
+          if (err) {
             PgIoEvent io_event_out = {
                 .kind = io_event_in.kind,
-                .err = err_tcp_connect,
+                .err = err,
+            };
+            (void)pg_ring_write_struct(&task->inbox, io_event_out);
+            break;
+          }
+
+          PgAioEvent event = {
+              .os_handle = (u64)sock,
+              .kind = PG_AIO_EVENT_KIND_OUT,
+              .action = PG_AIO_EVENT_ACTION_ADD,
+          };
+          PgError err_queue_ctl =
+              pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
+          if (err_queue_ctl) {
+            PgIoEvent io_event_out = {
+                .kind = io_event_in.kind,
+                .err = err_queue_ctl,
             };
             (void)pg_ring_write_struct(&task->inbox, io_event_out);
             break;
@@ -5541,26 +5567,51 @@ static void pg_task_runner_run_tasks(PgTaskRunner *runner) {
 
         } break;
         case PG_IO_EVENT_KIND_TCP_LISTEN: {
-          Pgu64Result res_tcp_init =
-              pg_event_loop_tcp_init(&runner->event_loop, task);
-          if (res_tcp_init.err) {
+          PgSocketResult res_socket = pg_net_create_tcp_socket();
+          if (res_socket.err) {
             PgIoEvent io_event_out = {
                 .kind = io_event_in.kind,
-                .err = res_tcp_init.err,
+                .err = res_socket.err,
             };
             (void)pg_ring_write_struct(&task->inbox, io_event_out);
             break;
           }
 
-          u64 handle = res_tcp_init.res;
-          PgError err_tcp_listen =
-              pg_event_loop_tcp_listen(&runner->event_loop, handle, 1,
-                                       pg_task_runner_on_task_tcp_listen);
+          PgSocket sock = res_socket.res;
+          task->os_handle = (u64)sock;
+          {
+            PgError err = pg_net_socket_set_blocking(sock, false);
+            if (err) {
+              PgIoEvent io_event_out = {
+                  .kind = io_event_in.kind,
+                  .err = err,
+              };
+              (void)pg_ring_write_struct(&task->inbox, io_event_out);
+              break;
+            }
+          }
 
-          if (err_tcp_listen) {
+          PgError err = pg_net_tcp_listen(sock, 1024);
+          if (err) {
             PgIoEvent io_event_out = {
-                .kind = PG_IO_EVENT_KIND_TCP_LISTEN,
-                .err = err_tcp_listen,
+                .kind = io_event_in.kind,
+                .err = err,
+            };
+            (void)pg_ring_write_struct(&task->inbox, io_event_out);
+            break;
+          }
+
+          PgAioEvent event = {
+              .os_handle = (u64)sock,
+              .kind = PG_AIO_EVENT_KIND_IN,
+              .action = PG_AIO_EVENT_ACTION_ADD,
+          };
+          PgError err_queue_ctl =
+              pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
+          if (err_queue_ctl) {
+            PgIoEvent io_event_out = {
+                .kind = io_event_in.kind,
+                .err = err,
             };
             (void)pg_ring_write_struct(&task->inbox, io_event_out);
             break;
@@ -5590,7 +5641,72 @@ static void pg_task_runner_run_tasks(PgTaskRunner *runner) {
         i -= 1;
       }
     }
+
+    // I/O event loop.
+    {
+      PgArena arena_tmp = runner->arena;
+      PgAioEventSlice events = {0};
+      events.len = 128;
+      events.data = pg_arena_new(&arena_tmp, PgAioEvent, events.len);
+
+      i64 timeout_ms =
+          -1; // TODO: Compute a real timeout when timers are in userspace.
+      Pgu64Result res_queue_wait = pg_aio_queue_wait(runner->os_queue, events,
+                                                     timeout_ms, runner->arena);
+      if (res_queue_wait.err) {
+        return res_queue_wait.err;
+      }
+
+      for (u64 i = 0; i < res_queue_wait.res; i++) {
+        PgAioEvent event = PG_SLICE_AT(events, i);
+        PgTask *task = nullptr;
+        for (u64 j = 0; j < runner->tasks.len; j++) {
+          PgTask *t = PG_SLICE_AT_PTR(&runner->tasks, j);
+          if (t->os_handle == event.os_handle) {
+            task = t;
+            break;
+          }
+        }
+        PG_ASSERT(task);
+
+        if (event.kind & PG_AIO_EVENT_KIND_ERR) {
+          // TODO: Check that this task's os_handle is indeed a socket.
+          PgError err_event_watch =
+              pg_net_get_socket_error((PgSocket)event.os_handle);
+          PgIoEvent io_event_out = {
+              .kind =
+                  0, // FIXME: need to remember to original I/O request kind.
+              .err = err_event_watch,
+          };
+          (void)pg_ring_write_struct(&task->inbox, io_event_out);
+          continue;
+        }
+
+        if (event.kind & PG_AIO_EVENT_KIND_IN) {
+          // TODO: read(2) or accept(2).
+
+          PgIoEvent io_event_out = {
+              .kind =
+                  0, // FIXME: need to remember to original I/O request kind.
+          };
+          (void)pg_ring_write_struct(&task->inbox, io_event_out);
+          continue;
+        }
+
+        if (event.kind & PG_AIO_EVENT_KIND_OUT) {
+          // TODO: connected or write(2).
+
+          PgIoEvent io_event_out = {
+              .kind =
+                  0, // FIXME: need to remember to original I/O request kind.
+          };
+          (void)pg_ring_write_struct(&task->inbox, io_event_out);
+          continue;
+        }
+      }
+    }
   }
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgTaskRunnerResult pg_task_runner_make() {
@@ -5600,13 +5716,13 @@ static void pg_task_runner_run_tasks(PgTaskRunner *runner) {
 
   PG_DYN_ENSURE_CAP(&res.res.tasks, 1024, &res.res.arena);
 
-  PgEventLoopResult res_loop = pg_event_loop_make_loop(res.res.arena);
-  if (res_loop.err) {
-    res.err = res_loop.err;
+  PgAioQueueResult res_queue = pg_aio_queue_create();
+  if (res_queue.err) {
+    res.err = res_queue.err;
     return res;
   }
 
-  res.res.event_loop = res_loop.res;
+  res.res.os_queue = res_queue.res;
 
   return res;
 }
