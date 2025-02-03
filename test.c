@@ -1962,7 +1962,7 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
 
   switch (ping->state) {
   case TASK_PING_STATE_NONE: {
-    PgIoEvent io_event_out = {
+    PgIoSubmissionEvent io_event_out = {
         .kind = PG_IO_EVENT_KIND_TCP_CONNECT,
         .address = {.port = ping->port},
     };
@@ -1971,7 +1971,7 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
     ping->state = TASK_PING_STATE_CONNECTING;
   } break;
   case TASK_PING_STATE_CONNECTING: {
-    PgIoEvent io_event_in = {0};
+    PgIoSubmissionEvent io_event_in = {0};
     PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
 
     PG_ASSERT(PG_IO_EVENT_KIND_TCP_CONNECT == io_event_in.kind);
@@ -1981,7 +1981,7 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
 
     ping->state = TASK_PING_STATE_CONNECTED;
 
-    PgIoEvent io_event_out = {
+    PgIoSubmissionEvent io_event_out = {
         .kind = PG_IO_EVENT_KIND_WRITE,
         .data = PG_S("ping"), // FIXME: lifetime.
     };
@@ -1989,7 +1989,7 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
 
   } break;
   case TASK_PING_STATE_CONNECTED: {
-    PgIoEvent io_event_in = {0};
+    PgIoSubmissionEvent io_event_in = {0};
     PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
 
     PG_ASSERT(PG_IO_EVENT_KIND_READ == io_event_in.kind);
@@ -2000,7 +2000,7 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
       return PG_TASK_STATE_STOP;
     }
 
-    PgIoEvent io_event_out = {
+    PgIoSubmissionEvent io_event_out = {
         .kind = PG_IO_EVENT_KIND_WRITE,
         .data = PG_S("ping"), // FIXME: lifetime.
     };
@@ -2033,7 +2033,7 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
 
   switch (pong->state) {
   case TASK_PONG_STATE_NONE: {
-    PgIoEvent io_event_out = {
+    PgIoSubmissionEvent io_event_out = {
         .kind = PG_IO_EVENT_KIND_TCP_LISTEN,
         .address = {.port = pong->port},
     };
@@ -2042,7 +2042,7 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
     pong->state = TASK_PONG_STATE_BINDING;
   } break;
   case TASK_PONG_STATE_BINDING: {
-    PgIoEvent io_event_in = {0};
+    PgIoSubmissionEvent io_event_in = {0};
     PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
 
     PG_ASSERT(PG_IO_EVENT_KIND_TCP_LISTEN == io_event_in.kind);
@@ -2052,14 +2052,14 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
 
     pong->state = TASK_PONG_STATE_LISTENING;
 
-    PgIoEvent io_event_out = {
+    PgIoSubmissionEvent io_event_out = {
         .kind = PG_IO_EVENT_KIND_READ,
     };
     PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
 
   } break;
   case TASK_PONG_STATE_LISTENING: {
-    PgIoEvent io_event_in = {0};
+    PgIoSubmissionEvent io_event_in = {0};
     PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
 
     PG_ASSERT(PG_IO_EVENT_KIND_READ == io_event_in.kind);
@@ -2070,7 +2070,7 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
       return PG_TASK_STATE_STOP;
     }
 
-    PgIoEvent io_event_out = {
+    PgIoSubmissionEvent io_event_out = {
         .kind = PG_IO_EVENT_KIND_WRITE,
         .data = PG_S("pong"), // FIXME: lifetime.
     };

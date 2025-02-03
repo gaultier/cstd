@@ -5304,12 +5304,16 @@ typedef enum {
 
 typedef struct {
   PgIoEventKind kind;
-  u64 os_handle_src;
   u64 os_handle_dst;
   PgString data;
-  PgError err;
   PgIpv4Address address;
-} PgIoEvent;
+  u64 user_data;
+} PgIoSubmissionEvent;
+
+typedef struct {
+  PgError err;
+  u64 user_data;
+} PgIoCompletionEvent;
 
 [[maybe_unused]]
 static void pg_event_loop_try_write(PgEventLoop *loop, u64 os_handle,
@@ -5458,37 +5462,146 @@ pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx, u64 inbox_item_size,
       .inbox = pg_ring_make(inbox_item_size * 1024, &runner->arena),
       .outbox = pg_ring_make(outbox_item_size * 1024, &runner->arena),
       .outbox_task_runner =
-          pg_ring_make(sizeof(PgIoEvent) * 32, &runner->arena),
+          pg_ring_make(sizeof(PgIoSubmissionEvent) * 32, &runner->arena),
   };
   return PG_SLICE_LAST_PTR(&runner->tasks);
 }
 
-[[maybe_unused]]
-static void pg_task_runner_on_task_tcp_connect(PgEventLoop *loop, u64 os_handle,
-                                               void *ctx, PgError err) {
-  (void)loop;
-  (void)os_handle;
-  PgTask *task = ctx;
+static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
+                                            PgTask *task) {
+  // Do I/O upon receiving a I/O request from the task.
+  // TODO: Store all the requests since we need them later.
+  // Need to:
+  // - Find I/O request by id.
+  // - Append I/O request
+  // - Remove I/O request by id.
+  if (pg_ring_read_space(task->outbox_task_runner) >=
+      sizeof(PgIoSubmissionEvent)) {
+    PgIoSubmissionEvent sqe = {0};
+    PG_ASSERT(pg_ring_read_struct(&task->outbox_task_runner, &sqe));
 
-  PgIoEvent io_event_out = {
-      .kind = PG_IO_EVENT_KIND_TCP_CONNECT,
-      .err = err,
-  };
-  (void)pg_ring_write_struct(&task->inbox, io_event_out);
-}
+    switch (sqe.kind) {
+    case PG_IO_EVENT_KIND_READ:
+      PG_ASSERT(0 && "TODO");
+      break;
+    case PG_IO_EVENT_KIND_WRITE:
+      PG_ASSERT(0 && "TODO");
+      break;
+    case PG_IO_EVENT_KIND_READ_WRITE:
+      PG_ASSERT(0 && "TODO");
+      break;
+    case PG_IO_EVENT_KIND_CLOSE:
+      PG_ASSERT(0 && "TODO");
+      break;
+    case PG_IO_EVENT_KIND_TCP_CONNECT: {
+      PgSocketResult res_socket = pg_net_create_tcp_socket();
+      if (res_socket.err) {
+        PgIoCompletionEvent cqe = {
+            .user_data = sqe.user_data,
+            .err = res_socket.err,
+        };
+        (void)pg_ring_write_struct(&task->inbox, cqe);
+        break;
+      }
 
-[[maybe_unused]]
-static void pg_task_runner_on_task_tcp_listen(PgEventLoop *loop, u64 os_handle,
-                                              void *ctx, PgError err) {
-  (void)loop;
-  (void)os_handle;
-  PgTask *task = ctx;
+      PgSocket sock = res_socket.res;
+      task->os_handle = (u64)sock;
+      {
+        PgError err = pg_net_socket_set_blocking(sock, false);
+        if (err) {
+          PgIoCompletionEvent cqe = {
+              .user_data = sqe.user_data,
+              .err = err,
+          };
+          (void)pg_ring_write_struct(&task->inbox, cqe);
+          break;
+        }
+      }
 
-  PgIoEvent io_event_out = {
-      .kind = PG_IO_EVENT_KIND_TCP_LISTEN,
-      .err = err,
-  };
-  (void)pg_ring_write_struct(&task->inbox, io_event_out);
+      PgError err = pg_net_connect_ipv4(sock, sqe.address);
+      if (err) {
+        PgIoCompletionEvent cqe = {
+            .user_data = sqe.user_data,
+            .err = err,
+        };
+        (void)pg_ring_write_struct(&task->inbox, cqe);
+        break;
+      }
+
+      PgAioEvent event = {
+          .os_handle = (u64)sock,
+          .kind = PG_AIO_EVENT_KIND_OUT,
+          .action = PG_AIO_EVENT_ACTION_ADD,
+      };
+      PgError err_queue_ctl =
+          pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
+      if (err_queue_ctl) {
+        PgIoCompletionEvent cqe = {
+            .user_data = sqe.user_data,
+            .err = err_queue_ctl,
+        };
+        (void)pg_ring_write_struct(&task->inbox, cqe);
+        break;
+      }
+
+    } break;
+    case PG_IO_EVENT_KIND_TCP_LISTEN: {
+      PgSocketResult res_socket = pg_net_create_tcp_socket();
+      if (res_socket.err) {
+        PgIoCompletionEvent cqe = {
+            .user_data = sqe.user_data,
+            .err = res_socket.err,
+        };
+        (void)pg_ring_write_struct(&task->inbox, cqe);
+        break;
+      }
+
+      PgSocket sock = res_socket.res;
+      task->os_handle = (u64)sock;
+      {
+        PgError err = pg_net_socket_set_blocking(sock, false);
+        if (err) {
+          PgIoCompletionEvent cqe = {
+              .user_data = sqe.user_data,
+              .err = err,
+          };
+          (void)pg_ring_write_struct(&task->inbox, cqe);
+          break;
+        }
+      }
+
+      PgError err = pg_net_tcp_listen(sock, 1024);
+      if (err) {
+        PgIoCompletionEvent cqe = {
+            .user_data = sqe.user_data,
+            .err = err,
+        };
+        (void)pg_ring_write_struct(&task->inbox, cqe);
+        break;
+      }
+
+      PgAioEvent event = {
+          .os_handle = (u64)sock,
+          .kind = PG_AIO_EVENT_KIND_IN,
+          .action = PG_AIO_EVENT_ACTION_ADD,
+      };
+      PgError err_queue_ctl =
+          pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
+      if (err_queue_ctl) {
+        PgIoCompletionEvent cqe = {
+            .user_data = sqe.user_data,
+            .err = err,
+        };
+        (void)pg_ring_write_struct(&task->inbox, cqe);
+        break;
+      }
+
+    } break;
+    case PG_IO_EVENT_KIND_NONE:
+    default:
+      PG_ASSERT(0);
+    }
+  }
 }
 
 [[maybe_unused]]
@@ -5497,134 +5610,7 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
     for (u64 i = 0; i < runner->tasks.len; i++) {
       PgTask *task = PG_SLICE_AT_PTR(&runner->tasks, i);
 
-      // Do I/O upon receiving a I/O request from the task.
-      // TODO: Store all the requests since we need them later.
-      if (pg_ring_read_space(task->outbox_task_runner) >= sizeof(PgIoEvent)) {
-        PgIoEvent io_event_in = {0};
-        PG_ASSERT(pg_ring_read_struct(&task->outbox_task_runner, &io_event_in));
-
-        switch (io_event_in.kind) {
-        case PG_IO_EVENT_KIND_READ:
-          PG_ASSERT(0 && "TODO");
-          break;
-        case PG_IO_EVENT_KIND_WRITE:
-          PG_ASSERT(0 && "TODO");
-          break;
-        case PG_IO_EVENT_KIND_READ_WRITE:
-          PG_ASSERT(0 && "TODO");
-          break;
-        case PG_IO_EVENT_KIND_CLOSE:
-          PG_ASSERT(0 && "TODO");
-          break;
-        case PG_IO_EVENT_KIND_TCP_CONNECT: {
-          PgSocketResult res_socket = pg_net_create_tcp_socket();
-          if (res_socket.err) {
-            PgIoEvent io_event_out = {
-                .kind = io_event_in.kind,
-                .err = res_socket.err,
-            };
-            (void)pg_ring_write_struct(&task->inbox, io_event_out);
-            break;
-          }
-
-          PgSocket sock = res_socket.res;
-          task->os_handle = (u64)sock;
-          {
-            PgError err = pg_net_socket_set_blocking(sock, false);
-            if (err) {
-              PgIoEvent io_event_out = {
-                  .kind = io_event_in.kind,
-                  .err = err,
-              };
-              (void)pg_ring_write_struct(&task->inbox, io_event_out);
-              break;
-            }
-          }
-
-          PgError err = pg_net_connect_ipv4(sock, io_event_in.address);
-          if (err) {
-            PgIoEvent io_event_out = {
-                .kind = io_event_in.kind,
-                .err = err,
-            };
-            (void)pg_ring_write_struct(&task->inbox, io_event_out);
-            break;
-          }
-
-          PgAioEvent event = {
-              .os_handle = (u64)sock,
-              .kind = PG_AIO_EVENT_KIND_OUT,
-              .action = PG_AIO_EVENT_ACTION_ADD,
-          };
-          PgError err_queue_ctl =
-              pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
-          if (err_queue_ctl) {
-            PgIoEvent io_event_out = {
-                .kind = io_event_in.kind,
-                .err = err_queue_ctl,
-            };
-            (void)pg_ring_write_struct(&task->inbox, io_event_out);
-            break;
-          }
-
-        } break;
-        case PG_IO_EVENT_KIND_TCP_LISTEN: {
-          PgSocketResult res_socket = pg_net_create_tcp_socket();
-          if (res_socket.err) {
-            PgIoEvent io_event_out = {
-                .kind = io_event_in.kind,
-                .err = res_socket.err,
-            };
-            (void)pg_ring_write_struct(&task->inbox, io_event_out);
-            break;
-          }
-
-          PgSocket sock = res_socket.res;
-          task->os_handle = (u64)sock;
-          {
-            PgError err = pg_net_socket_set_blocking(sock, false);
-            if (err) {
-              PgIoEvent io_event_out = {
-                  .kind = io_event_in.kind,
-                  .err = err,
-              };
-              (void)pg_ring_write_struct(&task->inbox, io_event_out);
-              break;
-            }
-          }
-
-          PgError err = pg_net_tcp_listen(sock, 1024);
-          if (err) {
-            PgIoEvent io_event_out = {
-                .kind = io_event_in.kind,
-                .err = err,
-            };
-            (void)pg_ring_write_struct(&task->inbox, io_event_out);
-            break;
-          }
-
-          PgAioEvent event = {
-              .os_handle = (u64)sock,
-              .kind = PG_AIO_EVENT_KIND_IN,
-              .action = PG_AIO_EVENT_ACTION_ADD,
-          };
-          PgError err_queue_ctl =
-              pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
-          if (err_queue_ctl) {
-            PgIoEvent io_event_out = {
-                .kind = io_event_in.kind,
-                .err = err,
-            };
-            (void)pg_ring_write_struct(&task->inbox, io_event_out);
-            break;
-          }
-
-        } break;
-        case PG_IO_EVENT_KIND_NONE:
-        default:
-          PG_ASSERT(0);
-        }
-      }
+      pg_task_runner_handle_task_sqes(runner, task);
 
       bool can_run = (!task->did_run_at_least_once) ||
                      (pg_ring_read_space(task->inbox) >= task->inbox_item_size);
@@ -5675,7 +5661,7 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
           // TODO: Check that this task's os_handle is indeed a socket.
           PgError err_event_watch =
               pg_net_get_socket_error((PgSocket)event.os_handle);
-          PgIoEvent io_event_out = {
+          PgIoSubmissionEvent io_event_out = {
               .kind =
                   0, // FIXME: need to remember to original I/O request kind.
               .err = err_event_watch,
@@ -5687,7 +5673,7 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
         if (event.kind & PG_AIO_EVENT_KIND_IN) {
           // TODO: read(2) or accept(2).
 
-          PgIoEvent io_event_out = {
+          PgIoSubmissionEvent io_event_out = {
               .kind =
                   0, // FIXME: need to remember to original I/O request kind.
           };
@@ -5698,7 +5684,7 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
         if (event.kind & PG_AIO_EVENT_KIND_OUT) {
           // TODO: connected or write(2).
 
-          PgIoEvent io_event_out = {
+          PgIoSubmissionEvent io_event_out = {
               .kind =
                   0, // FIXME: need to remember to original I/O request kind.
           };
