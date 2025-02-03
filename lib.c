@@ -44,6 +44,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #ifndef PG_MIN
 #define PG_MIN(a, b) (((a) < (b)) ? (a) : (b))
@@ -1567,7 +1568,8 @@ typedef struct {
 [[nodiscard]] [[maybe_unused]] static PgRng pg_rand_make() {
   PgRng rng = {0};
   // Rely on ASLR.
-  rng.inc = (u64)(&pg_rand_make) | 1u;
+  rng.state = (u64)(&pg_rand_make);
+  rng.inc = (u64)time(NULL);
   (void)pg_rand_u32(&rng, 0, UINT32_MAX);
 
   return rng;
