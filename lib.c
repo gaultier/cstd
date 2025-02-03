@@ -5298,6 +5298,8 @@ typedef enum {
   PG_IO_EVENT_KIND_WRITE,
   PG_IO_EVENT_KIND_READ_WRITE,
   PG_IO_EVENT_KIND_CLOSE,
+  PG_IO_EVENT_KIND_TCP_CONNECT,
+  PG_IO_EVENT_KIND_TCP_LISTEN,
 } PgIoEventKind;
 
 typedef struct {
@@ -5305,6 +5307,8 @@ typedef struct {
   u64 os_handle_src;
   u64 os_handle_dst;
   PgString data;
+  PgError err;
+  PgIpv4Address address;
 } PgIoEvent;
 
 [[maybe_unused]]
@@ -5419,12 +5423,14 @@ typedef enum {
   PG_TASK_STATE_STOP,
 } PgTaskState;
 
-typedef PgTaskState (*PgTaskRunFn)(void *ctx, PgRing *inbox, PgRing *outbox);
+typedef PgTaskState (*PgTaskRunFn)(void *ctx, PgRing *inbox, PgRing *outbox,
+                                   PgRing *outbox_task_runner);
 
 typedef struct {
   void *ctx;
   PgRing inbox;
   PgRing outbox;
+  PgRing outbox_task_runner;
   u64 inbox_item_size;
   PgTaskRunFn run;
 } PgTask;
@@ -5433,33 +5439,149 @@ PG_DYN(PgTask) PgTaskDyn;
 
 typedef struct {
   PgTaskDyn tasks; // TODO: Use a tree.
-  PgArena *arena;
+  PgEventLoop event_loop;
+  PgArena arena;
 } PgTaskRunner;
 
+PG_RESULT(PgTaskRunner) PgTaskRunnerResult;
+
 [[maybe_unused]]
-static void pg_task_spawn(PgTaskRunner *runner, void *ctx, u64 inbox_item_size,
+static PgTask *
+pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx, u64 inbox_item_size,
                           u64 outbox_item_size, PgTaskRunFn run) {
-  *PG_DYN_PUSH(&runner->tasks, runner->arena) = (PgTask){
+  *PG_DYN_PUSH(&runner->tasks, &runner->arena) = (PgTask){
       .ctx = ctx,
       .inbox_item_size = inbox_item_size,
       .run = run,
-      .inbox = pg_ring_make(inbox_item_size * 1024, runner->arena),
-      .outbox = pg_ring_make(outbox_item_size * 1024, runner->arena),
+      .inbox = pg_ring_make(inbox_item_size * 1024, &runner->arena),
+      .outbox = pg_ring_make(outbox_item_size * 1024, &runner->arena),
+      .outbox_task_runner =
+          pg_ring_make(sizeof(PgIoEvent) * 32, &runner->arena),
   };
+  return PG_SLICE_LAST_PTR(&runner->tasks);
 }
 
 [[maybe_unused]]
-static void pg_task_run_tasks(PgTaskRunner *runner) {
+static void pg_task_runner_on_task_tcp_connect(PgEventLoop *loop, u64 os_handle,
+                                               void *ctx, PgError err) {
+  (void)loop;
+  (void)os_handle;
+  PgTask *task = ctx;
+
+  PgIoEvent io_event_out = {
+      .kind = PG_IO_EVENT_KIND_TCP_CONNECT,
+      .err = err,
+  };
+  (void)pg_ring_write_struct(&task->inbox, io_event_out);
+}
+
+[[maybe_unused]]
+static void pg_task_runner_on_task_tcp_listen(PgEventLoop *loop, u64 os_handle,
+                                              void *ctx, PgError err) {
+  (void)loop;
+  (void)os_handle;
+  PgTask *task = ctx;
+
+  PgIoEvent io_event_out = {
+      .kind = PG_IO_EVENT_KIND_TCP_LISTEN,
+      .err = err,
+  };
+  (void)pg_ring_write_struct(&task->inbox, io_event_out);
+}
+
+[[maybe_unused]]
+static void pg_task_runner_run_tasks(PgTaskRunner *runner) {
   while (runner->tasks.len > 0) {
     for (u64 i = 0; i < runner->tasks.len; i++) {
       PgTask *task = PG_SLICE_AT_PTR(&runner->tasks, i);
-      if (pg_ring_read_space(task->inbox) < task->inbox_item_size) {
+
+      bool can_run =
+          (pg_ring_read_space(task->outbox_task_runner) >= sizeof(PgIoEvent)) ||
+          (pg_ring_read_space(task->inbox) >= task->inbox_item_size);
+      if (!can_run) {
         continue;
+      }
+      if (pg_ring_read_space(task->outbox_task_runner) >= sizeof(PgIoEvent)) {
+        PgIoEvent io_event_in = {0};
+        PG_ASSERT(pg_ring_read_struct(&task->outbox_task_runner, &io_event_in));
+
+        switch (io_event_in.kind) {
+        case PG_IO_EVENT_KIND_READ:
+          PG_ASSERT(0 && "TODO");
+          break;
+        case PG_IO_EVENT_KIND_WRITE:
+          PG_ASSERT(0 && "TODO");
+          break;
+        case PG_IO_EVENT_KIND_READ_WRITE:
+          PG_ASSERT(0 && "TODO");
+          break;
+        case PG_IO_EVENT_KIND_CLOSE:
+          PG_ASSERT(0 && "TODO");
+          break;
+        case PG_IO_EVENT_KIND_TCP_CONNECT: {
+          Pgu64Result res_tcp_init =
+              pg_event_loop_tcp_init(&runner->event_loop, task);
+          if (res_tcp_init.err) {
+            PgIoEvent io_event_out = {
+                .kind = io_event_in.kind,
+                .err = res_tcp_init.err,
+            };
+            (void)pg_ring_write_struct(&task->inbox, io_event_out);
+            break;
+          }
+
+          u64 handle = res_tcp_init.res;
+          PgError err_tcp_connect = pg_event_loop_tcp_connect(
+              &runner->event_loop, handle, io_event_in.address,
+              pg_task_runner_on_task_tcp_connect);
+
+          if (err_tcp_connect) {
+            PgIoEvent io_event_out = {
+                .kind = io_event_in.kind,
+                .err = err_tcp_connect,
+            };
+            (void)pg_ring_write_struct(&task->inbox, io_event_out);
+            break;
+          }
+
+        } break;
+        case PG_IO_EVENT_KIND_TCP_LISTEN: {
+          Pgu64Result res_tcp_init =
+              pg_event_loop_tcp_init(&runner->event_loop, task);
+          if (res_tcp_init.err) {
+            PgIoEvent io_event_out = {
+                .kind = io_event_in.kind,
+                .err = res_tcp_init.err,
+            };
+            (void)pg_ring_write_struct(&task->inbox, io_event_out);
+            break;
+          }
+
+          u64 handle = res_tcp_init.res;
+          PgError err_tcp_listen =
+              pg_event_loop_tcp_listen(&runner->event_loop, handle, 1,
+                                       pg_task_runner_on_task_tcp_listen);
+
+          if (err_tcp_listen) {
+            PgIoEvent io_event_out = {
+                .kind = PG_IO_EVENT_KIND_TCP_LISTEN,
+                .err = err_tcp_listen,
+            };
+            (void)pg_ring_write_struct(&task->inbox, io_event_out);
+            break;
+          }
+
+        } break;
+        case PG_IO_EVENT_KIND_NONE:
+        default:
+          PG_ASSERT(0);
+        }
       }
 
       PG_ASSERT(nullptr != task->run);
 
-      PgTaskState state = task->run(task->ctx, &task->inbox, &task->outbox);
+      PgTaskState state = task->run(task->ctx, &task->inbox, &task->outbox,
+                                    &task->outbox_task_runner);
 
       if (PG_TASK_STATE_STOP == state) {
         PG_SLICE_SWAP_REMOVE(&runner->tasks, i);
@@ -5469,6 +5591,24 @@ static void pg_task_run_tasks(PgTaskRunner *runner) {
 
     // TODO: I/O
   }
+}
+
+[[maybe_unused]] [[nodiscard]] static PgTaskRunnerResult pg_task_runner_make() {
+  PgTaskRunnerResult res = {0};
+
+  res.res.arena = pg_arena_make_from_virtual_mem(1 * PG_MiB);
+
+  PG_DYN_ENSURE_CAP(&res.res.tasks, 1024, &res.res.arena);
+
+  PgEventLoopResult res_loop = pg_event_loop_make_loop(res.res.arena);
+  if (res_loop.err) {
+    res.err = res_loop.err;
+    return res;
+  }
+
+  res.res.event_loop = res_loop.res;
+
+  return res;
 }
 
 #endif

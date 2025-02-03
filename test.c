@@ -1942,6 +1942,172 @@ static void test_string_to_filename() {
       pg_string_eq(PG_S("foo.mp3"), pg_string_to_filename(PG_S("./foo.mp3"))));
 }
 
+typedef enum {
+  TASK_PING_STATE_NONE,
+  TASK_PING_STATE_CONNECTING,
+  TASK_PING_STATE_CONNECTED,
+} TaskPingState;
+
+typedef struct {
+  TaskPingState state;
+  u16 port;
+  u64 ticks;
+} TaskPing;
+
+static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
+                                 PgRing *outbox_task_runner) {
+  (void)inbox;
+  (void)outbox;
+  TaskPing *ping = ctx;
+
+  switch (ping->state) {
+  case TASK_PING_STATE_NONE: {
+    PgIoEvent io_event_out = {
+        .kind = PG_IO_EVENT_KIND_TCP_CONNECT,
+        .address = {.port = ping->port},
+    };
+    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
+
+    ping->state = TASK_PING_STATE_CONNECTING;
+  } break;
+  case TASK_PING_STATE_CONNECTING: {
+    PgIoEvent io_event_in = {0};
+    PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
+
+    PG_ASSERT(PG_IO_EVENT_KIND_TCP_CONNECT == io_event_in.kind);
+    if (io_event_in.err) {
+      return PG_TASK_STATE_STOP;
+    }
+
+    ping->state = TASK_PING_STATE_CONNECTED;
+
+    PgIoEvent io_event_out = {
+        .kind = PG_IO_EVENT_KIND_WRITE,
+        .data = PG_S("ping"), // FIXME: lifetime.
+    };
+    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
+
+  } break;
+  case TASK_PING_STATE_CONNECTED: {
+    PgIoEvent io_event_in = {0};
+    PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
+
+    PG_ASSERT(PG_IO_EVENT_KIND_READ == io_event_in.kind);
+    PG_ASSERT(pg_string_eq(PG_S("pong"), io_event_in.data));
+    ping->ticks += 1;
+
+    if (10 == ping->ticks) {
+      return PG_TASK_STATE_STOP;
+    }
+
+    PgIoEvent io_event_out = {
+        .kind = PG_IO_EVENT_KIND_WRITE,
+        .data = PG_S("ping"), // FIXME: lifetime.
+    };
+    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
+  } break;
+  default:
+    PG_ASSERT(0);
+  }
+
+  return PG_TASK_STATE_RUN;
+}
+
+typedef enum {
+  TASK_PONG_STATE_NONE,
+  TASK_PONG_STATE_BINDING,
+  TASK_PONG_STATE_LISTENING,
+} TaskPongState;
+
+typedef struct {
+  TaskPongState state;
+  u16 port;
+  u64 ticks;
+} TaskPong;
+
+static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
+                                 PgRing *outbox_task_runner) {
+  (void)inbox;
+  (void)outbox;
+  TaskPong *pong = ctx;
+
+  switch (pong->state) {
+  case TASK_PONG_STATE_NONE: {
+    PgIoEvent io_event_out = {
+        .kind = PG_IO_EVENT_KIND_TCP_LISTEN,
+        .address = {.port = pong->port},
+    };
+    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
+
+    pong->state = TASK_PONG_STATE_BINDING;
+  } break;
+  case TASK_PONG_STATE_BINDING: {
+    PgIoEvent io_event_in = {0};
+    PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
+
+    PG_ASSERT(PG_IO_EVENT_KIND_TCP_LISTEN == io_event_in.kind);
+    if (io_event_in.err) {
+      return PG_TASK_STATE_STOP;
+    }
+
+    pong->state = TASK_PONG_STATE_LISTENING;
+
+    PgIoEvent io_event_out = {
+        .kind = PG_IO_EVENT_KIND_READ,
+    };
+    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
+
+  } break;
+  case TASK_PONG_STATE_LISTENING: {
+    PgIoEvent io_event_in = {0};
+    PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
+
+    PG_ASSERT(PG_IO_EVENT_KIND_READ == io_event_in.kind);
+    PG_ASSERT(pg_string_eq(PG_S("ping"), io_event_in.data));
+    pong->ticks += 1;
+
+    if (10 == pong->ticks) {
+      return PG_TASK_STATE_STOP;
+    }
+
+    PgIoEvent io_event_out = {
+        .kind = PG_IO_EVENT_KIND_WRITE,
+        .data = PG_S("pong"), // FIXME: lifetime.
+    };
+    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
+  } break;
+  default:
+    PG_ASSERT(0);
+  }
+
+  return PG_TASK_STATE_RUN;
+}
+
+static void test_tasks_ping_pong() {
+  PgTaskRunnerResult res_runner = pg_task_runner_make();
+  PG_ASSERT(0 == res_runner.err);
+
+  PgTaskRunner runner = res_runner.res;
+
+  PgRng rng = pg_rand_make();
+  u16 port = (u16)pg_rand_u32(&rng, 3000, UINT16_MAX);
+
+  TaskPing ping = {.port = port};
+  PgTask *task_ping =
+      pg_task_runner_spawn_task(&runner, &ping, 1, 1, task_ping_run);
+  (void)task_ping;
+
+  TaskPing pong = {.port = port};
+  PgTask *task_pong =
+      pg_task_runner_spawn_task(&runner, &pong, 1, 1, task_pong_run);
+  (void)task_pong;
+
+  pg_task_runner_run_tasks(&runner);
+
+  PG_ASSERT(10 == ping.ticks);
+  PG_ASSERT(10 == pong.ticks);
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_string();
@@ -1980,4 +2146,5 @@ int main() {
   test_event_loop();
   test_div_ceil();
   test_string_to_filename();
+  test_tasks_ping_pong();
 }
