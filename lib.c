@@ -1558,7 +1558,6 @@ pg_file_set_size(PgString path, u64 size, PgArena arena);
 
 typedef struct {
   u64 state;
-  u64 inc;
 } PgRng;
 
 [[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(PgRng *rng, u32 min_incl,
@@ -1568,9 +1567,7 @@ typedef struct {
 [[nodiscard]] [[maybe_unused]] static PgRng pg_rand_make() {
   PgRng rng = {0};
   // Rely on ASLR.
-  rng.state = (u64)(&pg_rand_make);
-  rng.inc = (u64)time(NULL);
-  (void)pg_rand_u32(&rng, 0, UINT32_MAX);
+  rng.state = (u64)(&pg_rand_make) | 1u;
 
   return rng;
 }
@@ -1990,23 +1987,24 @@ pg_string_to_filename(PgString s) {
   return s;
 }
 
-// From https://www.pcg-random.org.
+// From https://nullprogram.com/blog/2017/09/21/.
+// PCG.
 [[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(PgRng *rng, u32 min_incl,
                                                       u32 max_excl) {
   PG_ASSERT(rng);
   PG_ASSERT(min_incl < max_excl);
 
-  u64 oldstate = rng->state;
-  // Advance internal state
-  rng->state = oldstate * 6364136223846793005ULL + (rng->inc | 1);
-  // Calculate output function (XSH RR), uses old state for max ILP
-  u32 xorshifted = (u32)(((oldstate >> 18u) ^ oldstate) >> 27u);
-  u32 rot = oldstate >> 59u;
-  u32 rand = (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+  uint64_t m = 0x9b60933458e17d7d;
+  uint64_t a = 0xd737232eeccdf7ed;
+  rng->state = rng->state * m + a;
+  int shift = 29 - (rng->state >> 61);
+  u32 rand = (u32)(rng->state >> shift);
 
-  u32 res = min_incl + (rand % (max_excl - min_incl));
+  float scale = (float)(max_excl - min_incl) / (float)UINT32_MAX;
+  u32 res = min_incl + (u32)((float)rand * scale);
   PG_ASSERT(min_incl <= res);
   PG_ASSERT(res < max_excl);
+  fprintf(stderr, "[D001] %u %u %u\n", min_incl, max_excl, res);
   return res;
 }
 
@@ -5435,6 +5433,7 @@ typedef struct {
   PgRing outbox_task_runner;
   u64 inbox_item_size;
   PgTaskRunFn run;
+  bool did_run_init;
 } PgTask;
 
 PG_DYN(PgTask) PgTaskDyn;
@@ -5498,11 +5497,13 @@ static void pg_task_runner_run_tasks(PgTaskRunner *runner) {
       PgTask *task = PG_SLICE_AT_PTR(&runner->tasks, i);
 
       bool can_run =
+          (!task->did_run_init) ||
           (pg_ring_read_space(task->outbox_task_runner) >= sizeof(PgIoEvent)) ||
           (pg_ring_read_space(task->inbox) >= task->inbox_item_size);
       if (!can_run) {
         continue;
       }
+
       if (pg_ring_read_space(task->outbox_task_runner) >= sizeof(PgIoEvent)) {
         PgIoEvent io_event_in = {0};
         PG_ASSERT(pg_ring_read_struct(&task->outbox_task_runner, &io_event_in));
@@ -5590,8 +5591,6 @@ static void pg_task_runner_run_tasks(PgTaskRunner *runner) {
         i -= 1;
       }
     }
-
-    // TODO: I/O
   }
 }
 
