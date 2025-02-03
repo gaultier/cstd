@@ -5438,7 +5438,6 @@ typedef struct {
   u64 inbox_item_size;
   PgTaskRunFn run;
   bool did_run_at_least_once;
-  u64 os_handle; // TODO: Probably need to be stored separately.
 } PgTask;
 
 PG_DYN(PgTask) PgTaskDyn;
@@ -5500,7 +5499,8 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       }
 
       PgSocket sock = res_socket.res;
-      task->os_handle = (u64)sock;
+      // TODO: Provide the os_handle in the CQE.
+      //      task->os_handle = (u64)sock;
       {
         PgError err = pg_net_socket_set_blocking(sock, false);
         if (err) {
@@ -5552,7 +5552,8 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       }
 
       PgSocket sock = res_socket.res;
-      task->os_handle = (u64)sock;
+      // TODO: Provide the os_handle in the CQE.
+      // task->os_handle = (u64)sock;
       {
         PgError err = pg_net_socket_set_blocking(sock, false);
         if (err) {
