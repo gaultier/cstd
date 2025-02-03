@@ -5661,12 +5661,11 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
           // TODO: Check that this task's os_handle is indeed a socket.
           PgError err_event_watch =
               pg_net_get_socket_error((PgSocket)event.os_handle);
-          PgIoSubmissionEvent io_event_out = {
-              .kind =
-                  0, // FIXME: need to remember to original I/O request kind.
+          PgIoCompletionEvent cqe = {
+              .user_data = 0, // FIXME: find corresponding sqe.
               .err = err_event_watch,
           };
-          (void)pg_ring_write_struct(&task->inbox, io_event_out);
+          (void)pg_ring_write_struct(&task->inbox, cqe);
           continue;
         }
 
