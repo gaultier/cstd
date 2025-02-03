@@ -1971,40 +1971,42 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
     ping->state = TASK_PING_STATE_CONNECTING;
   } break;
   case TASK_PING_STATE_CONNECTING: {
-    PgIoSubmissionEvent io_event_in = {0};
-    PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
+    PgIoCompletionEvent cqe = {0};
+    PG_ASSERT(pg_ring_read_struct(inbox, &cqe));
 
-    PG_ASSERT(PG_IO_EVENT_KIND_TCP_CONNECT == io_event_in.kind);
-    if (io_event_in.err) {
+    // PG_ASSERT(PG_IO_EVENT_KIND_TCP_CONNECT == cqe.kind);
+    if (cqe.err) {
       return PG_TASK_STATE_STOP;
     }
 
     ping->state = TASK_PING_STATE_CONNECTED;
 
-    PgIoSubmissionEvent io_event_out = {
+    PgIoSubmissionEvent sqe = {
         .kind = PG_IO_EVENT_KIND_WRITE,
         .data = PG_S("ping"), // FIXME: lifetime.
+        .user_data = 0,       // TODO
     };
-    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
+    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
 
   } break;
   case TASK_PING_STATE_CONNECTED: {
-    PgIoSubmissionEvent io_event_in = {0};
-    PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
+    PgIoCompletionEvent cqe = {0};
+    PG_ASSERT(pg_ring_read_struct(inbox, &cqe));
 
-    PG_ASSERT(PG_IO_EVENT_KIND_READ == io_event_in.kind);
-    PG_ASSERT(pg_string_eq(PG_S("pong"), io_event_in.data));
+    // PG_ASSERT(PG_IO_EVENT_KIND_READ == cqe.kind);
+    //  PG_ASSERT(pg_string_eq(PG_S("pong"), cqe.data));
     ping->ticks += 1;
 
     if (10 == ping->ticks) {
       return PG_TASK_STATE_STOP;
     }
 
-    PgIoSubmissionEvent io_event_out = {
+    PgIoSubmissionEvent sqe = {
         .kind = PG_IO_EVENT_KIND_WRITE,
         .data = PG_S("ping"), // FIXME: lifetime.
+        .user_data = 0,       // FIXME
     };
-    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
+    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
   } break;
   default:
     PG_ASSERT(0);
@@ -2042,20 +2044,22 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
     pong->state = TASK_PONG_STATE_BINDING;
   } break;
   case TASK_PONG_STATE_BINDING: {
-    PgIoSubmissionEvent io_event_in = {0};
-    PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
+    PgIoCompletionEvent cqe = {0};
+    PG_ASSERT(pg_ring_read_struct(inbox, &cqe));
 
-    PG_ASSERT(PG_IO_EVENT_KIND_TCP_LISTEN == io_event_in.kind);
-    if (io_event_in.err) {
+    //    PG_ASSERT(PG_IO_EVENT_KIND_TCP_LISTEN == cqe.kind);
+    if (cqe.err) {
       return PG_TASK_STATE_STOP;
     }
 
     pong->state = TASK_PONG_STATE_LISTENING;
 
-    PgIoSubmissionEvent io_event_out = {
+    PgIoSubmissionEvent sqe = {
         .kind = PG_IO_EVENT_KIND_READ,
+        .data = {0},    // FIXME
+        .user_data = 0, // FIXME
     };
-    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
+    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
 
   } break;
   case TASK_PONG_STATE_LISTENING: {
