@@ -5419,4 +5419,56 @@ typedef enum {
   PG_TASK_STATE_STOP,
 } PgTaskState;
 
+typedef PgTaskState (*PgTaskRunFn)(void *ctx, PgRing *inbox, PgRing *outbox);
+
+typedef struct {
+  void *ctx;
+  PgRing inbox;
+  PgRing outbox;
+  u64 inbox_item_size;
+  PgTaskRunFn run;
+} PgTask;
+
+PG_DYN(PgTask) PgTaskDyn;
+
+typedef struct {
+  PgTaskDyn tasks; // TODO: Use a tree.
+  PgArena *arena;
+} PgTaskRunner;
+
+[[maybe_unused]]
+static void pg_task_spawn(PgTaskRunner *runner, void *ctx, u64 inbox_item_size,
+                          u64 outbox_item_size, PgTaskRunFn run) {
+  *PG_DYN_PUSH(&runner->tasks, runner->arena) = (PgTask){
+      .ctx = ctx,
+      .inbox_item_size = inbox_item_size,
+      .run = run,
+      .inbox = pg_ring_make(inbox_item_size * 1024, runner->arena),
+      .outbox = pg_ring_make(outbox_item_size * 1024, runner->arena),
+  };
+}
+
+[[maybe_unused]]
+static void pg_task_run_tasks(PgTaskRunner *runner) {
+  while (runner->tasks.len > 0) {
+    for (u64 i = 0; i < runner->tasks.len; i++) {
+      PgTask *task = PG_SLICE_AT_PTR(&runner->tasks, i);
+      if (pg_ring_read_space(task->inbox) < task->inbox_item_size) {
+        continue;
+      }
+
+      PG_ASSERT(nullptr != task->run);
+
+      PgTaskState state = task->run(task->ctx, &task->inbox, &task->outbox);
+
+      if (PG_TASK_STATE_STOP == state) {
+        PG_SLICE_SWAP_REMOVE(&runner->tasks, i);
+        i -= 1;
+      }
+    }
+
+    // TODO: I/O
+  }
+}
+
 #endif
