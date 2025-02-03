@@ -44,7 +44,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 
 #ifndef PG_MIN
 #define PG_MIN(a, b) (((a) < (b)) ? (a) : (b))
@@ -1567,7 +1566,9 @@ typedef struct {
 [[nodiscard]] [[maybe_unused]] static PgRng pg_rand_make() {
   PgRng rng = {0};
   // Rely on ASLR.
-  rng.state = (u64)(&pg_rand_make) | 1u;
+  Pgu64Result now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
+  PG_ASSERT(0 == now.err);
+  rng.state = (u64)(&pg_rand_make) ^ now.res;
 
   return rng;
 }
@@ -2004,7 +2005,6 @@ pg_string_to_filename(PgString s) {
   u32 res = min_incl + (u32)((float)rand * scale);
   PG_ASSERT(min_incl <= res);
   PG_ASSERT(res < max_excl);
-  fprintf(stderr, "[D001] %u %u %u\n", min_incl, max_excl, res);
   return res;
 }
 
