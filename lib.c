@@ -5497,6 +5497,8 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
     for (u64 i = 0; i < runner->tasks.len; i++) {
       PgTask *task = PG_SLICE_AT_PTR(&runner->tasks, i);
 
+      // Do I/O upon receiving a I/O request from the task.
+      // TODO: Store all the requests since we need them later.
       if (pg_ring_read_space(task->outbox_task_runner) >= sizeof(PgIoEvent)) {
         PgIoEvent io_event_in = {0};
         PG_ASSERT(pg_ring_read_struct(&task->outbox_task_runner, &io_event_in));
