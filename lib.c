@@ -5467,19 +5467,14 @@ pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx, u64 inbox_item_size,
   return PG_SLICE_LAST_PTR(&runner->tasks);
 }
 
+// Do real I/O upon receiving SQEs from the task.
 static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
                                             PgTask *task) {
-  // Do I/O upon receiving a I/O request from the task.
-  // TODO: Store all the requests since we need them later.
-  // Need to:
-  // - Find I/O request by id.
-  // - Append I/O request
-  // - Remove I/O request by id.
-  if (pg_ring_read_space(task->outbox_task_runner) >=
-      sizeof(PgIoSubmissionEvent)) {
-    PgIoSubmissionEvent sqe = {0};
-    PG_ASSERT(pg_ring_read_struct(&task->outbox_task_runner, &sqe));
-
+  // Need to map a cqe to: sqe->kind, Task.
+  // => Can just store Task* in user_data and use the unused bits in the pointer
+  // to store sqe->kind.
+  PgIoSubmissionEvent sqe = {0};
+  while (pg_ring_read_struct(&task->outbox_task_runner, &sqe)) {
     switch (sqe.kind) {
     case PG_IO_EVENT_KIND_READ:
       PG_ASSERT(0 && "TODO");
