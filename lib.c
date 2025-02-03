@@ -1009,7 +1009,7 @@ pg_ring_write_ptr(PgRing *rg, u8 *data, u64 data_len) {
        : (pg_ring_read_ptr(ring, (u8 *)val, sizeof(*val))))
 
 #define pg_ring_write_struct(ring, val)                                        \
-  ((sizeof((val)) < pg_ring_write_space(*(ring)))                              \
+  ((sizeof((val)) > pg_ring_write_space(*(ring)))                              \
        ? false                                                                 \
        : (pg_ring_write_ptr(ring, (u8 *)&val, sizeof(val))))
 
@@ -5433,7 +5433,7 @@ typedef struct {
   PgRing outbox_task_runner;
   u64 inbox_item_size;
   PgTaskRunFn run;
-  bool did_run_init;
+  bool did_run_at_least_once;
 } PgTask;
 
 PG_DYN(PgTask) PgTaskDyn;
@@ -5495,14 +5495,6 @@ static void pg_task_runner_run_tasks(PgTaskRunner *runner) {
   while (runner->tasks.len > 0) {
     for (u64 i = 0; i < runner->tasks.len; i++) {
       PgTask *task = PG_SLICE_AT_PTR(&runner->tasks, i);
-
-      bool can_run =
-          (!task->did_run_init) ||
-          (pg_ring_read_space(task->outbox_task_runner) >= sizeof(PgIoEvent)) ||
-          (pg_ring_read_space(task->inbox) >= task->inbox_item_size);
-      if (!can_run) {
-        continue;
-      }
 
       if (pg_ring_read_space(task->outbox_task_runner) >= sizeof(PgIoEvent)) {
         PgIoEvent io_event_in = {0};
@@ -5581,10 +5573,17 @@ static void pg_task_runner_run_tasks(PgTaskRunner *runner) {
         }
       }
 
+      bool can_run = (!task->did_run_at_least_once) ||
+                     (pg_ring_read_space(task->inbox) >= task->inbox_item_size);
+      if (!can_run) {
+        continue;
+      }
+
       PG_ASSERT(nullptr != task->run);
 
       PgTaskState state = task->run(task->ctx, &task->inbox, &task->outbox,
                                     &task->outbox_task_runner);
+      task->did_run_at_least_once = true;
 
       if (PG_TASK_STATE_STOP == state) {
         PG_SLICE_SWAP_REMOVE(&runner->tasks, i);
