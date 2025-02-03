@@ -3,7 +3,7 @@
 
 // TODO: IPv6.
 // TODO: [Windows] support.
-// TODO: [Macos] timers.
+// TODO: Userspace timers.
 // TODO: [Linux/Unix] Async File I/O using thread pool or io_uring.
 // TODO: *Pool allocator?*
 // TODO: Randomize arena guard pages.
@@ -15,7 +15,7 @@
 // TODO: Pprof memory profiling.
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: Get PIE offset for better call stack.
-//
+// Low priority:
 // TODO: Test untested functions.
 // TODO: `try_alloc` functions?
 // TODO: [Illumos] async I/O.
