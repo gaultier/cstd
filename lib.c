@@ -98,11 +98,13 @@ typedef u32 PgError;
 #define PG_ERR_INVALID_VALUE EINVAL
 #define PG_ERR_IO EIO
 #define PG_ERR_AGAIN EAGAIN
+#define PG_ERR_IN_PROGRESS EINPROGRESS
 #else
 // Use the x86_64 Linux errno values.
 #define PG_ERR_INVALID_VALUE 22
 #define PG_ERR_IO 5
 #define PG_ERR_AGAIN 11
+#define PG_ERR_IN_PROGRESS 115
 #endif
 
 PG_RESULT(u64) Pgu64Result;
@@ -1665,6 +1667,18 @@ typedef struct {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_to_filename(PgString s);
 
+[[maybe_unused]] [[nodiscard]] static PgReader
+pg_reader_make_from_socket(PgSocket socket);
+
+[[maybe_unused]] [[nodiscard]] static PgReader
+pg_reader_make_from_file(PgFile file);
+
+[[maybe_unused]] [[nodiscard]] static PgWriter
+pg_writer_make_from_socket(PgSocket socket);
+
+[[maybe_unused]] [[nodiscard]] static PgWriter
+pg_writer_make_from_file(PgFile *file);
+
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
@@ -2357,6 +2371,27 @@ pg_net_get_socket_error(PgSocket socket) {
     return (PgError)errno;
   }
   return (PgError)socket_error;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgReader
+pg_reader_make_from_socket(PgSocket socket) {
+  return (PgReader){.read_fn = pg_reader_unix_recv, .ctx = (void *)(u64)socket};
+}
+
+[[maybe_unused]] [[nodiscard]] static PgReader
+pg_reader_make_from_file(PgFile file) {
+  return (PgReader){.read_fn = pg_reader_unix_read, .ctx = (void *)(u64)file};
+}
+
+[[maybe_unused]] [[nodiscard]] static PgWriter
+pg_writer_make_from_socket(PgSocket socket) {
+  return (PgWriter){.write_fn = pg_writer_unix_send,
+                    .ctx = (void *)(u64)socket};
+}
+
+[[maybe_unused]] [[nodiscard]] static PgWriter
+pg_writer_make_from_file(PgFile *file) {
+  return (PgWriter){.write_fn = pg_writer_unix_write, .ctx = (void *)file};
 }
 
 #else
@@ -3753,32 +3788,6 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgReader
-pg_reader_make_from_socket(PgSocket socket) {
-  // TODO: Windows.
-  // TODO: recv?
-  return (PgReader){.read_fn = pg_reader_unix_recv, .ctx = (void *)(u64)socket};
-}
-
-[[maybe_unused]] [[nodiscard]] static PgReader
-pg_reader_make_from_file(PgFile file) {
-  // TODO: Windows.
-  return (PgReader){.read_fn = pg_reader_unix_read, .ctx = (void *)(u64)file};
-}
-
-[[maybe_unused]] [[nodiscard]] static PgWriter
-pg_writer_make_from_socket(PgSocket socket) {
-  // TODO: Windows.
-  return (PgWriter){.write_fn = pg_writer_unix_send,
-                    .ctx = (void *)(u64)socket};
-}
-
-[[maybe_unused]] [[nodiscard]] static PgWriter
-pg_writer_make_from_file(PgFile *file) {
-  // TODO: Windows.
-  return (PgWriter){.write_fn = pg_writer_unix_write, .ctx = (void *)file};
-}
-
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_http_headers_parse_content_length(PgKeyValueSlice headers, PgArena arena) {
   Pgu64Result res = {0};
@@ -5140,7 +5149,8 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
             handle->reader.read_fn(&handle->reader, data.data, data.len);
         data.len = res_read.res;
 
-        if (res_read.err == EAGAIN || res_read.err == EINPROGRESS) {
+        if (res_read.err == PG_ERR_AGAIN ||
+            res_read.err == PG_ERR_IN_PROGRESS) {
           res_read.err = 0;
         }
         if (handle->on_read) {
