@@ -5475,7 +5475,18 @@ PG_DYN(PgTask) PgTaskDyn;
 typedef struct {
   PgTaskSlice tasks;
   PgString bitfield_occupied;
+  u64 count;
 } PgTaskPool;
+
+[[nodiscard]] [[maybe_unused]] static PgTaskPool
+pg_task_pool_make(u64 len, PgArena *arena) {
+  PgTaskPool res = {0};
+  res.tasks.len = len;
+  res.tasks.data = pg_arena_new(arena, PgTask, len);
+  res.bitfield_occupied = pg_string_make(pg_div_ceil(len, 8), arena);
+
+  return res;
+}
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Ok
 pg_task_pool_new(PgTaskPool *pool) {
@@ -5488,6 +5499,8 @@ pg_task_pool_new(PgTaskPool *pool) {
   // TODO: Additional checks.
   pg_bitfield_set(pool->bitfield_occupied, slot.res, true);
 
+  pool->count += 1;
+
   res.res = slot.res;
   res.ok = true;
   return res;
@@ -5495,10 +5508,36 @@ pg_task_pool_new(PgTaskPool *pool) {
 
 [[maybe_unused]] static void pg_task_pool_release(PgTaskPool *pool, u64 slot) {
   pg_bitfield_set(pool->bitfield_occupied, slot, false);
+  pool->count = pool->count == 0 ? 0 : pool->count - 1;
+}
+
+[[maybe_unused]] static PgTask *pg_task_pool_at_ptr(PgTaskPool *pool,
+                                                    u64 slot) {
+  PG_ASSERT(pg_bitfield_get(pool->bitfield_occupied, slot));
+
+  return PG_SLICE_AT_PTR(&pool->tasks, slot);
 }
 
 typedef struct {
-  PgTaskDyn tasks; // TODO: Use a tree.
+  PgTaskPool pool;
+  u64 current;
+} PgTaskPoolIter;
+
+[[maybe_unused]] static Pgu64Ok pg_task_pool_next(PgTaskPoolIter *it) {
+  Pgu64Ok res = {0};
+
+  for (; it->current < it->pool.tasks.len * 8; it->current++) {
+    if (pg_bitfield_get(it->pool.bitfield_occupied, it->current)) {
+      res.res = it->current;
+      res.ok = true;
+      return res;
+    }
+  }
+  return res;
+}
+
+typedef struct {
+  PgTaskPool tasks;
   PgAioQueue os_queue;
   PgArena arena;
 } PgTaskRunner;
@@ -5506,10 +5545,14 @@ typedef struct {
 PG_RESULT(PgTaskRunner) PgTaskRunnerResult;
 
 [[maybe_unused]]
-static PgTask *
-pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx, u64 inbox_item_size,
-                          u64 outbox_item_size, PgTaskRunFn run) {
-  *PG_DYN_PUSH(&runner->tasks, &runner->arena) = (PgTask){
+static u32 pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx,
+                                     u64 inbox_item_size, u64 outbox_item_size,
+                                     PgTaskRunFn run) {
+  Pgu64Ok res_slot = pg_task_pool_new(&runner->tasks);
+  PG_ASSERT(res_slot.ok);
+  PG_ASSERT(res_slot.res <= (0x0f'ff'ff'ff));
+
+  PgTask task = {
       .ctx = ctx,
       .inbox_item_size = inbox_item_size,
       .run = run,
@@ -5518,15 +5561,26 @@ pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx, u64 inbox_item_size,
       .outbox_task_runner =
           pg_ring_make(sizeof(PgIoSubmissionEvent) * 32, &runner->arena),
   };
-  return PG_SLICE_LAST_PTR(&runner->tasks);
+  *pg_task_pool_at_ptr(&runner->tasks, res_slot.res) = task;
+
+  return (u32)res_slot.res;
+}
+
+[[nodiscard]] static u64 pg_task_make_user_data(PgOsHandle os_handle,
+                                                u32 task_slot,
+                                                PgIoEventKind kind) {
+  PG_ASSERT(task_slot <= 0x0f'ff'ff'ff);
+  PG_ASSERT(kind <= 0b1111);
+
+  return (u64)os_handle | ((u64)task_slot << 28) | ((u64)kind << 60);
 }
 
 // Do real I/O upon receiving SQEs from the task.
 static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
                                             PgTask *task) {
   // Need to map a cqe to: sqe->kind, Task.
-  // => Can just store Task* in user_data and use the unused bits in the pointer
-  // to store sqe->kind.
+  // => Can just store Task* in user_data and use the unused bits in the
+  // pointer to store sqe->kind.
   PgIoSubmissionEvent sqe = {0};
   while (pg_ring_read_struct(&task->outbox_task_runner, &sqe)) {
     switch (sqe.kind) {
@@ -5659,9 +5713,12 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
 
 [[maybe_unused]]
 static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
-  while (runner->tasks.len > 0) {
-    for (u64 i = 0; i < runner->tasks.len; i++) {
-      PgTask *task = PG_SLICE_AT_PTR(&runner->tasks, i);
+  while (runner->tasks.count > 0) {
+    PgTaskPoolIter it = {.pool = runner->tasks};
+
+    Pgu64Ok slot = {0};
+    for (; slot.ok; slot = pg_task_pool_next(&it)) {
+      PgTask *task = pg_task_pool_at_ptr(&runner->tasks, slot.res);
 
       pg_task_runner_handle_task_sqes(runner, task);
 
@@ -5678,8 +5735,7 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
       task->did_run_at_least_once = true;
 
       if (PG_TASK_STATE_STOP == state) {
-        PG_SLICE_SWAP_REMOVE(&runner->tasks, i);
-        i -= 1;
+        pg_task_pool_release(&runner->tasks, slot.res);
       }
     }
 
@@ -5738,10 +5794,8 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
 
 [[maybe_unused]] [[nodiscard]] static PgTaskRunnerResult pg_task_runner_make() {
   PgTaskRunnerResult res = {0};
-
   res.res.arena = pg_arena_make_from_virtual_mem(1 * PG_MiB);
-
-  PG_DYN_ENSURE_CAP(&res.res.tasks, 1024, &res.res.arena);
+  res.res.tasks = pg_task_pool_make(2048, &res.res.arena);
 
   PgAioQueueResult res_queue = pg_aio_queue_create();
   if (res_queue.err) {
