@@ -2560,7 +2560,7 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
     PgAioEvent *event = PG_SLICE_AT_PTR(&events, i);
     *event = (PgAioEvent){0};
 
-    struct epoll_event epoll_event = epoll_events[i];
+    struct epoll_event epoll_event = PG_C_ARRAY_AT(epoll_events, res.res, i);
     if (epoll_event.events & EPOLLIN) {
       event->kind |= PG_AIO_EVENT_KIND_IN;
     }
@@ -5520,7 +5520,9 @@ pg_task_pool_new(PgTaskPool *pool) {
 
 [[maybe_unused]] static PgTask *pg_task_pool_at_ptr(PgTaskPool *pool,
                                                     u32 slot) {
-  PG_ASSERT(pg_bitfield_get(pool->bitfield_occupied, slot));
+  if (!pg_bitfield_get(pool->bitfield_occupied, slot)) {
+    return nullptr;
+  }
 
   return PG_SLICE_AT_PTR(&pool->tasks, slot);
 }
@@ -5589,7 +5591,7 @@ static u32 pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx,
 static void pg_task_unpack_user_data(u64 user_data, PgOsHandle *os_handle,
                                      u32 *task_slot, PgIoEventKind *kind) {
   *os_handle = (PgOsHandle)(user_data & UINT32_MAX);
-  *task_slot = (u32)(user_data >> 36);
+  *task_slot = (u32)(user_data >> 32) & 0x0f'ff'ff'ff;
   *kind = (user_data >> 60);
 
   PG_ASSERT(*task_slot <= 0x0f'ff'ff'ff);
@@ -5600,6 +5602,9 @@ static void pg_task_unpack_user_data(u64 user_data, PgOsHandle *os_handle,
 static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
                                             u32 task_slot) {
   PgTask *task = pg_task_pool_at_ptr(&runner->tasks, task_slot);
+  if (!task) {
+    return;
+  }
 
   // Need to map a cqe to: sqe->kind, Task.
   // => Can just store Task* in user_data and use the unused bits in the
@@ -5751,6 +5756,7 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
 
       if (PG_TASK_STATE_STOP == state) {
         pg_task_pool_release(&runner->tasks, slot.res);
+        continue;
       }
 
       pg_task_runner_handle_task_sqes(runner, slot.res);
@@ -5765,8 +5771,8 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
 
       i64 timeout_ms =
           -1; // TODO: Compute a real timeout when timers are in userspace.
-      Pgu64Result res_queue_wait = pg_aio_queue_wait(runner->os_queue, events,
-                                                     timeout_ms, runner->arena);
+      Pgu64Result res_queue_wait =
+          pg_aio_queue_wait(runner->os_queue, events, timeout_ms, arena_tmp);
       if (res_queue_wait.err) {
         return res_queue_wait.err;
       }
