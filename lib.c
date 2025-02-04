@@ -3,7 +3,7 @@
 
 // TODO: IPv6.
 // TODO: [Windows] support.
-// TODO: Userspace timers.
+// TODO: [x] Userspace timers.
 // TODO: [Linux/Unix] Async File I/O using thread pool or io_uring.
 // TODO: *Pool allocator?*
 // TODO: Randomize arena guard pages.
