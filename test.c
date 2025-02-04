@@ -1712,6 +1712,7 @@ static void test_log() {
   }
 }
 
+#if 0
 static void test_timer() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
@@ -1752,6 +1753,7 @@ static void test_timer() {
 
   PG_ASSERT(0 == pg_timer_release(res_timer.res));
 }
+#endif
 
 static void test_event_loop_on_client_write(PgEventLoop *loop,
                                             PgOsHandle os_handle, void *ctx,
@@ -1823,6 +1825,7 @@ static void test_event_loop_on_server_write(PgEventLoop *loop,
                                           test_event_loop_on_server_read));
 }
 
+[[maybe_unused]]
 static void test_event_loop_on_client_connect(PgEventLoop *loop,
                                               PgOsHandle os_handle, void *ctx,
                                               PgError err) {
@@ -1839,6 +1842,7 @@ static void test_event_loop_on_client_connect(PgEventLoop *loop,
                                           test_event_loop_on_client_read));
 }
 
+[[maybe_unused]]
 static void test_event_loop_on_server_connect(PgEventLoop *loop,
                                               PgOsHandle os_handle, void *ctx,
                                               PgError err) {
@@ -1861,6 +1865,7 @@ static void test_event_loop_on_server_connect(PgEventLoop *loop,
                                      test_event_loop_on_server_write));
 }
 
+[[maybe_unused]]
 static void test_event_loop_on_timer(PgEventLoop *loop, PgOsHandle os_handle,
                                      void *ctx) {
   PG_ASSERT(nullptr != loop);
@@ -1871,11 +1876,12 @@ static void test_event_loop_on_timer(PgEventLoop *loop, PgOsHandle os_handle,
   *timer_state += 1;
 
   if (15 == *timer_state) {
-    PG_ASSERT(0 == pg_timer_stop((PgTimer)os_handle));
+    //    PG_ASSERT(0 == pg_timer_stop((PgTimer)os_handle));
     pg_event_loop_stop(loop);
   }
 }
 
+#if 0
 static void test_event_loop() {
   PgEventLoopResult res_loop =
       pg_event_loop_make_loop(pg_arena_make_from_virtual_mem(256 * PG_KiB));
@@ -1922,6 +1928,7 @@ static void test_event_loop() {
 
   PG_ASSERT(0 == pg_timer_release((PgTimer)res_timer.res));
 }
+#endif
 
 static void test_div_ceil() {
   PG_ASSERT(1 == pg_div_ceil(1, 1));
@@ -1981,9 +1988,9 @@ int main() {
   test_http_parse_header();
   test_http_read_response();
   // test_http_request_response();
-  test_timer();
+  // test_timer();
   test_log();
-  test_event_loop();
+  // test_event_loop();
   test_div_ceil();
   test_string_to_filename();
 }

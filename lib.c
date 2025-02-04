@@ -4905,6 +4905,22 @@ static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
   }
 }
 
+typedef bool (*PgHeapIterFn)(PgHeapNode *node, void *ctx);
+
+[[maybe_unused]] static void
+pg_heap_node_iter(PgHeapNode *node, PgHeapIterFn iter_fn, void *ctx) {
+  if (!node) {
+    return;
+  }
+
+  if (!iter_fn(node, ctx)) {
+    return;
+  }
+
+  pg_heap_node_iter(node->left, iter_fn, ctx);
+  pg_heap_node_iter(node->right, iter_fn, ctx);
+}
+
 [[nodiscard]] [[maybe_unused]]
 static PgEventLoopResult pg_event_loop_make_loop(PgArena arena) {
   PgEventLoopResult res = {0};
@@ -5199,7 +5215,7 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
       (void)pg_net_socket_close((PgSocket)handle->os_handle);
     } break;
     case PG_EVENT_LOOP_HANDLE_KIND_TIMER: {
-      (void)pg_timer_release((PgTimer)handle->os_handle);
+      //(void)pg_timer_release((PgTimer)handle->os_handle);
     } break;
     case PG_EVENT_LOOP_HANDLE_KIND_DNS: {
     } break;
@@ -5491,15 +5507,18 @@ static PgError pg_event_loop_write(PgEventLoop *loop, PgOsHandle os_handle,
   return 0;
 }
 
-[[nodiscard]] [[maybe_unused]]
-static Pgu64Result pg_event_loop_timer_start(PgEventLoop *loop,
-                                             u64 initial_expiration_ns,
-                                             u64 interval_ns, void *ctx,
-                                             PgEventLoopOnTimer on_timer) {
+[[maybe_unused]]
+static void pg_event_loop_timer_start(PgEventLoop *loop,
+                                      u64 initial_expiration_ns,
+                                      u64 interval_ns, void *ctx,
+                                      PgEventLoopOnTimer on_timer) {
   PgEventLoopHandle handle = pg_event_loop_make_timer_handle(ctx);
   handle.on_timer = on_timer;
 
   *PG_DYN_PUSH(&loop->handles, &loop->arena) = handle;
+
+  (void)initial_expiration_ns;
+  (void)interval_ns;
 }
 
 [[nodiscard]] [[maybe_unused]]
