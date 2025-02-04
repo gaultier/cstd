@@ -5605,7 +5605,7 @@ typedef struct {
   PgTaskPool tasks;
   PgAioQueue os_queue;
   PgArena arena;
-  PgTaskRunnerOsHandle *handles;
+  PgTaskRunnerOsHandle *handles; // TODO: When to remove them?
 } PgTaskRunner;
 
 // Map os_handle to epoll_ctl op, kind
