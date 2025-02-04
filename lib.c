@@ -1510,6 +1510,7 @@ pg_bitfield_get_first_zero(PgString bitfield) {
 typedef int PgSocket;
 typedef int PgFile;
 typedef int PgTimer;
+typedef int PgOsHandle;
 
 PG_RESULT(PgFile) PgFileResult;
 
@@ -4775,22 +4776,23 @@ typedef enum : u8 {
 
 typedef struct PgEventLoop PgEventLoop;
 
-typedef void (*PgEventLoopOnTcpConnect)(PgEventLoop *loop, u64 os_handle,
+typedef void (*PgEventLoopOnTcpConnect)(PgEventLoop *loop, PgOsHandle os_handle,
                                         void *ctx, PgError err);
 
 typedef struct PgEventLoopHandle PgEventLoopHandle;
 
 typedef void (*PgEventLoopOnClose)(PgEventLoopHandle *handle);
 
-typedef void (*PgEventLoopOnRead)(PgEventLoop *loop, u64 os_handle, void *ctx,
-                                  PgError err, PgString data);
+typedef void (*PgEventLoopOnRead)(PgEventLoop *loop, PgOsHandle os_handle,
+                                  void *ctx, PgError err, PgString data);
 
-typedef void (*PgEventLoopOnWrite)(PgEventLoop *loop, u64 os_handle, void *ctx,
-                                   PgError err);
+typedef void (*PgEventLoopOnWrite)(PgEventLoop *loop, PgOsHandle os_handle,
+                                   void *ctx, PgError err);
 
-typedef void (*PgEventLoopOnTimer)(PgEventLoop *loop, u64 os_handle, void *ctx);
+typedef void (*PgEventLoopOnTimer)(PgEventLoop *loop, PgOsHandle os_handle,
+                                   void *ctx);
 
-typedef void (*PgEventLoopOnDnsResolve)(PgEventLoop *loop, u64 os_handle,
+typedef void (*PgEventLoopOnDnsResolve)(PgEventLoop *loop, PgOsHandle os_handle,
                                         void *ctx, PgError err,
                                         PgIpv4Address address);
 
@@ -4807,7 +4809,7 @@ struct PgEventLoopHandle {
   PgEventLoopHandleState state;
   bool event_in_os_queue;
   PgAioEventKind event_kind;
-  u64 os_handle;
+  PgOsHandle os_handle;
 
   PgRing ring_read;
 
@@ -4861,7 +4863,7 @@ static PgEventLoopHandle pg_event_loop_make_tcp_handle(PgSocket socket,
   res.kind = PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET;
   res.reader = pg_reader_make_from_socket(socket);
   res.writer = pg_writer_make_from_socket(socket);
-  res.os_handle = (u64)socket;
+  res.os_handle = socket;
   res.ctx = ctx;
   // TODO: Could lazily allocate memory for the rings in
   // `pg_event_loop_read_start`, `pg_event_loop_write` only if needed.
@@ -4880,14 +4882,15 @@ static PgEventLoopHandle pg_event_loop_make_timer_handle(PgTimer timer,
                                                          void *ctx) {
   PgEventLoopHandle res = {0};
   res.kind = PG_EVENT_LOOP_HANDLE_KIND_TIMER;
-  res.os_handle = (u64)timer;
+  res.os_handle = timer;
   res.ctx = ctx;
 
   return res;
 }
 
 [[nodiscard]] [[maybe_unused]]
-static i64 pg_event_loop_find_handle_idx(PgEventLoop *loop, u64 os_handle) {
+static i64 pg_event_loop_find_handle_idx(PgEventLoop *loop,
+                                         PgOsHandle os_handle) {
   for (u64 i = 0; i < loop->handles.len; i++) {
     PgEventLoopHandle *handle = PG_SLICE_AT_PTR(&loop->handles, i);
     if (handle->os_handle == os_handle) {
@@ -4899,7 +4902,7 @@ static i64 pg_event_loop_find_handle_idx(PgEventLoop *loop, u64 os_handle) {
 
 [[nodiscard]] [[maybe_unused]]
 static PgEventLoopHandle *pg_event_loop_find_handle(PgEventLoop *loop,
-                                                    u64 os_handle) {
+                                                    PgOsHandle os_handle) {
   i64 idx = pg_event_loop_find_handle_idx(loop, os_handle);
   if (-1 == idx) {
     return nullptr;
@@ -4933,7 +4936,8 @@ static Pgu64Result pg_event_loop_tcp_init(PgEventLoop *loop, void *ctx) {
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgError pg_event_loop_tcp_connect(PgEventLoop *loop, u64 os_handle,
+static PgError pg_event_loop_tcp_connect(PgEventLoop *loop,
+                                         PgOsHandle os_handle,
                                          PgIpv4Address addr,
                                          PgEventLoopOnTcpConnect on_connect) {
   PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
@@ -4968,7 +4972,7 @@ static PgError pg_event_loop_tcp_connect(PgEventLoop *loop, u64 os_handle,
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgError pg_event_loop_tcp_bind(PgEventLoop *loop, u64 os_handle,
+static PgError pg_event_loop_tcp_bind(PgEventLoop *loop, PgOsHandle os_handle,
                                       PgIpv4Address addr) {
   PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
   if (!handle) {
@@ -4981,7 +4985,7 @@ static PgError pg_event_loop_tcp_bind(PgEventLoop *loop, u64 os_handle,
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, u64 os_handle,
+static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, PgOsHandle os_handle,
                                         u64 backlog,
                                         PgEventLoopOnTcpConnect on_connect) {
   PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
@@ -5011,11 +5015,12 @@ static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, u64 os_handle,
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
   };
-  return pg_aio_queue_ctl_one(loop->queue, event, os_handle, loop->arena);
+  return pg_aio_queue_ctl_one(loop->queue, event, loop->arena);
 }
 
 [[nodiscard]] [[maybe_unused]]
-static Pgu64Result pg_event_loop_tcp_accept(PgEventLoop *loop, u64 os_handle) {
+static Pgu64Result pg_event_loop_tcp_accept(PgEventLoop *loop,
+                                            PgOsHandle os_handle) {
   Pgu64Result res = {0};
 
   PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
@@ -5053,7 +5058,8 @@ static Pgu64Result pg_event_loop_tcp_accept(PgEventLoop *loop, u64 os_handle) {
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgError pg_event_loop_handle_close(PgEventLoop *loop, u64 os_handle) {
+static PgError pg_event_loop_handle_close(PgEventLoop *loop,
+                                          PgOsHandle os_handle) {
   i64 idx = pg_event_loop_find_handle_idx(loop, os_handle);
   if (-1 == idx) {
     return PG_ERR_INVALID_VALUE;
@@ -5099,7 +5105,8 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgError pg_event_loop_timer_stop(PgEventLoop *loop, u64 os_handle) {
+static PgError pg_event_loop_timer_stop(PgEventLoop *loop,
+                                        PgOsHandle os_handle) {
 
   return pg_event_loop_handle_close(loop, os_handle);
 }
@@ -5128,8 +5135,8 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
 
     for (u64 i = 0; i < res_wait.res; i++) {
       PgAioEvent event_watch = PG_SLICE_AT(events_watch, i);
-      PgEventLoopHandle *handle =
-          pg_event_loop_find_handle(loop, event_watch.user_data);
+      PgEventLoopHandle *handle = pg_event_loop_find_handle(
+          loop, (PgOsHandle)(event_watch.user_data & UINT32_MAX));
       PG_ASSERT(handle);
 
       PgError err_event_watch = 0;
@@ -5158,7 +5165,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
                                                  : PG_AIO_EVENT_ACTION_ADD,
           };
           PG_ASSERT(0 == pg_aio_queue_ctl_one(loop->queue, event_change,
-                                              handle->os_handle, loop->arena));
+                                              loop->arena));
         }
         handle->on_connect(loop, handle->os_handle, handle->ctx,
                            err_event_watch);
@@ -5254,7 +5261,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgError pg_event_loop_read_start(PgEventLoop *loop, u64 os_handle,
+static PgError pg_event_loop_read_start(PgEventLoop *loop, PgOsHandle os_handle,
                                         PgEventLoopOnRead on_read) {
 
   PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
@@ -5281,12 +5288,12 @@ static PgError pg_event_loop_read_start(PgEventLoop *loop, u64 os_handle,
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
   };
-  return pg_aio_queue_ctl_one(loop->queue, event_change, handle->os_handle,
-                              loop->arena);
+  return pg_aio_queue_ctl_one(loop->queue, event_change, loop->arena);
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgError pg_event_loop_read_stop(PgEventLoop *loop, u64 os_handle) {
+static PgError pg_event_loop_read_stop(PgEventLoop *loop,
+                                       PgOsHandle os_handle) {
 
   PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
   if (!handle) {
@@ -5310,8 +5317,7 @@ static PgError pg_event_loop_read_stop(PgEventLoop *loop, u64 os_handle) {
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
   };
-  return pg_aio_queue_ctl_one(loop->queue, event_change, handle->os_handle,
-                              loop->arena);
+  return pg_aio_queue_ctl_one(loop->queue, event_change, loop->arena);
 }
 
 typedef enum {
@@ -5326,7 +5332,7 @@ typedef enum {
 
 typedef struct {
   PgIoEventKind kind;
-  u64 os_handle_dst;
+  PgOsHandle os_handle_dst;
   PgString data;
   PgIpv4Address address;
   u64 user_data;
@@ -5338,7 +5344,7 @@ typedef struct {
 } PgIoCompletionEvent;
 
 [[maybe_unused]]
-static void pg_event_loop_try_write(PgEventLoop *loop, u64 os_handle,
+static void pg_event_loop_try_write(PgEventLoop *loop, PgOsHandle os_handle,
                                     PgEventLoopHandle *handle, PgString data,
                                     PgEventLoopOnWrite on_write) {
 
@@ -5364,7 +5370,7 @@ static void pg_event_loop_try_write(PgEventLoop *loop, u64 os_handle,
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgError pg_event_loop_write(PgEventLoop *loop, u64 os_handle,
+static PgError pg_event_loop_write(PgEventLoop *loop, PgOsHandle os_handle,
                                    PgString data, PgEventLoopOnWrite on_write) {
 
   PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
@@ -5408,8 +5414,7 @@ pg_event_loop_timer_start(PgEventLoop *loop, PgClockKind clock,
       .kind = PG_AIO_EVENT_KIND_IN,
       .action = PG_AIO_EVENT_ACTION_ADD,
   };
-  PgError err = pg_aio_queue_ctl_one(loop->queue, event_change,
-                                     handle.os_handle, loop->arena);
+  PgError err = pg_aio_queue_ctl_one(loop->queue, event_change, loop->arena);
   if (err) {
     res.err = err;
     return res;
@@ -5437,7 +5442,7 @@ static Pgu64Result pg_event_loop_dns_resolve_ipv4_tcp_start(
   *PG_DYN_PUSH(&loop->handles, &loop->arena) = handle;
 
   if (on_dns_resolve) {
-    on_dns_resolve(loop, (u64)res_dns.res.socket, ctx, res_dns.err,
+    on_dns_resolve(loop, res_dns.res.socket, ctx, res_dns.err,
                    res_dns.res.address);
   }
 
@@ -5487,8 +5492,7 @@ pg_task_pool_new(PgTaskPool *pool) {
   return res;
 }
 
-[[nodiscard]] [[maybe_unused]] static Pgu64Ok
-pg_task_pool_release(PgTaskPool *pool, u64 slot) {
+[[maybe_unused]] static void pg_task_pool_release(PgTaskPool *pool, u64 slot) {
   pg_bitfield_set(pool->bitfield_occupied, slot, false);
 }
 
@@ -5578,8 +5582,8 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
           .kind = PG_AIO_EVENT_KIND_OUT,
           .action = PG_AIO_EVENT_ACTION_ADD,
       };
-      PgError err_queue_ctl = pg_aio_queue_ctl_one(runner->os_queue, event,
-                                                   (u64)sock, runner->arena);
+      PgError err_queue_ctl =
+          pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
       if (err_queue_ctl) {
         PgIoCompletionEvent cqe = {
             .user_data = sqe.user_data,
@@ -5631,8 +5635,8 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
           .kind = PG_AIO_EVENT_KIND_IN,
           .action = PG_AIO_EVENT_ACTION_ADD,
       };
-      PgError err_queue_ctl = pg_aio_queue_ctl_one(runner->os_queue, event,
-                                                   (u64)sock, runner->arena);
+      PgError err_queue_ctl =
+          pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
       if (err_queue_ctl) {
         PgIoCompletionEvent cqe = {
             .user_data = sqe.user_data,
@@ -5700,8 +5704,8 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
 
         if (event.kind & PG_AIO_EVENT_KIND_ERR) {
           // TODO: Check that this task's os_handle is indeed a socket.
-          PgError err_event_watch =
-              pg_net_get_socket_error((PgSocket)event.os_handle);
+          PgError err_event_watch = pg_net_get_socket_error(
+              (PgSocket)((u64)event.user_data & UINT32_MAX));
           PgIoCompletionEvent cqe = {
               .user_data = 0, // FIXME: find corresponding sqe.
               .err = err_event_watch,
