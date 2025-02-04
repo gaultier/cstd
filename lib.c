@@ -5660,6 +5660,55 @@ pg_task_runner_os_handle_find(PgTaskRunnerOsHandle *root,
   return it;
 }
 
+static void pg_aio_event_add_interest(PgAioEventKind *kind,
+                                      PgAioEventKind kind_new,
+                                      PgAioEventAction *action) {
+  PG_ASSERT(0 != kind_new);
+
+  *kind |= kind_new;
+
+  switch (*action) {
+  case PG_AIO_EVENT_ACTION_NONE:
+  case PG_AIO_EVENT_ACTION_DEL:
+    *action = PG_AIO_EVENT_ACTION_ADD;
+    break;
+  case PG_AIO_EVENT_ACTION_ADD:
+  case PG_AIO_EVENT_ACTION_MOD:
+    *action = PG_AIO_EVENT_ACTION_MOD;
+    break;
+  default:
+    PG_ASSERT(0);
+  }
+}
+
+static void pg_aio_event_remove_interest(PgAioEventKind *kind,
+                                         PgAioEventKind kind_new,
+                                         PgAioEventAction *action) {
+  PG_ASSERT(0 != kind_new);
+
+  *kind = *kind & ~kind_new;
+
+  if (0 != *kind) { // Add or modify.
+    if (PG_AIO_EVENT_ACTION_NONE == *action) {
+      *action = PG_AIO_EVENT_ACTION_ADD;
+      return;
+    } else {
+      *action = PG_AIO_EVENT_ACTION_MOD;
+      return;
+    }
+  }
+  PG_ASSERT(0 == *kind);
+
+  if (PG_AIO_EVENT_ACTION_NONE == *action ||
+      PG_AIO_EVENT_ACTION_DEL == *action) {
+    // No-op.
+    *action = PG_AIO_EVENT_ACTION_NONE;
+    return;
+  }
+
+  *action = PG_AIO_EVENT_ACTION_DEL;
+}
+
 [[maybe_unused]]
 static u32 pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx,
                                      u64 inbox_item_size, u64 outbox_item_size,
@@ -5713,7 +5762,6 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
   while (pg_ring_read_struct(&task->outbox_task_runner, &sqe)) {
     PgTaskRunnerOsHandle *handle =
         pg_task_runner_os_handle_find(runner->handles, sqe.os_handle_dst);
-    // TODO: should implement find_or_insert.
     if (!handle) {
       handle = calloc(sizeof(PgTaskRunnerOsHandle), 1);
       handle->os_handle = sqe.os_handle_dst;
@@ -5721,10 +5769,8 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
 
     switch (sqe.kind) {
     case PG_IO_EVENT_KIND_READ: {
-      handle->kind |= PG_AIO_EVENT_KIND_IN;
-      handle->action = (handle->action == PG_AIO_EVENT_ACTION_MOD)
-                           ? PG_AIO_EVENT_ACTION_MOD
-                           : PG_AIO_EVENT_ACTION_ADD;
+      pg_aio_event_add_interest(&handle->kind, PG_AIO_EVENT_KIND_IN,
+                                &handle->action);
 
       PgAioEvent event = {
           .user_data =
@@ -5792,10 +5838,8 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
         break;
       }
 
-      handle->kind |= PG_AIO_EVENT_KIND_OUT;
-      handle->action = (handle->action == PG_AIO_EVENT_ACTION_MOD)
-                           ? PG_AIO_EVENT_ACTION_MOD
-                           : PG_AIO_EVENT_ACTION_ADD;
+      pg_aio_event_add_interest(&handle->kind, PG_AIO_EVENT_KIND_OUT,
+                                &handle->action);
       handle->os_handle = sock;
       pg_task_runner_os_handle_insert(&runner->handles, handle);
 
@@ -5864,10 +5908,8 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
         break;
       }
 
-      handle->kind |= PG_AIO_EVENT_KIND_IN;
-      handle->action = (handle->action == PG_AIO_EVENT_ACTION_MOD)
-                           ? PG_AIO_EVENT_ACTION_MOD
-                           : PG_AIO_EVENT_ACTION_ADD;
+      pg_aio_event_add_interest(&handle->kind, PG_AIO_EVENT_KIND_IN,
+                                &handle->action);
       handle->os_handle = sock;
       pg_task_runner_os_handle_insert(&runner->handles, handle);
 
@@ -6013,17 +6055,11 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
               pg_task_runner_os_handle_find(runner->handles, os_handle);
           PG_ASSERT(handle);
 
-          handle->kind = handle->kind & ~PG_AIO_EVENT_KIND_OUT;
-          if (PG_AIO_EVENT_ACTION_DEL == handle->action) {
-            // No-op.
-          } else if (0 == handle->kind) {
-            handle->action = PG_AIO_EVENT_ACTION_DEL;
-          } else {
-            handle->action = PG_AIO_EVENT_ACTION_MOD;
-          }
+          pg_aio_event_remove_interest(&handle->kind, PG_AIO_EVENT_KIND_OUT,
+                                       &handle->action);
 
           PgError err_queue_ctl = 0;
-          if (PG_AIO_EVENT_ACTION_DEL != handle->action) {
+          if (PG_AIO_EVENT_ACTION_NONE != handle->action) {
             PgAioEvent event_aio = {
                 .kind = handle->kind,
                 .action = handle->action,
