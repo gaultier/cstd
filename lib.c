@@ -4864,13 +4864,20 @@ static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
   parent->parent = child;
   child->parent = parent_before.parent;
 
-  if (parent->left == child) {
+  if (parent_before.left == child) {
     child->left = parent;
     child->right = parent_before.right;
   } else {
     child->left = parent_before.left;
     child->right = parent;
   }
+
+  PG_ASSERT(parent->left == child_before.left);
+  PG_ASSERT(parent->right == child_before.right);
+  PG_ASSERT(parent->parent == child);
+  PG_ASSERT(child->left == parent_before.left);
+  PG_ASSERT(child->right == parent_before.right);
+  PG_ASSERT(child->parent == parent_before.parent);
 }
 
 [[maybe_unused]]
