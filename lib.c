@@ -5844,7 +5844,7 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
 
         if ((event.kind & PG_AIO_EVENT_KIND_IN) &&
             sqe_kind == PG_IO_EVENT_KIND_READ) {
-          // TODO: read(2).
+          PG_ASSERT(0 && "TODO");
 
           PgIoCompletionEvent io_event_out = {
               .os_handle_dst = os_handle,
@@ -5877,9 +5877,18 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
 
         if ((event.kind & PG_AIO_EVENT_KIND_OUT) &&
             sqe_kind == PG_IO_EVENT_KIND_TCP_CONNECT) {
+
+          PgAioEvent event_aio = {
+              .action = PG_AIO_EVENT_ACTION_DEL,
+              .user_data = event.user_data,
+          };
+          PgError err_queue_ctl =
+              pg_aio_queue_ctl_one(runner->os_queue, event_aio, arena_tmp);
+
           PgIoCompletionEvent io_event_out = {
               .os_handle_dst = os_handle,
               .kind = sqe_kind,
+              .err = err_queue_ctl,
           };
           (void)pg_ring_write_struct(&task->inbox, io_event_out);
           continue;
