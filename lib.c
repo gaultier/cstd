@@ -1631,6 +1631,9 @@ pg_net_socket_enable_reuse(PgSocket sock);
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_socket_set_blocking(PgSocket sock, bool blocking);
 
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_net_socket_write(PgSocket sock, PgString data);
+
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_os_sendfile(PgFile fd_in, PgFile fd_out, u64 n_bytes);
 
@@ -2319,6 +2322,24 @@ pg_net_socket_set_blocking(PgSocket sock, bool blocking) {
   }
 
   return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_net_socket_write(PgSocket sock, PgString data) {
+
+  i64 n = 0;
+  do {
+    n = send(sock, data.data, data.len, MSG_NOSIGNAL);
+  } while (-1 == n && EINTR == errno);
+
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError pg_net_tcp_listen(PgSocket sock,
@@ -5330,7 +5351,6 @@ typedef enum {
   PG_IO_EVENT_KIND_NONE,
   PG_IO_EVENT_KIND_READ,
   PG_IO_EVENT_KIND_WRITE,
-  PG_IO_EVENT_KIND_READ_WRITE,
   PG_IO_EVENT_KIND_CLOSE,
   PG_IO_EVENT_KIND_TCP_CONNECT,
   PG_IO_EVENT_KIND_TCP_LISTEN,
@@ -5349,6 +5369,7 @@ typedef struct {
   PgOsHandle os_handle_dst;
   PgString data;
   PgIpv4Address address;
+  u64 res;
 } PgIoCompletionEvent;
 
 [[maybe_unused]]
@@ -5615,12 +5636,15 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
     case PG_IO_EVENT_KIND_READ:
       PG_ASSERT(0 && "TODO");
       break;
-    case PG_IO_EVENT_KIND_WRITE:
-      PG_ASSERT(0 && "TODO");
-      break;
-    case PG_IO_EVENT_KIND_READ_WRITE:
-      PG_ASSERT(0 && "TODO");
-      break;
+    case PG_IO_EVENT_KIND_WRITE: {
+      Pgu64Result res_write = pg_net_socket_write(sqe.os_handle_dst, sqe.data);
+      PgIoCompletionEvent cqe = {
+          .kind = sqe.kind,
+          .res = res_write.res,
+          .err = res_write.err,
+      };
+      (void)pg_ring_write_struct(&task->inbox, cqe);
+    } break;
     case PG_IO_EVENT_KIND_CLOSE:
       PG_ASSERT(0 && "TODO");
       break;
