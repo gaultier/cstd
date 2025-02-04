@@ -4872,11 +4872,21 @@ static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
     child->right = parent;
   }
 
+  // Grand-kids are the same as before.
   PG_ASSERT(parent->left == child_before.left);
   PG_ASSERT(parent->right == child_before.right);
+
+  // The old parent (i.e. new child) has the old child (i.e.e new parent) as its
+  // parent.
   PG_ASSERT(parent->parent == child);
-  PG_ASSERT(child->left == parent_before.left);
-  PG_ASSERT(child->right == parent_before.right);
+
+  if (child == parent_before.left) {
+    PG_ASSERT(child->left == parent);
+  } else {
+    PG_ASSERT(child->right == parent);
+  }
+
+  // Grand-parent is the same as before.
   PG_ASSERT(child->parent == parent_before.parent);
 }
 
