@@ -5594,13 +5594,71 @@ typedef struct {
   return res;
 }
 
+typedef struct PgTaskRunnerOsHandle {
+  PgOsHandle os_handle;
+  PgAioEventAction action;
+  PgAioEventKind kind;
+  struct PgTaskRunnerOsHandle *left, *right;
+} PgTaskRunnerOsHandle;
+
 typedef struct {
   PgTaskPool tasks;
   PgAioQueue os_queue;
   PgArena arena;
+  PgTaskRunnerOsHandle *handles;
 } PgTaskRunner;
 
+// Map os_handle to epoll_ctl op, kind
+// Multiple os_handle per task in the general case.
+
 PG_RESULT(PgTaskRunner) PgTaskRunnerResult;
+
+static PgTaskRunnerOsHandle *
+pg_task_runner_os_handle_insert(PgTaskRunnerOsHandle **root,
+                                PgTaskRunnerOsHandle *new_node) {
+  PG_ASSERT(nullptr != root);
+  PG_ASSERT(nullptr != new_node);
+  PG_ASSERT(0 != new_node->os_handle);
+
+  PgTaskRunnerOsHandle *parent = nullptr;
+  PgTaskRunnerOsHandle *current = *root;
+  while (nullptr != current) {
+    parent = current;
+
+    if (new_node->os_handle < current->os_handle) {
+      current = current->left;
+    } else {
+      current = current->right;
+    }
+  }
+
+  if (nullptr == parent) {
+    *root = new_node;
+  } else if (new_node->os_handle < parent->os_handle) {
+    parent->left = new_node;
+  } else {
+    parent->right = new_node;
+  }
+  return new_node;
+}
+
+[[nodiscard]]
+static PgTaskRunnerOsHandle *
+pg_task_runner_os_handle_find(PgTaskRunnerOsHandle *root,
+                              PgOsHandle os_handle) {
+  PgTaskRunnerOsHandle *it = root;
+  while (nullptr != it && it->os_handle != os_handle) {
+    if (os_handle < it->os_handle) {
+      it = it->left;
+    } else {
+      it = it->right;
+    }
+  }
+
+  PG_ASSERT(nullptr == it || it->os_handle == os_handle);
+
+  return it;
+}
 
 [[maybe_unused]]
 static u32 pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx,
@@ -5653,13 +5711,26 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
 
   PgIoSubmissionEvent sqe = {0};
   while (pg_ring_read_struct(&task->outbox_task_runner, &sqe)) {
+    PgTaskRunnerOsHandle *handle =
+        pg_task_runner_os_handle_find(runner->handles, sqe.os_handle_dst);
+    // TODO: should implement find_or_insert.
+    if (!handle) {
+      handle = calloc(sizeof(PgTaskRunnerOsHandle), 1);
+      handle->os_handle = sqe.os_handle_dst;
+    }
+
     switch (sqe.kind) {
     case PG_IO_EVENT_KIND_READ: {
+      handle->kind |= PG_AIO_EVENT_KIND_IN;
+      handle->action = (handle->action == PG_AIO_EVENT_ACTION_MOD)
+                           ? PG_AIO_EVENT_ACTION_MOD
+                           : PG_AIO_EVENT_ACTION_ADD;
+
       PgAioEvent event = {
           .user_data =
               pg_task_pack_user_data(sqe.os_handle_dst, task_slot, sqe.kind),
-          .kind = PG_AIO_EVENT_KIND_IN,
-          .action = PG_AIO_EVENT_ACTION_ADD,
+          .kind = handle->kind,
+          .action = handle->action,
       };
       PgError err_queue_ctl =
           pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
@@ -5721,10 +5792,17 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
         break;
       }
 
+      handle->kind |= PG_AIO_EVENT_KIND_OUT;
+      handle->action = (handle->action == PG_AIO_EVENT_ACTION_MOD)
+                           ? PG_AIO_EVENT_ACTION_MOD
+                           : PG_AIO_EVENT_ACTION_ADD;
+      handle->os_handle = sock;
+      pg_task_runner_os_handle_insert(&runner->handles, handle);
+
       PgAioEvent event = {
           .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
-          .kind = PG_AIO_EVENT_KIND_OUT,
-          .action = PG_AIO_EVENT_ACTION_ADD,
+          .kind = handle->kind,
+          .action = handle->action,
       };
       PgError err_queue_ctl =
           pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
@@ -5786,10 +5864,17 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
         break;
       }
 
+      handle->kind |= PG_AIO_EVENT_KIND_IN;
+      handle->action = (handle->action == PG_AIO_EVENT_ACTION_MOD)
+                           ? PG_AIO_EVENT_ACTION_MOD
+                           : PG_AIO_EVENT_ACTION_ADD;
+      handle->os_handle = sock;
+      pg_task_runner_os_handle_insert(&runner->handles, handle);
+
       PgAioEvent event = {
           .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
-          .kind = PG_AIO_EVENT_KIND_IN,
-          .action = PG_AIO_EVENT_ACTION_ADD,
+          .kind = handle->kind,
+          .action = handle->action,
       };
       PgError err_queue_ctl =
           pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
@@ -5919,12 +6004,29 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
         if ((event.kind & PG_AIO_EVENT_KIND_OUT) &&
             sqe_kind == PG_IO_EVENT_KIND_TCP_CONNECT) {
 
-          PgAioEvent event_aio = {
-              .action = PG_AIO_EVENT_ACTION_DEL,
-              .user_data = event.user_data,
-          };
-          PgError err_queue_ctl =
-              pg_aio_queue_ctl_one(runner->os_queue, event_aio, arena_tmp);
+          PgTaskRunnerOsHandle *handle =
+              pg_task_runner_os_handle_find(runner->handles, os_handle);
+          PG_ASSERT(handle);
+
+          handle->kind = handle->kind & ~PG_AIO_EVENT_KIND_OUT;
+          if (PG_AIO_EVENT_ACTION_DEL == handle->action) {
+            // No-op.
+          } else if (0 == handle->kind) {
+            handle->action = PG_AIO_EVENT_ACTION_DEL;
+          } else {
+            handle->action = PG_AIO_EVENT_ACTION_MOD;
+          }
+
+          PgError err_queue_ctl = 0;
+          if (PG_AIO_EVENT_ACTION_DEL != handle->action) {
+            PgAioEvent event_aio = {
+                .kind = handle->kind,
+                .action = handle->action,
+                .user_data = event.user_data,
+            };
+            err_queue_ctl =
+                pg_aio_queue_ctl_one(runner->os_queue, event_aio, arena_tmp);
+          }
 
           PgIoCompletionEvent io_event_out = {
               .os_handle_dst = os_handle,
