@@ -1634,6 +1634,9 @@ pg_net_socket_set_blocking(PgSocket sock, bool blocking);
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_net_socket_write(PgSocket sock, PgString data);
 
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_net_socket_read(PgSocket sock, PgString data);
+
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_os_sendfile(PgFile fd_in, PgFile fd_out, u64 n_bytes);
 
@@ -2330,6 +2333,24 @@ pg_net_socket_write(PgSocket sock, PgString data) {
   i64 n = 0;
   do {
     n = send(sock, data.data, data.len, MSG_NOSIGNAL);
+  } while (-1 == n && EINTR == errno);
+
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_net_socket_read(PgSocket sock, PgString data) {
+
+  i64 n = 0;
+  do {
+    n = recv(sock, data.data, data.len, 0);
   } while (-1 == n && EINTR == errno);
 
   Pgu64Result res = {0};
@@ -5633,9 +5654,15 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
   PgIoSubmissionEvent sqe = {0};
   while (pg_ring_read_struct(&task->outbox_task_runner, &sqe)) {
     switch (sqe.kind) {
-    case PG_IO_EVENT_KIND_READ:
-      PG_ASSERT(0 && "TODO");
-      break;
+    case PG_IO_EVENT_KIND_READ: {
+      Pgu64Result res_read = pg_net_socket_read(sqe.os_handle_dst, sqe.data);
+      PgIoCompletionEvent cqe = {
+          .kind = sqe.kind,
+          .res = res_read.res,
+          .err = res_read.err,
+      };
+      (void)pg_ring_write_struct(&task->inbox, cqe);
+    } break;
     case PG_IO_EVENT_KIND_WRITE: {
       Pgu64Result res_write = pg_net_socket_write(sqe.os_handle_dst, sqe.data);
       PgIoCompletionEvent cqe = {
