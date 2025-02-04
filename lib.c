@@ -4825,6 +4825,7 @@ static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
                               PgHeapNode *child) {
   PG_ASSERT(parent);
   PG_ASSERT(child);
+  PG_ASSERT(child->parent == parent);
 
   // Fix the `parent` field of the grand-children nodes.
   if (child->left) {
@@ -4903,8 +4904,10 @@ static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
   heap->count += 1;
 
   while (node->parent && less_than(node, node->parent)) {
-    pg_heap_node_swap(heap, node, node->parent);
+    pg_heap_node_swap(heap, node->parent, node);
   }
+
+  PG_ASSERT(heap->root);
 }
 
 typedef bool (*PgHeapIterFn)(PgHeapNode *node, void *ctx);
