@@ -4827,45 +4827,48 @@ static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
   PG_ASSERT(child);
   PG_ASSERT(child->parent == parent);
 
+  PgHeapNode parent_before = *parent;
+  PgHeapNode child_before = *child;
+
   // Fix the `parent` field of the grand-children nodes.
-  if (child->left) {
+  if (child_before.left) {
     child->left->parent = parent;
   }
-  if (child->right) {
+  if (child_before.right) {
     child->right->parent = parent;
   }
 
   // Fix the `parent` field of the sibling node.
-  PgHeapNode *sibling = (child == parent->left) ? parent->right : parent->left;
+  PgHeapNode *sibling =
+      (child == parent_before.left) ? parent_before.right : parent_before.left;
   if (sibling) {
     sibling->parent = child;
   }
 
   // Is the old parent the root node?
   // Then the new parent (i.e. `child`) should now be the min-heap root.
-  if (nullptr == parent->parent) {
+  if (nullptr == parent_before.parent) {
     heap->root = child;
-  } else if (parent->parent && parent->parent->left == parent) {
+  } else if (parent_before.parent && parent_before.parent->left == parent) {
     // Fix grand-parent left|right.
     // Parent is the left node of grand-parent.
     parent->parent->left = child;
-  } else if (parent->parent && parent->parent->right == parent) {
+  } else if (parent_before.parent && parent_before.parent->right == parent) {
     // Parent is the right node of grand-parent.
     parent->parent->right = child;
   }
 
   // Swap parent and child.
-  PgHeapNode tmp = *child;
-  parent->left = tmp.left;
-  parent->right = tmp.right;
+  parent->left = child_before.left;
+  parent->right = child_before.right;
   parent->parent = child;
-  child->parent = parent->parent;
+  child->parent = parent_before.parent;
 
   if (parent->left == child) {
     child->left = parent;
-    child->right = parent->right;
+    child->right = parent_before.right;
   } else {
-    child->left = parent->left;
+    child->left = parent_before.left;
     child->right = parent;
   }
 }

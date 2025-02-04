@@ -1979,7 +1979,11 @@ static void test_heap() {
     pg_heap_insert(&heap, &node->heap, u64_node_less_than);
   }
 
-  PG_ASSERT(1 == PG_CONTAINER_OF(heap.root, u64Node, heap)->value);
+  u64Node *n1 = PG_CONTAINER_OF(heap.root, u64Node, heap);
+  PG_ASSERT(1 == n1->value);
+
+  u64Node *n2 = PG_CONTAINER_OF(n1->heap.left, u64Node, heap);
+  PG_ASSERT(2 == n2->value);
 }
 
 int main() {
