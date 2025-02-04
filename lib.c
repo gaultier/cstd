@@ -1006,12 +1006,12 @@ pg_ring_write_ptr(PgRing *rg, u8 *data, u64 data_len) {
 }
 
 #define pg_ring_read_struct(ring, val)                                         \
-  ((sizeof(*(val)) < pg_ring_read_space(*(ring)))                              \
+  (pg_ring_read_space(*(ring)) < (sizeof(*(val)))                              \
        ? false                                                                 \
        : (pg_ring_read_ptr(ring, (u8 *)val, sizeof(*val))))
 
 #define pg_ring_write_struct(ring, val)                                        \
-  ((sizeof((val)) > pg_ring_write_space(*(ring)))                              \
+  (pg_ring_write_space(*(ring)) < sizeof((val))                                \
        ? false                                                                 \
        : (pg_ring_write_ptr(ring, (u8 *)&val, sizeof(val))))
 
@@ -5992,6 +5992,11 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
             (void)pg_ring_write_struct(&task->inbox, cqe);
             continue;
           }
+
+          PgTaskRunnerOsHandle *handle =
+              calloc(sizeof(PgTaskRunnerOsHandle), 1);
+          handle->os_handle = res_accept.socket;
+          pg_task_runner_os_handle_insert(&runner->handles, handle);
 
           PgIoCompletionEvent io_event_out = {
               .os_handle_dst = res_accept.socket,

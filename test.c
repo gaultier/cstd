@@ -1968,11 +1968,11 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
 
   switch (ping->state) {
   case TASK_PING_STATE_NONE: {
-    PgIoSubmissionEvent io_event_out = {
+    PgIoSubmissionEvent sqe = {
         .kind = PG_IO_EVENT_KIND_TCP_CONNECT,
         .address = {.port = ping->port},
     };
-    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
+    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
 
     ping->state = TASK_PING_STATE_CONNECTING;
   } break;
