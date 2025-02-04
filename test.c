@@ -2004,6 +2004,7 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
     PG_ASSERT(pg_ring_read_struct(inbox, &cqe));
 
     if (PG_IO_EVENT_KIND_WRITE == cqe.kind) {
+      PG_ASSERT(0 == cqe.err);
       // Do not expect partial writes in tests.
       PG_ASSERT(PG_S("ping").len == cqe.res);
 
@@ -2013,6 +2014,12 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
       };
       PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
     } else if (PG_IO_EVENT_KIND_READ == cqe.kind) {
+      if (0 == cqe.data.len &&
+          9 == ping->ticks) { // 'Pong' task closed the connection, the end.
+        ping->ticks += 1;
+        return PG_TASK_STATE_STOP;
+      }
+
       PG_ASSERT(pg_string_eq(PG_S("pong"), cqe.data));
 
       free(cqe.data.data);
@@ -2020,7 +2027,7 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
       ping->ticks += 1;
 
       if (10 == ping->ticks) {
-        return PG_TASK_STATE_STOP;
+        PG_ASSERT(0 && "unreachable");
       }
 
       PgIoSubmissionEvent sqe = {
@@ -2075,9 +2082,7 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
     PG_ASSERT(pg_ring_read_struct(inbox, &cqe));
 
     PG_ASSERT(PG_IO_EVENT_KIND_TCP_LISTEN == cqe.kind);
-    if (cqe.err) {
-      return PG_TASK_STATE_STOP;
-    }
+    PG_ASSERT(0 == cqe.err);
 
     pong->state = TASK_PONG_STATE_LISTENING;
     PG_ASSERT(0 != cqe.os_handle_dst);
@@ -2097,6 +2102,7 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
     PG_ASSERT(pg_ring_read_struct(inbox, &cqe));
 
     if (PG_IO_EVENT_KIND_WRITE == cqe.kind) {
+      PG_ASSERT(0 == cqe.err);
       // Do not expect partial writes in tests.
       PG_ASSERT(PG_S("pong").len == cqe.res);
 
@@ -2106,6 +2112,7 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
       };
       PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
     } else if (PG_IO_EVENT_KIND_READ == cqe.kind) {
+      PG_ASSERT(0 == cqe.err);
       PG_ASSERT(pg_string_eq(PG_S("ping"), cqe.data));
 
       // TODO: Better allocator.
@@ -2114,6 +2121,7 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
       pong->ticks += 1;
 
       if (10 == pong->ticks) {
+        (void)pg_net_socket_close(pong->sock);
         return PG_TASK_STATE_STOP;
       }
 
