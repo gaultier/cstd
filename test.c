@@ -1979,7 +1979,7 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
     PgIoCompletionEvent cqe = {0};
     PG_ASSERT(pg_ring_read_struct(inbox, &cqe));
 
-    // PG_ASSERT(PG_IO_EVENT_KIND_TCP_CONNECT == cqe.kind);
+    PG_ASSERT(PG_IO_EVENT_KIND_TCP_CONNECT == cqe.kind);
     if (cqe.err) {
       return PG_TASK_STATE_STOP;
     }
@@ -1997,7 +1997,7 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
     PgIoCompletionEvent cqe = {0};
     PG_ASSERT(pg_ring_read_struct(inbox, &cqe));
 
-    // PG_ASSERT(PG_IO_EVENT_KIND_READ == cqe.kind);
+    PG_ASSERT(PG_IO_EVENT_KIND_READ == cqe.kind);
     //  PG_ASSERT(pg_string_eq(PG_S("pong"), cqe.data));
     ping->ticks += 1;
 
@@ -2050,7 +2050,7 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
     PgIoCompletionEvent cqe = {0};
     PG_ASSERT(pg_ring_read_struct(inbox, &cqe));
 
-    //    PG_ASSERT(PG_IO_EVENT_KIND_TCP_LISTEN == cqe.kind);
+    PG_ASSERT(PG_IO_EVENT_KIND_TCP_LISTEN == cqe.kind);
     if (cqe.err) {
       return PG_TASK_STATE_STOP;
     }
