@@ -1501,6 +1501,7 @@ pg_bitfield_get_first_zero(PgString bitfield) {
     }
 
     res.res = i * 8 + stdc_first_leading_zero(c);
+    res.ok = true;
     return res;
   }
   return res;
@@ -2011,9 +2012,9 @@ pg_string_to_filename(PgString s) {
 // From https://nullprogram.com/blog/2017/09/21/.
 // PCG.
 [[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(PgRng *rng, u32 min_incl,
-                                                      u32 max_excl) {
+                                                      u32 max_incl) {
   PG_ASSERT(rng);
-  PG_ASSERT(min_incl < max_excl);
+  PG_ASSERT(min_incl < max_incl);
 
   uint64_t m = 0x9b60933458e17d7d;
   uint64_t a = 0xd737232eeccdf7ed;
@@ -2021,10 +2022,10 @@ pg_string_to_filename(PgString s) {
   int shift = 29 - (rng->state >> 61);
   u32 rand = (u32)(rng->state >> shift);
 
-  float scale = (float)(max_excl - min_incl) / (float)UINT32_MAX;
-  u32 res = min_incl + (u32)((float)rand * scale);
+  u32 res = min_incl + (u32)((float)rand * ((float)max_incl - (float)min_incl) /
+                             (float)UINT32_MAX);
   PG_ASSERT(min_incl <= res);
-  PG_ASSERT(res < max_excl);
+  PG_ASSERT(res <= max_incl);
   return res;
 }
 

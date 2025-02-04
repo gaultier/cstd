@@ -2088,7 +2088,6 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
   return PG_TASK_STATE_RUN;
 }
 
-#if 0
 static void test_tasks_ping_pong() {
   PgTaskRunnerResult res_runner = pg_task_runner_make();
   PG_ASSERT(0 == res_runner.err);
@@ -2099,21 +2098,20 @@ static void test_tasks_ping_pong() {
   u16 port = (u16)pg_rand_u32(&rng, 3000, UINT16_MAX);
 
   TaskPing ping = {.port = port};
-  PgTask *task_ping =
+  u32 task_ping_slot =
       pg_task_runner_spawn_task(&runner, &ping, 1, 1, task_ping_run);
-  (void)task_ping;
+  (void)task_ping_slot;
 
   TaskPing pong = {.port = port};
-  PgTask *task_pong =
+  u32 task_pong_slot =
       pg_task_runner_spawn_task(&runner, &pong, 1, 1, task_pong_run);
-  (void)task_pong;
+  (void)task_pong_slot;
 
   pg_task_runner_run_tasks(&runner);
 
   PG_ASSERT(10 == ping.ticks);
   PG_ASSERT(10 == pong.ticks);
 }
-#endif
 
 int main() {
   test_slice_range();
@@ -2153,5 +2151,5 @@ int main() {
   test_event_loop();
   test_div_ceil();
   test_string_to_filename();
-  // test_tasks_ping_pong();
+  test_tasks_ping_pong();
 }
