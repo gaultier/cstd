@@ -5655,13 +5655,23 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
   while (pg_ring_read_struct(&task->outbox_task_runner, &sqe)) {
     switch (sqe.kind) {
     case PG_IO_EVENT_KIND_READ: {
-      Pgu64Result res_read = pg_net_socket_read(sqe.os_handle_dst, sqe.data);
-      PgIoCompletionEvent cqe = {
-          .kind = sqe.kind,
-          .res = res_read.res,
-          .err = res_read.err,
+      PgAioEvent event = {
+          .user_data =
+              pg_task_pack_user_data(sqe.os_handle_dst, task_slot, sqe.kind),
+          .kind = PG_AIO_EVENT_KIND_IN,
+          .action = PG_AIO_EVENT_ACTION_ADD,
       };
-      (void)pg_ring_write_struct(&task->inbox, cqe);
+      PgError err_queue_ctl =
+          pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
+      if (err_queue_ctl) {
+        PgIoCompletionEvent cqe = {
+            .os_handle_dst = sqe.os_handle_dst,
+            .kind = sqe.kind,
+            .err = err_queue_ctl,
+        };
+        (void)pg_ring_write_struct(&task->inbox, cqe);
+        break;
+      }
     } break;
     case PG_IO_EVENT_KIND_WRITE: {
       Pgu64Result res_write = pg_net_socket_write(sqe.os_handle_dst, sqe.data);
