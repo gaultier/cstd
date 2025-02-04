@@ -5814,7 +5814,7 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
             sqe_kind == PG_IO_EVENT_KIND_READ) {
           // TODO: read(2).
 
-          PgIoSubmissionEvent io_event_out = {.kind = sqe_kind};
+          PgIoCompletionEvent io_event_out = {.user_data = event.user_data};
           (void)pg_ring_write_struct(&task->inbox, io_event_out);
           continue;
         }
@@ -5831,10 +5831,9 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
             continue;
           }
 
-          PgIoSubmissionEvent io_event_out = {
-              .kind = sqe_kind,
-              .address = res_accept.address,
-              .os_handle_dst = res_accept.socket,
+          PgIoCompletionEvent io_event_out = {
+              .user_data = pg_task_pack_user_data(res_accept.socket, task_slot,
+                                                  sqe_kind),
           };
           (void)pg_ring_write_struct(&task->inbox, io_event_out);
           continue;
@@ -5842,10 +5841,7 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
 
         if ((event.kind & PG_AIO_EVENT_KIND_OUT) &&
             sqe_kind == PG_IO_EVENT_KIND_TCP_CONNECT) {
-          PgIoSubmissionEvent io_event_out = {
-              .kind = sqe_kind,
-              .os_handle_dst = os_handle,
-          };
+          PgIoCompletionEvent io_event_out = {.user_data = event.user_data};
           (void)pg_ring_write_struct(&task->inbox, io_event_out);
           continue;
         }
