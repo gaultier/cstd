@@ -4855,8 +4855,8 @@ typedef enum : u8 {
 struct PgEventLoopHandle {
   PgEventLoopHandleKind kind;
   PgEventLoopHandleState state;
-  bool event_in_os_queue;
   PgAioEventKind event_kind;
+  PgAioEventAction event_action;
   PgOsHandle os_handle;
 
   PgRing ring_read;
@@ -4958,6 +4958,55 @@ static PgEventLoopHandle *pg_event_loop_find_handle(PgEventLoop *loop,
   return PG_SLICE_AT_PTR(&loop->handles, (u64)idx);
 }
 
+static void pg_aio_event_add_interest(PgAioEventKind *kind,
+                                      PgAioEventKind kind_new,
+                                      PgAioEventAction *action) {
+  PG_ASSERT(0 != kind_new);
+
+  *kind |= kind_new;
+
+  switch (*action) {
+  case PG_AIO_EVENT_ACTION_NONE:
+  case PG_AIO_EVENT_ACTION_DEL:
+    *action = PG_AIO_EVENT_ACTION_ADD;
+    break;
+  case PG_AIO_EVENT_ACTION_ADD:
+  case PG_AIO_EVENT_ACTION_MOD:
+    *action = PG_AIO_EVENT_ACTION_MOD;
+    break;
+  default:
+    PG_ASSERT(0);
+  }
+}
+
+static void pg_aio_event_remove_interest(PgAioEventKind *kind,
+                                         PgAioEventKind kind_new,
+                                         PgAioEventAction *action) {
+  PG_ASSERT(0 != kind_new);
+
+  *kind = *kind & ~kind_new;
+
+  if (0 != *kind) { // Add or modify.
+    if (PG_AIO_EVENT_ACTION_NONE == *action) {
+      *action = PG_AIO_EVENT_ACTION_ADD;
+      return;
+    } else {
+      *action = PG_AIO_EVENT_ACTION_MOD;
+      return;
+    }
+  }
+  PG_ASSERT(0 == *kind);
+
+  if (PG_AIO_EVENT_ACTION_NONE == *action ||
+      PG_AIO_EVENT_ACTION_DEL == *action) {
+    // No-op.
+    *action = PG_AIO_EVENT_ACTION_NONE;
+    return;
+  }
+
+  *action = PG_AIO_EVENT_ACTION_DEL;
+}
+
 [[nodiscard]] [[maybe_unused]]
 static PgOsHandleResult pg_event_loop_tcp_init(PgEventLoop *loop, void *ctx) {
   PgOsHandleResult res = {0};
@@ -5006,16 +5055,15 @@ static PgError pg_event_loop_tcp_connect(PgEventLoop *loop,
 
   handle->state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTING;
   // Needed to be notified on a successful `connect`.
-  handle->event_kind |= PG_AIO_EVENT_KIND_OUT;
-  bool event_in_os_queue_before = handle->event_in_os_queue;
-  handle->event_in_os_queue = true;
+  pg_aio_event_add_interest(&handle->event_kind, PG_AIO_EVENT_KIND_OUT,
+                            &handle->event_action);
 
   PgAioEvent event = {
       .user_data = (u64)os_handle,
       .kind = handle->event_kind,
-      .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
-                                         : PG_AIO_EVENT_ACTION_ADD,
+      .action = handle->event_action,
   };
+
   return pg_aio_queue_ctl_one(loop->queue, event, loop->arena);
 }
 
@@ -5053,15 +5101,13 @@ static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, PgOsHandle os_handle,
 
   handle->state = PG_EVENT_LOOP_HANDLE_STATE_LISTENING;
   // Needed to be notified on a client connection.
-  handle->event_kind |= PG_AIO_EVENT_KIND_IN;
-  bool event_in_os_queue_before = handle->event_in_os_queue;
-  handle->event_in_os_queue = true;
+  pg_aio_event_add_interest(&handle->event_kind, PG_AIO_EVENT_KIND_IN,
+                            &handle->event_action);
 
   PgAioEvent event = {
       .user_data = (u64)os_handle,
       .kind = handle->event_kind,
-      .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
-                                         : PG_AIO_EVENT_ACTION_ADD,
+      .action = handle->event_action,
   };
   return pg_aio_queue_ctl_one(loop->queue, event, loop->arena);
 }
@@ -5201,16 +5247,14 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
         handle->state = PG_EVENT_LOOP_HANDLE_STATE_CONNECTED;
 
         // Stop listening for 'connect'.
-        handle->event_kind = handle->event_kind & ~PG_AIO_EVENT_KIND_OUT;
-        bool event_in_os_queue_before = handle->event_in_os_queue;
-        handle->event_in_os_queue = true;
+        pg_aio_event_remove_interest(&handle->event_kind, PG_AIO_EVENT_KIND_OUT,
+                                     &handle->event_action);
 
         if (PG_EVENT_LOOP_HANDLE_STATE_CLOSING != handle->state) {
           PgAioEvent event_change = {
               .user_data = (u64)handle->os_handle,
               .kind = handle->event_kind,
-              .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
-                                                 : PG_AIO_EVENT_ACTION_ADD,
+              .action = handle->event_action,
           };
           PG_ASSERT(0 == pg_aio_queue_ctl_one(loop->queue, event_change,
                                               loop->arena));
@@ -5326,15 +5370,13 @@ static PgError pg_event_loop_read_start(PgEventLoop *loop, PgOsHandle os_handle,
   }
 
   handle->on_read = on_read;
-  handle->event_kind |= PG_AIO_EVENT_KIND_IN;
-  bool event_in_os_queue_before = handle->event_in_os_queue;
-  handle->event_in_os_queue = true;
+  pg_aio_event_add_interest(&handle->event_kind, PG_AIO_EVENT_KIND_IN,
+                            &handle->event_action);
 
   PgAioEvent event_change = {
       .user_data = (u64)handle->os_handle,
       .kind = handle->event_kind,
-      .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
-                                         : PG_AIO_EVENT_ACTION_ADD,
+      .action = handle->event_action,
   };
   return pg_aio_queue_ctl_one(loop->queue, event_change, loop->arena);
 }
@@ -5355,15 +5397,13 @@ static PgError pg_event_loop_read_stop(PgEventLoop *loop,
     return 0;
   }
 
-  handle->event_kind = handle->event_kind & ~PG_AIO_EVENT_KIND_IN;
-  bool event_in_os_queue_before = handle->event_in_os_queue;
-  handle->event_in_os_queue = true;
+  pg_aio_event_remove_interest(&handle->event_kind, PG_AIO_EVENT_KIND_IN,
+                               &handle->event_action);
 
   PgAioEvent event_change = {
       .user_data = (u64)handle->os_handle,
       .kind = handle->event_kind,
-      .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
-                                         : PG_AIO_EVENT_ACTION_ADD,
+      .action = handle->event_action,
   };
   return pg_aio_queue_ctl_one(loop->queue, event_change, loop->arena);
 }
@@ -5658,55 +5698,6 @@ pg_task_runner_os_handle_find(PgTaskRunnerOsHandle *root,
   PG_ASSERT(nullptr == it || it->os_handle == os_handle);
 
   return it;
-}
-
-static void pg_aio_event_add_interest(PgAioEventKind *kind,
-                                      PgAioEventKind kind_new,
-                                      PgAioEventAction *action) {
-  PG_ASSERT(0 != kind_new);
-
-  *kind |= kind_new;
-
-  switch (*action) {
-  case PG_AIO_EVENT_ACTION_NONE:
-  case PG_AIO_EVENT_ACTION_DEL:
-    *action = PG_AIO_EVENT_ACTION_ADD;
-    break;
-  case PG_AIO_EVENT_ACTION_ADD:
-  case PG_AIO_EVENT_ACTION_MOD:
-    *action = PG_AIO_EVENT_ACTION_MOD;
-    break;
-  default:
-    PG_ASSERT(0);
-  }
-}
-
-static void pg_aio_event_remove_interest(PgAioEventKind *kind,
-                                         PgAioEventKind kind_new,
-                                         PgAioEventAction *action) {
-  PG_ASSERT(0 != kind_new);
-
-  *kind = *kind & ~kind_new;
-
-  if (0 != *kind) { // Add or modify.
-    if (PG_AIO_EVENT_ACTION_NONE == *action) {
-      *action = PG_AIO_EVENT_ACTION_ADD;
-      return;
-    } else {
-      *action = PG_AIO_EVENT_ACTION_MOD;
-      return;
-    }
-  }
-  PG_ASSERT(0 == *kind);
-
-  if (PG_AIO_EVENT_ACTION_NONE == *action ||
-      PG_AIO_EVENT_ACTION_DEL == *action) {
-    // No-op.
-    *action = PG_AIO_EVENT_ACTION_NONE;
-    return;
-  }
-
-  *action = PG_AIO_EVENT_ACTION_DEL;
 }
 
 [[maybe_unused]]
