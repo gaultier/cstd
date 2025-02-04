@@ -5533,12 +5533,14 @@ typedef struct {
 [[maybe_unused]] static Pgu32Ok pg_task_pool_next(PgTaskPoolIter *it) {
   Pgu32Ok res = {0};
 
-  for (; it->current < it->pool.tasks.len * 8; it->current++) {
+  for (; it->current < it->pool.tasks.len; it->current++) {
     PG_ASSERT(it->current <= UINT32_MAX);
 
     if (pg_bitfield_get(it->pool.bitfield_occupied, it->current)) {
-      res.res = it->current;
+      res.res = it->current++;
       res.ok = true;
+
+      PG_ASSERT(it->current > 0);
       return res;
     }
   }
@@ -5726,8 +5728,6 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
   }
 }
 
-#define PG_PTR_MASK 0x0f'ff'ff'ff'ff'ff
-
 [[maybe_unused]]
 static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
   while (runner->tasks.count > 0) {
@@ -5736,8 +5736,6 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
     for (Pgu32Ok slot = pg_task_pool_next(&it); slot.ok;
          slot = pg_task_pool_next(&it)) {
       PgTask *task = pg_task_pool_at_ptr(&runner->tasks, slot.res);
-
-      pg_task_runner_handle_task_sqes(runner, slot.res);
 
       bool can_run = (!task->did_run_at_least_once) ||
                      (pg_ring_read_space(task->inbox) >= task->inbox_item_size);
@@ -5754,6 +5752,8 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
       if (PG_TASK_STATE_STOP == state) {
         pg_task_pool_release(&runner->tasks, slot.res);
       }
+
+      pg_task_runner_handle_task_sqes(runner, slot.res);
     }
 
     // I/O event loop.
