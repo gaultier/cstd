@@ -4930,20 +4930,21 @@ static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
   PG_ASSERT(heap->root);
 }
 
-typedef bool (*PgHeapIterFn)(PgHeapNode *node, void *ctx);
+typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, void *ctx);
 
-[[maybe_unused]] static void
-pg_heap_node_iter(PgHeapNode *node, PgHeapIterFn iter_fn, void *ctx) {
+[[maybe_unused]] static void pg_heap_node_iter(PgHeapNode *node,
+                                               PgHeapIterFn iter_fn, u64 depth,
+                                               void *ctx) {
   if (!node) {
     return;
   }
 
-  if (!iter_fn(node, ctx)) {
+  if (!iter_fn(node, depth, ctx)) {
     return;
   }
 
-  pg_heap_node_iter(node->left, iter_fn, ctx);
-  pg_heap_node_iter(node->right, iter_fn, ctx);
+  pg_heap_node_iter(node->left, iter_fn, depth + 1, ctx);
+  pg_heap_node_iter(node->right, iter_fn, depth + 1, ctx);
 }
 
 [[nodiscard]] [[maybe_unused]]
