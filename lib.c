@@ -39,6 +39,7 @@
 #include "sha1.c"
 #include <inttypes.h>
 #include <stdarg.h>
+#include <stdbit.h>
 #include <stdbool.h>
 #include <stdckdint.h>
 #include <stdint.h>
@@ -110,6 +111,7 @@ typedef u32 PgError;
 PG_RESULT(u64) Pgu64Result;
 PG_RESULT(bool) PgBoolResult;
 PG_OK(u32) Pgu32Ok;
+PG_OK(u64) Pgu64Ok;
 
 PG_DYN(u8) Pgu8Dyn;
 PG_SLICE(u8) Pgu8Slice;
@@ -652,13 +654,6 @@ pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
 }
 
 #define pg_arena_new(a, t, n) (t *)pg_arena_alloc(a, sizeof(t), _Alignof(t), n)
-
-// TODO
-#define PG_POOL(T)                                                             \
-  typedef struct {                                                             \
-    T *data;                                                                   \
-    u64 len, cap                                                               \
-  }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_make(u64 len,
                                                               PgArena *arena) {
@@ -1495,6 +1490,22 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static Pgu64Ok
+pg_bitfield_get_first_zero(PgString bitfield) {
+  Pgu64Ok res = {0};
+
+  for (u64 i = 0; i < bitfield.len; i++) {
+    u8 c = PG_SLICE_AT(bitfield, i);
+    if (0xff == c) {
+      continue;
+    }
+
+    res.res = i * 8 + stdc_first_leading_zero(c);
+    return res;
+  }
+  return res;
+}
+
 // FIXME: Windows.
 typedef int PgSocket;
 typedef int PgFile;
@@ -1655,14 +1666,12 @@ PG_SLICE(PgAioEvent) PgAioEventSlice;
 PG_DYN(PgAioEvent) PgAioEventDyn;
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, u64 os_handle,
-                 PgArena arena);
+pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena);
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_aio_queue_ctl_one(PgAioQueue queue, PgAioEvent event, u64 os_handle,
-                     PgArena arena) {
+pg_aio_queue_ctl_one(PgAioQueue queue, PgAioEvent event, PgArena arena) {
   PgAioEventSlice events = {.data = &event, .len = 1};
-  return pg_aio_queue_ctl(queue, events, os_handle, arena);
+  return pg_aio_queue_ctl(queue, events, arena);
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
@@ -2504,7 +2513,9 @@ pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena) {
 
     int res_epoll = 0;
     do {
-      res_epoll = epoll_ctl((int)queue, op, epoll_event.data.fd, &epoll_event);
+      res_epoll =
+          epoll_ctl((int)queue, op, (int)(epoll_event.data.u64 & UINT32_MAX),
+                    &epoll_event);
     } while (-1 == res_epoll && EINTR == errno);
 
     if (-1 == res_epoll) {
@@ -4953,7 +4964,7 @@ static PgError pg_event_loop_tcp_connect(PgEventLoop *loop, u64 os_handle,
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
   };
-  return pg_aio_queue_ctl_one(loop->queue, event, os_handle, loop->arena);
+  return pg_aio_queue_ctl_one(loop->queue, event, loop->arena);
 }
 
 [[nodiscard]] [[maybe_unused]]
@@ -5452,7 +5463,34 @@ typedef struct {
   bool did_run_at_least_once;
 } PgTask;
 
+PG_SLICE(PgTask) PgTaskSlice;
 PG_DYN(PgTask) PgTaskDyn;
+
+typedef struct {
+  PgTaskSlice tasks;
+  PgString bitfield_occupied;
+} PgTaskPool;
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Ok
+pg_task_pool_new(PgTaskPool *pool) {
+  Pgu64Ok res = {0};
+
+  Pgu64Ok slot = pg_bitfield_get_first_zero(pool->bitfield_occupied);
+  if (!slot.ok) {
+    return res;
+  }
+  // TODO: Additional checks.
+  pg_bitfield_set(pool->bitfield_occupied, slot.res, true);
+
+  res.res = slot.res;
+  res.ok = true;
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Ok
+pg_task_pool_release(PgTaskPool *pool, u64 slot) {
+  pg_bitfield_set(pool->bitfield_occupied, slot, false);
+}
 
 typedef struct {
   PgTaskDyn tasks; // TODO: Use a tree.
