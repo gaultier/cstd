@@ -1961,13 +1961,19 @@ typedef struct {
 } u64Node;
 
 static bool u64_node_less_than(PgHeapNode *a, PgHeapNode *b) {
+  PG_ASSERT(a);
+  PG_ASSERT(b);
+
   u64Node *una = PG_CONTAINER_OF(a, u64Node, heap);
   u64Node *unb = PG_CONTAINER_OF(b, u64Node, heap);
 
   return una->value < unb->value;
 }
 
-static bool u64_node_print(PgHeapNode *node, u64 depth, void *ctx) {
+// For debugging.
+[[maybe_unused]]
+static bool u64_node_print(PgHeapNode *node, u64 depth, bool left, void *ctx) {
+  PG_ASSERT(node);
   (void)ctx;
 
   u64Node *un = PG_CONTAINER_OF(node, u64Node, heap);
@@ -1975,7 +1981,7 @@ static bool u64_node_print(PgHeapNode *node, u64 depth, void *ctx) {
   for (u64 i = 0; i < depth; i++) {
     printf("  ");
   }
-  printf("[D001] %lu\n", un->value);
+  printf("[D001] %c %lu\n", left ? 'L' : 'R', un->value);
 
   return true;
 }
@@ -1984,14 +1990,18 @@ static void test_heap() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   PgHeap heap = {0};
-  u64 values[] = {36, 25, 100, 2, 3, 17, 19, 1, 7};
+  u64 values[] = {100, 19, 36, 17, 3, 25, 1, 2, 7};
   for (u64 i = 0; i < PG_STATIC_ARRAY_LEN(values); i++) {
     u64 value = PG_C_ARRAY_AT(values, PG_STATIC_ARRAY_LEN(values), i);
     u64Node *node = pg_arena_new(&arena, u64Node, 1);
     node->value = value;
     pg_heap_insert(&heap, &node->heap, u64_node_less_than);
-    pg_heap_node_iter(heap.root, u64_node_print, 0, nullptr);
+#if 0
+    pg_heap_node_iter(heap.root, u64_node_print, 0, true, nullptr);
     printf("---\n");
+#endif
+
+    pg_heap_node_sanity_check(heap.root, u64_node_less_than);
   }
 
   u64Node *n1 = PG_CONTAINER_OF(heap.root, u64Node, heap);

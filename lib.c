@@ -4930,21 +4930,49 @@ static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
   PG_ASSERT(heap->root);
 }
 
-typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, void *ctx);
+[[maybe_unused]]
+static void pg_heap_node_sanity_check(PgHeapNode *node,
+                                      PgHeapLessThanFn less_than) {
+  PG_ASSERT(less_than);
 
-[[maybe_unused]] static void pg_heap_node_iter(PgHeapNode *node,
-                                               PgHeapIterFn iter_fn, u64 depth,
-                                               void *ctx) {
   if (!node) {
     return;
   }
 
-  if (!iter_fn(node, depth, ctx)) {
+  if (node->parent) {
+    PG_ASSERT(less_than(node->parent, node));
+  }
+
+  // > if the last level of the tree is not complete, the nodes of that level
+  // are filled from left to right.
+  PG_ASSERT(!(node->right && !node->left));
+
+  // > all levels of the tree, except possibly the last one (deepest) are fully
+  // filled
+
+  PgHeapNode *it = node->parent;
+  while (it) {
+    PG_ASSERT(it->left && it->right);
+
+    it = it->parent;
+  }
+}
+
+typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
+
+[[maybe_unused]] static void pg_heap_node_iter(PgHeapNode *node,
+                                               PgHeapIterFn iter_fn, u64 depth,
+                                               bool left, void *ctx) {
+  if (!node) {
     return;
   }
 
-  pg_heap_node_iter(node->left, iter_fn, depth + 1, ctx);
-  pg_heap_node_iter(node->right, iter_fn, depth + 1, ctx);
+  if (!iter_fn(node, depth, left, ctx)) {
+    return;
+  }
+
+  pg_heap_node_iter(node->left, iter_fn, depth + 1, true, ctx);
+  pg_heap_node_iter(node->right, iter_fn, depth + 1, false, ctx);
 }
 
 [[nodiscard]] [[maybe_unused]]
