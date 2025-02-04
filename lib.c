@@ -4909,6 +4909,8 @@ static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
 
   while (i > 0) {
     parent = child;
+    // TODO: Could use a (2 entries) lookup table, or a simple pointer offset
+    // math, to make it branchless.
     if (path & 1) {
       child = &(*child)->right;
     } else {
