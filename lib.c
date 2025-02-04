@@ -42,6 +42,7 @@
 #include <stdbit.h>
 #include <stdbool.h>
 #include <stdckdint.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,6 +60,9 @@
 #define PG_Microseconds (1000ULL * PG_Nanoseconds)
 #define PG_Milliseconds (1000ULL * PG_Microseconds)
 #define PG_Seconds (1000ULL * PG_Milliseconds)
+
+#define PG_CONTAINER_OF(ptr, type, member)                                     \
+  ((type *)(void *)((char *)(ptr) - offsetof(type, member)))
 
 #define PG_DYN(T)                                                              \
   typedef struct {                                                             \
@@ -4826,7 +4830,7 @@ static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
   if (child->left) {
     child->left->parent = parent;
   }
-  if (parent->right) {
+  if (child->right) {
     child->right->parent = parent;
   }
 
@@ -4840,10 +4844,8 @@ static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
   // Then the new parent (i.e. `child`) should now be the min-heap root.
   if (nullptr == parent->parent) {
     heap->root = child;
-  }
-
-  // Fix grand-parent left|right.
-  if (parent->parent && parent->parent->left == parent) {
+  } else if (parent->parent && parent->parent->left == parent) {
+    // Fix grand-parent left|right.
     // Parent is the left node of grand-parent.
     parent->parent->left = child;
   } else if (parent->parent && parent->parent->right == parent) {
@@ -4869,9 +4871,9 @@ static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
 
 [[maybe_unused]]
 static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
-                           PgHeapLessThanFn less_fn) {
+                           PgHeapLessThanFn less_than) {
   PG_ASSERT(node);
-  PG_ASSERT(less_fn);
+  PG_ASSERT(less_than);
 
   u64 path = 0;
   u64 i = 0;
@@ -4900,7 +4902,7 @@ static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
   *child = node;
   heap->count += 1;
 
-  while (node->parent && less_fn(node, node->parent)) {
+  while (node->parent && less_than(node, node->parent)) {
     pg_heap_node_swap(heap, node, node->parent);
   }
 }
