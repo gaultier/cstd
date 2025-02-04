@@ -5854,7 +5854,7 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
           continue;
         }
 
-        if ((event.kind & PG_AIO_EVENT_KIND_OUT) &&
+        if ((event.kind & PG_AIO_EVENT_KIND_IN) &&
             sqe_kind == PG_IO_EVENT_KIND_TCP_LISTEN) {
           PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(os_handle);
           if (res_accept.err) {
