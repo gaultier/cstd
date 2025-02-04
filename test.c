@@ -2006,8 +2006,17 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
     if (PG_IO_EVENT_KIND_WRITE == cqe.kind) {
       // Do not expect partial writes in tests.
       PG_ASSERT(PG_S("ping").len == cqe.res);
+
+      PgIoSubmissionEvent sqe = {
+          .kind = PG_IO_EVENT_KIND_READ,
+          .os_handle_dst = ping->sock,
+      };
+      PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
     } else if (PG_IO_EVENT_KIND_READ == cqe.kind) {
-      //  PG_ASSERT(pg_string_eq(PG_S("pong"), cqe.data));
+      PG_ASSERT(pg_string_eq(PG_S("pong"), cqe.data));
+
+      free(cqe.data.data);
+
       ping->ticks += 1;
 
       if (10 == ping->ticks) {
@@ -2020,6 +2029,7 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
           .os_handle_dst = ping->sock,
       };
       PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
+
     } else {
       PG_ASSERT(0);
     }
@@ -2075,7 +2085,6 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
 
     PgIoSubmissionEvent sqe = {
         .kind = PG_IO_EVENT_KIND_READ,
-        .data = {0},
         .os_handle_dst = pong->sock,
     };
     PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
@@ -2084,23 +2093,39 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
   case TASK_PONG_STATE_LISTENING: {
     PG_ASSERT(0 != pong->sock);
 
-    PgIoSubmissionEvent io_event_in = {0};
-    PG_ASSERT(pg_ring_read_struct(inbox, &io_event_in));
+    PgIoCompletionEvent cqe = {0};
+    PG_ASSERT(pg_ring_read_struct(inbox, &cqe));
 
-    PG_ASSERT(PG_IO_EVENT_KIND_READ == io_event_in.kind);
-    PG_ASSERT(pg_string_eq(PG_S("ping"), io_event_in.data));
-    pong->ticks += 1;
+    if (PG_IO_EVENT_KIND_WRITE == cqe.kind) {
+      // Do not expect partial writes in tests.
+      PG_ASSERT(PG_S("pong").len == cqe.res);
 
-    if (10 == pong->ticks) {
-      return PG_TASK_STATE_STOP;
+      PgIoSubmissionEvent sqe = {
+          .kind = PG_IO_EVENT_KIND_READ,
+          .os_handle_dst = pong->sock,
+      };
+      PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
+    } else if (PG_IO_EVENT_KIND_READ == cqe.kind) {
+      PG_ASSERT(pg_string_eq(PG_S("ping"), cqe.data));
+
+      // TODO: Better allocator.
+      free(cqe.data.data);
+
+      pong->ticks += 1;
+
+      if (10 == pong->ticks) {
+        return PG_TASK_STATE_STOP;
+      }
+
+      PgIoSubmissionEvent sqe = {
+          .kind = PG_IO_EVENT_KIND_WRITE,
+          .data = PG_S("pong"), // FIXME: lifetime.
+          .os_handle_dst = pong->sock,
+      };
+      PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
+    } else {
+      PG_ASSERT(0);
     }
-
-    PgIoSubmissionEvent io_event_out = {
-        .kind = PG_IO_EVENT_KIND_WRITE,
-        .data = PG_S("pong"), // FIXME: lifetime.
-        .os_handle_dst = pong->sock,
-    };
-    PG_ASSERT(pg_ring_write_struct(outbox_task_runner, io_event_out));
   } break;
   default:
     PG_ASSERT(0);

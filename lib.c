@@ -5881,13 +5881,17 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
 
         if ((event.kind & PG_AIO_EVENT_KIND_IN) &&
             sqe_kind == PG_IO_EVENT_KIND_READ) {
-          PG_ASSERT(0 && "TODO");
-
-          PgIoCompletionEvent io_event_out = {
-              .os_handle_dst = os_handle,
+          // TODO: Better allocator.
+          PgString data = {.data = calloc(4096, 1), .len = 4096};
+          Pgu64Result res_read = pg_net_socket_read(os_handle, data);
+          data.len = res_read.res;
+          PgIoCompletionEvent cqe = {
               .kind = sqe_kind,
+              .res = res_read.res,
+              .err = res_read.err,
+              .data = data,
           };
-          (void)pg_ring_write_struct(&task->inbox, io_event_out);
+          (void)pg_ring_write_struct(&task->inbox, cqe);
           continue;
         }
 
