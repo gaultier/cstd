@@ -2097,15 +2097,15 @@ static void test_tasks_ping_pong() {
   PgRng rng = pg_rand_make();
   u16 port = (u16)pg_rand_u32(&rng, 3000, UINT16_MAX);
 
-  TaskPing ping = {.port = port};
-  u32 task_ping_slot =
-      pg_task_runner_spawn_task(&runner, &ping, 1, 1, task_ping_run);
-  (void)task_ping_slot;
-
   TaskPing pong = {.port = port};
   u32 task_pong_slot =
       pg_task_runner_spawn_task(&runner, &pong, 1, 1, task_pong_run);
   (void)task_pong_slot;
+
+  TaskPing ping = {.port = port};
+  u32 task_ping_slot =
+      pg_task_runner_spawn_task(&runner, &ping, 1, 1, task_ping_run);
+  (void)task_ping_slot;
 
   pg_task_runner_run_tasks(&runner);
 

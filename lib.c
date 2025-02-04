@@ -5785,6 +5785,9 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
         pg_task_unpack_user_data(event.user_data, &os_handle, &task_slot,
                                  &sqe_kind);
         PgTask *task = pg_task_pool_at_ptr(&runner->tasks, task_slot);
+        if (!task) {
+          continue;
+        }
 
         if (event.kind & PG_AIO_EVENT_KIND_ERR) {
           // TODO: Check that this task's os_handle is indeed a socket.
