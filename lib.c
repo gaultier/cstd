@@ -5998,11 +5998,11 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
           handle->os_handle = res_accept.socket;
           pg_task_runner_os_handle_insert(&runner->handles, handle);
 
-          PgIoCompletionEvent io_event_out = {
+          PgIoCompletionEvent cqe = {
               .os_handle_dst = res_accept.socket,
               .kind = sqe_kind,
           };
-          (void)pg_ring_write_struct(&task->inbox, io_event_out);
+          (void)pg_ring_write_struct(&task->inbox, cqe);
           continue;
         }
 
@@ -6033,12 +6033,12 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
                 pg_aio_queue_ctl_one(runner->os_queue, event_aio, arena_tmp);
           }
 
-          PgIoCompletionEvent io_event_out = {
+          PgIoCompletionEvent cqe = {
               .os_handle_dst = os_handle,
               .kind = sqe_kind,
               .err = err_queue_ctl,
           };
-          (void)pg_ring_write_struct(&task->inbox, io_event_out);
+          (void)pg_ring_write_struct(&task->inbox, cqe);
           continue;
         }
       }
