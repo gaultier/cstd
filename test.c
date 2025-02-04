@@ -1989,7 +1989,6 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
     PgIoSubmissionEvent sqe = {
         .kind = PG_IO_EVENT_KIND_WRITE,
         .data = PG_S("ping"), // FIXME: lifetime.
-        .user_data = 0,       // TODO
     };
     PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
 
@@ -2009,7 +2008,6 @@ static PgTaskState task_ping_run(void *ctx, PgRing *inbox, PgRing *outbox,
     PgIoSubmissionEvent sqe = {
         .kind = PG_IO_EVENT_KIND_WRITE,
         .data = PG_S("ping"), // FIXME: lifetime.
-        .user_data = 0,       // FIXME
     };
     PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
   } break;
@@ -2060,9 +2058,7 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
     pong->state = TASK_PONG_STATE_LISTENING;
 
     PgIoSubmissionEvent sqe = {
-        .kind = PG_IO_EVENT_KIND_READ,
-        .data = {0},    // FIXME
-        .user_data = 0, // FIXME
+        .kind = PG_IO_EVENT_KIND_READ, .data = {0}, // FIXME
     };
     PG_ASSERT(pg_ring_write_struct(outbox_task_runner, sqe));
 

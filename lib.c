@@ -5336,7 +5336,6 @@ typedef struct {
   PgOsHandle os_handle_dst;
   PgString data;
   PgIpv4Address address;
-  u64 user_data;
 } PgIoSubmissionEvent;
 
 typedef struct {
@@ -5475,11 +5474,11 @@ PG_DYN(PgTask) PgTaskDyn;
 typedef struct {
   PgTaskSlice tasks;
   PgString bitfield_occupied;
-  u64 count;
+  u32 count;
 } PgTaskPool;
 
 [[nodiscard]] [[maybe_unused]] static PgTaskPool
-pg_task_pool_make(u64 len, PgArena *arena) {
+pg_task_pool_make(u32 len, PgArena *arena) {
   PgTaskPool res = {0};
   res.tasks.len = len;
   res.tasks.data = pg_arena_new(arena, PgTask, len);
@@ -5488,9 +5487,11 @@ pg_task_pool_make(u64 len, PgArena *arena) {
   return res;
 }
 
-[[nodiscard]] [[maybe_unused]] static Pgu64Ok
+[[nodiscard]] [[maybe_unused]] static Pgu32Ok
 pg_task_pool_new(PgTaskPool *pool) {
-  Pgu64Ok res = {0};
+  PG_ASSERT(pool->bitfield_occupied.len * 8 <= UINT32_MAX);
+
+  Pgu32Ok res = {0};
 
   Pgu64Ok slot = pg_bitfield_get_first_zero(pool->bitfield_occupied);
   if (!slot.ok) {
@@ -5501,18 +5502,19 @@ pg_task_pool_new(PgTaskPool *pool) {
 
   pool->count += 1;
 
-  res.res = slot.res;
+  PG_ASSERT(slot.res <= UINT32_MAX);
+  res.res = (u32)slot.res;
   res.ok = true;
   return res;
 }
 
-[[maybe_unused]] static void pg_task_pool_release(PgTaskPool *pool, u64 slot) {
+[[maybe_unused]] static void pg_task_pool_release(PgTaskPool *pool, u32 slot) {
   pg_bitfield_set(pool->bitfield_occupied, slot, false);
   pool->count = pool->count == 0 ? 0 : pool->count - 1;
 }
 
 [[maybe_unused]] static PgTask *pg_task_pool_at_ptr(PgTaskPool *pool,
-                                                    u64 slot) {
+                                                    u32 slot) {
   PG_ASSERT(pg_bitfield_get(pool->bitfield_occupied, slot));
 
   return PG_SLICE_AT_PTR(&pool->tasks, slot);
@@ -5520,13 +5522,15 @@ pg_task_pool_new(PgTaskPool *pool) {
 
 typedef struct {
   PgTaskPool pool;
-  u64 current;
+  u32 current;
 } PgTaskPoolIter;
 
-[[maybe_unused]] static Pgu64Ok pg_task_pool_next(PgTaskPoolIter *it) {
-  Pgu64Ok res = {0};
+[[maybe_unused]] static Pgu32Ok pg_task_pool_next(PgTaskPoolIter *it) {
+  Pgu32Ok res = {0};
 
   for (; it->current < it->pool.tasks.len * 8; it->current++) {
+    PG_ASSERT(it->current <= UINT32_MAX);
+
     if (pg_bitfield_get(it->pool.bitfield_occupied, it->current)) {
       res.res = it->current;
       res.ok = true;
@@ -5548,7 +5552,7 @@ PG_RESULT(PgTaskRunner) PgTaskRunnerResult;
 static u32 pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx,
                                      u64 inbox_item_size, u64 outbox_item_size,
                                      PgTaskRunFn run) {
-  Pgu64Ok res_slot = pg_task_pool_new(&runner->tasks);
+  Pgu32Ok res_slot = pg_task_pool_new(&runner->tasks);
   PG_ASSERT(res_slot.ok);
   PG_ASSERT(res_slot.res <= (0x0f'ff'ff'ff));
 
@@ -5563,7 +5567,7 @@ static u32 pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx,
   };
   *pg_task_pool_at_ptr(&runner->tasks, res_slot.res) = task;
 
-  return (u32)res_slot.res;
+  return res_slot.res;
 }
 
 [[nodiscard]] static u64 pg_task_make_user_data(PgOsHandle os_handle,
@@ -5577,7 +5581,9 @@ static u32 pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx,
 
 // Do real I/O upon receiving SQEs from the task.
 static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
-                                            PgTask *task) {
+                                            u32 task_slot) {
+  PgTask *task = pg_task_pool_at_ptr(&runner->tasks, task_slot);
+
   // Need to map a cqe to: sqe->kind, Task.
   // => Can just store Task* in user_data and use the unused bits in the
   // pointer to store sqe->kind.
@@ -5600,7 +5606,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       PgSocketResult res_socket = pg_net_create_tcp_socket();
       if (res_socket.err) {
         PgIoCompletionEvent cqe = {
-            .user_data = sqe.user_data,
+            .user_data = pg_task_make_user_data(0, task_slot, sqe.kind),
             .err = res_socket.err,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5608,13 +5614,11 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       }
 
       PgSocket sock = res_socket.res;
-      // TODO: Provide the os_handle in the CQE.
-      //      task->os_handle = (u64)sock;
       {
         PgError err = pg_net_socket_set_blocking(sock, false);
         if (err) {
           PgIoCompletionEvent cqe = {
-              .user_data = sqe.user_data,
+              .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
               .err = err,
           };
           (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5625,7 +5629,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       PgError err = pg_net_connect_ipv4(sock, sqe.address);
       if (err) {
         PgIoCompletionEvent cqe = {
-            .user_data = sqe.user_data,
+            .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
             .err = err,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5633,7 +5637,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       }
 
       PgAioEvent event = {
-          .user_data = sqe.user_data,
+          .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
           .kind = PG_AIO_EVENT_KIND_OUT,
           .action = PG_AIO_EVENT_ACTION_ADD,
       };
@@ -5641,7 +5645,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
           pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
       if (err_queue_ctl) {
         PgIoCompletionEvent cqe = {
-            .user_data = sqe.user_data,
+            .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
             .err = err_queue_ctl,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5653,7 +5657,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       PgSocketResult res_socket = pg_net_create_tcp_socket();
       if (res_socket.err) {
         PgIoCompletionEvent cqe = {
-            .user_data = sqe.user_data,
+            .user_data = pg_task_make_user_data(0, task_slot, sqe.kind),
             .err = res_socket.err,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5661,13 +5665,11 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       }
 
       PgSocket sock = res_socket.res;
-      // TODO: Provide the os_handle in the CQE.
-      // task->os_handle = (u64)sock;
       {
         PgError err = pg_net_socket_set_blocking(sock, false);
         if (err) {
           PgIoCompletionEvent cqe = {
-              .user_data = sqe.user_data,
+              .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
               .err = err,
           };
           (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5678,7 +5680,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       PgError err = pg_net_tcp_listen(sock, 1024);
       if (err) {
         PgIoCompletionEvent cqe = {
-            .user_data = sqe.user_data,
+            .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
             .err = err,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5686,7 +5688,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       }
 
       PgAioEvent event = {
-          .user_data = sqe.user_data,
+          .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
           .kind = PG_AIO_EVENT_KIND_IN,
           .action = PG_AIO_EVENT_ACTION_ADD,
       };
@@ -5694,7 +5696,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
           pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
       if (err_queue_ctl) {
         PgIoCompletionEvent cqe = {
-            .user_data = sqe.user_data,
+            .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
             .err = err,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5716,11 +5718,11 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
   while (runner->tasks.count > 0) {
     PgTaskPoolIter it = {.pool = runner->tasks};
 
-    Pgu64Ok slot = {0};
+    Pgu32Ok slot = {0};
     for (; slot.ok; slot = pg_task_pool_next(&it)) {
       PgTask *task = pg_task_pool_at_ptr(&runner->tasks, slot.res);
 
-      pg_task_runner_handle_task_sqes(runner, task);
+      pg_task_runner_handle_task_sqes(runner, slot.res);
 
       bool can_run = (!task->did_run_at_least_once) ||
                      (pg_ring_read_space(task->inbox) >= task->inbox_item_size);
