@@ -1500,7 +1500,11 @@ pg_bitfield_get_first_zero(PgString bitfield) {
       continue;
     }
 
-    res.res = i * 8 + stdc_first_leading_zero(c);
+    u64 bit_idx = stdc_first_trailing_zero_uc(c);
+    PG_ASSERT(bit_idx < 8);
+    PG_ASSERT(bit_idx > 0);
+
+    res.res = i * 8 + (bit_idx - 1);
     res.ok = true;
     return res;
   }
@@ -5571,13 +5575,23 @@ static u32 pg_task_runner_spawn_task(PgTaskRunner *runner, void *ctx,
   return res_slot.res;
 }
 
-[[nodiscard]] static u64 pg_task_make_user_data(PgOsHandle os_handle,
+[[nodiscard]] static u64 pg_task_pack_user_data(PgOsHandle os_handle,
                                                 u32 task_slot,
                                                 PgIoEventKind kind) {
   PG_ASSERT(task_slot <= 0x0f'ff'ff'ff);
   PG_ASSERT(kind <= 0b1111);
 
-  return (u64)os_handle | ((u64)task_slot << 28) | ((u64)kind << 60);
+  return (u64)os_handle | ((u64)task_slot << 32) | ((u64)kind << 60);
+}
+
+static void pg_task_unpack_user_data(u64 user_data, PgOsHandle *os_handle,
+                                     u32 *task_slot, PgIoEventKind *kind) {
+  *os_handle = (PgOsHandle)(user_data & UINT32_MAX);
+  *task_slot = (u32)(user_data >> 36);
+  *kind = (user_data >> 60);
+
+  PG_ASSERT(*task_slot <= 0x0f'ff'ff'ff);
+  PG_ASSERT(*kind <= 0b1111);
 }
 
 // Do real I/O upon receiving SQEs from the task.
@@ -5607,7 +5621,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       PgSocketResult res_socket = pg_net_create_tcp_socket();
       if (res_socket.err) {
         PgIoCompletionEvent cqe = {
-            .user_data = pg_task_make_user_data(0, task_slot, sqe.kind),
+            .user_data = pg_task_pack_user_data(0, task_slot, sqe.kind),
             .err = res_socket.err,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5619,7 +5633,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
         PgError err = pg_net_socket_set_blocking(sock, false);
         if (err) {
           PgIoCompletionEvent cqe = {
-              .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
+              .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
               .err = err,
           };
           (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5630,7 +5644,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       PgError err = pg_net_connect_ipv4(sock, sqe.address);
       if (err) {
         PgIoCompletionEvent cqe = {
-            .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
+            .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
             .err = err,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5638,7 +5652,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       }
 
       PgAioEvent event = {
-          .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
+          .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
           .kind = PG_AIO_EVENT_KIND_OUT,
           .action = PG_AIO_EVENT_ACTION_ADD,
       };
@@ -5646,7 +5660,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
           pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
       if (err_queue_ctl) {
         PgIoCompletionEvent cqe = {
-            .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
+            .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
             .err = err_queue_ctl,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5658,7 +5672,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       PgSocketResult res_socket = pg_net_create_tcp_socket();
       if (res_socket.err) {
         PgIoCompletionEvent cqe = {
-            .user_data = pg_task_make_user_data(0, task_slot, sqe.kind),
+            .user_data = pg_task_pack_user_data(0, task_slot, sqe.kind),
             .err = res_socket.err,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5670,7 +5684,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
         PgError err = pg_net_socket_set_blocking(sock, false);
         if (err) {
           PgIoCompletionEvent cqe = {
-              .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
+              .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
               .err = err,
           };
           (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5681,7 +5695,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       PgError err = pg_net_tcp_listen(sock, 1024);
       if (err) {
         PgIoCompletionEvent cqe = {
-            .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
+            .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
             .err = err,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5689,7 +5703,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       }
 
       PgAioEvent event = {
-          .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
+          .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
           .kind = PG_AIO_EVENT_KIND_IN,
           .action = PG_AIO_EVENT_ACTION_ADD,
       };
@@ -5697,7 +5711,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
           pg_aio_queue_ctl_one(runner->os_queue, event, runner->arena);
       if (err_queue_ctl) {
         PgIoCompletionEvent cqe = {
-            .user_data = pg_task_make_user_data(sock, task_slot, sqe.kind),
+            .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
             .err = err,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
@@ -5712,15 +5726,15 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
   }
 }
 
-#define PG_PTR_MASK 0xff'ff'ff'ff'ff'ff
+#define PG_PTR_MASK 0x0f'ff'ff'ff'ff'ff
 
 [[maybe_unused]]
 static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
   while (runner->tasks.count > 0) {
     PgTaskPoolIter it = {.pool = runner->tasks};
 
-    Pgu32Ok slot = {0};
-    for (; slot.ok; slot = pg_task_pool_next(&it)) {
+    for (Pgu32Ok slot = pg_task_pool_next(&it); slot.ok;
+         slot = pg_task_pool_next(&it)) {
       PgTask *task = pg_task_pool_at_ptr(&runner->tasks, slot.res);
 
       pg_task_runner_handle_task_sqes(runner, slot.res);
@@ -5759,15 +5773,18 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
 
       for (u64 i = 0; i < res_queue_wait.res; i++) {
         PgAioEvent event = PG_SLICE_AT(events, i);
-        PgTask *task = (void *)(u64)(event.user_data & PG_PTR_MASK);
-        PgIoEventKind sqe_kind = (event.user_data >> 48);
+        u32 task_slot = 0;
+        PgIoEventKind sqe_kind = 0;
+        PgOsHandle os_handle = 0;
+        pg_task_unpack_user_data(event.user_data, &os_handle, &task_slot,
+                                 &sqe_kind);
+        PgTask *task = pg_task_pool_at_ptr(&runner->tasks, task_slot);
 
         if (event.kind & PG_AIO_EVENT_KIND_ERR) {
           // TODO: Check that this task's os_handle is indeed a socket.
-          PgError err_event_watch = pg_net_get_socket_error(
-              (PgSocket)((u64)event.user_data & UINT32_MAX));
+          PgError err_event_watch = pg_net_get_socket_error(os_handle);
           PgIoCompletionEvent cqe = {
-              .user_data = 0, // FIXME: find corresponding sqe.
+              .user_data = event.user_data,
               .err = err_event_watch,
           };
           (void)pg_ring_write_struct(&task->inbox, cqe);
