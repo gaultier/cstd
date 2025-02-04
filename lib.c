@@ -1635,7 +1635,7 @@ pg_net_socket_set_blocking(PgSocket sock, bool blocking);
 pg_os_sendfile(PgFile fd_in, PgFile fd_out, u64 n_bytes);
 
 typedef struct {
-  PgIpv4Address addr;
+  PgIpv4Address address;
   PgSocket socket;
   PgError err;
 } PgIpv4AddressAcceptResult;
@@ -2398,8 +2398,8 @@ pg_net_tcp_accept(PgSocket sock) {
   }
 
   res.socket = (PgSocket)sock_client;
-  res.addr.port = ntohs(sockaddrin.sin_port);
-  res.addr.ip = ntohl(sockaddrin.sin_addr.s_addr);
+  res.address.port = ntohs(sockaddrin.sin_port);
+  res.address.ip = ntohl(sockaddrin.sin_addr.s_addr);
 
   return res;
 }
@@ -5800,18 +5800,42 @@ static PgError pg_task_runner_run_tasks(PgTaskRunner *runner) {
           continue;
         }
 
-        if (event.kind & PG_AIO_EVENT_KIND_IN) {
-          // TODO: read(2) or accept(2).
+        if ((event.kind & PG_AIO_EVENT_KIND_IN) &&
+            sqe_kind == PG_IO_EVENT_KIND_READ) {
+          // TODO: read(2).
 
           PgIoSubmissionEvent io_event_out = {.kind = sqe_kind};
           (void)pg_ring_write_struct(&task->inbox, io_event_out);
           continue;
         }
 
-        if (event.kind & PG_AIO_EVENT_KIND_OUT) {
-          // TODO: connected or write(2).
+        if ((event.kind & PG_AIO_EVENT_KIND_OUT) &&
+            sqe_kind == PG_IO_EVENT_KIND_TCP_LISTEN) {
+          PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(os_handle);
+          if (res_accept.err) {
+            PgIoCompletionEvent cqe = {
+                .user_data = event.user_data,
+                .err = res_accept.err,
+            };
+            (void)pg_ring_write_struct(&task->inbox, cqe);
+            continue;
+          }
 
-          PgIoSubmissionEvent io_event_out = {.kind = sqe_kind};
+          PgIoSubmissionEvent io_event_out = {
+              .kind = sqe_kind,
+              .address = res_accept.address,
+              .os_handle_dst = res_accept.socket,
+          };
+          (void)pg_ring_write_struct(&task->inbox, io_event_out);
+          continue;
+        }
+
+        if ((event.kind & PG_AIO_EVENT_KIND_OUT) &&
+            sqe_kind == PG_IO_EVENT_KIND_TCP_CONNECT) {
+          PgIoSubmissionEvent io_event_out = {
+              .kind = sqe_kind,
+              .os_handle_dst = os_handle,
+          };
           (void)pg_ring_write_struct(&task->inbox, io_event_out);
           continue;
         }
