@@ -1513,6 +1513,7 @@ typedef int PgTimer;
 typedef int PgOsHandle;
 
 PG_RESULT(PgFile) PgFileResult;
+PG_RESULT(PgOsHandle) PgOsHandleResult;
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len);
@@ -4963,7 +4964,7 @@ static PgError pg_event_loop_tcp_connect(PgEventLoop *loop,
   handle->event_in_os_queue = true;
 
   PgAioEvent event = {
-      .user_data = os_handle,
+      .user_data = (u64)os_handle,
       .kind = handle->event_kind,
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
@@ -5010,7 +5011,7 @@ static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, PgOsHandle os_handle,
   handle->event_in_os_queue = true;
 
   PgAioEvent event = {
-      .user_data = os_handle,
+      .user_data = (u64)os_handle,
       .kind = handle->event_kind,
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
@@ -5019,9 +5020,9 @@ static PgError pg_event_loop_tcp_listen(PgEventLoop *loop, PgOsHandle os_handle,
 }
 
 [[nodiscard]] [[maybe_unused]]
-static Pgu64Result pg_event_loop_tcp_accept(PgEventLoop *loop,
-                                            PgOsHandle os_handle) {
-  Pgu64Result res = {0};
+static PgOsHandleResult pg_event_loop_tcp_accept(PgEventLoop *loop,
+                                                 PgOsHandle os_handle) {
+  PgOsHandleResult res = {0};
 
   PgEventLoopHandle *handle = pg_event_loop_find_handle(loop, os_handle);
   if (!handle) {
@@ -5053,7 +5054,7 @@ static Pgu64Result pg_event_loop_tcp_accept(PgEventLoop *loop,
 
   *PG_DYN_PUSH(&loop->handles, &loop->arena) = client_handle;
 
-  res.res = (u64)client_socket;
+  res.res = client_socket;
   return res;
 }
 
@@ -5159,7 +5160,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
 
         if (PG_EVENT_LOOP_HANDLE_STATE_CLOSING != handle->state) {
           PgAioEvent event_change = {
-              .user_data = handle->os_handle,
+              .user_data = (u64)handle->os_handle,
               .kind = handle->event_kind,
               .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                                  : PG_AIO_EVENT_ACTION_ADD,
@@ -5283,7 +5284,7 @@ static PgError pg_event_loop_read_start(PgEventLoop *loop, PgOsHandle os_handle,
   handle->event_in_os_queue = true;
 
   PgAioEvent event_change = {
-      .user_data = handle->os_handle,
+      .user_data = (u64)handle->os_handle,
       .kind = handle->event_kind,
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
@@ -5312,7 +5313,7 @@ static PgError pg_event_loop_read_stop(PgEventLoop *loop,
   handle->event_in_os_queue = true;
 
   PgAioEvent event_change = {
-      .user_data = handle->os_handle,
+      .user_data = (u64)handle->os_handle,
       .kind = handle->event_kind,
       .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
                                          : PG_AIO_EVENT_ACTION_ADD,
@@ -5410,7 +5411,7 @@ pg_event_loop_timer_start(PgEventLoop *loop, PgClockKind clock,
   *PG_DYN_PUSH(&loop->handles, &loop->arena) = handle;
 
   PgAioEvent event_change = {
-      .user_data = handle.os_handle,
+      .user_data = (u64)handle.os_handle,
       .kind = PG_AIO_EVENT_KIND_IN,
       .action = PG_AIO_EVENT_ACTION_ADD,
   };

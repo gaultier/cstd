@@ -990,7 +990,7 @@ static void test_net_socket() {
 
   {
     PgAioEvent *event_bob_listen = PG_SLICE_AT_PTR(&events_change, 0);
-    event_bob_listen->os_handle = (u64)socket_listen;
+    event_bob_listen->user_data = (u64)socket_listen;
     event_bob_listen->kind = PG_AIO_EVENT_KIND_IN;
     event_bob_listen->action = PG_AIO_EVENT_ACTION_ADD;
 
@@ -1018,14 +1018,15 @@ static void test_net_socket() {
       PgAioEvent event = PG_SLICE_AT(events_watch, i);
       PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
 
-      if (event.os_handle == (u64)socket_listen) {
+      PgOsHandle event_os_handle = (PgOsHandle)(event.user_data & UINT32_MAX);
+      if (event_os_handle == socket_listen) {
         PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(socket_listen);
         PG_ASSERT(0 == res_accept.err);
         PG_ASSERT(0 != res_accept.socket);
 
         events_change.len = 2;
         PgAioEvent *event_alice = PG_SLICE_AT_PTR(&events_change, 0);
-        event_alice->os_handle = (u64)socket_alice;
+        event_alice->user_data = (u64)socket_alice;
         event_alice->kind = PG_AIO_EVENT_KIND_OUT;
         event_alice->action = PG_AIO_EVENT_ACTION_ADD;
 
@@ -1033,13 +1034,13 @@ static void test_net_socket() {
         bob_reader = pg_reader_make_from_socket(bob_socket);
 
         PgAioEvent *event_bob = PG_SLICE_AT_PTR(&events_change, 1);
-        event_bob->os_handle = (u64)res_accept.socket;
+        event_bob->user_data = (u64)res_accept.socket;
         event_bob->kind = PG_AIO_EVENT_KIND_IN;
         event_bob->action = PG_AIO_EVENT_ACTION_ADD;
 
         PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change, arena));
         events_change.len = 0;
-      } else if (event.os_handle == (u64)socket_alice) {
+      } else if (event_os_handle == socket_alice) {
         PG_ASSERT(PG_AIO_EVENT_KIND_OUT & event.kind);
 
         switch (alice_state) {
@@ -1055,7 +1056,7 @@ static void test_net_socket() {
         default:
           PG_ASSERT(0);
         }
-      } else if (event.os_handle == (u64)bob_socket) {
+      } else if (event_os_handle == bob_socket) {
         PG_ASSERT(PG_AIO_EVENT_KIND_IN & event.kind);
 
         PgWriter w = pg_writer_make_from_ring(&bob_recv);
@@ -1727,7 +1728,7 @@ static void test_timer() {
 
   {
     PgAioEvent event_change = {
-        .os_handle = (u64)res_timer.res,
+        .user_data = (u64)res_timer.res,
         .kind = PG_AIO_EVENT_KIND_IN,
         .action = PG_AIO_EVENT_ACTION_ADD,
     };
@@ -1752,8 +1753,9 @@ static void test_timer() {
   PG_ASSERT(0 == pg_timer_release(res_timer.res));
 }
 
-static void test_event_loop_on_client_write(PgEventLoop *loop, u64 os_handle,
-                                            void *ctx, PgError err) {
+static void test_event_loop_on_client_write(PgEventLoop *loop,
+                                            PgOsHandle os_handle, void *ctx,
+                                            PgError err) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1766,9 +1768,9 @@ static void test_event_loop_on_client_write(PgEventLoop *loop, u64 os_handle,
   PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
 }
 
-static void test_event_loop_on_server_read(PgEventLoop *loop, u64 os_handle,
-                                           void *ctx, PgError err,
-                                           PgString data) {
+static void test_event_loop_on_server_read(PgEventLoop *loop,
+                                           PgOsHandle os_handle, void *ctx,
+                                           PgError err, PgString data) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1784,9 +1786,9 @@ static void test_event_loop_on_server_read(PgEventLoop *loop, u64 os_handle,
   PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
 }
 
-static void test_event_loop_on_client_read(PgEventLoop *loop, u64 os_handle,
-                                           void *ctx, PgError err,
-                                           PgString data) {
+static void test_event_loop_on_client_read(PgEventLoop *loop,
+                                           PgOsHandle os_handle, void *ctx,
+                                           PgError err, PgString data) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1805,8 +1807,9 @@ static void test_event_loop_on_client_read(PgEventLoop *loop, u64 os_handle,
   PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
 }
 
-static void test_event_loop_on_server_write(PgEventLoop *loop, u64 os_handle,
-                                            void *ctx, PgError err) {
+static void test_event_loop_on_server_write(PgEventLoop *loop,
+                                            PgOsHandle os_handle, void *ctx,
+                                            PgError err) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1820,8 +1823,9 @@ static void test_event_loop_on_server_write(PgEventLoop *loop, u64 os_handle,
                                           test_event_loop_on_server_read));
 }
 
-static void test_event_loop_on_client_connect(PgEventLoop *loop, u64 os_handle,
-                                              void *ctx, PgError err) {
+static void test_event_loop_on_client_connect(PgEventLoop *loop,
+                                              PgOsHandle os_handle, void *ctx,
+                                              PgError err) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1835,8 +1839,9 @@ static void test_event_loop_on_client_connect(PgEventLoop *loop, u64 os_handle,
                                           test_event_loop_on_client_read));
 }
 
-static void test_event_loop_on_server_connect(PgEventLoop *loop, u64 os_handle,
-                                              void *ctx, PgError err) {
+static void test_event_loop_on_server_connect(PgEventLoop *loop,
+                                              PgOsHandle os_handle, void *ctx,
+                                              PgError err) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
   PG_ASSERT(nullptr != ctx);
@@ -1856,7 +1861,7 @@ static void test_event_loop_on_server_connect(PgEventLoop *loop, u64 os_handle,
                                      test_event_loop_on_server_write));
 }
 
-static void test_event_loop_on_timer(PgEventLoop *loop, u64 os_handle,
+static void test_event_loop_on_timer(PgEventLoop *loop, PgOsHandle os_handle,
                                      void *ctx) {
   PG_ASSERT(nullptr != loop);
   PG_ASSERT(0 != os_handle);
