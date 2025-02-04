@@ -5699,11 +5699,21 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
         }
       }
 
-      PgError err = pg_net_tcp_listen(sock, 1024);
-      if (err) {
+      PgError err_bind = pg_net_tcp_bind_ipv4(sock, sqe.address);
+      if (err_bind) {
         PgIoCompletionEvent cqe = {
             .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
-            .err = err,
+            .err = err_bind,
+        };
+        (void)pg_ring_write_struct(&task->inbox, cqe);
+        break;
+      }
+
+      PgError err_listen = pg_net_tcp_listen(sock, 1024);
+      if (err_listen) {
+        PgIoCompletionEvent cqe = {
+            .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
+            .err = err_listen,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
         break;
@@ -5719,7 +5729,7 @@ static void pg_task_runner_handle_task_sqes(PgTaskRunner *runner,
       if (err_queue_ctl) {
         PgIoCompletionEvent cqe = {
             .user_data = pg_task_pack_user_data(sock, task_slot, sqe.kind),
-            .err = err,
+            .err = err_queue_ctl,
         };
         (void)pg_ring_write_struct(&task->inbox, cqe);
         break;
