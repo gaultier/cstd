@@ -1514,7 +1514,6 @@ pg_bitfield_get_first_zero(PgString bitfield) {
 // FIXME: Windows.
 typedef int PgSocket;
 typedef int PgFile;
-typedef int PgTimer;
 typedef int PgOsHandle;
 
 PG_RESULT(PgFile) PgFileResult;
@@ -1536,20 +1535,6 @@ typedef enum {
   PG_CLOCK_KIND_REALTIME,
   // TODO: More?
 } PgClockKind;
-
-PG_RESULT(PgTimer) PgTimerResult;
-
-[[maybe_unused]] [[nodiscard]] static PgTimerResult
-pg_timer_create(PgClockKind clock);
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_timer_start(PgTimer timer, u64 initial_expiration_ns, u64 interval_ns);
-
-[[maybe_unused]] [[nodiscard]] static PgError pg_timer_stop(PgTimer timer);
-
-[[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(PgTimer timer);
-
-[[maybe_unused]] [[nodiscard]] static PgError pg_timer_flush(PgTimer timer);
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_time_ns_now(PgClockKind clock_kind);
@@ -2028,7 +2013,7 @@ pg_string_to_filename(PgString s) {
 [[nodiscard]] [[maybe_unused]] static u32
 pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl) {
   PG_ASSERT(rng);
-  PG_ASSERT(min_incl < max_incl);
+  PG_ASSERT(min_incl <= max_incl);
 
   uint64_t m = 0x9b60933458e17d7d;
   uint64_t a = 0xd737232eeccdf7ed;
@@ -2644,90 +2629,6 @@ pg_clock_to_linux(PgClockKind clock_kind) {
   default:
     PG_ASSERT(0);
   }
-}
-
-[[maybe_unused]] [[nodiscard]] static PgTimerResult
-pg_timer_create(PgClockKind clock) {
-  PgTimerResult res = {0};
-
-  int ret = 0;
-  do {
-    ret = timerfd_create(pg_clock_to_linux(clock), TFD_NONBLOCK);
-  } while (-1 == ret && EINTR == errno);
-
-  if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
-  }
-
-  res.res = (PgTimer)ret;
-  return res;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_timer_start(PgTimer timer, u64 initial_expiration_ns, u64 interval_ns) {
-  struct itimerspec ts = {0};
-  ts.it_value.tv_sec = initial_expiration_ns / PG_Seconds;
-  ts.it_value.tv_nsec = initial_expiration_ns % PG_Seconds;
-
-  ts.it_interval.tv_sec = interval_ns / PG_Seconds;
-  ts.it_interval.tv_nsec = interval_ns % PG_Seconds;
-
-  int ret = 0;
-  do {
-    ret = timerfd_settime((int)timer, 0, &ts, nullptr);
-  } while (-1 == ret && EINTR == errno);
-
-  if (-1 == ret) {
-    return (PgError)errno;
-  }
-
-  return 0;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgError pg_timer_stop(PgTimer timer) {
-  struct itimerspec ts = {0};
-
-  int ret = 0;
-  do {
-    ret = timerfd_settime((int)timer, 0, &ts, nullptr);
-  } while (-1 == ret && EINTR == errno);
-
-  if (-1 == ret) {
-    return (PgError)errno;
-  }
-
-  return 0;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgError pg_timer_release(PgTimer timer) {
-  int ret = 0;
-  do {
-    ret = close((int)timer);
-  } while (-1 == ret && EINTR == errno);
-
-  if (-1 == ret) {
-    return (PgError)errno;
-  }
-  return (PgError)0;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgError pg_timer_flush(PgTimer timer) {
-  i64 ret = 0;
-  u64 dummy = 0;
-  do {
-    ret = read((int)timer, &dummy, sizeof(dummy));
-  } while (-1 == ret && EINTR == errno);
-
-  if (-1 == ret) {
-    return (PgError)errno;
-  }
-
-  if (sizeof(dummy) != ret) {
-    return PG_ERR_AGAIN;
-  }
-
-  return (PgError)0;
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
@@ -4888,14 +4789,121 @@ struct PgEventLoopHandle {
 PG_DYN(PgEventLoopHandle) PgEventLoopHandleDyn;
 PG_SLICE(PgEventLoopHandle) PgEventLoopHandleSlice;
 
+typedef struct PgHeapNode {
+  struct PgHeapNode *left, *right, *parent;
+} PgHeapNode;
+
+typedef bool (*PgHeapLessThanFn)(PgHeapNode *a, PgHeapNode *b);
+
+typedef struct {
+  PgHeapNode *root;
+  u64 count;
+} PgHeap;
+
+typedef struct {
+  u64 value_ns;
+  u64 period;
+  PgEventLoopHandle *handle;
+  PgHeap *heap;
+} PgEventLoopTimer;
+
 struct PgEventLoop {
   PgEventLoopHandleDyn handles; // TODO: Smarter?
   PgAioQueue queue;
   PgArena arena;
   bool running;
+  PgEventLoopTimer *timer_root;
 };
 
 PG_RESULT(PgEventLoop) PgEventLoopResult;
+
+static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
+                              PgHeapNode *child) {
+  PG_ASSERT(parent);
+  PG_ASSERT(child);
+
+  // Fix the `parent` field of the grand-children nodes.
+  if (child->left) {
+    child->left->parent = parent;
+  }
+  if (parent->right) {
+    child->right->parent = parent;
+  }
+
+  // Fix the `parent` field of the sibling node.
+  PgHeapNode *sibling = (child == parent->left) ? parent->right : parent->left;
+  if (sibling) {
+    sibling->parent = child;
+  }
+
+  // Is the old parent the root node?
+  // Then the new parent (i.e. `child`) should now be the min-heap root.
+  if (nullptr == parent->parent) {
+    heap->root = child;
+  }
+
+  // Fix grand-parent left|right.
+  if (parent->parent && parent->parent->left == parent) {
+    // Parent is the left node of grand-parent.
+    parent->parent->left = child;
+  } else if (parent->parent && parent->parent->right == parent) {
+    // Parent is the right node of grand-parent.
+    parent->parent->right = child;
+  }
+
+  // Swap parent and child.
+  PgHeapNode tmp = *child;
+  parent->left = tmp.left;
+  parent->right = tmp.right;
+  parent->parent = child;
+  child->parent = parent->parent;
+
+  if (parent->left == child) {
+    child->left = parent;
+    child->right = parent->right;
+  } else {
+    child->left = parent->left;
+    child->right = parent;
+  }
+}
+
+[[maybe_unused]]
+static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
+                           PgHeapLessThanFn less_fn) {
+  PG_ASSERT(node);
+  PG_ASSERT(less_fn);
+
+  u64 path = 0;
+  u64 i = 0;
+  u64 n = 0;
+
+  for (i = 0, n = 1 + heap->count; n >= 2; i += 1, n /= 2) {
+    path = (path << 1) | (n & 1);
+  }
+
+  PgHeapNode **parent = &heap->root;
+  PgHeapNode **child = parent;
+
+  while (i > 0) {
+    parent = child;
+    if (path & 1) {
+      child = &(*child)->right;
+    } else {
+      child = &(*child)->left;
+    }
+    path >>= 1;
+    i -= 1;
+  }
+
+  *node = (PgHeapNode){0};
+  node->parent = *parent;
+  *child = node;
+  heap->count += 1;
+
+  while (node->parent && less_fn(node, node->parent)) {
+    pg_heap_node_swap(heap, node, node->parent);
+  }
+}
 
 [[nodiscard]] [[maybe_unused]]
 static PgEventLoopResult pg_event_loop_make_loop(PgArena arena) {
@@ -4937,11 +4945,9 @@ static PgEventLoopHandle pg_event_loop_make_tcp_handle(PgSocket socket,
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgEventLoopHandle pg_event_loop_make_timer_handle(PgTimer timer,
-                                                         void *ctx) {
+static PgEventLoopHandle pg_event_loop_make_timer_handle(void *ctx) {
   PgEventLoopHandle res = {0};
   res.kind = PG_EVENT_LOOP_HANDLE_KIND_TIMER;
-  res.os_handle = timer;
   res.ctx = ctx;
 
   return res;
@@ -5353,8 +5359,6 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
         if (handle->on_timer) {
           handle->on_timer(loop, handle->os_handle, handle->ctx);
         }
-        // TODO: Release the timer if it cannot be cleared?
-        (void)pg_timer_flush((PgTimer)handle->os_handle);
       }
     }
 
@@ -5488,41 +5492,14 @@ static PgError pg_event_loop_write(PgEventLoop *loop, PgOsHandle os_handle,
 }
 
 [[nodiscard]] [[maybe_unused]]
-static Pgu64Result
-pg_event_loop_timer_start(PgEventLoop *loop, PgClockKind clock,
-                          u64 initial_expiration_ns, u64 interval_ns, void *ctx,
-                          PgEventLoopOnTimer on_timer) {
-  Pgu64Result res = {0};
-
-  PgTimerResult res_timer = pg_timer_create(clock);
-  if (res_timer.err) {
-    res.err = res_timer.err;
-    return res;
-  }
-  PgEventLoopHandle handle =
-      pg_event_loop_make_timer_handle(res_timer.res, ctx);
+static Pgu64Result pg_event_loop_timer_start(PgEventLoop *loop,
+                                             u64 initial_expiration_ns,
+                                             u64 interval_ns, void *ctx,
+                                             PgEventLoopOnTimer on_timer) {
+  PgEventLoopHandle handle = pg_event_loop_make_timer_handle(ctx);
   handle.on_timer = on_timer;
 
-  res.err = pg_timer_start(res_timer.res, initial_expiration_ns, interval_ns);
-  if (res.err) {
-    return res;
-  }
-
   *PG_DYN_PUSH(&loop->handles, &loop->arena) = handle;
-
-  PgAioEvent event_change = {
-      .user_data = (u64)handle.os_handle,
-      .kind = PG_AIO_EVENT_KIND_IN,
-      .action = PG_AIO_EVENT_ACTION_ADD,
-  };
-  PgError err = pg_aio_queue_ctl_one(loop->queue, event_change, loop->arena);
-  if (err) {
-    res.err = err;
-    return res;
-  }
-
-  res.res = (u64)res_timer.res;
-  return res;
 }
 
 [[nodiscard]] [[maybe_unused]]
