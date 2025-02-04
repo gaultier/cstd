@@ -4975,6 +4975,16 @@ typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
   pg_heap_node_iter(node->right, iter_fn, depth + 1, false, ctx);
 }
 
+[[maybe_unused]] static void pg_heap_node_remove(PgHeap *heap, PgHeapNode *node,
+                                                 PgHeapLessThanFn less_than) {
+  PG_ASSERT(0 && "TODO");
+}
+
+[[maybe_unused]] static void pg_heap_dequeue(PgHeap *heap,
+                                             PgHeapLessThanFn less_than) {
+  pg_heap_node_remove(heap, heap->root, less_than);
+}
+
 [[nodiscard]] [[maybe_unused]]
 static PgEventLoopResult pg_event_loop_make_loop(PgArena arena) {
   PgEventLoopResult res = {0};
