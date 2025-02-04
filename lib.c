@@ -4977,6 +4977,14 @@ typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
 
 [[maybe_unused]] static void pg_heap_node_remove(PgHeap *heap, PgHeapNode *node,
                                                  PgHeapLessThanFn less_than) {
+  PG_ASSERT(heap);
+  if (0 == heap->count) {
+    return;
+  }
+
+  PG_ASSERT(node);
+  PG_ASSERT(less_than);
+
   PG_ASSERT(0 && "TODO");
 }
 
