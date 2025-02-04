@@ -4912,8 +4912,8 @@ static PgEventLoopHandle *pg_event_loop_find_handle(PgEventLoop *loop,
 }
 
 [[nodiscard]] [[maybe_unused]]
-static Pgu64Result pg_event_loop_tcp_init(PgEventLoop *loop, void *ctx) {
-  Pgu64Result res = {0};
+static PgOsHandleResult pg_event_loop_tcp_init(PgEventLoop *loop, void *ctx) {
+  PgOsHandleResult res = {0};
 
   PgSocketResult res_socket = pg_net_create_tcp_socket();
   if (res_socket.err) {
@@ -4932,7 +4932,7 @@ static Pgu64Result pg_event_loop_tcp_init(PgEventLoop *loop, void *ctx) {
   *PG_DYN_PUSH(&loop->handles, &loop->arena) =
       pg_event_loop_make_tcp_handle(res_socket.res, ctx);
 
-  res.res = (u64)res_socket.res;
+  res.res = res_socket.res;
   return res;
 }
 

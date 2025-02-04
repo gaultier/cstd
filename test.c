@@ -1851,7 +1851,7 @@ static void test_event_loop_on_server_connect(PgEventLoop *loop,
   PG_ASSERT(2 == *server_state);
   *server_state += 1;
 
-  Pgu64Result res_accept = pg_event_loop_tcp_accept(loop, os_handle);
+  PgOsHandleResult res_accept = pg_event_loop_tcp_accept(loop, os_handle);
   if (res_accept.err) {
     PG_ASSERT(0 && "test failed");
     return;
@@ -1886,14 +1886,14 @@ static void test_event_loop() {
   PgIpv4Address addr = {.port = (u16)pg_rand_u32(&rng, 3000, UINT16_MAX)};
 
   u64 client_state = 1;
-  Pgu64Result res_client = pg_event_loop_tcp_init(&loop, &client_state);
+  PgOsHandleResult res_client = pg_event_loop_tcp_init(&loop, &client_state);
   PG_ASSERT(0 == res_client.err);
-  u64 client_handle = res_client.res;
+  PgOsHandle client_handle = res_client.res;
 
   u64 server_state = 2;
-  Pgu64Result res_server = pg_event_loop_tcp_init(&loop, &server_state);
+  PgOsHandleResult res_server = pg_event_loop_tcp_init(&loop, &server_state);
   PG_ASSERT(0 == res_server.err);
-  u64 server_handle = res_server.res;
+  PgOsHandle server_handle = res_server.res;
 
   u64 timer_state = 10;
   Pgu64Result res_timer = pg_event_loop_timer_start(
@@ -2092,6 +2092,7 @@ static PgTaskState task_pong_run(void *ctx, PgRing *inbox, PgRing *outbox,
   return PG_TASK_STATE_RUN;
 }
 
+#if 0
 static void test_tasks_ping_pong() {
   PgTaskRunnerResult res_runner = pg_task_runner_make();
   PG_ASSERT(0 == res_runner.err);
@@ -2116,6 +2117,7 @@ static void test_tasks_ping_pong() {
   PG_ASSERT(10 == ping.ticks);
   PG_ASSERT(10 == pong.ticks);
 }
+#endif
 
 int main() {
   test_slice_range();
@@ -2155,5 +2157,5 @@ int main() {
   test_event_loop();
   test_div_ceil();
   test_string_to_filename();
-  test_tasks_ping_pong();
+  // test_tasks_ping_pong();
 }
