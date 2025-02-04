@@ -1584,8 +1584,12 @@ typedef struct {
   u64 state;
 } PgRng;
 
-[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(PgRng *rng, u32 min_incl,
-                                                      u32 max_excl);
+[[nodiscard]] [[maybe_unused]] static u32
+pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl);
+
+[[nodiscard]] [[maybe_unused]] static u32
+pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl);
+
 [[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s);
 
 [[nodiscard]] [[maybe_unused]] static PgRng pg_rand_make() {
@@ -2021,8 +2025,8 @@ pg_string_to_filename(PgString s) {
 
 // From https://nullprogram.com/blog/2017/09/21/.
 // PCG.
-[[nodiscard]] [[maybe_unused]] static u32 pg_rand_u32(PgRng *rng, u32 min_incl,
-                                                      u32 max_incl) {
+[[nodiscard]] [[maybe_unused]] static u32
+pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl) {
   PG_ASSERT(rng);
   PG_ASSERT(min_incl < max_incl);
 
@@ -2039,9 +2043,16 @@ pg_string_to_filename(PgString s) {
   return res;
 }
 
+[[nodiscard]] [[maybe_unused]] static u32
+pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl) {
+  PG_ASSERT(max_excl > 0);
+  return pg_rand_u32_min_incl_max_incl(rng, min_incl, max_excl - 1);
+}
+
 [[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s) {
   for (u64 i = 0; i < s.len; i++) {
-    *PG_C_ARRAY_AT_PTR(s.data, s.len, i) = (u8)pg_rand_u32(rng, 0, UINT8_MAX);
+    *PG_C_ARRAY_AT_PTR(s.data, s.len, i) =
+        (u8)pg_rand_u32_min_incl_max_incl(rng, 0, UINT8_MAX);
   }
 }
 
