@@ -1798,27 +1798,26 @@ static void test_many_timers() {
   PG_ASSERT(many_timers_count * 2 == timer_state);
 }
 
-#if 0
 static void test_event_loop_on_client_write(PgEventLoopHandle *handle,
-                                            void *ctx, PgError err) {
+                                            PgError err) {
   PG_ASSERT(handle);
-  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(handle->ctx);
   PG_ASSERT(0 == err);
 
-  u64 *client_state = (u64 *)ctx;
+  u64 *client_state = (u64 *)handle->ctx;
   PG_ASSERT(3 == *client_state);
   *client_state += 1;
 
   pg_event_loop_handle_close(handle);
 }
 
-static void test_event_loop_on_server_read(PgEventLoopHandle *handle, void *ctx,
+static void test_event_loop_on_server_read(PgEventLoopHandle *handle,
                                            PgError err, PgString data) {
   PG_ASSERT(handle);
-  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(nullptr != handle->ctx);
   PG_ASSERT(0 == err);
 
-  u64 *server_state = (u64 *)ctx;
+  u64 *server_state = (u64 *)handle->ctx;
   PG_ASSERT(4 == *server_state);
   *server_state += 1;
 
@@ -1828,13 +1827,13 @@ static void test_event_loop_on_server_read(PgEventLoopHandle *handle, void *ctx,
   pg_event_loop_handle_close(handle);
 }
 
-static void test_event_loop_on_client_read(PgEventLoopHandle *handle, void *ctx,
+static void test_event_loop_on_client_read(PgEventLoopHandle *handle,
                                            PgError err, PgString data) {
   PG_ASSERT(handle);
-  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(nullptr != handle->ctx);
   PG_ASSERT(0 == err);
 
-  u64 *client_state = (u64 *)ctx;
+  u64 *client_state = (u64 *)handle->ctx;
   PG_ASSERT(2 == *client_state);
   *client_state += 1;
 
@@ -1848,12 +1847,12 @@ static void test_event_loop_on_client_read(PgEventLoopHandle *handle, void *ctx,
 }
 
 static void test_event_loop_on_server_write(PgEventLoopHandle *handle,
-                                            void *ctx, PgError err) {
+                                            PgError err) {
   PG_ASSERT(handle);
-  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(nullptr != handle->ctx);
   PG_ASSERT(0 == err);
 
-  u64 *server_state = (u64 *)ctx;
+  u64 *server_state = (u64 *)handle->ctx;
   PG_ASSERT(3 == *server_state);
   *server_state += 1;
 
@@ -1863,12 +1862,12 @@ static void test_event_loop_on_server_write(PgEventLoopHandle *handle,
 
 [[maybe_unused]]
 static void test_event_loop_on_client_connect(PgEventLoopHandle *handle,
-                                              void *ctx, PgError err) {
+                                              PgError err) {
   PG_ASSERT(handle);
-  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(nullptr != handle->ctx);
   PG_ASSERT(0 == err);
 
-  u64 *client_state = (u64 *)ctx;
+  u64 *client_state = (u64 *)handle->ctx;
   PG_ASSERT(1 == *client_state);
   *client_state += 1;
 
@@ -1878,12 +1877,12 @@ static void test_event_loop_on_client_connect(PgEventLoopHandle *handle,
 
 [[maybe_unused]]
 static void test_event_loop_on_server_connect(PgEventLoopHandle *server,
-                                              void *ctx, PgError err) {
+                                              PgError err) {
   PG_ASSERT(server);
-  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(nullptr != server->ctx);
   PG_ASSERT(0 == err);
 
-  u64 *server_state = (u64 *)ctx;
+  u64 *server_state = (u64 *)server->ctx;
   PG_ASSERT(2 == *server_state);
   *server_state += 1;
 
@@ -1895,67 +1894,63 @@ static void test_event_loop_on_server_connect(PgEventLoopHandle *server,
 }
 
 [[maybe_unused]]
-static void test_event_loop_on_timer(PgEventLoopHandle *handle, void *ctx) {
+static void test_event_loop_on_timer(PgEventLoopHandle *handle) {
   PG_ASSERT(handle);
-  PG_ASSERT(nullptr != ctx);
+  PG_ASSERT(nullptr != handle->ctx);
 
-  u64 *timer_state = (u64 *)ctx;
+  u64 *timer_state = (u64 *)handle->ctx;
   *timer_state += 1;
 
   if (15 == *timer_state) {
-    pg_event_loop_timer_stop(handle);
+    // Stop the loop to finish the test.
+    pg_event_loop_stop(handle->loop);
   }
 }
-#endif
 
-#if 0
 static void test_event_loop() {
-  PgEventLoopResult res_loop =
-      pg_event_loop_make_loop(pg_arena_make_from_virtual_mem(256 * PG_KiB));
-  PG_ASSERT(0 == res_loop.err);
-  PgEventLoop loop = res_loop.res;
+  PgEventLoop loop = {0};
+  pg_event_loop_init(&loop);
 
   PgRng rng = pg_rand_make();
   PgIpv4Address addr = {
       .port = (u16)pg_rand_u32_min_incl_max_incl(&rng, 3000, UINT16_MAX)};
 
   u64 client_state = 1;
-  PgOsHandleResult res_client = pg_event_loop_tcp_init(&loop, &client_state);
-  PG_ASSERT(0 == res_client.err);
-  PgOsHandle client_handle = res_client.res;
+  PgEventLoopHandle client_handle = {0};
+  PG_ASSERT(0 == pg_event_loop_tcp_init(&loop, &client_handle));
+  client_handle.ctx = &client_state;
 
   u64 server_state = 2;
-  PgOsHandleResult res_server = pg_event_loop_tcp_init(&loop, &server_state);
-  PG_ASSERT(0 == res_server.err);
-  PgOsHandle server_handle = res_server.res;
+  PgEventLoopHandle server_handle = {0};
+  PG_ASSERT(0 == pg_event_loop_tcp_init(&loop, &server_handle));
+  server_handle.ctx = &server_state;
 
   u64 timer_state = 10;
-  Pgu64Result res_timer = pg_event_loop_timer_start(
-      &loop, PG_CLOCK_KIND_MONOTONIC, 2 * PG_Nanoseconds, 1 * PG_Nanoseconds,
-      &timer_state, test_event_loop_on_timer);
-  PG_ASSERT(0 == res_timer.err);
+  PgEventLoopHandle timer = {0};
+  pg_event_loop_timer_init(&loop, &timer);
+  timer.ctx = &timer_state;
+
+  pg_event_loop_timer_start(&timer, 2 * PG_Nanoseconds, 1 * PG_Nanoseconds,
+                            test_event_loop_on_timer);
 
   {
-    PG_ASSERT(0 == pg_event_loop_tcp_bind(&loop, server_handle, addr));
-    PG_ASSERT(0 == pg_event_loop_tcp_listen(&loop, server_handle, 1,
+    PG_ASSERT(0 == pg_event_loop_tcp_bind(&server_handle, addr));
+    PG_ASSERT(0 == pg_event_loop_tcp_listen(&server_handle, 1,
                                             test_event_loop_on_server_connect));
   }
 
   {
     PG_ASSERT(0 ==
-              pg_event_loop_tcp_connect(&loop, client_handle, addr,
+              pg_event_loop_tcp_connect(&client_handle, addr,
                                         test_event_loop_on_client_connect));
   }
 
-  PG_ASSERT(0 == pg_event_loop_run(&loop, -1));
+  PG_ASSERT(0 == pg_event_loop_run(&loop));
 
   PG_ASSERT(4 == client_state);
   PG_ASSERT(5 == server_state);
   PG_ASSERT(15 == timer_state);
-
-  PG_ASSERT(0 == pg_timer_release((PgTimer)res_timer.res));
 }
-#endif
 
 static void test_div_ceil() {
   PG_ASSERT(1 == pg_div_ceil(1, 1));
@@ -2121,7 +2116,7 @@ int main() {
   test_timer();
   test_many_timers();
   test_log();
-  // test_event_loop();
+  test_event_loop();
   test_div_ceil();
   test_string_to_filename();
   test_heap_insert_dequeue();

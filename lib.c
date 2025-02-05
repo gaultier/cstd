@@ -4799,22 +4799,20 @@ typedef enum : u8 {
 typedef struct PgEventLoop PgEventLoop;
 typedef struct PgEventLoopHandle PgEventLoopHandle;
 
-typedef void (*PgEventLoopOnTcpConnect)(PgEventLoopHandle *handle, void *ctx,
-                                        PgError err);
+typedef void (*PgEventLoopOnTcpConnect)(PgEventLoopHandle *handle, PgError err);
 
 typedef void (*PgEventLoopOnClose)(PgEventLoopHandle *handle);
 
 typedef void (*PgEventLoopOnRead)(PgEventLoopHandle *handle,
 
-                                  void *ctx, PgError err, PgString data);
+                                  PgError err, PgString data);
 
-typedef void (*PgEventLoopOnWrite)(PgEventLoopHandle *handle, void *ctx,
-                                   PgError err);
+typedef void (*PgEventLoopOnWrite)(PgEventLoopHandle *handle, PgError err);
 
 typedef void (*PgEventLoopOnTimer)(PgEventLoopHandle *handle);
 
-typedef void (*PgEventLoopOnDnsResolve)(PgEventLoopHandle *handle, void *ctx,
-                                        PgError err, PgIpv4Address address);
+typedef void (*PgEventLoopOnDnsResolve)(PgEventLoopHandle *handle, PgError err,
+                                        PgIpv4Address address);
 
 typedef enum : u8 {
   PG_EVENT_LOOP_HANDLE_STATE_NONE,
@@ -5652,7 +5650,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
           PG_ASSERT(0 == pg_aio_queue_ctl_one(loop->os_poll_queue, event_change,
                                               loop->arena));
         }
-        handle->on_connect(handle, handle->ctx, err_event_watch);
+        handle->on_connect(handle, err_event_watch);
       }
 
       // Socket listen.
@@ -5660,7 +5658,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
           (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
           (PG_EVENT_LOOP_HANDLE_STATE_LISTENING == handle->state) &&
           handle->on_connect) {
-        handle->on_connect(handle, handle->ctx, err_event_watch);
+        handle->on_connect(handle, err_event_watch);
       }
 
       // Socket read.
@@ -5685,7 +5683,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
           res_read.err = 0;
         }
         if (handle->on_read) {
-          handle->on_read(handle, handle->ctx, res_read.err, data);
+          handle->on_read(handle, res_read.err, data);
         }
       }
     }
@@ -5777,14 +5775,14 @@ static void pg_event_loop_try_write(PgEventLoopHandle *handle, PgString data,
       handle->writer.write_fn(&handle->writer, data.data, data.len);
   if (res.err) {
     if (on_write) {
-      on_write(handle, handle->ctx, res.err);
+      on_write(handle, res.err);
     }
     return;
   }
 
   if (res.res == data.len) { // Full write
     if (on_write) {
-      on_write(handle, handle->ctx, 0);
+      on_write(handle, 0);
     }
     return;
   }
@@ -5810,7 +5808,7 @@ static PgError pg_event_loop_write(PgEventLoopHandle *handle, PgString data,
 [[nodiscard]] [[maybe_unused]]
 static PgError pg_event_loop_dns_resolve_ipv4_tcp_start(
     PgEventLoop *loop, PgEventLoopHandle *handle, PgString host, u16 port,
-    PgEventLoopOnDnsResolve on_dns_resolve, void *ctx) {
+    PgEventLoopOnDnsResolve on_dns_resolve) {
   // TODO: Run in a thread (pool).
 
   PgDnsResolveIpv4AddressSocketResult res_dns =
@@ -5829,7 +5827,7 @@ static PgError pg_event_loop_dns_resolve_ipv4_tcp_start(
   handle->loop->handles_active_count += 1;
 
   if (on_dns_resolve) {
-    on_dns_resolve(handle, ctx, res_dns.err, res_dns.res.address);
+    on_dns_resolve(handle, res_dns.err, res_dns.res.address);
   }
 
   return 0;
