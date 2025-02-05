@@ -1986,7 +1986,7 @@ static bool u64_node_print(PgHeapNode *node, u64 depth, bool left, void *ctx) {
   return true;
 }
 
-static void test_heap() {
+static void test_heap_insert_dequeue() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   PgHeap heap = {0};
@@ -2032,6 +2032,32 @@ static void test_heap() {
   PG_ASSERT(!heap.root);
 }
 
+static void test_heap_remove_in_the_middle() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+
+  PgHeap heap = {0};
+  u64 values[] = {100, 19, 36, 17, 3, 25, 1, 2, 7};
+
+  for (u64 i = 0; i < PG_STATIC_ARRAY_LEN(values); i++) {
+    u64 value = PG_C_ARRAY_AT(values, PG_STATIC_ARRAY_LEN(values), i);
+    u64Node *node = pg_arena_new(&arena, u64Node, 1);
+    node->value = value;
+
+    pg_heap_insert(&heap, &node->heap, u64_node_less_than);
+    pg_heap_node_sanity_check(heap.root, u64_node_less_than);
+  }
+  PG_ASSERT(PG_STATIC_ARRAY_LEN(values) == heap.count);
+
+  PgHeapNode *rm = heap.root->left->right;
+  PG_ASSERT(19 == PG_CONTAINER_OF(rm, u64Node, heap)->value);
+
+  pg_heap_node_remove(&heap, rm, u64_node_less_than);
+  pg_heap_node_sanity_check(heap.root, u64_node_less_than);
+
+  PG_ASSERT(PG_STATIC_ARRAY_LEN(values) - 1 == heap.count);
+  PG_ASSERT(heap.root);
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_string();
@@ -2070,5 +2096,6 @@ int main() {
   // test_event_loop();
   test_div_ceil();
   test_string_to_filename();
-  test_heap();
+  test_heap_insert_dequeue();
+  test_heap_remove_in_the_middle();
 }
