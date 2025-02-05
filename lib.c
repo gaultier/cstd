@@ -5057,6 +5057,30 @@ typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
   }
 
   // Replace the node to be deleted with the max node.
+  {
+    child->left = node->left;
+    child->right = node->right;
+    child->parent = node->parent;
+
+    // Fix-up the `parent` field of children.
+    if (child->left) {
+      child->left->parent = child;
+    }
+    if (child->right) {
+      child->right->parent = child;
+    }
+
+    // Fix the `left|right` fields of the parent.
+    if (!node->parent) { // We are removing the root.
+      heap->root = child;
+    } else if (node->parent->left ==
+               node) { // Node is the left child of its parent.
+      node->parent->left = child;
+    } else if (node->parent->right ==
+               node) { // Node is the right child of its parent.
+      node->parent->right = child;
+    }
+  }
 
   PG_ASSERT(0 && "TODO");
 }
