@@ -1754,6 +1754,50 @@ static void test_timer() {
   PG_ASSERT(3 == loop.loop_ticks);
 }
 
+static const u64 many_timers_count = 100'000;
+
+static void many_timers_on_trigger(PgEventLoopHandle *timer) {
+  PG_ASSERT(timer);
+  PG_ASSERT(timer->loop);
+  PG_ASSERT(PG_EVENT_LOOP_HANDLE_KIND_TIMER == timer->kind);
+  PG_ASSERT(timer->ctx);
+
+  u64 *state = (u64 *)timer->ctx;
+  if (*state == many_timers_count * 2) {
+    pg_event_loop_timer_stop(timer);
+    return;
+  }
+
+  *state += 1;
+}
+
+static void test_many_timers() {
+  PgEventLoop loop = {0};
+  pg_event_loop_init(&loop);
+
+  PgEventLoopHandle *timers =
+      calloc(many_timers_count, sizeof(PgEventLoopHandle));
+
+  u64 timer_state = 0;
+
+  PgRng rng = pg_rand_make();
+  u64 max_timeout_ms = 20;
+
+  for (u64 i = 0; i < many_timers_count; i++) {
+    PgEventLoopHandle *timer = PG_C_ARRAY_AT_PTR(timers, many_timers_count, i);
+    pg_event_loop_timer_init(&loop, timer);
+    timer->ctx = &timer_state;
+    u64 timeout_ms =
+        pg_rand_u32_min_incl_max_incl(&rng, 0, (u32)max_timeout_ms);
+    pg_event_loop_timer_start(timer, timeout_ms, 1, many_timers_on_trigger);
+  }
+
+  PG_ASSERT(0 == pg_event_loop_run(&loop));
+
+  PG_ASSERT(loop.loop_ticks <= max_timeout_ms);
+  PG_ASSERT(many_timers_count * 2 == timer_state);
+}
+
 #if 0
 static void test_event_loop_on_client_write(PgEventLoopHandle *handle,
                                             void *ctx, PgError err) {
@@ -2075,6 +2119,7 @@ int main() {
   test_http_read_response();
   // test_http_request_response();
   test_timer();
+  test_many_timers();
   test_log();
   // test_event_loop();
   test_div_ceil();
