@@ -5484,17 +5484,17 @@ static Pgu64Ok pg_event_loop_get_io_poll_timeout_ms(PgEventLoop *loop) {
     return res;
   }
 
+  res.ok = true;
+
   u64 timeout_ns =
       PG_CONTAINER_OF(min, PgEventLoopHandle, heap_node)->timeout_ns;
-
-  res.ok = true;
 
   if (timeout_ns < loop->now_ns) {
     res.res = 0;
     return res;
   }
 
-  u64 diff_ns = res.res - loop->now_ns;
+  u64 diff_ns = timeout_ns - loop->now_ns;
   res.res = diff_ns / 1'000'000;
   return res;
 }
@@ -5595,20 +5595,29 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
       .len = PG_STATIC_ARRAY_LEN(events_watch_ptr),
   };
 
+  Pgu64Result res_now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
+  if (res_now.err) {
+    return res_now.err;
+  }
+  loop->now_ns = res_now.res;
+
   while (loop->running && loop->handles_active_count > 0) {
-    Pgu64Result res_now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
-    if (res_now.err) {
-      return res_now.err;
-    }
-    loop->now_ns = res_now.res;
 
     Pgu64Ok poll_timeout_ms = pg_event_loop_get_io_poll_timeout_ms(loop);
+    fprintf(stderr, "[D002] %lu %d %lu\n", poll_timeout_ms.res,
+            poll_timeout_ms.ok, loop->handles_active_count);
 
     Pgu64Result res_wait = pg_aio_queue_wait(loop->os_poll_queue, events_watch,
                                              poll_timeout_ms, loop->arena);
     if (res_wait.err) {
       return res_wait.err;
     }
+
+    res_now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
+    if (res_now.err) {
+      return res_now.err;
+    }
+    loop->now_ns = res_now.res;
 
     for (u64 i = 0; i < res_wait.res; i++) {
       PgAioEvent event_watch = PG_SLICE_AT(events_watch, i);
