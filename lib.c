@@ -4882,8 +4882,7 @@ static PgError pg_event_loop_init(PgEventLoop *loop) {
     return res_queue.err;
   }
   loop->os_poll_queue = res_queue.res;
-
-  // TODO: arena?
+  loop->arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
   return 0;
 }
@@ -5436,13 +5435,24 @@ static Pgu64Ok pg_event_loop_get_poll_timeout(PgEventLoop *loop) {
   return res;
 }
 
-static void pg_event_loop_timer_start(PgEventLoop *loop,
-                                      PgEventLoopHandle *handle,
+[[maybe_unused]]
+static void pg_event_loop_timer_init(PgEventLoop *loop,
+                                     PgEventLoopHandle *handle) {
+  PG_ASSERT(loop);
+  PG_ASSERT(handle);
+
+  handle->loop = loop;
+  handle->kind = PG_EVENT_LOOP_HANDLE_KIND_TIMER;
+}
+
+static void pg_event_loop_timer_start(PgEventLoopHandle *handle,
                                       u64 initial_expiration_ns,
                                       u64 interval_ns,
                                       PgEventLoopOnTimer on_timer) {
-  handle->loop = loop;
-  handle->kind = PG_EVENT_LOOP_HANDLE_KIND_TIMER;
+  PG_ASSERT(handle);
+  PG_ASSERT(handle->loop);
+  PG_ASSERT(PG_EVENT_LOOP_HANDLE_KIND_TIMER == handle->kind);
+
   handle->on_timer = on_timer;
   handle->timeout_ns = initial_expiration_ns;
   handle->interval_ns = interval_ns;
@@ -5476,7 +5486,7 @@ static void pg_event_loop_run_timers(PgEventLoop *loop) {
     }
 
     if (handle->interval_ns) {
-      pg_event_loop_timer_start(loop, handle, handle->interval_ns,
+      pg_event_loop_timer_start(handle, handle->interval_ns,
                                 handle->interval_ns, handle->on_timer);
     }
   }
