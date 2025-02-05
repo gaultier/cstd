@@ -4906,9 +4906,15 @@ static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
   PG_ASSERT(node);
   PG_ASSERT(less_than);
 
+  //  1. Add the element to the bottom level of the heap at the leftmost open
+  //  space.
+  //  2. Compare the added element with its parent; if they are in the correct
+  //  order, stop.
+  //  3. If not, swap the element with its parent and return to the previous
+  //  step.
+
   u64 path = 0;
   u64 path_len = 0;
-
   pg_heap_compute_path_from_min_to_max(heap->count + 1, &path, &path_len);
 
   PgHeapNode **parent = &heap->root;
@@ -4993,6 +4999,64 @@ typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
 
   PG_ASSERT(node);
   PG_ASSERT(less_than);
+
+  //    Deleting the root:
+  //    1. Replace the root of the heap with the last element on the last level.
+  //    2. Compare the new root with its children; if they are in the correct
+  //    order, stop.
+  //    3. If not, swap the element with one of its children and
+  //    return to the previous step. (Swap with its smaller child in a min-heap
+  //    and its larger child in a max-heap.)
+  //
+  // Deleting an arbitrary element can be done as follows:
+  //
+  //     1. Swap the element we want to delete with the last element. Remove the
+  //     last element after the swap.
+  //     2. Down-heapify or up-heapify to restore the heap property. In a
+  //     min-heap, up-heapify is only required when the new key of
+  //     element i is smaller than the previous one
+  //     because only the heap-property of the parent element might be violated.
+  //     Assuming that the heap-property was valid between element i
+  //     and its children before the element swap, it can't be
+  //     violated by a now smaller key value. When the new key is
+  //     greater than the previous one then only a down-heapify is required
+  //     because the heap-property might only be violated in the child elements.
+
+  u64 path = 0;
+  u64 path_len = 0;
+  pg_heap_compute_path_from_min_to_max(heap->count, &path, &path_len);
+
+  PgHeapNode **max = &heap->root;
+
+  while (path_len > 0) {
+    // TODO: Could use a (2 entries) lookup table, or a simple pointer offset
+    // math, to make it branchless.
+    if (path & 1) {
+      max = &(*max)->right;
+    } else {
+      max = &(*max)->left;
+    }
+    path >>= 1;
+    path_len -= 1;
+  }
+
+  heap->count -= 1;
+
+  // Unlink the max node.
+  PgHeapNode *child = *max;
+  *max = nullptr;
+
+  // Removing either the max node or the last node in the tree?
+  if (child == node) {
+    if (child == heap->root) {
+      PG_ASSERT(0 == heap->count);
+      heap->root = nullptr;
+    }
+    // Nothing else to do.
+    return;
+  }
+
+  // Replace the node to be deleted with the max node.
 
   PG_ASSERT(0 && "TODO");
 }
