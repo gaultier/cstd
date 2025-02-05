@@ -5005,6 +5005,8 @@ typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
     return;
   }
 
+  PG_ASSERT(heap->root);
+  PG_ASSERT(nullptr == heap->root->parent);
   PG_ASSERT(node);
   PG_ASSERT(less_than);
 
