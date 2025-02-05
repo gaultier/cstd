@@ -190,6 +190,16 @@ static void pg_queue_init(PgQueue *queue) {
   queue->prev = queue;
 }
 
+[[nodiscard]]
+static bool pg_queue_is_empty(PgQueue *queue) {
+  bool is_empty = queue->next == queue;
+  if (is_empty) {
+    PG_ASSERT(queue->prev == queue);
+  }
+
+  return is_empty;
+}
+
 static void pg_queue_insert_tail(PgQueue *queue, PgQueue *elem) {
   PG_ASSERT(queue);
   PG_ASSERT(elem);
@@ -4817,6 +4827,7 @@ typedef enum : u8 {
   PG_EVENT_LOOP_HANDLE_FLAGS_NONE = 0,
   PG_EVENT_LOOP_HANDLE_FLAGS_CLOSING = 1,
   PG_EVENT_LOOP_HANDLE_FLAGS_CLOSED = 2,
+  PG_EVENT_LOOP_HANDLE_FLAGS_ACTIVE = 4,
 } PgEventLoopHandleFlags;
 
 struct PgEventLoop {
@@ -5395,6 +5406,24 @@ static void pg_event_loop_handle_close(PgEventLoopHandle *handle) {
   handle->loop->handles_active_count -= 1;
 }
 
+[[nodiscard]]
+static bool pg_event_loop_handle_is_active(PgEventLoopHandle *handle) {
+  return handle->flags & PG_EVENT_LOOP_HANDLE_FLAGS_ACTIVE;
+}
+
+static void pg_event_loop_handle_stop(PgEventLoopHandle *handle) {
+  handle->flags = handle->flags & ~PG_EVENT_LOOP_HANDLE_FLAGS_ACTIVE;
+
+  PG_ASSERT(handle->loop->handles_active_count > 0);
+  handle->loop->handles_active_count -= 1;
+}
+
+[[maybe_unused]]
+static void pg_event_loop_handle_start(PgEventLoopHandle *handle) {
+  handle->flags |= PG_EVENT_LOOP_HANDLE_FLAGS_ACTIVE;
+  handle->loop->handles_active_count += 1;
+}
+
 [[maybe_unused]]
 static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
   PgEventLoopHandle *it = loop->handles_closing;
@@ -5429,9 +5458,15 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
 
 static void pg_event_loop_timer_stop(PgEventLoopHandle *handle) {
 
-  pg_heap_node_remove(&handle->loop->timers, &handle->heap_node,
-                      pg_event_loop_timer_less_than);
-  pg_event_loop_handle_close(handle);
+  if (pg_event_loop_handle_is_active(handle)) {
+    pg_heap_node_remove(&handle->loop->timers, &handle->heap_node,
+                        pg_event_loop_timer_less_than);
+    pg_event_loop_handle_stop(handle);
+  } else {
+    pg_queue_remove(&handle->handle_queue);
+  }
+
+  pg_queue_init(&handle->handle_queue);
 }
 
 [[maybe_unused]]
@@ -5480,7 +5515,6 @@ static void pg_event_loop_timer_init(PgEventLoop *loop,
   pg_queue_init(&handle->handle_queue);
 
   pg_queue_insert_tail(&handle->loop->handles_active, &handle->handle_queue);
-  handle->loop->handles_active_count += 1;
 }
 
 static void pg_event_loop_timer_start(PgEventLoopHandle *handle,
@@ -5494,12 +5528,15 @@ static void pg_event_loop_timer_start(PgEventLoopHandle *handle,
   handle->on_timer = on_timer;
   handle->timeout_ns = handle->loop->now_ns + initial_expiration_ns;
   handle->interval_ns = interval_ns;
-  handle->flags = handle->flags & ~PG_EVENT_LOOP_HANDLE_FLAGS_CLOSING;
   pg_heap_insert(&handle->loop->timers, &handle->heap_node,
                  pg_event_loop_timer_less_than);
+  pg_event_loop_handle_start(handle);
 }
 
 static void pg_event_loop_run_timers(PgEventLoop *loop) {
+  PgQueue ready_queue = {0};
+  pg_queue_init(&ready_queue);
+
   for (;;) {
     PgHeapNode *min = loop->timers.root;
 
@@ -5510,6 +5547,8 @@ static void pg_event_loop_run_timers(PgEventLoop *loop) {
 
     PgEventLoopHandle *handle =
         PG_CONTAINER_OF(min, PgEventLoopHandle, heap_node);
+    PG_ASSERT(PG_EVENT_LOOP_HANDLE_KIND_TIMER == handle->kind);
+
     // Remaining timers are not expired yet, stop.
     if (handle->timeout_ns > loop->now_ns) {
       break;
@@ -5517,14 +5556,25 @@ static void pg_event_loop_run_timers(PgEventLoop *loop) {
 
     // Only expired timers past this point.
     pg_event_loop_timer_stop(handle);
+    pg_queue_insert_tail(&ready_queue, &handle->handle_queue);
+  }
 
-    if (handle->on_timer) {
-      handle->on_timer(handle);
-    }
+  while (!pg_queue_is_empty(&ready_queue)) {
+    PgQueue *head = ready_queue.next;
+    pg_queue_remove(head);
+    pg_queue_init(head);
+
+    PgEventLoopHandle *handle =
+        PG_CONTAINER_OF(head, PgEventLoopHandle, handle_queue);
+    PG_ASSERT(PG_EVENT_LOOP_HANDLE_KIND_TIMER == handle->kind);
 
     if (handle->interval_ns) {
       pg_event_loop_timer_start(handle, handle->interval_ns,
                                 handle->interval_ns, handle->on_timer);
+    }
+
+    if (handle->on_timer) {
+      handle->on_timer(handle);
     }
   }
 }
@@ -5549,10 +5599,10 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
     }
     loop->now_ns = res_now.res;
 
-    Pgu64Ok poll_timeout = pg_event_loop_get_io_poll_timeout_ms(loop);
+    Pgu64Ok poll_timeout_ms = pg_event_loop_get_io_poll_timeout_ms(loop);
 
     Pgu64Result res_wait = pg_aio_queue_wait(loop->os_poll_queue, events_watch,
-                                             poll_timeout, loop->arena);
+                                             poll_timeout_ms, loop->arena);
     if (res_wait.err) {
       return res_wait.err;
     }
