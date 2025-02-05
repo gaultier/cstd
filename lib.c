@@ -4811,8 +4811,13 @@ typedef enum : u8 {
   PG_EVENT_LOOP_HANDLE_STATE_CONNECTING,
   PG_EVENT_LOOP_HANDLE_STATE_CONNECTED,
   PG_EVENT_LOOP_HANDLE_STATE_LISTENING,
-  PG_EVENT_LOOP_HANDLE_STATE_CLOSING,
 } PgEventLoopHandleState;
+
+typedef enum : u8 {
+  PG_EVENT_LOOP_HANDLE_FLAGS_NONE = 0,
+  PG_EVENT_LOOP_HANDLE_FLAGS_CLOSING = 1,
+  PG_EVENT_LOOP_HANDLE_FLAGS_CLOSED = 2,
+} PgEventLoopHandleFlags;
 
 struct PgEventLoop {
   PgQueue handles_active;
@@ -4833,6 +4838,7 @@ struct PgEventLoopHandle {
   PgAioEventKind event_kind;
   PgAioEventAction event_action;
   PgOsHandle os_handle;
+  u8 flags;
 
   PgRing ring_read;
 
@@ -5379,7 +5385,7 @@ static PgError pg_event_loop_tcp_accept(PgEventLoopHandle *server,
 
 [[maybe_unused]]
 static void pg_event_loop_handle_close(PgEventLoopHandle *handle) {
-  handle->state = PG_EVENT_LOOP_HANDLE_STATE_CLOSING;
+  handle->flags |= PG_EVENT_LOOP_HANDLE_FLAGS_CLOSING;
   pg_queue_remove(&handle->handle_queue);
 
   handle->next_closing = handle->loop->handles_closing;
@@ -5394,7 +5400,10 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
   PgEventLoopHandle *it = loop->handles_closing;
   loop->handles_closing = nullptr;
 
-  while (it->next_closing) {
+  while (it) {
+    PG_ASSERT(it->flags & PG_EVENT_LOOP_HANDLE_FLAGS_CLOSING);
+    it->flags |= PG_EVENT_LOOP_HANDLE_FLAGS_CLOSED;
+
     switch (it->kind) {
     case PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET: {
       (void)pg_net_socket_close((PgSocket)it->os_handle);
@@ -5422,7 +5431,7 @@ static void pg_event_loop_timer_stop(PgEventLoopHandle *handle) {
 
   pg_heap_node_remove(&handle->loop->timers, &handle->heap_node,
                       pg_event_loop_timer_less_than);
-  handle->state = PG_EVENT_LOOP_HANDLE_STATE_CLOSING;
+  pg_event_loop_handle_close(handle);
 }
 
 [[maybe_unused]]
@@ -5455,6 +5464,11 @@ static Pgu64Ok pg_event_loop_get_io_poll_timeout_ms(PgEventLoop *loop) {
   return res;
 }
 
+[[nodiscard]]
+static bool pg_event_loop_handle_is_closing(PgEventLoopHandle *handle) {
+  return handle->flags & PG_EVENT_LOOP_HANDLE_FLAGS_CLOSING;
+}
+
 [[maybe_unused]]
 static void pg_event_loop_timer_init(PgEventLoop *loop,
                                      PgEventLoopHandle *handle) {
@@ -5480,6 +5494,7 @@ static void pg_event_loop_timer_start(PgEventLoopHandle *handle,
   handle->on_timer = on_timer;
   handle->timeout_ns = handle->loop->now_ns + initial_expiration_ns;
   handle->interval_ns = interval_ns;
+  handle->flags = handle->flags & ~PG_EVENT_LOOP_HANDLE_FLAGS_CLOSING;
   pg_heap_insert(&handle->loop->timers, &handle->heap_node,
                  pg_event_loop_timer_less_than);
 }
@@ -5564,7 +5579,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
         pg_aio_event_remove_interest(&handle->event_kind, PG_AIO_EVENT_KIND_OUT,
                                      &handle->event_action);
 
-        if (PG_EVENT_LOOP_HANDLE_STATE_CLOSING != handle->state) {
+        if (!pg_event_loop_handle_is_closing(handle)) {
           PgAioEvent event_change = {
               .user_data = (u64)handle,
               .kind = handle->event_kind,
@@ -5625,7 +5640,7 @@ static PgError pg_event_loop_read_start(PgEventLoopHandle *handle,
   }
   if (PG_EVENT_LOOP_HANDLE_STATE_NONE == handle->state ||
       PG_EVENT_LOOP_HANDLE_STATE_CONNECTING == handle->state ||
-      PG_EVENT_LOOP_HANDLE_STATE_CLOSING == handle->state) {
+      pg_event_loop_handle_is_closing(handle)) {
     return PG_ERR_INVALID_VALUE;
   }
 
