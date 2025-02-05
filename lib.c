@@ -1680,7 +1680,7 @@ pg_aio_queue_ctl_one(PgAioQueue queue, PgAioEvent event, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
+pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, Pgu64Ok timeout_ms,
                   PgArena arena);
 
 #if 0
@@ -2608,7 +2608,7 @@ pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
+pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, Pgu64Ok timeout_ms,
                   PgArena arena) {
   Pgu64Result res = {0};
   if (PG_SLICE_IS_EMPTY(events)) {
@@ -2619,9 +2619,11 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
       pg_arena_new(&arena, struct epoll_event, events.len);
 
   int res_epoll = 0;
+  // `-1` means 'no timeout' for epoll.
+  i32 epoll_timeout_ms = timeout_ms.ok ? (i32)timeout_ms.res : -1;
   do {
     res_epoll =
-        epoll_wait((int)queue, epoll_events, (int)events.len, (int)timeout_ms);
+        epoll_wait((int)queue, epoll_events, (int)events.len, epoll_timeout_ms);
   } while (-1 == res_epoll && EINTR == errno);
 
   if (-1 == res_epoll) {
@@ -2735,7 +2737,7 @@ pg_aio_queue_ctl(PgAioQueue queue, PgAioEventSlice events, PgArena arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
+pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, Pgu64Ok timeout_ms,
                   PgArena arena) {
   Pgu64Result res = {0};
   if (PG_SLICE_IS_EMPTY(events)) {
@@ -2747,11 +2749,11 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
 
   int res_kevent = 0;
   struct timespec ts = {0};
-  ts.tv_sec = ((u64)timeout_ms * PG_Milliseconds) / PG_Seconds;
-  ts.tv_nsec = ((u64)timeout_ms * PG_Milliseconds) % PG_Seconds;
+  ts.tv_sec = ((u64)timeout_ms.res * PG_Milliseconds) / PG_Seconds;
+  ts.tv_nsec = ((u64)timeout_ms.res * PG_Milliseconds) % PG_Seconds;
   do {
     res_kevent = kevent((int)queue, nullptr, 0, kqueue_events, (int)events.len,
-                        (-1 == timeout_ms) ? nullptr : &ts);
+                        (timeout_ms.ok) ? &ts : nullptr);
   } while (-1 == res_kevent && EINTR == errno);
 
   if (-1 == res_kevent) {
@@ -4748,8 +4750,8 @@ typedef void (*PgEventLoopOnRead)(PgEventLoop *loop, PgOsHandle os_handle,
 typedef void (*PgEventLoopOnWrite)(PgEventLoop *loop, PgOsHandle os_handle,
                                    void *ctx, PgError err);
 
-typedef void (*PgEventLoopOnTimer)(PgEventLoop *loop, PgOsHandle os_handle,
-                                   void *ctx);
+typedef void (*PgEventLoopOnTimer)(PgEventLoop *loop,
+                                   PgEventLoopHandle *handle);
 
 typedef void (*PgEventLoopOnDnsResolve)(PgEventLoop *loop, PgOsHandle os_handle,
                                         void *ctx, PgError err,
@@ -4762,6 +4764,19 @@ typedef enum : u8 {
   PG_EVENT_LOOP_HANDLE_STATE_LISTENING,
   PG_EVENT_LOOP_HANDLE_STATE_CLOSING,
 } PgEventLoopHandleState;
+//
+// Non-owning.
+typedef struct PgHeapNode {
+  struct PgHeapNode *left, *right, *parent;
+} PgHeapNode;
+
+typedef bool (*PgHeapLessThanFn)(PgHeapNode *a, PgHeapNode *b);
+
+// Non-owning.
+typedef struct {
+  PgHeapNode *root;
+  u64 count;
+} PgHeap;
 
 struct PgEventLoopHandle {
   PgEventLoopHandleKind kind;
@@ -4785,25 +4800,24 @@ struct PgEventLoopHandle {
   void *ctx;
 
   // Timer.
-  u64 initial_expiration_ns;
+  u64 timeout_ns;
   u64 interval_ns;
+  PgHeapNode heap_node;
 };
 
 PG_DYN(PgEventLoopHandle) PgEventLoopHandleDyn;
 PG_SLICE(PgEventLoopHandle) PgEventLoopHandleSlice;
 
-// Non-owning.
-typedef struct PgHeapNode {
-  struct PgHeapNode *left, *right, *parent;
-} PgHeapNode;
+[[nodiscard]] static bool pg_event_loop_timer_less_than(PgHeapNode *a,
+                                                        PgHeapNode *b) {
+  PG_ASSERT(a);
+  PG_ASSERT(b);
 
-typedef bool (*PgHeapLessThanFn)(PgHeapNode *a, PgHeapNode *b);
+  PgEventLoopHandle *ha = PG_CONTAINER_OF(a, PgEventLoopHandle, heap_node);
+  PgEventLoopHandle *hb = PG_CONTAINER_OF(b, PgEventLoopHandle, heap_node);
 
-// Non-owning.
-typedef struct {
-  PgHeapNode *root;
-  u64 count;
-} PgHeap;
+  return ha->timeout_ns < hb->timeout_ns;
+}
 
 // Non-owning.
 typedef struct PgQueue {
@@ -4816,6 +4830,7 @@ struct PgEventLoop {
   PgArena arena;
   bool running;
   PgHeap timers;
+  u64 now_ns;
 };
 
 PG_RESULT(PgEventLoop) PgEventLoopResult;
@@ -5418,7 +5433,8 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
       (void)pg_net_socket_close((PgSocket)handle->os_handle);
     } break;
     case PG_EVENT_LOOP_HANDLE_KIND_TIMER: {
-      //(void)pg_timer_release((PgTimer)handle->os_handle);
+      pg_heap_node_remove(&loop->timers, &handle->heap_node,
+                          pg_event_loop_timer_less_than);
     } break;
     case PG_EVENT_LOOP_HANDLE_KIND_DNS: {
     } break;
@@ -5434,11 +5450,12 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
   }
 }
 
-[[nodiscard]] [[maybe_unused]]
-static PgError pg_event_loop_timer_stop(PgEventLoop *loop,
-                                        PgOsHandle os_handle) {
+static void pg_event_loop_timer_stop(PgEventLoop *loop,
+                                     PgEventLoopHandle *handle) {
 
-  return pg_event_loop_handle_close(loop, os_handle);
+  pg_heap_node_remove(&loop->timers, &handle->heap_node,
+                      pg_event_loop_timer_less_than);
+  handle->state = PG_EVENT_LOOP_HANDLE_STATE_CLOSING;
 }
 
 [[maybe_unused]]
@@ -5446,8 +5463,68 @@ static void pg_event_loop_stop(PgEventLoop *loop) {
   loop->running = false;
 }
 
+[[nodiscard]]
+static Pgu64Ok pg_event_loop_get_poll_timeout(PgEventLoop *loop) {
+  Pgu64Ok res = {0};
+
+  PgHeapNode *min = loop->timers.root;
+
+  if (!min) {
+    return res;
+  }
+
+  res.res = PG_CONTAINER_OF(min, PgEventLoopHandle, heap_node)->timeout_ns;
+  res.ok = true;
+  return res;
+}
+
+static void pg_event_loop_timer_start(PgEventLoop *loop,
+                                      PgEventLoopHandle *handle,
+                                      u64 initial_expiration_ns,
+                                      u64 interval_ns, void *ctx,
+                                      PgEventLoopOnTimer on_timer) {
+  handle->kind = PG_EVENT_LOOP_HANDLE_KIND_TIMER;
+  handle->on_timer = on_timer;
+  handle->timeout_ns = initial_expiration_ns;
+  handle->interval_ns = interval_ns;
+  handle->ctx = ctx;
+
+  *PG_DYN_PUSH(&loop->handles, &loop->arena) = handle;
+}
+
+static void pg_event_loop_run_timers(PgEventLoop *loop) {
+  for (;;) {
+    PgHeapNode *min = loop->timers.root;
+
+    // No more timers?
+    if (!min) {
+      break;
+    }
+
+    PgEventLoopHandle *handle =
+        PG_CONTAINER_OF(min, PgEventLoopHandle, heap_node);
+    // Remaining timers are not expired yet, stop.
+    if (handle->timeout_ns > loop->now_ns) {
+      break;
+    }
+
+    // Only expired timers past this point.
+    pg_event_loop_timer_stop(loop, handle);
+
+    if (handle->on_timer) {
+      handle->on_timer(loop, handle);
+    }
+
+    if (handle->interval_ns) {
+      pg_event_loop_timer_start(loop, handle, handle->interval_ns,
+                                handle->interval_ns, handle->ctx,
+                                handle->on_timer);
+    }
+  }
+}
+
 [[nodiscard]] [[maybe_unused]]
-static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
+static PgError pg_event_loop_run(PgEventLoop *loop) {
   PG_ASSERT(loop->queue != 0);
   PG_ASSERT(!loop->running);
 
@@ -5457,8 +5534,16 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
       PG_SLICE_MAKE(PgAioEvent, loop->handles.len, &loop->arena);
 
   while (loop->running) {
+    Pgu64Result res_now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
+    if (res_now.err) {
+      return res_now.err;
+    }
+    loop->now_ns = res_now.res;
+
+    Pgu64Ok poll_timeout = pg_event_loop_get_poll_timeout(loop);
+
     Pgu64Result res_wait =
-        pg_aio_queue_wait(loop->queue, events_watch, timeout_ms, loop->arena);
+        pg_aio_queue_wait(loop->queue, events_watch, poll_timeout, loop->arena);
     if (res_wait.err) {
       return res_wait.err;
     }
@@ -5534,52 +5619,8 @@ static PgError pg_event_loop_run(PgEventLoop *loop, i64 timeout_ms) {
                           data);
         }
       }
-
-#if 0
-      // Socket write.
-      if ((PG_AIO_EVENT_KIND_OUT & event_watch.kind) &&
-          (PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET == handle->kind) &&
-          (PG_EVENT_LOOP_HANDLE_STATE_CONNECTED == handle->state) &&
-          pg_ring_read_space(handle->ring_write) > 0) {
-        {
-          PgReader reader = pg_reader_make_from_ring(&handle->ring_write);
-          Pgu64Result res_write =
-              pg_writer_write_from_reader(&handle->writer, &reader);
-
-          if (handle->on_write) {
-            handle->on_write(loop, handle->os_handle, handle->ctx,
-                             res_write.err);
-          }
-
-          // Stop listening for 'OUT' if all of the data was written.
-          if (0 == pg_ring_read_space(handle->ring_write)) {
-            handle->event_kind = handle->event_kind & ~PG_AIO_EVENT_KIND_OUT;
-            bool event_in_os_queue_before = handle->event_in_os_queue;
-            handle->event_in_os_queue = true;
-
-            if (PG_EVENT_LOOP_HANDLE_STATE_CLOSING != handle->state) {
-              PgAioEvent event_change = {
-                  .os_handle = handle->os_handle,
-                  .kind = handle->event_kind,
-                  .action = event_in_os_queue_before ? PG_AIO_EVENT_ACTION_MOD
-                                                     : PG_AIO_EVENT_ACTION_ADD,
-              };
-              PG_ASSERT(0 == pg_aio_queue_ctl_one(loop->queue, event_change));
-            }
-          }
-        }
-      }
-#endif
-
-      // Timer.
-      if ((PG_AIO_EVENT_KIND_IN & event_watch.kind) &&
-          (PG_EVENT_LOOP_HANDLE_KIND_TIMER == handle->kind) &&
-          (PG_EVENT_LOOP_HANDLE_STATE_CLOSING != handle->state)) {
-        if (handle->on_timer) {
-          handle->on_timer(loop, handle->os_handle, handle->ctx);
-        }
-      }
     }
+    pg_event_loop_run_timers(loop);
 
     pg_event_loop_close_all_closing_handles(loop);
   }
@@ -5708,19 +5749,6 @@ static PgError pg_event_loop_write(PgEventLoop *loop, PgOsHandle os_handle,
   pg_event_loop_try_write(loop, os_handle, handle, data, on_write);
 
   return 0;
-}
-
-[[maybe_unused]]
-static void pg_event_loop_timer_start(PgEventLoop *loop,
-                                      u64 initial_expiration_ns,
-                                      u64 interval_ns, void *ctx,
-                                      PgEventLoopOnTimer on_timer) {
-  PgEventLoopHandle handle = pg_event_loop_make_timer_handle(ctx);
-  handle.on_timer = on_timer;
-  handle.initial_expiration_ns = initial_expiration_ns;
-  handle.interval_ns = interval_ns;
-
-  *PG_DYN_PUSH(&loop->handles, &loop->arena) = handle;
 }
 
 [[nodiscard]] [[maybe_unused]]
