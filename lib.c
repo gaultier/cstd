@@ -179,6 +179,56 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
     (s)->len -= 1;                                                             \
   } while (0)
 
+// Non-owning.
+typedef struct PgQueue {
+  struct PgQueue *prev, *next;
+} PgQueue;
+
+static void pg_queue_init(PgQueue *queue) {
+  PG_ASSERT(queue);
+  queue->next = queue;
+  queue->prev = queue;
+}
+
+static void pg_queue_insert_tail(PgQueue *queue, PgQueue *elem) {
+  PG_ASSERT(queue);
+  PG_ASSERT(elem);
+  PG_ASSERT(queue->next);
+  PG_ASSERT(queue->prev);
+
+  elem->next = queue;
+  elem->prev = queue->prev;
+  queue->prev->next = elem;
+  queue->prev = elem;
+
+  PG_ASSERT(queue->next);
+  PG_ASSERT(queue->prev);
+  PG_ASSERT(elem->next);
+  PG_ASSERT(elem->prev);
+}
+
+static void pg_queue_remove(PgQueue *elem) {
+  PG_ASSERT(elem);
+  PG_ASSERT(elem->next);
+  PG_ASSERT(elem->prev);
+
+  elem->prev->next = elem->next;
+  elem->next->prev = elem->prev;
+}
+
+// Non-owning.
+typedef struct PgHeapNode {
+  struct PgHeapNode *left, *right, *parent;
+} PgHeapNode;
+
+typedef bool (*PgHeapLessThanFn)(PgHeapNode *a, PgHeapNode *b);
+
+// Non-owning.
+typedef struct {
+  PgHeapNode *root;
+  u64 count;
+} PgHeap;
+
 [[maybe_unused]] [[nodiscard]] static bool pg_character_is_hex_digit(u8 c) {
   return ('0' <= c && c <= '9') || ('A' <= c && c <= 'F') ||
          ('a' <= c && c <= 'f');
@@ -4764,19 +4814,17 @@ typedef enum : u8 {
   PG_EVENT_LOOP_HANDLE_STATE_LISTENING,
   PG_EVENT_LOOP_HANDLE_STATE_CLOSING,
 } PgEventLoopHandleState;
-//
-// Non-owning.
-typedef struct PgHeapNode {
-  struct PgHeapNode *left, *right, *parent;
-} PgHeapNode;
 
-typedef bool (*PgHeapLessThanFn)(PgHeapNode *a, PgHeapNode *b);
+struct PgEventLoop {
+  PgQueue handles;
+  PgAioQueue queue;
+  PgArena arena;
+  bool running;
+  PgHeap timers;
+  u64 now_ns;
+};
 
-// Non-owning.
-typedef struct {
-  PgHeapNode *root;
-  u64 count;
-} PgHeap;
+PG_RESULT(PgEventLoop) PgEventLoopResult;
 
 struct PgEventLoopHandle {
   PgEventLoopHandleKind kind;
@@ -4803,6 +4851,10 @@ struct PgEventLoopHandle {
   u64 timeout_ns;
   u64 interval_ns;
   PgHeapNode heap_node;
+
+  // For bookkeeping of all handles.
+  PgQueue handle_queue;
+  PgEventLoop *loop;
 };
 
 PG_DYN(PgEventLoopHandle) PgEventLoopHandleDyn;
@@ -4819,21 +4871,19 @@ PG_SLICE(PgEventLoopHandle) PgEventLoopHandleSlice;
   return ha->timeout_ns < hb->timeout_ns;
 }
 
-// Non-owning.
-typedef struct PgQueue {
-  struct PgQueue *prev, *next;
-} PgQueue;
+static PgError pg_event_loop_init(PgEventLoop *loop) {
+  pg_queue_init(&loop->handles);
 
-struct PgEventLoop {
-  PgEventLoopHandleDyn handles; // TODO: Smarter?
-  PgAioQueue queue;
-  PgArena arena;
-  bool running;
-  PgHeap timers;
-  u64 now_ns;
-};
+  PgAioQueueResult res_queue = pg_aio_queue_create();
+  if (res_queue.err) {
+    return res_queue.err;
+  }
+  loop->queue = res_queue.res;
 
-PG_RESULT(PgEventLoop) PgEventLoopResult;
+  // TODO: arena?
+
+  return 0;
+}
 
 static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
                               PgHeapNode *child) {
@@ -5140,24 +5190,6 @@ typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgEventLoopResult pg_event_loop_make_loop(PgArena arena) {
-  PgEventLoopResult res = {0};
-  {
-    PgAioQueueResult res_queue = pg_aio_queue_create();
-    if (res_queue.err) {
-      res.err = res_queue.err;
-      return res;
-    }
-
-    res.res.queue = res_queue.res;
-  }
-  res.res.arena = arena;
-  PG_DYN_ENSURE_CAP(&res.res.handles, 1024, &res.res.arena);
-
-  return res;
-}
-
-[[nodiscard]] [[maybe_unused]]
 static PgEventLoopHandle pg_event_loop_make_tcp_handle(PgSocket socket,
                                                        void *ctx) {
   PgEventLoopHandle res = {0};
@@ -5185,28 +5217,6 @@ static PgEventLoopHandle pg_event_loop_make_timer_handle(void *ctx) {
   res.ctx = ctx;
 
   return res;
-}
-
-[[nodiscard]] [[maybe_unused]]
-static i64 pg_event_loop_find_handle_idx(PgEventLoop *loop,
-                                         PgOsHandle os_handle) {
-  for (u64 i = 0; i < loop->handles.len; i++) {
-    PgEventLoopHandle *handle = PG_SLICE_AT_PTR(&loop->handles, i);
-    if (handle->os_handle == os_handle) {
-      return (i64)i;
-    }
-  }
-  return -1;
-}
-
-[[nodiscard]] [[maybe_unused]]
-static PgEventLoopHandle *pg_event_loop_find_handle(PgEventLoop *loop,
-                                                    PgOsHandle os_handle) {
-  i64 idx = pg_event_loop_find_handle_idx(loop, os_handle);
-  if (-1 == idx) {
-    return nullptr;
-  }
-  return PG_SLICE_AT_PTR(&loop->handles, (u64)idx);
 }
 
 static void pg_aio_event_add_interest(PgAioEventKind *kind,
@@ -5259,28 +5269,25 @@ static void pg_aio_event_remove_interest(PgAioEventKind *kind,
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgOsHandleResult pg_event_loop_tcp_init(PgEventLoop *loop, void *ctx) {
-  PgOsHandleResult res = {0};
-
+static PgError pg_event_loop_tcp_init(PgEventLoop *loop,
+                                      PgEventLoopHandle *handle) {
   PgSocketResult res_socket = pg_net_create_tcp_socket();
   if (res_socket.err) {
-    res.err = res_socket.err;
-    return res;
+    return res_socket.err;
   }
 
   {
     PgError err = pg_net_socket_set_blocking(res_socket.res, false);
     if (err) {
-      res.err = err;
-      return res;
+      return err;
     }
   }
 
-  *PG_DYN_PUSH(&loop->handles, &loop->arena) =
-      pg_event_loop_make_tcp_handle(res_socket.res, ctx);
+  handle->kind = PG_EVENT_LOOP_HANDLE_KIND_TCP_SOCKET;
+  handle->loop = loop;
+  pg_queue_insert_tail(&loop->handles, &handle->handle_queue);
 
-  res.res = res_socket.res;
-  return res;
+  return 0;
 }
 
 [[nodiscard]] [[maybe_unused]]
