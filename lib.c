@@ -4792,12 +4792,14 @@ struct PgEventLoopHandle {
 PG_DYN(PgEventLoopHandle) PgEventLoopHandleDyn;
 PG_SLICE(PgEventLoopHandle) PgEventLoopHandleSlice;
 
+// Non-owning.
 typedef struct PgHeapNode {
   struct PgHeapNode *left, *right, *parent;
 } PgHeapNode;
 
 typedef bool (*PgHeapLessThanFn)(PgHeapNode *a, PgHeapNode *b);
 
+// Non-owning.
 typedef struct {
   PgHeapNode *root;
   u64 count;
