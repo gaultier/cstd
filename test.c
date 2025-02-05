@@ -2023,6 +2023,8 @@ static void test_heap() {
     PG_ASSERT(root);
     u64 min = root->value;
     PG_ASSERT(last_min < min);
+
+    pg_heap_node_sanity_check(heap.root, u64_node_less_than);
   }
 
   PG_ASSERT(0 == heap.count);
