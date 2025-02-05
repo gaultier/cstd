@@ -4875,6 +4875,16 @@ PG_SLICE(PgEventLoopHandle) PgEventLoopHandleSlice;
 
 [[maybe_unused]]
 static PgError pg_event_loop_init(PgEventLoop *loop) {
+  loop->handles_active_count = 0;
+  loop->handles_closing = nullptr;
+  loop->running = false;
+
+  Pgu64Result res_now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
+  if (res_now.err) {
+    return res_now.err;
+  }
+  loop->now_ns = res_now.res;
+
   pg_queue_init(&loop->handles_active);
 
   PgAioQueueResult res_queue = pg_aio_queue_create();
@@ -4882,7 +4892,7 @@ static PgError pg_event_loop_init(PgEventLoop *loop) {
     return res_queue.err;
   }
   loop->os_poll_queue = res_queue.res;
-  loop->arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  loop->arena = pg_arena_make_from_virtual_mem(32 * PG_KiB);
 
   return 0;
 }
@@ -5421,7 +5431,7 @@ static void pg_event_loop_stop(PgEventLoop *loop) {
 }
 
 [[nodiscard]]
-static Pgu64Ok pg_event_loop_get_poll_timeout(PgEventLoop *loop) {
+static Pgu64Ok pg_event_loop_get_io_poll_timeout_ms(PgEventLoop *loop) {
   Pgu64Ok res = {0};
 
   PgHeapNode *min = loop->timers.root;
@@ -5430,8 +5440,18 @@ static Pgu64Ok pg_event_loop_get_poll_timeout(PgEventLoop *loop) {
     return res;
   }
 
-  res.res = PG_CONTAINER_OF(min, PgEventLoopHandle, heap_node)->timeout_ns;
+  u64 timeout_ns =
+      PG_CONTAINER_OF(min, PgEventLoopHandle, heap_node)->timeout_ns;
+
   res.ok = true;
+
+  if (timeout_ns < loop->now_ns) {
+    res.res = 0;
+    return res;
+  }
+
+  u64 diff_ns = res.res - loop->now_ns;
+  res.res = diff_ns / 1'000'000;
   return res;
 }
 
@@ -5443,6 +5463,10 @@ static void pg_event_loop_timer_init(PgEventLoop *loop,
 
   handle->loop = loop;
   handle->kind = PG_EVENT_LOOP_HANDLE_KIND_TIMER;
+  pg_queue_init(&handle->handle_queue);
+
+  pg_queue_insert_tail(&handle->loop->handles_active, &handle->handle_queue);
+  handle->loop->handles_active_count += 1;
 }
 
 static void pg_event_loop_timer_start(PgEventLoopHandle *handle,
@@ -5454,12 +5478,10 @@ static void pg_event_loop_timer_start(PgEventLoopHandle *handle,
   PG_ASSERT(PG_EVENT_LOOP_HANDLE_KIND_TIMER == handle->kind);
 
   handle->on_timer = on_timer;
-  handle->timeout_ns = initial_expiration_ns;
+  handle->timeout_ns = handle->loop->now_ns + initial_expiration_ns;
   handle->interval_ns = interval_ns;
-  pg_queue_init(&handle->handle_queue);
-
-  pg_queue_insert_tail(&handle->loop->handles_active, &handle->handle_queue);
-  handle->loop->handles_active_count += 1;
+  pg_heap_insert(&handle->loop->timers, &handle->heap_node,
+                 pg_event_loop_timer_less_than);
 }
 
 static void pg_event_loop_run_timers(PgEventLoop *loop) {
@@ -5499,8 +5521,11 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
 
   loop->running = true;
 
-  PgAioEventSlice events_watch =
-      PG_SLICE_MAKE(PgAioEvent, loop->handles_active_count, &loop->arena);
+  PgAioEvent events_watch_ptr[1024] = {0};
+  PgAioEventSlice events_watch = {
+      .data = events_watch_ptr,
+      .len = PG_STATIC_ARRAY_LEN(events_watch_ptr),
+  };
 
   while (loop->running && loop->handles_active_count > 0) {
     Pgu64Result res_now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
@@ -5509,7 +5534,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
     }
     loop->now_ns = res_now.res;
 
-    Pgu64Ok poll_timeout = pg_event_loop_get_poll_timeout(loop);
+    Pgu64Ok poll_timeout = pg_event_loop_get_io_poll_timeout_ms(loop);
 
     Pgu64Result res_wait = pg_aio_queue_wait(loop->os_poll_queue, events_watch,
                                              poll_timeout, loop->arena);
