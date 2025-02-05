@@ -4839,6 +4839,9 @@ struct PgEventLoop {
   bool running;
   PgHeap timers;
   u64 now_ms;
+
+  // Stats.
+  u64 loop_ticks;
 };
 
 PG_RESULT(PgEventLoop) PgEventLoopResult;
@@ -5602,6 +5605,8 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
   loop->now_ms = res_now.res / 1'000'000;
 
   while (loop->running && loop->handles_active_count > 0) {
+    loop->loop_ticks += 1;
+
     Pgu64Ok poll_timeout_ms = pg_event_loop_get_io_poll_timeout_ms(loop);
 
     Pgu64Result res_wait = pg_aio_queue_wait(loop->os_poll_queue, events_watch,

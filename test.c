@@ -1750,6 +1750,8 @@ static void test_timer() {
   PG_ASSERT(0 == res_end.err);
   PG_ASSERT(res_end.res > res_start.res);
   PG_ASSERT(res_end.res - res_start.res < 20 * PG_Milliseconds);
+
+  PG_ASSERT(3 == loop.loop_ticks);
 }
 
 #if 0
