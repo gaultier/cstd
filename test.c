@@ -1723,7 +1723,6 @@ static void timer_on_trigger(PgEventLoopHandle *timer) {
   u64 *state = (u64 *)timer->ctx;
   PG_ASSERT(*state <= 2);
 
-  fprintf(stderr, "[D001] %lu\n", *state);
   *state += 1;
 
   if (3 == *state) {
@@ -1741,8 +1740,7 @@ static void test_timer() {
   u64 timer_state = 0;
   timer.ctx = &timer_state;
 
-  pg_event_loop_timer_start(&timer, 3 * PG_Milliseconds, 4 * PG_Milliseconds,
-                            timer_on_trigger);
+  pg_event_loop_timer_start(&timer, 3, 4, timer_on_trigger);
   Pgu64Result res_start = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
   PG_ASSERT(0 == res_start.err);
 

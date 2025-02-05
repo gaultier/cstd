@@ -4838,7 +4838,7 @@ struct PgEventLoop {
   PgArena arena;
   bool running;
   PgHeap timers;
-  u64 now_ns;
+  u64 now_ms;
 };
 
 PG_RESULT(PgEventLoop) PgEventLoopResult;
@@ -4866,8 +4866,8 @@ struct PgEventLoopHandle {
   void *ctx;
 
   // Timer.
-  u64 timeout_ns;
-  u64 interval_ns;
+  u64 timeout_ms;
+  u64 interval_ms;
   PgHeapNode heap_node;
 
   // For bookkeeping of all handles.
@@ -4887,7 +4887,7 @@ PG_SLICE(PgEventLoopHandle) PgEventLoopHandleSlice;
   PgEventLoopHandle *ha = PG_CONTAINER_OF(a, PgEventLoopHandle, heap_node);
   PgEventLoopHandle *hb = PG_CONTAINER_OF(b, PgEventLoopHandle, heap_node);
 
-  return ha->timeout_ns < hb->timeout_ns;
+  return ha->timeout_ms < hb->timeout_ms;
 }
 
 [[maybe_unused]]
@@ -4900,7 +4900,7 @@ static PgError pg_event_loop_init(PgEventLoop *loop) {
   if (res_now.err) {
     return res_now.err;
   }
-  loop->now_ns = res_now.res;
+  loop->now_ms = res_now.res / 1'000'000;
 
   pg_queue_init(&loop->handles_active);
 
@@ -5486,16 +5486,16 @@ static Pgu64Ok pg_event_loop_get_io_poll_timeout_ms(PgEventLoop *loop) {
 
   res.ok = true;
 
-  u64 timeout_ns =
-      PG_CONTAINER_OF(min, PgEventLoopHandle, heap_node)->timeout_ns;
+  u64 timeout_ms =
+      PG_CONTAINER_OF(min, PgEventLoopHandle, heap_node)->timeout_ms;
 
-  if (timeout_ns < loop->now_ns) {
+  if (timeout_ms < loop->now_ms) {
     res.res = 0;
     return res;
   }
 
-  u64 diff_ns = timeout_ns - loop->now_ns;
-  res.res = diff_ns / 1'000'000;
+  u64 diff_ms = timeout_ms - loop->now_ms;
+  res.res = diff_ms;
   return res;
 }
 
@@ -5518,16 +5518,16 @@ static void pg_event_loop_timer_init(PgEventLoop *loop,
 }
 
 static void pg_event_loop_timer_start(PgEventLoopHandle *handle,
-                                      u64 initial_expiration_ns,
-                                      u64 interval_ns,
+                                      u64 initial_expiration_ms,
+                                      u64 interval_ms,
                                       PgEventLoopOnTimer on_timer) {
   PG_ASSERT(handle);
   PG_ASSERT(handle->loop);
   PG_ASSERT(PG_EVENT_LOOP_HANDLE_KIND_TIMER == handle->kind);
 
   handle->on_timer = on_timer;
-  handle->timeout_ns = handle->loop->now_ns + initial_expiration_ns;
-  handle->interval_ns = interval_ns;
+  handle->timeout_ms = handle->loop->now_ms + initial_expiration_ms;
+  handle->interval_ms = interval_ms;
   pg_heap_insert(&handle->loop->timers, &handle->heap_node,
                  pg_event_loop_timer_less_than);
   pg_event_loop_handle_start(handle);
@@ -5550,7 +5550,7 @@ static void pg_event_loop_run_timers(PgEventLoop *loop) {
     PG_ASSERT(PG_EVENT_LOOP_HANDLE_KIND_TIMER == handle->kind);
 
     // Remaining timers are not expired yet, stop.
-    if (handle->timeout_ns > loop->now_ns) {
+    if (handle->timeout_ms > loop->now_ms) {
       break;
     }
 
@@ -5571,9 +5571,9 @@ static void pg_event_loop_run_timers(PgEventLoop *loop) {
         PG_CONTAINER_OF(head, PgEventLoopHandle, handle_queue);
     PG_ASSERT(PG_EVENT_LOOP_HANDLE_KIND_TIMER == handle->kind);
 
-    if (handle->interval_ns) {
-      pg_event_loop_timer_start(handle, handle->interval_ns,
-                                handle->interval_ns, handle->on_timer);
+    if (handle->interval_ms) {
+      pg_event_loop_timer_start(handle, handle->interval_ms,
+                                handle->interval_ms, handle->on_timer);
     }
 
     if (handle->on_timer) {
@@ -5599,13 +5599,10 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
   if (res_now.err) {
     return res_now.err;
   }
-  loop->now_ns = res_now.res;
+  loop->now_ms = res_now.res / 1'000'000;
 
   while (loop->running && loop->handles_active_count > 0) {
-
     Pgu64Ok poll_timeout_ms = pg_event_loop_get_io_poll_timeout_ms(loop);
-    fprintf(stderr, "[D002] %lu %d %lu\n", poll_timeout_ms.res,
-            poll_timeout_ms.ok, loop->handles_active_count);
 
     Pgu64Result res_wait = pg_aio_queue_wait(loop->os_poll_queue, events_watch,
                                              poll_timeout_ms, loop->arena);
@@ -5617,7 +5614,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
     if (res_now.err) {
       return res_now.err;
     }
-    loop->now_ns = res_now.res;
+    loop->now_ms = res_now.res / 1'000'000;
 
     for (u64 i = 0; i < res_wait.res; i++) {
       PgAioEvent event_watch = PG_SLICE_AT(events_watch, i);
