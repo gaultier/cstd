@@ -4787,6 +4787,10 @@ struct PgEventLoopHandle {
   PgEventLoopOnWrite on_write;
   PgEventLoopOnTimer on_timer;
   void *ctx;
+
+  // Timer.
+  u64 initial_expiration_ns;
+  u64 interval_ns;
 };
 
 PG_DYN(PgEventLoopHandle) PgEventLoopHandleDyn;
@@ -4805,19 +4809,12 @@ typedef struct {
   u64 count;
 } PgHeap;
 
-typedef struct {
-  u64 value_ns;
-  u64 period;
-  PgEventLoopHandle *handle;
-  PgHeap *heap;
-} PgEventLoopTimer;
-
 struct PgEventLoop {
   PgEventLoopHandleDyn handles; // TODO: Smarter?
   PgAioQueue queue;
   PgArena arena;
   bool running;
-  PgEventLoopTimer *timer_root;
+  PgHeap timers;
 };
 
 PG_RESULT(PgEventLoop) PgEventLoopResult;
@@ -5719,11 +5716,10 @@ static void pg_event_loop_timer_start(PgEventLoop *loop,
                                       PgEventLoopOnTimer on_timer) {
   PgEventLoopHandle handle = pg_event_loop_make_timer_handle(ctx);
   handle.on_timer = on_timer;
+  handle.initial_expiration_ns = initial_expiration_ns;
+  handle.interval_ns = interval_ns;
 
   *PG_DYN_PUSH(&loop->handles, &loop->arena) = handle;
-
-  (void)initial_expiration_ns;
-  (void)interval_ns;
 }
 
 [[nodiscard]] [[maybe_unused]]
