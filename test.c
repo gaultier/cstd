@@ -1753,6 +1753,7 @@ static void test_timer() {
   PG_ASSERT(res_end.res - res_start.res < 10 * PG_Milliseconds);
 }
 
+#if 0
 static void test_event_loop_on_client_write(PgEventLoopHandle *handle,
                                             void *ctx, PgError err) {
   PG_ASSERT(handle);
@@ -1860,6 +1861,7 @@ static void test_event_loop_on_timer(PgEventLoopHandle *handle, void *ctx) {
     pg_event_loop_timer_stop(handle);
   }
 }
+#endif
 
 #if 0
 static void test_event_loop() {
