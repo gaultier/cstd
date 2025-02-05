@@ -207,6 +207,7 @@ static void pg_queue_insert_tail(PgQueue *queue, PgQueue *elem) {
   PG_ASSERT(elem->prev);
 }
 
+[[maybe_unused]]
 static void pg_queue_remove(PgQueue *elem) {
   PG_ASSERT(elem);
   PG_ASSERT(elem->next);
@@ -5370,6 +5371,8 @@ static PgError pg_event_loop_tcp_accept(PgEventLoopHandle *server,
 [[maybe_unused]]
 static void pg_event_loop_handle_close(PgEventLoopHandle *handle) {
   handle->state = PG_EVENT_LOOP_HANDLE_STATE_CLOSING;
+  pg_queue_remove(&handle->handle_queue);
+
   handle->next_closing = handle->loop->handles_closing;
   handle->loop->handles_closing = handle;
 
@@ -5406,10 +5409,9 @@ static void pg_event_loop_close_all_closing_handles(PgEventLoop *loop) {
   }
 }
 
-static void pg_event_loop_timer_stop(PgEventLoop *loop,
-                                     PgEventLoopHandle *handle) {
+static void pg_event_loop_timer_stop(PgEventLoopHandle *handle) {
 
-  pg_heap_node_remove(&loop->timers, &handle->heap_node,
+  pg_heap_node_remove(&handle->loop->timers, &handle->heap_node,
                       pg_event_loop_timer_less_than);
   handle->state = PG_EVENT_LOOP_HANDLE_STATE_CLOSING;
 }
@@ -5467,7 +5469,7 @@ static void pg_event_loop_run_timers(PgEventLoop *loop) {
     }
 
     // Only expired timers past this point.
-    pg_event_loop_timer_stop(loop, handle);
+    pg_event_loop_timer_stop(handle);
 
     if (handle->on_timer) {
       handle->on_timer(handle);
@@ -5490,7 +5492,7 @@ static PgError pg_event_loop_run(PgEventLoop *loop) {
   PgAioEventSlice events_watch =
       PG_SLICE_MAKE(PgAioEvent, loop->handles_active_count, &loop->arena);
 
-  while (loop->running) {
+  while (loop->running && loop->handles_active_count > 0) {
     Pgu64Result res_now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
     if (res_now.err) {
       return res_now.err;

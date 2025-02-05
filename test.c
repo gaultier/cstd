@@ -1010,8 +1010,10 @@ static void test_net_socket() {
 
   PgAioEventSlice events_watch = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
 
+  Pgu64Ok poll_timeout_ns = {0};
   for (;;) {
-    Pgu64Result res_wait = pg_aio_queue_wait(queue, events_watch, -1, arena);
+    Pgu64Result res_wait =
+        pg_aio_queue_wait(queue, events_watch, poll_timeout_ns, arena);
     PG_ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
@@ -1755,11 +1757,9 @@ static void test_timer() {
 }
 #endif
 
-static void test_event_loop_on_client_write(PgEventLoop *loop,
-                                            PgOsHandle os_handle, void *ctx,
-                                            PgError err) {
-  PG_ASSERT(nullptr != loop);
-  PG_ASSERT(0 != os_handle);
+static void test_event_loop_on_client_write(PgEventLoopHandle *handle,
+                                            void *ctx, PgError err) {
+  PG_ASSERT(handle);
   PG_ASSERT(nullptr != ctx);
   PG_ASSERT(0 == err);
 
@@ -1767,14 +1767,12 @@ static void test_event_loop_on_client_write(PgEventLoop *loop,
   PG_ASSERT(3 == *client_state);
   *client_state += 1;
 
-  PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
+  pg_event_loop_handle_close(handle);
 }
 
-static void test_event_loop_on_server_read(PgEventLoop *loop,
-                                           PgOsHandle os_handle, void *ctx,
+static void test_event_loop_on_server_read(PgEventLoopHandle *handle, void *ctx,
                                            PgError err, PgString data) {
-  PG_ASSERT(nullptr != loop);
-  PG_ASSERT(0 != os_handle);
+  PG_ASSERT(handle);
   PG_ASSERT(nullptr != ctx);
   PG_ASSERT(0 == err);
 
@@ -1784,15 +1782,13 @@ static void test_event_loop_on_server_read(PgEventLoop *loop,
 
   PG_ASSERT(pg_string_eq(data, PG_S("pong")));
 
-  PG_ASSERT(0 == pg_event_loop_read_stop(loop, os_handle));
-  PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
+  PG_ASSERT(0 == pg_event_loop_read_stop(handle));
+  pg_event_loop_handle_close(handle);
 }
 
-static void test_event_loop_on_client_read(PgEventLoop *loop,
-                                           PgOsHandle os_handle, void *ctx,
+static void test_event_loop_on_client_read(PgEventLoopHandle *handle, void *ctx,
                                            PgError err, PgString data) {
-  PG_ASSERT(nullptr != loop);
-  PG_ASSERT(0 != os_handle);
+  PG_ASSERT(handle);
   PG_ASSERT(nullptr != ctx);
   PG_ASSERT(0 == err);
 
@@ -1802,18 +1798,16 @@ static void test_event_loop_on_client_read(PgEventLoop *loop,
 
   PG_ASSERT(pg_string_eq(data, PG_S("ping")));
 
-  PG_ASSERT(0 == pg_event_loop_write(loop, os_handle, PG_S("pong"),
+  PG_ASSERT(0 == pg_event_loop_write(handle, PG_S("pong"),
                                      test_event_loop_on_client_write));
 
-  PG_ASSERT(0 == pg_event_loop_read_stop(loop, os_handle));
-  PG_ASSERT(0 == pg_event_loop_handle_close(loop, os_handle));
+  PG_ASSERT(0 == pg_event_loop_read_stop(handle));
+  pg_event_loop_handle_close(handle);
 }
 
-static void test_event_loop_on_server_write(PgEventLoop *loop,
-                                            PgOsHandle os_handle, void *ctx,
-                                            PgError err) {
-  PG_ASSERT(nullptr != loop);
-  PG_ASSERT(0 != os_handle);
+static void test_event_loop_on_server_write(PgEventLoopHandle *handle,
+                                            void *ctx, PgError err) {
+  PG_ASSERT(handle);
   PG_ASSERT(nullptr != ctx);
   PG_ASSERT(0 == err);
 
@@ -1821,16 +1815,14 @@ static void test_event_loop_on_server_write(PgEventLoop *loop,
   PG_ASSERT(3 == *server_state);
   *server_state += 1;
 
-  PG_ASSERT(0 == pg_event_loop_read_start(loop, os_handle,
-                                          test_event_loop_on_server_read));
+  PG_ASSERT(0 ==
+            pg_event_loop_read_start(handle, test_event_loop_on_server_read));
 }
 
 [[maybe_unused]]
-static void test_event_loop_on_client_connect(PgEventLoop *loop,
-                                              PgOsHandle os_handle, void *ctx,
-                                              PgError err) {
-  PG_ASSERT(nullptr != loop);
-  PG_ASSERT(0 != os_handle);
+static void test_event_loop_on_client_connect(PgEventLoopHandle *handle,
+                                              void *ctx, PgError err) {
+  PG_ASSERT(handle);
   PG_ASSERT(nullptr != ctx);
   PG_ASSERT(0 == err);
 
@@ -1838,16 +1830,14 @@ static void test_event_loop_on_client_connect(PgEventLoop *loop,
   PG_ASSERT(1 == *client_state);
   *client_state += 1;
 
-  PG_ASSERT(0 == pg_event_loop_read_start(loop, os_handle,
-                                          test_event_loop_on_client_read));
+  PG_ASSERT(0 ==
+            pg_event_loop_read_start(handle, test_event_loop_on_client_read));
 }
 
 [[maybe_unused]]
-static void test_event_loop_on_server_connect(PgEventLoop *loop,
-                                              PgOsHandle os_handle, void *ctx,
-                                              PgError err) {
-  PG_ASSERT(nullptr != loop);
-  PG_ASSERT(0 != os_handle);
+static void test_event_loop_on_server_connect(PgEventLoopHandle *server,
+                                              void *ctx, PgError err) {
+  PG_ASSERT(server);
   PG_ASSERT(nullptr != ctx);
   PG_ASSERT(0 == err);
 
@@ -1855,29 +1845,23 @@ static void test_event_loop_on_server_connect(PgEventLoop *loop,
   PG_ASSERT(2 == *server_state);
   *server_state += 1;
 
-  PgOsHandleResult res_accept = pg_event_loop_tcp_accept(loop, os_handle);
-  if (res_accept.err) {
-    PG_ASSERT(0 && "test failed");
-    return;
-  }
+  PgEventLoopHandle *client = calloc(sizeof(PgEventLoopHandle), 1);
+  PG_ASSERT(0 == pg_event_loop_tcp_accept(server, client));
 
-  PG_ASSERT(0 == pg_event_loop_write(loop, res_accept.res, PG_S("ping"),
+  PG_ASSERT(0 == pg_event_loop_write(client, PG_S("ping"),
                                      test_event_loop_on_server_write));
 }
 
 [[maybe_unused]]
-static void test_event_loop_on_timer(PgEventLoop *loop, PgOsHandle os_handle,
-                                     void *ctx) {
-  PG_ASSERT(nullptr != loop);
-  PG_ASSERT(0 != os_handle);
+static void test_event_loop_on_timer(PgEventLoopHandle *handle, void *ctx) {
+  PG_ASSERT(handle);
   PG_ASSERT(nullptr != ctx);
 
   u64 *timer_state = (u64 *)ctx;
   *timer_state += 1;
 
   if (15 == *timer_state) {
-    //    PG_ASSERT(0 == pg_timer_stop((PgTimer)os_handle));
-    pg_event_loop_stop(loop);
+    pg_event_loop_timer_stop(handle);
   }
 }
 
