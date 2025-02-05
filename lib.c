@@ -4809,6 +4809,11 @@ typedef struct {
   u64 count;
 } PgHeap;
 
+// Non-owning.
+typedef struct PgQueue {
+  struct PgQueue *prev, *next;
+} PgQueue;
+
 struct PgEventLoop {
   PgEventLoopHandleDyn handles; // TODO: Smarter?
   PgAioQueue queue;
