@@ -4889,6 +4889,13 @@ static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
   PG_ASSERT(child->parent == parent_before.parent);
 }
 
+// Compute the path from the min (root) to the max (the left-most node
+// of the bottom row).
+// The path is stored in binary from root to bottom with:
+// - 0: left
+// - 1: right
+// And `path_len` stores the path length (since it could be all zeroes, we
+// cannot compute the path length after the fact with bit operations).
 static void pg_heap_compute_path_from_min_to_max(u64 items_count, u64 *path,
                                                  u64 *path_len) {
   u64 n = 0;

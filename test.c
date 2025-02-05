@@ -1991,6 +1991,7 @@ static void test_heap() {
 
   PgHeap heap = {0};
   u64 values[] = {100, 19, 36, 17, 3, 25, 1, 2, 7};
+
   for (u64 i = 0; i < PG_STATIC_ARRAY_LEN(values); i++) {
     u64 value = PG_C_ARRAY_AT(values, PG_STATIC_ARRAY_LEN(values), i);
     u64Node *node = pg_arena_new(&arena, u64Node, 1);
@@ -2012,6 +2013,20 @@ static void test_heap() {
 
   u64Node *n3 = PG_CONTAINER_OF(n1->heap.right, u64Node, heap);
   PG_ASSERT(3 == n3->value);
+
+  u64 last_min = PG_CONTAINER_OF(heap.root, u64Node, heap)->value;
+
+  for (u64 i = 0; i < PG_STATIC_ARRAY_LEN(values); i++) {
+    pg_heap_dequeue(&heap, u64_node_less_than);
+
+    u64Node *root = PG_CONTAINER_OF(heap.root, u64Node, heap);
+    PG_ASSERT(root);
+    u64 min = root->value;
+    PG_ASSERT(last_min < min);
+  }
+
+  PG_ASSERT(0 == heap.count);
+  PG_ASSERT(!heap.root);
 }
 
 int main() {
