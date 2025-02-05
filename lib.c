@@ -5095,14 +5095,20 @@ typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
   // Walk down the subtree and ensure that `parent < child`.
   // If it's not the case, swap parent and child.
   for (;;) {
-    if (!child->left && !child->right) { // Reach the bottom level.
+    PgHeapNode *smallest = child;
+    if (child->left && less_than(child->left, smallest)) {
+      smallest = child->left;
+    }
+
+    if (child->right && less_than(child->right, smallest)) {
+      smallest = child->right;
+    }
+
+    if (smallest == child) {
       break;
     }
-    if (child->left && less_than(child->left, child)) {
-      pg_heap_node_swap(heap, child, child->left);
-    } else if (child->right && less_than(child->right, child)) {
-      pg_heap_node_swap(heap, child, child->right);
-    }
+
+    pg_heap_node_swap(heap, child, smallest);
   }
 
   // `max` node is actually not guaranteed to be the global maximum in the tree.

@@ -2004,6 +2004,7 @@ static void test_heap() {
 
     pg_heap_node_sanity_check(heap.root, u64_node_less_than);
   }
+  PG_ASSERT(PG_STATIC_ARRAY_LEN(values) == heap.count);
 
   u64Node *n1 = PG_CONTAINER_OF(heap.root, u64Node, heap);
   PG_ASSERT(1 == n1->value);
@@ -2014,16 +2015,16 @@ static void test_heap() {
   u64Node *n3 = PG_CONTAINER_OF(n1->heap.right, u64Node, heap);
   PG_ASSERT(3 == n3->value);
 
-  u64 last_min = PG_CONTAINER_OF(heap.root, u64Node, heap)->value;
+  u64 last_min = 0;
 
   for (u64 i = 0; i < PG_STATIC_ARRAY_LEN(values); i++) {
-    pg_heap_dequeue(&heap, u64_node_less_than);
-
     u64Node *root = PG_CONTAINER_OF(heap.root, u64Node, heap);
     PG_ASSERT(root);
     u64 min = root->value;
+    // Check that we see values in ascending order.
     PG_ASSERT(last_min < min);
 
+    pg_heap_dequeue(&heap, u64_node_less_than);
     pg_heap_node_sanity_check(heap.root, u64_node_less_than);
   }
 
