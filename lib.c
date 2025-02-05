@@ -5556,6 +5556,9 @@ static void pg_event_loop_run_timers(PgEventLoop *loop) {
 
     // Only expired timers past this point.
     pg_event_loop_timer_stop(handle);
+
+    // Need to use a work queue since repeating timers would get re-added
+    // to the min-heap and result in an infinite loop.
     pg_queue_insert_tail(&ready_queue, &handle->handle_queue);
   }
 
