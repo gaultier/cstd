@@ -10,7 +10,6 @@
 // TODO: Sha1 hardware accelerated?
 // TODO: HTTP compression (gzip, etc)
 // TODO: TLS 1.3
-// TODO: Try using actors to structure async I/O instead of callbacks.
 // TODO: Enqueue I/O write if `try_write` is partial.
 // TODO: Pprof memory profiling.
 // TODO: [Unix] Human-readable stacktrace.
@@ -4890,6 +4889,17 @@ static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
   PG_ASSERT(child->parent == parent_before.parent);
 }
 
+static void pg_heap_compute_path_from_min_to_max(u64 items_count, u64 *path,
+                                                 u64 *path_len) {
+  u64 n = 0;
+  *path = 0;
+
+  for (*path_len = 0, n = items_count; n >= 2; *path_len += 1, n /= 2) {
+    *path = (*path << 1) | (n & 1);
+  }
+  PG_ASSERT(*path_len <= items_count);
+}
+
 [[maybe_unused]]
 static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
                            PgHeapLessThanFn less_than) {
@@ -4897,17 +4907,14 @@ static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
   PG_ASSERT(less_than);
 
   u64 path = 0;
-  u64 i = 0;
-  u64 n = 0;
+  u64 path_len = 0;
 
-  for (i = 0, n = 1 + heap->count; n >= 2; i += 1, n /= 2) {
-    path = (path << 1) | (n & 1);
-  }
+  pg_heap_compute_path_from_min_to_max(heap->count + 1, &path, &path_len);
 
   PgHeapNode **parent = &heap->root;
   PgHeapNode **child = parent;
 
-  while (i > 0) {
+  while (path_len > 0) {
     parent = child;
     // TODO: Could use a (2 entries) lookup table, or a simple pointer offset
     // math, to make it branchless.
@@ -4917,7 +4924,7 @@ static void pg_heap_insert(PgHeap *heap, PgHeapNode *node,
       child = &(*child)->left;
     }
     path >>= 1;
-    i -= 1;
+    path_len -= 1;
   }
 
   *node = (PgHeapNode){0};
