@@ -1735,7 +1735,40 @@ pg_writer_make_from_file(PgFile *file);
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
+
+[[maybe_unused]] [[nodiscard]] static int
+pg_clock_to_linux(PgClockKind clock_kind) {
+  switch (clock_kind) {
+  case PG_CLOCK_KIND_MONOTONIC:
+    return CLOCK_MONOTONIC;
+  case PG_CLOCK_KIND_REALTIME:
+    return CLOCK_REALTIME;
+  default:
+    PG_ASSERT(0);
+  }
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_time_ns_now(PgClockKind clock) {
+  Pgu64Result res = {0};
+
+  struct timespec ts = {0};
+  int ret = 0;
+  do {
+    ret = clock_gettime(pg_clock_to_linux(clock), &ts);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u64)ts.tv_sec * PG_Seconds + (u64)ts.tv_nsec;
+
+  return res;
+}
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
@@ -2613,43 +2646,6 @@ pg_aio_queue_wait(PgAioQueue queue, PgAioEventSlice events, i64 timeout_ms,
     }
     event->user_data = epoll_event.data.u64;
   }
-
-  return res;
-}
-#endif
-
-#if defined(__linux__) || defined(__FreeBSD__)
-
-#include <sys/timerfd.h>
-
-[[maybe_unused]] [[nodiscard]] static int
-pg_clock_to_linux(PgClockKind clock_kind) {
-  switch (clock_kind) {
-  case PG_CLOCK_KIND_MONOTONIC:
-    return CLOCK_MONOTONIC;
-  case PG_CLOCK_KIND_REALTIME:
-    return CLOCK_REALTIME;
-  default:
-    PG_ASSERT(0);
-  }
-}
-
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_time_ns_now(PgClockKind clock) {
-  Pgu64Result res = {0};
-
-  struct timespec ts = {0};
-  int ret = 0;
-  do {
-    ret = clock_gettime(pg_clock_to_linux(clock), &ts);
-  } while (-1 == ret && EINTR == errno);
-
-  if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
-  }
-
-  res.res = (u64)ts.tv_sec * PG_Seconds + (u64)ts.tv_nsec;
 
   return res;
 }
