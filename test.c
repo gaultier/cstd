@@ -991,7 +991,7 @@ static void test_net_socket() {
   {
     PgAioEvent *event_bob_listen = PG_SLICE_AT_PTR(&events_change, 0);
     event_bob_listen->user_data = (u64)socket_listen;
-    event_bob_listen->kind = PG_AIO_EVENT_KIND_IN;
+    event_bob_listen->interest = PG_AIO_EVENT_KIND_IN;
     event_bob_listen->action = PG_AIO_EVENT_ACTION_ADD;
 
     PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change, arena));
@@ -1018,7 +1018,7 @@ static void test_net_socket() {
 
     for (u64 i = 0; i < res_wait.res; i++) {
       PgAioEvent event = PG_SLICE_AT(events_watch, i);
-      PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.kind));
+      PG_ASSERT(0 == (PG_AIO_EVENT_KIND_ERR & event.interest));
 
       PgOsHandle event_os_handle = (PgOsHandle)(event.user_data & UINT32_MAX);
       if (event_os_handle == socket_listen) {
@@ -1029,7 +1029,7 @@ static void test_net_socket() {
         events_change.len = 2;
         PgAioEvent *event_alice = PG_SLICE_AT_PTR(&events_change, 0);
         event_alice->user_data = (u64)socket_alice;
-        event_alice->kind = PG_AIO_EVENT_KIND_OUT;
+        event_alice->interest = PG_AIO_EVENT_KIND_OUT;
         event_alice->action = PG_AIO_EVENT_ACTION_ADD;
 
         bob_socket = res_accept.socket;
@@ -1037,13 +1037,13 @@ static void test_net_socket() {
 
         PgAioEvent *event_bob = PG_SLICE_AT_PTR(&events_change, 1);
         event_bob->user_data = (u64)res_accept.socket;
-        event_bob->kind = PG_AIO_EVENT_KIND_IN;
+        event_bob->interest = PG_AIO_EVENT_KIND_IN;
         event_bob->action = PG_AIO_EVENT_ACTION_ADD;
 
         PG_ASSERT(0 == pg_aio_queue_ctl(queue, events_change, arena));
         events_change.len = 0;
       } else if (event_os_handle == socket_alice) {
-        PG_ASSERT(PG_AIO_EVENT_KIND_OUT & event.kind);
+        PG_ASSERT(PG_AIO_EVENT_KIND_OUT & event.interest);
 
         switch (alice_state) {
         case ALICE_STATE_NONE: {
@@ -1059,7 +1059,7 @@ static void test_net_socket() {
           PG_ASSERT(0);
         }
       } else if (event_os_handle == bob_socket) {
-        PG_ASSERT(PG_AIO_EVENT_KIND_IN & event.kind);
+        PG_ASSERT(PG_AIO_EVENT_KIND_IN & event.interest);
 
         PgWriter w = pg_writer_make_from_ring(&bob_recv);
         PG_ASSERT(0 == pg_writer_write_from_reader(&w, &bob_reader).err);
