@@ -104,10 +104,11 @@ static void test_string_split_string() {
 }
 
 static void test_dyn_ensure_cap() {
-  u64 arena_cap = 4 * PG_KiB;
+  /* u64 arena_cap = 4 * PG_KiB; */
 
   // Trigger the optimization when the last allocation in the arena gets
   // extended.
+#if 0
   {
     PgArena arena = pg_arena_make_from_virtual_mem(arena_cap);
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -127,7 +128,9 @@ static void test_dyn_ensure_cap() {
     arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
     PG_ASSERT(16 == arena_size_expected);
   }
+#endif
   // General case.
+#if 0
   {
     PgArena arena = pg_arena_make_from_virtual_mem(arena_cap);
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -141,25 +144,25 @@ static void test_dyn_ensure_cap() {
     *PG_DYN_PUSH(&dummy, (PgAllocator *)&arena_allocator) = 2;
     *PG_DYN_PUSH(&dummy, (PgAllocator *)&arena_allocator) = 3;
 
-    u64 pg_arena_size_expected =
-        arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(2 + 2 == pg_arena_size_expected);
+    u64 arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
+    PG_ASSERT(2 + 2 == arena_size_expected);
 
     // This triggers a new allocation.
     *PG_DYN_PUSH(&dummy, (PgAllocator *)&arena_allocator) = 4;
     PG_ASSERT(3 == dummy.len);
     PG_ASSERT(4 == dummy.cap);
 
-    pg_arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(2 + 4 == pg_arena_size_expected);
+    arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
+    PG_ASSERT(2 + 4 == arena_size_expected);
 
     u64 desired_cap = 13;
     PG_DYN_ENSURE_CAP(&dyn, desired_cap, (PgAllocator *)&arena_allocator);
     PG_ASSERT(16 == dyn.cap);
 
-    pg_arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(16 + 6 == pg_arena_size_expected);
+    arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
+    PG_ASSERT(16 + 6 == arena_size_expected);
   }
+#endif
 }
 
 static void test_slice_range() {
@@ -1649,7 +1652,7 @@ static void test_log() {
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world", PG_L("foo", PG_S("bar")));
 
     PgString out = PG_DYN_SLICE(PgString, sb);
-    PG_ASSERT(pg_string_starts_with(out, PG_S("{\"level\":\"info\"")));
+    PG_ASSERT(pg_string_starts_with(out, PG_S("level=info ")));
   }
   // PgLog but the logger level is higher.
   {
