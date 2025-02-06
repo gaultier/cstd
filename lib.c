@@ -841,7 +841,7 @@ pg_make_arena_allocator(PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgAllocator *
-pg_arena_as_allocator(PgArenaAllocator *allocator) {
+pg_arena_allocator_as_allocator(PgArenaAllocator *allocator) {
   return (PgAllocator *)allocator;
 }
 
@@ -977,8 +977,8 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 #define PG_DYN_PUSH(s, allocator)                                              \
   (PG_DYN_ENSURE_CAP(s, (s)->len + 1, allocator), (s)->data + (s)->len++)
 
-#define PG_DYN_TRY_PUSH(s, v)                                                  \
-  (((s)->len + 1 == (s)->cap) ? false : *((s)->data + (s)->len++) = (v), true)
+#define PG_DYN_PUSH_WITHIN_CAPACITY(s)                                         \
+  (PG_ASSERT(((s)->len < (s)->cap)), ((s)->data + (s)->len++))
 
 #define PG_DYN_POP(s)                                                          \
   do {                                                                         \
@@ -997,6 +997,13 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
     PG_DYN_ENSURE_CAP(dst, (dst)->len + (src).len, (allocator));               \
     for (u64 _iii = 0; _iii < src.len; _iii++) {                               \
       *PG_DYN_PUSH(dst, allocator) = PG_SLICE_AT(src, _iii);                   \
+    }                                                                          \
+  } while (0)
+
+#define PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(dst, src)                          \
+  do {                                                                         \
+    for (u64 _iii = 0; _iii < src.len; _iii++) {                               \
+      *PG_DYN_PUSH_WITHIN_CAPACITY(dst) = PG_SLICE_AT(src, _iii);              \
     }                                                                          \
   } while (0)
 
