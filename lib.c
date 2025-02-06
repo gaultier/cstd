@@ -799,15 +799,19 @@ static void pg_free_tracing(PgAllocator *allocator, void *ptr, u64 sizeof_type,
   PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
   (void)tracing_allocator;
 
-  // TODO: Better tracing e.g. with pprof.
-  u64 len = 0; // TODO: Keep track of the allocation size.
-  fprintf(stderr, "free ptr=%p len=%lu\n", ptr, len);
+  fprintf(stderr, "free ptr=%p sizeof_type=%lu elem_count=%lu\n", ptr,
+          sizeof_type, elem_count);
 
   // TODO: Be aware of `align` here?
   u64 space = sizeof_type * elem_count;
 
   tracing_allocator->in_use_objects_count -= elem_count;
   tracing_allocator->in_use_space -= space;
+
+  fprintf(
+      stderr, "%lu: %lu [%lu: %lu] @ TODO call stack\n",
+      tracing_allocator->in_use_objects_count, tracing_allocator->in_use_space,
+      tracing_allocator->alloc_objects_count, tracing_allocator->alloc_space);
 
   free(ptr);
 }
