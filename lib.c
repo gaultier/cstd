@@ -729,7 +729,8 @@ typedef struct PgAllocator PgAllocator;
 
 typedef void *(*PgAllocFn)(PgAllocator *allocator, u64 sizeof_type,
                            u64 alignof_type, u64 elem_count);
-typedef void (*PgFreeFn)(PgAllocator *allocator, void *ptr);
+typedef void (*PgFreeFn)(PgAllocator *allocator, void *ptr, u64 sizeof_type,
+                         u64 elem_count);
 // TODO: realloc.
 
 struct PgAllocator {
@@ -745,8 +746,11 @@ static void *pg_alloc_heap_libc(PgAllocator *allocator, u64 sizeof_type,
   return calloc(sizeof_type, elem_count);
 }
 
-static void pg_free_heap_libc(PgAllocator *allocator, void *ptr) {
+static void pg_free_heap_libc(PgAllocator *allocator, void *ptr,
+                              u64 sizeof_type, u64 elem_count) {
   (void)allocator;
+  (void)sizeof_type;
+  (void)elem_count;
   free(ptr);
 }
 
@@ -759,8 +763,7 @@ typedef struct {
   PgAllocFn alloc_fn;
   PgFreeFn free_fn;
   // Pprof.
-  u64 alloc_objects_count, alloc_space, in_use_objects_count,
-      in_use_objects_space;
+  u64 alloc_objects_count, alloc_space, in_use_objects_count, in_use_space;
 } PgTracingAllocator;
 static_assert(sizeof(PgTracingAllocator) >= sizeof(PgAllocator));
 
@@ -775,16 +778,36 @@ static void *pg_alloc_tracing(PgAllocator *allocator, u64 sizeof_type,
           "allocation sizeof_type=%lu alignof_type=%lu elem_count=%lu\n",
           sizeof_type, alignof_type, elem_count);
 
+  // TODO: Be aware of `align` here?
+  u64 space = sizeof_type * elem_count;
+
+  tracing_allocator->alloc_objects_count += elem_count;
+  tracing_allocator->alloc_space += space;
+  tracing_allocator->in_use_objects_count += elem_count;
+  tracing_allocator->in_use_space += space;
+
+  fprintf(
+      stderr, "%lu: %lu [%lu: %lu] @ TODO call stack\n",
+      tracing_allocator->in_use_objects_count, tracing_allocator->in_use_space,
+      tracing_allocator->alloc_objects_count, tracing_allocator->alloc_space);
+
   return calloc(sizeof_type, elem_count);
 }
 
-static void pg_free_tracing(PgAllocator *allocator, void *ptr) {
+static void pg_free_tracing(PgAllocator *allocator, void *ptr, u64 sizeof_type,
+                            u64 elem_count) {
   PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
   (void)tracing_allocator;
 
   // TODO: Better tracing e.g. with pprof.
   u64 len = 0; // TODO: Keep track of the allocation size.
   fprintf(stderr, "free ptr=%p len=%lu\n", ptr, len);
+
+  // TODO: Be aware of `align` here?
+  u64 space = sizeof_type * elem_count;
+
+  tracing_allocator->in_use_objects_count -= elem_count;
+  tracing_allocator->in_use_space -= space;
 
   free(ptr);
 }
@@ -811,10 +834,11 @@ pg_tracing_allocator_as_allocator(PgTracingAllocator *allocator) {
   return allocator->alloc_fn(allocator, sizeof_type, alignof_type, elem_count);
 }
 
-[[maybe_unused]] static void pg_free(PgAllocator *allocator, void *ptr) {
+[[maybe_unused]] static void pg_free(PgAllocator *allocator, void *ptr,
+                                     u64 sizeof_type, u64 elem_count) {
   PG_ASSERT(allocator);
   PG_ASSERT(allocator->alloc_fn);
-  allocator->free_fn(allocator, ptr);
+  allocator->free_fn(allocator, ptr, sizeof_type, elem_count);
 }
 
 typedef struct {
@@ -834,9 +858,12 @@ static void *pg_alloc_arena(PgAllocator *allocator, u64 sizeof_type,
 }
 
 [[maybe_unused]]
-static void pg_free_arena(PgAllocator *allocator, void *ptr) {
+static void pg_free_arena(PgAllocator *allocator, void *ptr, u64 sizeof_type,
+                          u64 elem_count) {
   (void)allocator;
   (void)ptr;
+  (void)sizeof_type;
+  (void)elem_count;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgArenaAllocator
@@ -1249,7 +1276,7 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
     PgString dst = pg_string_make(pg_ring_read_space(*rg), allocator);
     PG_ASSERT(pg_ring_read_slice(rg, dst));
     *rg = cpy_rg; // Reset.
-    pg_free(allocator, dst.data);
+    pg_free(allocator, dst.data, sizeof(u8), dst.len);
 
     idx = pg_string_indexof_string(dst, needle);
     if (-1 == idx) {
@@ -1266,7 +1293,7 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
     PgString dst_needle = pg_string_make(needle.len, allocator);
     PG_ASSERT(pg_ring_read_slice(rg, dst_needle));
     PG_ASSERT(pg_string_eq(needle, dst_needle));
-    pg_free(allocator, dst_needle.data);
+    pg_free(allocator, dst_needle.data, sizeof(u8), dst_needle.len);
   }
 
   return res;
