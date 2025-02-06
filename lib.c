@@ -105,8 +105,9 @@ typedef u32 PgError;
 #define PG_ERR_IN_PROGRESS 115
 #endif
 
-PG_RESULT(u64) Pgu64Result;
+PG_RESULT(u64) PgU64Result;
 PG_RESULT(bool) PgBoolResult;
+PG_RESULT(void *) PgVoidPtrResult;
 PG_OK(u32) Pgu32Ok;
 PG_OK(u64) Pgu64Ok;
 
@@ -692,7 +693,7 @@ typedef struct {
 
 __attribute((malloc, alloc_size(2, 4), alloc_align(3)))
 [[maybe_unused]] [[nodiscard]] static void *
-pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
+pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   PG_ASSERT(a->start != nullptr);
 
   const u64 padding = (-(u64)a->start & (align - 1));
@@ -700,7 +701,9 @@ pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
 
   const i64 available = (i64)a->end - (i64)a->start - (i64)padding;
   PG_ASSERT(available >= 0);
-  PG_ASSERT(count <= (u64)available / size);
+  if (count > (u64)available / size) {
+    return nullptr;
+  }
 
   void *res = a->start + padding;
   PG_ASSERT(res != nullptr);
@@ -713,7 +716,18 @@ pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   return memset(res, 0, count * size);
 }
 
+__attribute((malloc, alloc_size(2, 4), alloc_align(3)))
+[[maybe_unused]] [[nodiscard]] static void *
+pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
+  void *res = pg_try_arena_alloc(a, size, align, count);
+  PG_ASSERT(res);
+  return res;
+}
+
 #define pg_arena_new(a, t, n) (t *)pg_arena_alloc(a, sizeof(t), _Alignof(t), n)
+
+#define pg_try_arena_new(a, t, n)                                              \
+  (t *)pg_try_arena_alloc(a, sizeof(t), _Alignof(t), n)
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_make(u64 len,
                                                               PgArena *arena) {
@@ -868,8 +882,8 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define PG_DYN_SLICE(T, dyn) ((T){.data = dyn.data, .len = dyn.len})
 
-typedef Pgu64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
-typedef Pgu64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
+typedef PgU64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
+typedef PgU64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
 typedef struct {
   void *ctx;
@@ -1122,7 +1136,7 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
   return pg_ring_read_slice(rg, s);
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
@@ -1133,10 +1147,10 @@ pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
   PgString s = {.data = buf, .len = buf_len};
   PG_DYN_APPEND_SLICE(sb, s, w->arena);
 
-  return (Pgu64Result){.res = buf_len};
+  return (PgU64Result){.res = buf_len};
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_reader_ring_read(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
@@ -1147,10 +1161,10 @@ pg_reader_ring_read(void *self, u8 *buf, size_t buf_len) {
   PgString s = {.data = buf, .len = PG_MIN(buf_len, pg_ring_read_space(*ring))};
   PG_ASSERT(true == pg_ring_read_slice(ring, s));
 
-  return (Pgu64Result){.res = s.len};
+  return (PgU64Result){.res = s.len};
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_ring_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
@@ -1162,7 +1176,7 @@ pg_writer_ring_write(void *self, u8 *buf, size_t buf_len) {
                 .len = PG_MIN(buf_len, pg_ring_write_space(*ring))};
   PG_ASSERT(true == pg_ring_write_slice(ring, s));
 
-  return (Pgu64Result){.res = s.len};
+  return (PgU64Result){.res = s.len};
 }
 
 [[nodiscard]] [[maybe_unused]] static PgWriter
@@ -1186,7 +1200,7 @@ pg_writer_make_from_ring(PgRing *ring) {
                                                                  u8 c) {
   PG_ASSERT(nullptr != w->write_fn);
 
-  Pgu64Result res = w->write_fn(w, &c, 1);
+  PgU64Result res = w->write_fn(w, &c, 1);
   if (res.err) {
     return res.err;
   }
@@ -1204,7 +1218,7 @@ pg_writer_write_all_string(PgWriter *w, PgString s) {
       break;
     }
 
-    Pgu64Result res = w->write_fn(w, remaining.data, remaining.len);
+    PgU64Result res = w->write_fn(w, remaining.data, remaining.len);
     if (res.err) {
       return res.err;
     }
@@ -1226,9 +1240,9 @@ pg_reader_make_from_ring(PgRing *ring) {
   return r;
 }
 
-[[nodiscard]] [[maybe_unused]] static Pgu64Result
+[[nodiscard]] [[maybe_unused]] static PgU64Result
 pg_writer_write_from_reader(PgWriter *w, PgReader *r) {
-  Pgu64Result res = {0};
+  PgU64Result res = {0};
 
   // TODO: Get a hint from the reader?
   u8 tmp[4096] = {0};
@@ -1579,7 +1593,7 @@ typedef int PgOsHandle;
 PG_RESULT(PgFile) PgFileResult;
 PG_RESULT(PgOsHandle) PgOsHandleResult;
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len);
 
 [[nodiscard]] [[maybe_unused]] static PgWriter
@@ -1596,7 +1610,7 @@ typedef enum {
   // TODO: More?
 } PgClockKind;
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_time_ns_now(PgClockKind clock_kind);
 
 [[nodiscard]] [[maybe_unused]] static PgStringResult
@@ -1640,7 +1654,7 @@ pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl);
 [[nodiscard]] [[maybe_unused]] static PgRng pg_rand_make() {
   PgRng rng = {0};
   // Rely on ASLR.
-  Pgu64Result now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
+  PgU64Result now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
   PG_ASSERT(0 == now.err);
   rng.state = (u64)(&pg_rand_make) ^ now.res;
 
@@ -1716,9 +1730,9 @@ pg_clock_to_linux(PgClockKind clock_kind) {
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_time_ns_now(PgClockKind clock) {
-  Pgu64Result res = {0};
+  PgU64Result res = {0};
 
   struct timespec ts = {0};
   int ret = 0;
@@ -1756,7 +1770,7 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
@@ -1770,7 +1784,7 @@ pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
     n = read(fd, buf, buf_len);
   } while (-1 == n && EINTR == errno);
 
-  Pgu64Result res = {0};
+  PgU64Result res = {0};
   if (n < 0) {
     res.err = (PgError)errno;
   } else {
@@ -1780,7 +1794,7 @@ pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_reader_unix_recv(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
@@ -1794,7 +1808,7 @@ pg_reader_unix_recv(void *self, u8 *buf, size_t buf_len) {
     n = recv(fd, buf, buf_len, 0);
   } while (-1 == n && EINTR == errno);
 
-  Pgu64Result res = {0};
+  PgU64Result res = {0};
   if (n < 0) {
     res.err = (PgError)errno;
   } else {
@@ -1804,7 +1818,7 @@ pg_reader_unix_recv(void *self, u8 *buf, size_t buf_len) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
@@ -1818,7 +1832,7 @@ pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
     n = write(fd, buf, buf_len);
   } while (-1 == n && EINTR == errno);
 
-  Pgu64Result res = {0};
+  PgU64Result res = {0};
   if (n < 0) {
     res.err = (PgError)errno;
   } else {
@@ -1828,12 +1842,12 @@ pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len) {
   return pg_writer_unix_write(self, buf, buf_len);
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_unix_send(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
@@ -1847,7 +1861,7 @@ pg_writer_unix_send(void *self, u8 *buf, size_t buf_len) {
     n = send(fd, buf, buf_len, MSG_NOSIGNAL);
   } while (-1 == n && EINTR == errno);
 
-  Pgu64Result res = {0};
+  PgU64Result res = {0};
   if (n < 0) {
     res.err = (PgError)errno;
   } else {
@@ -3255,9 +3269,9 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_http_headers_parse_content_length(PgKeyValueSlice headers, PgArena arena) {
-  Pgu64Result res = {0};
+  PgU64Result res = {0};
 
   for (u64 i = 0; i < headers.len; i++) {
     PgKeyValue h = PG_SLICE_AT(headers, i);
@@ -3994,8 +4008,8 @@ pg_writer_write_json_object_key_string_value_u64(PgWriter *w, PgString key,
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
                           i32 args_count, ...) {
-  Pgu64Result res_monotonic_ns = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
-  Pgu64Result res_timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME);
+  PgU64Result res_monotonic_ns = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
+  PgU64Result res_timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME);
   // Ignore clock errors.
 
   Pgu8Dyn sb = {0};
@@ -4050,8 +4064,8 @@ pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
                             i32 args_count, ...) {
-  Pgu64Result res_monotonic_ns = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
-  Pgu64Result res_timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME);
+  PgU64Result res_monotonic_ns = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
+  PgU64Result res_timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME);
   // Ignore clock errors.
 
   Pgu8Dyn sb = {0};
