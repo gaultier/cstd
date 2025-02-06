@@ -2,22 +2,16 @@
 #define CSTD_LIB_C
 
 // TODO: IPv6.
-// TODO: [Windows] support.
-// TODO: [x] Userspace timers.
-// TODO: [Linux/Unix] Async File I/O using thread pool or io_uring.
 // TODO: *Pool allocator?*
 // TODO: Randomize arena guard pages.
 // TODO: Sha1 hardware accelerated?
 // TODO: HTTP compression (gzip, etc)
 // TODO: TLS 1.3
-// TODO: Enqueue I/O write if `try_write` is partial.
 // TODO: Pprof memory profiling.
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: Get PIE offset for better call stack.
 // Low priority:
 // TODO: Test untested functions.
-// TODO: `try_alloc` functions?
-// TODO: [Illumos] async I/O.
 // TODO: [Unix] CLI argument parser.
 
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__) ||        \
