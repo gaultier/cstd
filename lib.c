@@ -728,6 +728,7 @@ typedef struct PgAllocator PgAllocator;
 typedef void *(*PgAllocFn)(PgAllocator *allocator, u64 sizeof_type,
                            u64 alignof_type, u64 elem_count);
 typedef void (*PgFreeFn)(PgAllocator *allocator, void *ptr, u64 len);
+// TODO: realloc.
 
 struct PgAllocator {
   PgAllocFn alloc_fn;
