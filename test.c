@@ -311,8 +311,10 @@ static void test_sha1() {
 
 static void test_slice_swap_remove() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   {
-    PgString s = pg_string_dup(PG_S("hello world!"), &arena);
+    PgString s =
+        pg_string_dup(PG_S("hello world!"), (PgAllocator *)&arena_allocator);
     PG_SLICE_SWAP_REMOVE(&s, 4);
     PG_ASSERT(pg_string_eq(s, PG_S("hell! world")));
   }
@@ -459,6 +461,7 @@ static void test_u8x4_be_to_u32_and_back() {
 
 static void test_bitfield() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   {
     PgString bitfield = PG_S("\x3"
                              "\x2");
@@ -483,7 +486,7 @@ static void test_bitfield() {
   {
     PgString bitfield = pg_string_dup(PG_S("\x3"
                                            "\x2"),
-                                      &arena);
+                                      (PgAllocator *)&arena_allocator);
     PG_ASSERT(3 == pg_bitfield_count(bitfield));
 
     pg_bitfield_set(bitfield, 0, true);
@@ -522,7 +525,7 @@ static void test_bitfield() {
                                            "\x01"
                                            "\x80"
                                            "\x90"),
-                                      &arena);
+                                      (PgAllocator *)&arena_allocator);
     PG_ASSERT(5 == pg_bitfield_count(bitfield));
     pg_bitfield_set(bitfield, 28, true);
     PG_ASSERT(5 == pg_bitfield_count(bitfield));
@@ -533,10 +536,11 @@ static void test_bitfield() {
 
 static void test_ring_buffer_write_slice() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
 
   // Write to empty ring buffer.
   {
-    PgRing rg = {.data = pg_string_make(12, &arena)};
+    PgRing rg = {.data = pg_string_make(12, (PgAllocator *)&arena_allocator)};
     PG_ASSERT(pg_ring_write_space(rg) == rg.data.len - 1);
     PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello")));
     PG_ASSERT(5 == rg.idx_write);
@@ -558,7 +562,7 @@ static void test_ring_buffer_write_slice() {
   // Write to full ring buffer.
   {
     PgRing rg = {
-        .data = pg_string_make(12, &arena),
+        .data = pg_string_make(12, (PgAllocator *)&arena_allocator),
         .idx_write = 1,
         .idx_read = 2,
     };
@@ -570,7 +574,7 @@ static void test_ring_buffer_write_slice() {
   // Write to ring buffer, easy case.
   {
     PgRing rg = {
-        .data = pg_string_make(12, &arena),
+        .data = pg_string_make(12, (PgAllocator *)&arena_allocator),
         .idx_read = 1,
         .idx_write = 2,
     };
@@ -583,7 +587,7 @@ static void test_ring_buffer_write_slice() {
   // Write to ring buffer, hard case.
   {
     PgRing rg = {
-        .data = pg_string_make(12, &arena),
+        .data = pg_string_make(12, (PgAllocator *)&arena_allocator),
         .idx_read = 2,
         .idx_write = 3,
     };
@@ -597,25 +601,26 @@ static void test_ring_buffer_write_slice() {
 
 static void test_ring_buffer_read_write_slice() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
 
   // Read from an empty ring buffer.
   {
-    PgRing rg = {.data = pg_string_make(12, &arena)};
+    PgRing rg = {.data = pg_string_make(12, (PgAllocator *)&arena_allocator)};
     PG_ASSERT(0 == pg_ring_read_space(rg));
     PG_ASSERT(true == pg_ring_read_slice(&rg, (PgString){0}));
 
-    PgString dst = pg_string_dup(PG_S("xyz"), &arena);
+    PgString dst = pg_string_dup(PG_S("xyz"), (PgAllocator *)&arena_allocator);
     PG_ASSERT(false == pg_ring_read_slice(&rg, dst));
   }
 
   // Write to empty ring buffer, then read part of it.
   {
-    PgRing rg = {.data = pg_string_make(12, &arena)};
+    PgRing rg = {.data = pg_string_make(12, (PgAllocator *)&arena_allocator)};
     PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello")));
     PG_ASSERT(5 == rg.idx_write);
     PG_ASSERT(5 == pg_ring_read_space(rg));
 
-    PgString dst = pg_string_dup(PG_S("xyz"), &arena);
+    PgString dst = pg_string_dup(PG_S("xyz"), (PgAllocator *)&arena_allocator);
     PG_ASSERT(pg_ring_read_slice(&rg, dst));
     PG_ASSERT(pg_string_eq(dst, PG_S("hel")));
     PG_ASSERT(3 == rg.idx_read);
@@ -631,7 +636,7 @@ static void test_ring_buffer_read_write_slice() {
     PG_ASSERT(11 == pg_ring_read_space(rg));
     PG_ASSERT(2 == rg.idx_write);
 
-    dst = pg_string_dup(PG_S("abcdefghijk"), &arena);
+    dst = pg_string_dup(PG_S("abcdefghijk"), (PgAllocator *)&arena_allocator);
     PG_ASSERT(pg_ring_read_slice(&rg, dst));
     PG_ASSERT(pg_string_eq(dst, PG_S("lo world!ab")));
     PG_ASSERT(2 == rg.idx_read);
@@ -641,7 +646,10 @@ static void test_ring_buffer_read_write_slice() {
 
 static void test_ring_buffer_read_until_excl() {
   PgArena arena = pg_arena_make_from_virtual_mem(8 * PG_KiB);
-  PgRing rg = {.data = pg_string_make(4 * PG_KiB, &arena)};
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+
+  PgRing rg = {.data =
+                   pg_string_make(4 * PG_KiB, (PgAllocator *)&arena_allocator)};
   PG_ASSERT(pg_ring_write_slice(
       &rg, PG_S("The quick brown fox jumps over the lazy dog")));
 
@@ -681,21 +689,26 @@ static void test_ring_buffer_read_until_excl() {
 }
 
 static void test_ring_buffer_read_write_fuzz() {
-  PgArena pg_arena_ring = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-  PgRing rg = {.data = pg_string_make(4 * PG_KiB, &pg_arena_ring)};
+  PgArena arena_ring = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator_ring = pg_make_arena_allocator(&arena_ring);
+
+  PgRing rg = {
+      .data = pg_string_make(4 * PG_KiB, (PgAllocator *)&arena_allocator_ring)};
 
   u64 ROUNDS = 1024;
-  PgArena pg_arena_strings =
-      pg_arena_make_from_virtual_mem(ROUNDS * 8 * PG_KiB);
+  PgArena arena_strings = pg_arena_make_from_virtual_mem(ROUNDS * 8 * PG_KiB);
+  PgArenaAllocator arena_allocator_strings =
+      pg_make_arena_allocator(&arena_strings);
 
   PgRng rng = pg_rand_make();
   // TODO: Print seed for reproducability?
   for (u64 i = 0; i < ROUNDS; i++) {
     u32 len = pg_rand_u32_min_incl_max_incl(&rng, 0, (u32)rg.data.len + 1);
-    PgString from = pg_string_make(len, &pg_arena_strings);
+    PgString from =
+        pg_string_make(len, (PgAllocator *)&arena_allocator_strings);
     pg_rand_string_mut(&rng, from);
 
-    PgString to = pg_string_make(len, &pg_arena_strings);
+    PgString to = pg_string_make(len, (PgAllocator *)&arena_allocator_strings);
     pg_rand_string_mut(&rng, to);
 
     bool ok_write = pg_ring_write_slice(&rg, from);
@@ -1249,17 +1262,18 @@ static void test_http_parse_header() {
 
 static void test_http_read_response() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
 
   // Empty.
   {
-    PgRing rg = {.data = pg_string_make(32, &arena)};
+    PgRing rg = {.data = pg_string_make(32, (PgAllocator *)&arena_allocator)};
     PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(false == res.done);
   }
   // Partial status line.
   {
-    PgRing rg = {.data = pg_string_make(32, &arena)};
+    PgRing rg = {.data = pg_string_make(32, (PgAllocator *)&arena_allocator)};
     PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S("HTTP/1.")));
     PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
     PG_ASSERT(0 == res.err);
@@ -1268,7 +1282,7 @@ static void test_http_read_response() {
   }
   // Status line and some but not full.
   {
-    PgRing rg = {.data = pg_string_make(32, &arena)};
+    PgRing rg = {.data = pg_string_make(32, (PgAllocator *)&arena_allocator)};
     PG_ASSERT(true ==
               pg_ring_write_slice(&rg, PG_S("HTTP/1.1 201 Created\r\nHost:")));
     PgHttpResponseReadResult res = pg_http_read_response(&rg, 128, &arena);
@@ -1278,7 +1292,7 @@ static void test_http_read_response() {
 
   // Full.
   {
-    PgRing rg = {.data = pg_string_make(128, &arena)};
+    PgRing rg = {.data = pg_string_make(128, (PgAllocator *)&arena_allocator)};
 
     {
       PG_ASSERT(true == pg_ring_write_slice(

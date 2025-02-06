@@ -726,7 +726,7 @@ pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
 typedef struct PgAllocator PgAllocator;
 
 typedef void *(*PgAllocFn)(PgAllocator *allocator, u64 sizeof_type,
-                           u64 elem_count);
+                           u64 alignof_type, u64 elem_count);
 
 struct PgAllocator {
   PgAllocFn alloc_fn;
@@ -734,8 +734,9 @@ struct PgAllocator {
 
 [[nodiscard]]
 static void *pg_alloc_heap_libc(PgAllocator *allocator, u64 sizeof_type,
-                                u64 elem_count) {
+                                u64 alignof_type, u64 elem_count) {
   (void)allocator;
+  (void)alignof_type;
   return calloc(sizeof_type, elem_count);
 }
 
@@ -750,13 +751,14 @@ static_assert(sizeof(PgTracingAllocator) >= sizeof(PgAllocator));
 
 [[nodiscard]]
 static void *pg_alloc_tracing(PgAllocator *allocator, u64 sizeof_type,
-                              u64 elem_count) {
+                              u64 alignof_type, u64 elem_count) {
   PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
   (void)tracing_allocator;
 
   // TODO: Better tracing e.g. with pprof.
-  fprintf(stderr, "allocation sizeof_type=%lu elem_count=%lu\n", sizeof_type,
-          elem_count);
+  fprintf(stderr,
+          "allocation sizeof_type=%lu alignof_type=%lu elem_count=%lu\n",
+          sizeof_type, alignof_type, elem_count);
 
   return calloc(sizeof_type, elem_count);
 }
@@ -766,27 +768,33 @@ pg_make_tracing_heap_allocator() {
   return (PgAllocator){.alloc_fn = pg_alloc_tracing};
 }
 
-[[maybe_unused]] [[nodiscard]] static void *
-pg_alloc(PgAllocator *allocator, u64 sizeof_type, u64 elem_count) {
+[[maybe_unused]] [[nodiscard]] static void *pg_alloc(PgAllocator *allocator,
+                                                     u64 sizeof_type,
+                                                     u64 alignof_type,
+                                                     u64 elem_count) {
   PG_ASSERT(allocator);
   PG_ASSERT(allocator->alloc_fn);
-  return allocator->alloc_fn(allocator, sizeof_type, elem_count);
+  return allocator->alloc_fn(allocator, sizeof_type, alignof_type, elem_count);
 }
 
 typedef struct {
   PgAllocFn alloc_fn;
-  PgArena arena;
+  PgArena *arena;
 } PgArenaAllocator;
 
 static_assert(sizeof(PgArenaAllocator) >= sizeof(PgAllocator));
 
 [[maybe_unused]] [[nodiscard]]
 static void *pg_alloc_arena(PgAllocator *allocator, u64 sizeof_type,
-                            u64 elem_count) {
+                            u64 alignof_type, u64 elem_count) {
   PgArenaAllocator *arena_allocator = (PgArenaAllocator *)allocator;
-  PgArena *arena = &arena_allocator->arena;
-  // FIXME: _Alignof()
-  return pg_try_arena_alloc(arena, sizeof_type, 16, elem_count);
+  PgArena *arena = arena_allocator->arena;
+  return pg_try_arena_alloc(arena, sizeof_type, alignof_type, elem_count);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgArenaAllocator
+pg_make_arena_allocator(PgArena *arena) {
+  return (PgArenaAllocator){.alloc_fn = pg_alloc_arena, .arena = arena};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgAllocator *
@@ -794,11 +802,11 @@ pg_arena_as_allocator(PgArenaAllocator *allocator) {
   return (PgAllocator *)allocator;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString pg_string_make(u64 len,
-                                                              PgArena *arena) {
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_string_make(u64 len, PgAllocator *allocator) {
   PgString res = {0};
   res.len = len;
-  res.data = pg_arena_new(arena, u8, len);
+  res.data = pg_alloc(allocator, sizeof(u8), _Alignof(u8), len);
   return res;
 }
 
@@ -967,8 +975,8 @@ typedef struct {
   PgString data;
 } PgRing;
 
-[[maybe_unused]] static PgRing pg_ring_make(u64 cap, PgArena *arena) {
-  return (PgRing){.data = pg_string_make(cap, arena)};
+[[maybe_unused]] static PgRing pg_ring_make(u64 cap, PgAllocator *allocator) {
+  return (PgRing){.data = pg_string_make(cap, allocator)};
 }
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_ring_write_space(PgRing rg) {
@@ -1159,11 +1167,13 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
   PgStringOk res = {0};
   i64 idx = -1;
 
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(arena);
   {
     PgRing cpy_rg = *rg;
     PgArena cpy_arena = *arena;
 
-    PgString dst = pg_string_make(pg_ring_read_space(*rg), arena);
+    PgString dst = pg_string_make(pg_ring_read_space(*rg),
+                                  (PgAllocator *)&arena_allocator);
     PG_ASSERT(pg_ring_read_slice(rg, dst));
     *rg = cpy_rg;       // Reset.
     *arena = cpy_arena; // Reset.
@@ -1175,13 +1185,15 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
   }
 
   res.ok = true;
-  res.res = pg_string_make((u64)idx, arena);
+  res.res = pg_string_make((u64)idx, (PgAllocator *)&arena_allocator);
   PG_ASSERT(pg_ring_read_slice(rg, res.res));
 
   // Read and throw away the needle.
   {
-    PgArena pg_arena_tmp = *arena;
-    PgString dst_needle = pg_string_make(needle.len, &pg_arena_tmp);
+    PgArena arena_tmp = *arena;
+    PgArenaAllocator arena_allocator_tmp = pg_make_arena_allocator(&arena_tmp);
+    PgString dst_needle =
+        pg_string_make(needle.len, (PgAllocator *)&arena_allocator_tmp);
     PG_ASSERT(pg_ring_read_slice(rg, dst_needle));
     PG_ASSERT(pg_string_eq(needle, dst_needle));
   }
@@ -1436,9 +1448,9 @@ static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString pg_string_dup(PgString src,
-                                                             PgArena *arena) {
-  PgString dst = pg_string_make(src.len, arena);
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_string_dup(PgString src, PgAllocator *allocator) {
+  PgString dst = pg_string_make(src.len, allocator);
   memcpy(dst.data, src.data, src.len);
 
   return dst;
@@ -1506,9 +1518,9 @@ pg_skip_over_whitespace(PgString s, u64 idx_start) {
   return idx;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString pg_string_clone(PgString s,
-                                                               PgArena *arena) {
-  PgString res = pg_string_make(s.len, arena);
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_string_clone(PgString s, PgAllocator *allocator) {
+  PgString res = pg_string_make(s.len, allocator);
   if (res.data != nullptr) {
     memcpy(res.data, s.data, s.len);
   }
@@ -1545,8 +1557,9 @@ pg_string_ieq_ascii(PgString a, PgString b, PgArena arena) {
   PG_ASSERT(b.data != nullptr);
   PG_ASSERT(a.len == b.len);
 
-  PgString a_clone = pg_string_clone(a, &arena);
-  PgString b_clone = pg_string_clone(b, &arena);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgString a_clone = pg_string_clone(a, (PgAllocator *)&arena_allocator);
+  PgString b_clone = pg_string_clone(b, (PgAllocator *)&arena_allocator);
 
   pg_string_lowercase_ascii_mut(a_clone);
   pg_string_lowercase_ascii_mut(b_clone);
