@@ -721,7 +721,78 @@ pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
 #define pg_arena_new(a, t, n) (t *)pg_arena_alloc(a, sizeof(t), _Alignof(t), n)
 
 #define pg_try_arena_new(a, t, n)                                              \
-  (t *)pg_try_arena_alloc(a, sizeof(t), _Alignof(t), n)
+  ((t *)pg_try_arena_alloc((a), sizeof(t), _Alignof(t), (n)))
+
+typedef struct PgAllocator PgAllocator;
+
+typedef void *(*PgAllocFn)(PgAllocator *allocator, u64 sizeof_type,
+                           u64 elem_count);
+
+struct PgAllocator {
+  PgAllocFn alloc_fn;
+};
+
+[[nodiscard]]
+static void *pg_alloc_heap_libc(PgAllocator *allocator, u64 sizeof_type,
+                                u64 elem_count) {
+  (void)allocator;
+  return calloc(sizeof_type, elem_count);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgAllocator pg_make_heap_allocator() {
+  return (PgAllocator){.alloc_fn = pg_alloc_heap_libc};
+}
+
+typedef struct {
+  PgAllocFn alloc_fn;
+} PgTracingAllocator;
+static_assert(sizeof(PgTracingAllocator) >= sizeof(PgAllocator));
+
+[[nodiscard]]
+static void *pg_alloc_tracing(PgAllocator *allocator, u64 sizeof_type,
+                              u64 elem_count) {
+  PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
+  (void)tracing_allocator;
+
+  // TODO: Better tracing e.g. with pprof.
+  fprintf(stderr, "allocation sizeof_type=%lu elem_count=%lu\n", sizeof_type,
+          elem_count);
+
+  return calloc(sizeof_type, elem_count);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgAllocator
+pg_make_tracing_heap_allocator() {
+  return (PgAllocator){.alloc_fn = pg_alloc_tracing};
+}
+
+[[maybe_unused]] [[nodiscard]] static void *
+pg_alloc(PgAllocator *allocator, u64 sizeof_type, u64 elem_count) {
+  PG_ASSERT(allocator);
+  PG_ASSERT(allocator->alloc_fn);
+  return allocator->alloc_fn(allocator, sizeof_type, elem_count);
+}
+
+typedef struct {
+  PgAllocFn alloc_fn;
+  PgArena arena;
+} PgArenaAllocator;
+
+static_assert(sizeof(PgArenaAllocator) >= sizeof(PgAllocator));
+
+[[maybe_unused]] [[nodiscard]]
+static void *pg_alloc_arena(PgAllocator *allocator, u64 sizeof_type,
+                            u64 elem_count) {
+  PgArenaAllocator *arena_allocator = (PgArenaAllocator *)allocator;
+  PgArena *arena = &arena_allocator->arena;
+  // FIXME: _Alignof()
+  return pg_try_arena_alloc(arena, sizeof_type, 16, elem_count);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgAllocator *
+pg_arena_as_allocator(PgArenaAllocator *allocator) {
+  return (PgAllocator *)allocator;
+}
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_make(u64 len,
                                                               PgArena *arena) {
