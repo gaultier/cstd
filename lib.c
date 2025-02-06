@@ -35,6 +35,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define PG_PATH_MAX 4096
+
 #ifndef PG_MIN
 #define PG_MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
@@ -863,6 +865,20 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
   PG_ASSERT(0 == PG_C_ARRAY_AT(res, s.len + 1, s.len));
 
   return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool pg_cstr_mut_from_string(char *str_c,
+                                                                   PgString s) {
+  PG_ASSERT(str_c);
+
+  if (s.len >= PG_PATH_MAX) {
+    return false;
+  }
+  memcpy(str_c, s.data, s.len);
+
+  PG_ASSERT(0 == PG_C_ARRAY_AT(str_c, s.len + 1, s.len));
+
+  return true;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_cstr_to_string(char *s) {
@@ -1759,12 +1775,12 @@ typedef enum [[clang::flag_enum]] : u8 {
 } PgFileFlags;
 
 [[nodiscard]] [[maybe_unused]] static PgFileResult
-pg_file_open(PgString path, PgFileFlags flags, PgArena arena);
+pg_file_open(PgString path, PgFileFlags flags);
 
 [[nodiscard]] [[maybe_unused]] static PgError pg_file_close(PgFile file);
 
-[[nodiscard]] [[maybe_unused]] static PgError
-pg_file_set_size(PgString path, u64 size, PgArena arena);
+[[nodiscard]] [[maybe_unused]] static PgError pg_file_set_size(PgString path,
+                                                               u64 size);
 
 typedef struct {
   u64 state;
@@ -2014,7 +2030,7 @@ pg_file_write_data_at_offset_from_start(PgFile file, u64 offset,
 }
 
 [[nodiscard]] [[maybe_unused]] static PgFileResult
-pg_file_open(PgString path, PgFileFlags flags, PgArena arena) {
+pg_file_open(PgString path, PgFileFlags flags) {
   PgFileResult res = {0};
 
   int os_flags = 0;
@@ -2030,8 +2046,11 @@ pg_file_open(PgString path, PgFileFlags flags, PgArena arena) {
 
   int mode = 0666; // TODO
 
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-  char *path_c = pg_string_to_cstr(path, (PgAllocator *)&arena_allocator);
+  char path_c[PG_PATH_MAX] = {0};
+  if (!pg_cstr_mut_from_string(path_c, path)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
   int ret = 0;
   do {
     ret = open(path_c, os_flags, mode);
@@ -2058,12 +2077,15 @@ pg_file_open(PgString path, PgFileFlags flags, PgArena arena) {
   return 0;
 }
 
-[[nodiscard]] [[maybe_unused]] static PgError
-pg_file_set_size(PgString path, u64 size, PgArena arena) {
+[[nodiscard]] [[maybe_unused]] static PgError pg_file_set_size(PgString path,
+                                                               u64 size) {
   PgError res = 0;
 
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-  char *path_c = pg_string_to_cstr(path, (PgAllocator *)&arena_allocator);
+  char path_c[PG_PATH_MAX] = {0};
+  if (!pg_cstr_mut_from_string(path_c, path)) {
+    return PG_ERR_INVALID_VALUE;
+  }
+
   int ret = 0;
   do {
     ret = truncate(path_c, (i64)size);
