@@ -2106,7 +2106,12 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
                     void *ctx, PgArena arena) {
 
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-  char *path_c = pg_string_to_cstr(path, (PgAllocator *)&arena_allocator);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  char path_c[PG_PATH_MAX] = {0};
+  if (!pg_cstr_mut_from_string(path_c, path)) {
+    return PG_ERR_INVALID_VALUE;
+  }
 
   int fd = 0;
   do {
@@ -2118,7 +2123,7 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
   }
 
   Pgu8Dyn chunk = {0};
-  PG_DYN_ENSURE_CAP(&chunk, chunk_size, (PgAllocator *)&arena_allocator);
+  PG_DYN_ENSURE_CAP(&chunk, chunk_size, allocator);
   PgError err = 0;
 
   for (;;) {
