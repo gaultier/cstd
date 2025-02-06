@@ -758,6 +758,9 @@ static void pg_free_heap_libc(PgAllocator *allocator, void *ptr) {
 typedef struct {
   PgAllocFn alloc_fn;
   PgFreeFn free_fn;
+  // Pprof.
+  u64 alloc_objects_count, alloc_space, in_use_objects_count,
+      in_use_objects_space;
 } PgTracingAllocator;
 static_assert(sizeof(PgTracingAllocator) >= sizeof(PgAllocator));
 
@@ -786,12 +789,17 @@ static void pg_free_tracing(PgAllocator *allocator, void *ptr) {
   free(ptr);
 }
 
-[[maybe_unused]] [[nodiscard]] static PgAllocator
+[[maybe_unused]] [[nodiscard]] static PgTracingAllocator
 pg_make_tracing_heap_allocator() {
-  return (PgAllocator){
+  return (PgTracingAllocator){
       .alloc_fn = pg_alloc_tracing,
       .free_fn = pg_free_tracing,
   };
+}
+
+[[maybe_unused]] [[nodiscard]] static PgAllocator *
+pg_tracing_allocator_as_allocator(PgTracingAllocator *allocator) {
+  return (PgAllocator *)allocator;
 }
 
 [[maybe_unused]] [[nodiscard]] static void *pg_alloc(PgAllocator *allocator,
