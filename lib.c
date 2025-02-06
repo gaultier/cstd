@@ -27,7 +27,6 @@
 #include "sha1.c"
 #include <inttypes.h>
 #include <stdarg.h>
-#include <stdbit.h>
 #include <stdbool.h>
 #include <stdckdint.h>
 #include <stddef.h>
@@ -1754,7 +1753,16 @@ pg_bitfield_get_first_zero(PgString bitfield) {
       continue;
     }
 
-    u64 bit_idx = stdc_first_trailing_zero_uc(c);
+    u64 bit_idx = 0;
+    u8 bit_pattern = 0b1;
+    // TODO: Check correctness.
+    for (u64 j = 0; j < 8; j++) {
+      if (0 == (c & bit_pattern)) {
+        bit_idx = j;
+        break;
+      }
+      bit_pattern <<= 1;
+    }
     PG_ASSERT(bit_idx < 8);
     PG_ASSERT(bit_idx > 0);
 
