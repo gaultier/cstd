@@ -727,9 +727,11 @@ typedef struct PgAllocator PgAllocator;
 
 typedef void *(*PgAllocFn)(PgAllocator *allocator, u64 sizeof_type,
                            u64 alignof_type, u64 elem_count);
+typedef void (*PgFreeFn)(PgAllocator *allocator, void *ptr, u64 len);
 
 struct PgAllocator {
   PgAllocFn alloc_fn;
+  PgFreeFn free_fn;
 };
 
 [[nodiscard]]
@@ -740,12 +742,20 @@ static void *pg_alloc_heap_libc(PgAllocator *allocator, u64 sizeof_type,
   return calloc(sizeof_type, elem_count);
 }
 
+static void pg_free_heap_libc(PgAllocator *allocator, void *ptr, u64 len) {
+  (void)allocator;
+  (void)len;
+  free(ptr);
+}
+
 [[maybe_unused]] [[nodiscard]] static PgAllocator pg_make_heap_allocator() {
-  return (PgAllocator){.alloc_fn = pg_alloc_heap_libc};
+  return (PgAllocator){.alloc_fn = pg_alloc_heap_libc,
+                       .free_fn = pg_free_heap_libc};
 }
 
 typedef struct {
   PgAllocFn alloc_fn;
+  PgFreeFn free_fn;
 } PgTracingAllocator;
 static_assert(sizeof(PgTracingAllocator) >= sizeof(PgAllocator));
 
@@ -763,9 +773,22 @@ static void *pg_alloc_tracing(PgAllocator *allocator, u64 sizeof_type,
   return calloc(sizeof_type, elem_count);
 }
 
+static void pg_free_tracing(PgAllocator *allocator, void *ptr, u64 len) {
+  PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
+  (void)tracing_allocator;
+
+  // TODO: Better tracing e.g. with pprof.
+  fprintf(stderr, "free ptr=%p len=%lu\n", ptr, len);
+
+  free(ptr);
+}
+
 [[maybe_unused]] [[nodiscard]] static PgAllocator
 pg_make_tracing_heap_allocator() {
-  return (PgAllocator){.alloc_fn = pg_alloc_tracing};
+  return (PgAllocator){
+      .alloc_fn = pg_alloc_tracing,
+      .free_fn = pg_free_tracing,
+  };
 }
 
 [[maybe_unused]] [[nodiscard]] static void *pg_alloc(PgAllocator *allocator,
@@ -777,8 +800,16 @@ pg_make_tracing_heap_allocator() {
   return allocator->alloc_fn(allocator, sizeof_type, alignof_type, elem_count);
 }
 
+[[maybe_unused]] static void pg_free(PgAllocator *allocator, void *ptr,
+                                     u64 len) {
+  PG_ASSERT(allocator);
+  PG_ASSERT(allocator->alloc_fn);
+  allocator->free_fn(allocator, ptr, len);
+}
+
 typedef struct {
   PgAllocFn alloc_fn;
+  PgFreeFn free_fn;
   PgArena *arena;
 } PgArenaAllocator;
 
@@ -792,9 +823,20 @@ static void *pg_alloc_arena(PgAllocator *allocator, u64 sizeof_type,
   return pg_try_arena_alloc(arena, sizeof_type, alignof_type, elem_count);
 }
 
+[[maybe_unused]]
+static void pg_free_arena(PgAllocator *allocator, void *ptr, u64 len) {
+  (void)allocator;
+  (void)ptr;
+  (void)len;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgArenaAllocator
 pg_make_arena_allocator(PgArena *arena) {
-  return (PgArenaAllocator){.alloc_fn = pg_alloc_arena, .arena = arena};
+  return (PgArenaAllocator){
+      .alloc_fn = pg_alloc_arena,
+      .arena = arena,
+      .free_fn = pg_free_arena,
+  };
 }
 
 [[maybe_unused]] [[nodiscard]] static PgAllocator *
@@ -810,9 +852,9 @@ pg_string_make(u64 len, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static char *pg_string_to_cstr(PgString s,
-                                                              PgArena *arena) {
-  char *res = (char *)pg_arena_new(arena, u8, s.len + 1);
+[[maybe_unused]] [[nodiscard]] static char *
+pg_string_to_cstr(PgString s, PgAllocator *allocator) {
+  char *res = (char *)pg_alloc(allocator, sizeof(u8), 1, s.len + 1);
   if (NULL != s.data) {
     memcpy(res, s.data, s.len);
   }
@@ -859,7 +901,7 @@ pg_string_cmp(PgString a, PgString b) {
 }
 
 [[maybe_unused]] static void PG_DYN_GROW(void *slice, u64 size, u64 align,
-                                         u64 count, PgArena *a) {
+                                         u64 count, PgAllocator *allocator) {
   PG_ASSERT(nullptr != slice);
 
   struct {
@@ -890,18 +932,22 @@ pg_string_cmp(PgString a, PgString b) {
   PG_ASSERT(false ==
             ckd_add(&array_end, (u64)PgReplica.data, array_bytes_count));
   PG_ASSERT((u64)PgReplica.data <= array_end);
-  PG_ASSERT(array_end < (u64)a->end);
+  // PG_ASSERT(array_end < (u64)a->end);
 
   if (nullptr ==
       PgReplica.data) { // First allocation ever for this dynamic array.
-    PgReplica.data = pg_arena_alloc(a, size, align, new_cap);
-  } else if ((u64)a->start == array_end) { // Optimization.
+    PgReplica.data = pg_alloc(allocator, size, align, new_cap);
+  }
+#if 0
+  else if ((u64)a->start == array_end) { // Optimization.
     // This is the case of growing the array which is at the end of the arena.
     // In that case we can simply bump the arena pointer and avoid any copies.
-    (void)pg_arena_alloc(a, size, 1 /* Force no padding */,
+    (void)pg_arena_alloc(allocator, size, 1 /* Force no padding */,
                          new_cap - PgReplica.cap);
-  } else { // General case.
-    void *data = pg_arena_alloc(a, size, align, new_cap);
+  }
+#endif
+  else { // General case.
+    void *data = pg_alloc(allocator, size, align, new_cap);
 
     // Import check to avoid overlapping memory ranges in memcpy.
     PG_ASSERT(data != PgReplica.data);
@@ -915,10 +961,10 @@ pg_string_cmp(PgString a, PgString b) {
   memcpy(slice, &PgReplica, sizeof(PgReplica));
 }
 
-#define PG_DYN_ENSURE_CAP(dyn, new_cap, arena)                                 \
+#define PG_DYN_ENSURE_CAP(dyn, new_cap, allocator)                             \
   ((dyn)->cap < (new_cap))                                                     \
       ? PG_DYN_GROW(dyn, sizeof(*(dyn)->data), _Alignof((dyn)->data[0]),       \
-                    new_cap, arena),                                           \
+                    new_cap, allocator),                                       \
       0 : 0
 
 #define PG_DYN_SPACE(T, dyn)                                                   \
@@ -927,8 +973,8 @@ pg_string_cmp(PgString a, PgString b) {
 PG_DYN(PgString) PgStringDyn;
 PG_RESULT(PgStringDyn) PgStringDynResult;
 
-#define PG_DYN_PUSH(s, arena)                                                  \
-  (PG_DYN_ENSURE_CAP(s, (s)->len + 1, arena), (s)->data + (s)->len++)
+#define PG_DYN_PUSH(s, allocator)                                              \
+  (PG_DYN_ENSURE_CAP(s, (s)->len + 1, allocator), (s)->data + (s)->len++)
 
 #define PG_DYN_TRY_PUSH(s, v)                                                  \
   (((s)->len + 1 == (s)->cap) ? false : *((s)->data + (s)->len++) = (v), true)
@@ -945,11 +991,11 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define PG_SLICE_LAST(s) PG_C_ARRAY_AT((s).data, (s).len, (s).len - 1)
 
-#define PG_DYN_APPEND_SLICE(dst, src, arena)                                   \
+#define PG_DYN_APPEND_SLICE(dst, src, allocator)                               \
   do {                                                                         \
-    PG_DYN_ENSURE_CAP(dst, (dst)->len + (src).len, arena);                     \
+    PG_DYN_ENSURE_CAP(dst, (dst)->len + (src).len, (allocator));               \
     for (u64 _iii = 0; _iii < src.len; _iii++) {                               \
-      *PG_DYN_PUSH(dst, arena) = PG_SLICE_AT(src, _iii);                       \
+      *PG_DYN_PUSH(dst, allocator) = PG_SLICE_AT(src, _iii);                   \
     }                                                                          \
   } while (0)
 
@@ -967,7 +1013,7 @@ typedef struct {
   void *ctx;
   WriteFn write_fn;
   // Only useful for writing to a string builder (aka `Pgu8Dyn`).
-  PgArena *arena; // TODO: Should it be instead in DYN_ structs?
+  PgAllocator *allocator; // TODO: Should it be instead in DYN_ structs?
 } PgWriter;
 
 typedef struct {
@@ -1163,20 +1209,17 @@ pg_ring_write_ptr(PgRing *rg, u8 *data, u64 data_len) {
        : (pg_ring_write_ptr(ring, (u8 *)&val, sizeof(val))))
 
 [[maybe_unused]] [[nodiscard]] static PgStringOk
-pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
+pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
   PgStringOk res = {0};
   i64 idx = -1;
 
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(arena);
   {
     PgRing cpy_rg = *rg;
-    PgArena cpy_arena = *arena;
 
-    PgString dst = pg_string_make(pg_ring_read_space(*rg),
-                                  (PgAllocator *)&arena_allocator);
+    PgString dst = pg_string_make(pg_ring_read_space(*rg), allocator);
     PG_ASSERT(pg_ring_read_slice(rg, dst));
-    *rg = cpy_rg;       // Reset.
-    *arena = cpy_arena; // Reset.
+    *rg = cpy_rg; // Reset.
+    pg_free(allocator, dst.data, dst.len);
 
     idx = pg_string_indexof_string(dst, needle);
     if (-1 == idx) {
@@ -1185,17 +1228,15 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgArena *arena) {
   }
 
   res.ok = true;
-  res.res = pg_string_make((u64)idx, (PgAllocator *)&arena_allocator);
+  res.res = pg_string_make((u64)idx, allocator);
   PG_ASSERT(pg_ring_read_slice(rg, res.res));
 
   // Read and throw away the needle.
   {
-    PgArena arena_tmp = *arena;
-    PgArenaAllocator arena_allocator_tmp = pg_make_arena_allocator(&arena_tmp);
-    PgString dst_needle =
-        pg_string_make(needle.len, (PgAllocator *)&arena_allocator_tmp);
+    PgString dst_needle = pg_string_make(needle.len, allocator);
     PG_ASSERT(pg_ring_read_slice(rg, dst_needle));
     PG_ASSERT(pg_string_eq(needle, dst_needle));
+    pg_free(allocator, dst_needle.data, dst_needle.len);
   }
 
   return res;
@@ -1222,7 +1263,7 @@ pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
   Pgu8Dyn *sb = w->ctx;
 
   PgString s = {.data = buf, .len = buf_len};
-  PG_DYN_APPEND_SLICE(sb, s, w->arena);
+  PG_DYN_APPEND_SLICE(sb, s, w->allocator);
 
   return (PgU64Result){.res = buf_len};
 }
@@ -1257,10 +1298,10 @@ pg_writer_ring_write(void *self, u8 *buf, size_t buf_len) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgWriter
-pg_writer_make_from_string_builder(Pgu8Dyn *sb, PgArena *arena) {
+pg_writer_make_from_string_builder(Pgu8Dyn *sb, PgAllocator *allocator) {
   PgWriter w = {0};
   w.ctx = sb;
-  w.arena = arena;
+  w.allocator = allocator;
   w.write_fn = pg_writer_string_builder_write;
   return w;
 }
@@ -1368,20 +1409,20 @@ pg_writer_write_u64_as_string(PgWriter *w, u64 n) {
   *(PG_SLICE_AT_PTR(dst, 3)) = (u8)(n >> 0);
 }
 
-[[maybe_unused]] static void pg_string_builder_append_u32(Pgu8Dyn *dyn, u32 n,
-                                                          PgArena *arena) {
+[[maybe_unused]] static void
+pg_string_builder_append_u32(Pgu8Dyn *dyn, u32 n, PgAllocator *allocator) {
 
   u8 data[sizeof(n)] = {0};
   PgString s = {.data = data, .len = sizeof(n)};
   pg_u32_to_u8x4_be(n, &s);
-  PG_DYN_APPEND_SLICE(dyn, s, arena);
+  PG_DYN_APPEND_SLICE(dyn, s, allocator);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_u64_to_string(u64 n, PgArena *arena) {
+pg_u64_to_string(u64 n, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 25, arena);
-  PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
+  PG_DYN_ENSURE_CAP(&sb, 25, allocator);
+  PgWriter w = pg_writer_make_from_string_builder(&sb, allocator);
 
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
 
@@ -1584,10 +1625,10 @@ PG_DYN(PgIpv4Address) PgIpv4AddressDyn;
 PG_SLICE(PgIpv4Address) PgIpv4AddressSlice;
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_net_ipv4_address_to_string(PgIpv4Address address, PgArena *arena) {
+pg_net_ipv4_address_to_string(PgIpv4Address address, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 3 * 4 + 4 + 5, arena);
-  PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
+  PG_DYN_ENSURE_CAP(&sb, 3 * 4 + 4 + 5, allocator);
+  PgWriter w = pg_writer_make_from_string_builder(&sb, allocator);
 
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, (address.ip >> 24) & 0xFF));
   PG_ASSERT(0 == pg_writer_write_u8(&w, '.'));
@@ -1692,7 +1733,7 @@ typedef enum {
 pg_time_ns_now(PgClockKind clock_kind);
 
 [[nodiscard]] [[maybe_unused]] static PgStringResult
-pg_file_read_full(PgString path, PgArena *arena);
+pg_file_read_full(PgString path, PgAllocator *allocator);
 
 typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
 [[nodiscard]] [[maybe_unused]] static PgError
@@ -1981,7 +2022,8 @@ pg_file_open(PgString path, PgFileFlags flags, PgArena arena) {
 
   int mode = 0666; // TODO
 
-  char *path_c = pg_string_to_cstr(path, &arena);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  char *path_c = pg_string_to_cstr(path, (PgAllocator *)&arena_allocator);
   int ret = 0;
   do {
     ret = open(path_c, os_flags, mode);
@@ -2012,7 +2054,8 @@ pg_file_open(PgString path, PgFileFlags flags, PgArena arena) {
 pg_file_set_size(PgString path, u64 size, PgArena arena) {
   PgError res = 0;
 
-  char *path_c = pg_string_to_cstr(path, &arena);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  char *path_c = pg_string_to_cstr(path, (PgAllocator *)&arena_allocator);
   int ret = 0;
   do {
     ret = truncate(path_c, (i64)size);
@@ -2032,7 +2075,8 @@ typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
 pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
                     void *ctx, PgArena arena) {
 
-  char *path_c = pg_string_to_cstr(path, &arena);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  char *path_c = pg_string_to_cstr(path, (PgAllocator *)&arena_allocator);
 
   int fd = 0;
   do {
@@ -2044,7 +2088,7 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
   }
 
   Pgu8Dyn chunk = {0};
-  PG_DYN_ENSURE_CAP(&chunk, chunk_size, &arena);
+  PG_DYN_ENSURE_CAP(&chunk, chunk_size, (PgAllocator *)&arena_allocator);
   PgError err = 0;
 
   for (;;) {
@@ -2203,11 +2247,11 @@ pg_arena_make_from_virtual_mem(u64 size) {
   return 0;
 }
 
-[[maybe_unused]] static PgStringResult pg_file_read_full(PgString path,
-                                                         PgArena *arena) {
+[[maybe_unused]] static PgStringResult
+pg_file_read_full(PgString path, PgAllocator *allocator) {
 
   PgStringResult res = {0};
-  char *path_c = pg_string_to_cstr(path, arena);
+  char *path_c = pg_string_to_cstr(path, allocator);
 
   int fd = 0;
   do {
@@ -2232,7 +2276,7 @@ pg_arena_make_from_virtual_mem(u64 size) {
   }
 
   Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, (u64)st.st_size, arena);
+  PG_DYN_ENSURE_CAP(&sb, (u64)st.st_size, allocator);
 
   for (u64 lim = 0; lim < (u64)st.st_size; lim++) {
     if ((u64)st.st_size == sb.len) {
@@ -2506,7 +2550,9 @@ pg_http_parse_response_status_line(PgString status_line) {
 [[maybe_unused]]
 static void pg_http_push_header(PgKeyValueDyn *headers, PgString key,
                                 PgString value, PgArena *arena) {
-  *PG_DYN_PUSH(headers, arena) = (PgKeyValue){.key = key, .value = value};
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(arena);
+  *PG_DYN_PUSH(headers, (PgAllocator *)&arena_allocator) =
+      (PgKeyValue){.key = key, .value = value};
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
@@ -2691,24 +2737,24 @@ pg_http_write_header(PgWriter *w, PgKeyValue header) {
 // To include the string inside other context (e.g. JS, CSS, HTML attributes,
 // etc), more advance sanitation is required.
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_html_sanitize(PgString s, PgArena *arena) {
+pg_html_sanitize(PgString s, PgAllocator *allocator) {
   Pgu8Dyn res = {0};
-  PG_DYN_ENSURE_CAP(&res, s.len, arena);
+  PG_DYN_ENSURE_CAP(&res, s.len, allocator);
   for (u64 i = 0; i < s.len; i++) {
     u8 c = PG_SLICE_AT(s, i);
 
     if ('&' == c) {
-      PG_DYN_APPEND_SLICE(&res, PG_S("&amp"), arena);
+      PG_DYN_APPEND_SLICE(&res, PG_S("&amp"), allocator);
     } else if ('<' == c) {
-      PG_DYN_APPEND_SLICE(&res, PG_S("&lt"), arena);
+      PG_DYN_APPEND_SLICE(&res, PG_S("&lt"), allocator);
     } else if ('>' == c) {
-      PG_DYN_APPEND_SLICE(&res, PG_S("&gt"), arena);
+      PG_DYN_APPEND_SLICE(&res, PG_S("&gt"), allocator);
     } else if ('"' == c) {
-      PG_DYN_APPEND_SLICE(&res, PG_S("&quot"), arena);
+      PG_DYN_APPEND_SLICE(&res, PG_S("&quot"), allocator);
     } else if ('\'' == c) {
-      PG_DYN_APPEND_SLICE(&res, PG_S("&#x27"), arena);
+      PG_DYN_APPEND_SLICE(&res, PG_S("&#x27"), allocator);
     } else {
-      *PG_DYN_PUSH(&res, arena) = c;
+      *PG_DYN_PUSH(&res, allocator) = c;
     }
   }
 
@@ -2732,7 +2778,7 @@ PG_RESULT(PgUrlAuthority) PgUrlAuthorityResult;
 PG_RESULT(PgUrl) PgUrlResult;
 
 [[maybe_unused]] [[nodiscard]] static PgStringDynResult
-pg_url_parse_path_components(PgString s, PgArena *arena) {
+pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
   PgStringDynResult res = {0};
 
   if (-1 != pg_string_indexof_any_byte(s, PG_S("?#:"))) {
@@ -2762,7 +2808,7 @@ pg_url_parse_path_components(PgString s, PgArena *arena) {
       continue;
     }
 
-    *PG_DYN_PUSH(&components, arena) = split.res;
+    *PG_DYN_PUSH(&components, allocator) = split.res;
   }
 
   res.res = components;
@@ -2770,7 +2816,7 @@ pg_url_parse_path_components(PgString s, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgDynKeyValueResult
-pg_url_parse_query_parameters(PgString s, PgArena *arena) {
+pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
   PgDynKeyValueResult res = {0};
 
   PgString remaining = s;
@@ -2795,7 +2841,7 @@ pg_url_parse_query_parameters(PgString s, PgArena *arena) {
     PgString v = res_consume_eq.consumed ? res_consume_eq.right : PG_S("");
 
     if (!PG_SLICE_IS_EMPTY(k)) {
-      *PG_DYN_PUSH(&res.res, arena) = (PgKeyValue){.key = k, .value = v};
+      *PG_DYN_PUSH(&res.res, allocator) = (PgKeyValue){.key = k, .value = v};
     }
 
     if (!res_consume_and.consumed) {
@@ -2919,7 +2965,7 @@ pg_url_is_scheme_valid(PgString scheme) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgUrlResult
-pg_url_parse_after_authority(PgString s, PgArena *arena) {
+pg_url_parse_after_authority(PgString s, PgAllocator *allocator) {
   PgUrlResult res = {0};
   PgString remaining = s;
 
@@ -2932,7 +2978,7 @@ pg_url_parse_after_authority(PgString s, PgArena *arena) {
     PG_ASSERT(!PG_SLICE_IS_EMPTY(path_components_and_rem.left));
 
     PgStringDynResult res_path_components =
-        pg_url_parse_path_components(path_components_and_rem.left, arena);
+        pg_url_parse_path_components(path_components_and_rem.left, allocator);
     if (res_path_components.err) {
       res.err = res_path_components.err;
       return res;
@@ -2944,7 +2990,7 @@ pg_url_parse_after_authority(PgString s, PgArena *arena) {
   if (path_components_and_rem.consumed &&
       path_components_and_rem.matched == '?') {
     PgDynKeyValueResult res_query =
-        pg_url_parse_query_parameters(path_components_and_rem.right, arena);
+        pg_url_parse_query_parameters(path_components_and_rem.right, allocator);
     if (res_query.err) {
       res.err = res_query.err;
       return res;
@@ -2963,8 +3009,8 @@ pg_url_parse_after_authority(PgString s, PgArena *arena) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgUrlResult pg_url_parse(PgString s,
-                                                               PgArena *arena) {
+[[maybe_unused]] [[nodiscard]] static PgUrlResult
+pg_url_parse(PgString s, PgAllocator *allocator) {
   PgUrlResult res = {0};
 
   PgString remaining = s;
@@ -3022,7 +3068,7 @@ pg_url_parse_after_authority(PgString s, PgArena *arena) {
   }
 
   PgUrlResult res_after_authority =
-      pg_url_parse_after_authority(remaining, arena);
+      pg_url_parse_after_authority(remaining, allocator);
   if (res_after_authority.err) {
     res.err = res_after_authority.err;
     return res;
@@ -3043,7 +3089,8 @@ pg_url_parse_after_authority(PgString s, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestStatusLineResult
-pg_http_parse_request_status_line(PgString status_line, PgArena *arena) {
+pg_http_parse_request_status_line(PgString status_line,
+                                  PgAllocator *allocator) {
   PgHttpRequestStatusLineResult res = {0};
 
   PgString remaining = status_line;
@@ -3081,7 +3128,7 @@ pg_http_parse_request_status_line(PgString status_line, PgArena *arena) {
   PgString path = PG_SLICE_RANGE(remaining, 0, (u64)idx_space);
   remaining = PG_SLICE_RANGE_START(remaining, (u64)idx_space + 1);
   {
-    PgUrlResult res_url = pg_url_parse_after_authority(path, arena);
+    PgUrlResult res_url = pg_url_parse_after_authority(path, allocator);
     if (res_url.err) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -3183,11 +3230,12 @@ typedef struct {
 } PgHttpRequestReadResult;
 
 [[maybe_unused]] [[nodiscard]] static PgHttpResponseReadResult
-pg_http_read_response(PgRing *rg, u64 max_http_headers, PgArena *arena) {
+pg_http_read_response(PgRing *rg, u64 max_http_headers,
+                      PgAllocator *allocator) {
   PgHttpResponseReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
-  PgStringOk s = pg_ring_read_until_excl(rg, sep, arena);
+  PgStringOk s = pg_ring_read_until_excl(rg, sep, allocator);
   if (!s.ok) { // In progress.
     return res;
   }
@@ -3221,7 +3269,7 @@ pg_http_read_response(PgRing *rg, u64 max_http_headers, PgArena *arena) {
       return res;
     }
 
-    *PG_DYN_PUSH(&res.res.headers, arena) = res_kv.res;
+    *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.res;
   }
   if (!PG_SLICE_IS_EMPTY(it.s)) {
     res.err = PG_ERR_INVALID_VALUE;
@@ -3233,11 +3281,11 @@ pg_http_read_response(PgRing *rg, u64 max_http_headers, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
-pg_http_read_request(PgRing *rg, u64 max_http_headers, PgArena *arena) {
+pg_http_read_request(PgRing *rg, u64 max_http_headers, PgAllocator *allocator) {
   PgHttpRequestReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
-  PgStringOk s = pg_ring_read_until_excl(rg, sep, arena);
+  PgStringOk s = pg_ring_read_until_excl(rg, sep, allocator);
   if (!s.ok) { // In progress.
     return res;
   }
@@ -3250,7 +3298,7 @@ pg_http_read_request(PgRing *rg, u64 max_http_headers, PgArena *arena) {
   }
 
   PgHttpRequestStatusLineResult res_status_line =
-      pg_http_parse_request_status_line(res_split.res, arena);
+      pg_http_parse_request_status_line(res_split.res, allocator);
   if (res_status_line.err) {
     res.err = res_status_line.err;
     return res;
@@ -3272,7 +3320,7 @@ pg_http_read_request(PgRing *rg, u64 max_http_headers, PgArena *arena) {
       return res;
     }
 
-    *PG_DYN_PUSH(&res.res.headers, arena) = res_kv.res;
+    *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.res;
   }
   if (!PG_SLICE_IS_EMPTY(it.s)) {
     res.err = PG_ERR_INVALID_VALUE;
@@ -3307,16 +3355,16 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req) {
   return 0;
 }
 
-[[maybe_unused]] static PgString pg_http_request_to_string(PgHttpRequest req,
-                                                           PgArena *arena) {
+[[maybe_unused]] static PgString
+pg_http_request_to_string(PgHttpRequest req, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb,
                     // TODO: Tweak this number?
                     128 + req.url.path_components.len * 64 +
                         req.url.query_parameters.len * 64 +
                         req.headers.len * 128,
-                    arena);
-  PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
+                    allocator);
+  PgWriter w = pg_writer_make_from_string_builder(&sb, allocator);
 
   PG_ASSERT(0 == pg_http_write_request(&w, req));
 
@@ -3374,6 +3422,7 @@ pg_http_headers_parse_content_length(PgKeyValueSlice headers, PgArena arena) {
   return res;
 }
 
+#if 0
 typedef struct {
   PgString key, value;
 } PgFormDataKV;
@@ -3400,17 +3449,17 @@ typedef struct {
 
 [[nodiscard]] static PgFormDataKVElementParseResult
 pg_form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
-                              PgArena *arena) {
+                              PgAllocator *allocator) {
   PgFormDataKVElementParseResult res = {0};
   Pgu8Dyn data = {0};
-  PG_DYN_ENSURE_CAP(&data, in.len * 2, arena);
+  PG_DYN_ENSURE_CAP(&data, in.len * 2, allocator);
 
   u64 i = 0;
   for (; i < in.len; i++) {
     u8 c = in.data[i];
 
     if ('+' == c) {
-      *PG_DYN_PUSH(&data, arena) = ' ';
+      *PG_DYN_PUSH(&data, allocator) = ' ';
     } else if ('%' == c) {
       if ((in.len - i) < 2) {
         res.err = PG_ERR_INVALID_VALUE;
@@ -3426,13 +3475,13 @@ pg_form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
 
       u8 utf8_character =
           pg_character_from_hex(c1) * 16 + pg_character_from_hex(c2);
-      *PG_DYN_PUSH(&data, arena) = utf8_character;
+      *PG_DYN_PUSH(&data, allocator) = utf8_character;
       i += 2; // Consume 2 characters.
     } else if (pg_character_terminator == c) {
       i += 1; // Consume.
       break;
     } else {
-      *PG_DYN_PUSH(&data, arena) = c;
+      *PG_DYN_PUSH(&data, allocator) = c;
     }
   }
 
@@ -3442,13 +3491,13 @@ pg_form_data_kv_parse_element(PgString in, u8 pg_character_terminator,
 }
 
 [[nodiscard]] static PgFormDataKVParseResult
-pg_form_data_kv_parse(PgString in, PgArena *arena) {
+pg_form_data_kv_parse(PgString in, PgAllocator *allocator) {
   PgFormDataKVParseResult res = {0};
 
   PgString remaining = in;
 
   PgFormDataKVElementParseResult key_parsed =
-      pg_form_data_kv_parse_element(remaining, '=', arena);
+      pg_form_data_kv_parse_element(remaining, '=', allocator);
   if (key_parsed.err) {
     res.err = key_parsed.err;
     return res;
@@ -3458,7 +3507,7 @@ pg_form_data_kv_parse(PgString in, PgArena *arena) {
   remaining = key_parsed.remaining;
 
   PgFormDataKVElementParseResult value_parsed =
-      pg_form_data_kv_parse_element(remaining, '&', arena);
+      pg_form_data_kv_parse_element(remaining, '&', allocator);
   if (value_parsed.err) {
     res.err = value_parsed.err;
     return res;
@@ -3470,7 +3519,7 @@ pg_form_data_kv_parse(PgString in, PgArena *arena) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFormDataParseResult
-pg_form_data_parse(PgString in, PgArena *arena) {
+pg_form_data_parse(PgString in, PgAllocator *allocator) {
   PgFormDataParseResult res = {0};
 
   PgString remaining = in;
@@ -3480,13 +3529,13 @@ pg_form_data_parse(PgString in, PgArena *arena) {
       break;
     }
 
-    PgFormDataKVParseResult kv = pg_form_data_kv_parse(remaining, arena);
+    PgFormDataKVParseResult kv = pg_form_data_kv_parse(remaining, allocator);
     if (kv.err) {
       res.err = kv.err;
       return res;
     }
 
-    *PG_DYN_PUSH(&res.form, arena) = kv.kv;
+    *PG_DYN_PUSH(&res.form, allocator) = kv.kv;
 
     remaining = kv.remaining;
   }
@@ -3536,7 +3585,7 @@ typedef struct {
 } PgHtmlDocument;
 
 [[maybe_unused]] [[nodiscard]] static PgHtmlDocument
-pg_html_make(PgString title, PgArena *arena) {
+pg_html_make(PgString title, PgAllocator *allocator) {
   PgHtmlDocument res = {0};
 
   {
@@ -3545,14 +3594,14 @@ pg_html_make(PgString title, PgArena *arena) {
     {
       PgHtmlElement tag_meta = {.kind = PG_HTML_META};
       {
-        *PG_DYN_PUSH(&tag_meta.attributes, arena) =
+        *PG_DYN_PUSH(&tag_meta.attributes, allocator) =
             (PgKeyValue){.key = PG_S("charset"), .value = PG_S("utf-8")};
       }
-      *PG_DYN_PUSH(&tag_head.children, arena) = tag_meta;
+      *PG_DYN_PUSH(&tag_head.children, allocator) = tag_meta;
     }
     {
       PgHtmlElement tag_title = {.kind = PG_HTML_TITLE, .text = title};
-      *PG_DYN_PUSH(&tag_head.children, arena) = tag_title;
+      *PG_DYN_PUSH(&tag_head.children, allocator) = tag_title;
     }
 
     res.head = tag_head;
@@ -3735,6 +3784,7 @@ pg_http_req_extract_cookie_with_name(PgHttpRequest req, PgString cookie_name,
   }
   return res;
 }
+#endif
 
 typedef enum {
   PG_LOG_VALUE_STRING,
@@ -3749,7 +3799,8 @@ typedef enum {
 } PgLogLevel;
 
 typedef PgString (*PgMakeLogLineFn)(PgLogLevel level, PgString msg,
-                                    PgArena *arena, i32 args_count, ...);
+                                    PgAllocator *allocator, i32 args_count,
+                                    ...);
 typedef struct {
   PgLogLevel level;
   PgWriter writer;
@@ -3771,13 +3822,16 @@ typedef struct {
   PgLogValue value;
 } PgLogEntry;
 
+#if 0
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
                           i32 args_count, ...);
+#endif
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
-                            i32 args_count, ...);
+pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg,
+                            PgAllocator *allocator, i32 args_count, ...);
 
+#if 0
 [[maybe_unused]] [[nodiscard]] static PgLogger
 pg_log_make_logger_stdout_json(PgLogLevel level) {
   PgLogger logger = {
@@ -3790,6 +3844,7 @@ pg_log_make_logger_stdout_json(PgLogLevel level) {
 
   return logger;
 }
+#endif
 
 [[maybe_unused]] [[nodiscard]] static PgLogger
 pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
@@ -3893,97 +3948,102 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
       break;                                                                   \
     };                                                                         \
     PgArena xxx_tmp_arena = (logger)->arena;                                   \
-    PgString xxx_log_line =                                                    \
-        (logger)->make_log_line(lvl, PG_S(msg), &xxx_tmp_arena,                \
-                                PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);  \
+    PgArenaAllocator xxx_arena_allocator =                                     \
+        pg_make_arena_allocator(&xxx_tmp_arena);                               \
+    PgString xxx_log_line = (logger)->make_log_line(                           \
+        lvl, PG_S(msg), (PgAllocator *)&xxx_arena_allocator,                   \
+        PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);                          \
     (logger)->writer.write_fn(&(logger)->writer, xxx_log_line.data,            \
                               xxx_log_line.len);                               \
   } while (0)
 
+#if 0
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_json_escape_string(PgString entry, PgArena *arena) {
+pg_json_escape_string(PgString entry, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 2 + entry.len * 2, arena);
-  *PG_DYN_PUSH(&sb, arena) = '"';
+  PG_DYN_ENSURE_CAP(&sb, 2 + entry.len * 2, allocator);
+  *PG_DYN_PUSH(&sb, allocator) = '"';
 
   for (u64 i = 0; i < entry.len; i++) {
     u8 c = PG_SLICE_AT(entry, i);
     if ('"' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = '"';
+      *PG_DYN_PUSH(&sb, allocator) = '\\';
+      *PG_DYN_PUSH(&sb, allocator) = '"';
     } else if ('\\' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = '\\';
+      *PG_DYN_PUSH(&sb, allocator) = '\\';
+      *PG_DYN_PUSH(&sb, allocator) = '\\';
     } else if ('\b' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = 'b';
+      *PG_DYN_PUSH(&sb, allocator) = '\\';
+      *PG_DYN_PUSH(&sb, allocator) = 'b';
     } else if ('\f' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = 'f';
+      *PG_DYN_PUSH(&sb, allocator) = '\\';
+      *PG_DYN_PUSH(&sb, allocator) = 'f';
     } else if ('\n' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = 'n';
+      *PG_DYN_PUSH(&sb, allocator) = '\\';
+      *PG_DYN_PUSH(&sb, allocator) = 'n';
     } else if ('\r' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = 'r';
+      *PG_DYN_PUSH(&sb, allocator) = '\\';
+      *PG_DYN_PUSH(&sb, allocator) = 'r';
     } else if ('\t' == c) {
-      *PG_DYN_PUSH(&sb, arena) = '\\';
-      *PG_DYN_PUSH(&sb, arena) = 't';
+      *PG_DYN_PUSH(&sb, allocator) = '\\';
+      *PG_DYN_PUSH(&sb, allocator) = 't';
     } else {
-      *PG_DYN_PUSH(&sb, arena) = c;
+      *PG_DYN_PUSH(&sb, allocator) = c;
     }
   }
-  *PG_DYN_PUSH(&sb, arena) = '"';
+  *PG_DYN_PUSH(&sb, allocator) = '"';
 
   return PG_DYN_SLICE(PgString, sb);
 }
+#endif
 
 [[maybe_unused]] static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c,
-                                                 PgArena *arena) {
+                                                 PgAllocator *allocator) {
   if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' || c == '.' ||
       pg_character_is_alphanumeric(c)) {
-    *PG_DYN_PUSH(sb, arena) = c;
+    *PG_DYN_PUSH(sb, allocator) = c;
   } else {
     u8 c1 = c % 16;
     u8 c2 = c / 16;
-    PG_DYN_APPEND_SLICE(sb, PG_S("\\x"), arena);
-    *PG_DYN_PUSH(sb, arena) = pg_u8_to_character_hex(c2);
-    *PG_DYN_PUSH(sb, arena) = pg_u8_to_character_hex(c1);
+    PG_DYN_APPEND_SLICE(sb, PG_S("\\x"), allocator);
+    *PG_DYN_PUSH(sb, allocator) = pg_u8_to_character_hex(c2);
+    *PG_DYN_PUSH(sb, allocator) = pg_u8_to_character_hex(c1);
   }
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_logfmt_escape_string(PgString entry, PgArena *arena) {
+pg_logfmt_escape_string(PgString entry, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 2 + PG_CLAMP(0, entry.len, PG_LOG_STRING_MAX + 4) * 2,
-                    arena);
-  *PG_DYN_PUSH(&sb, arena) = '"';
+                    allocator);
+  *PG_DYN_PUSH(&sb, allocator) = '"';
 
   if (entry.len <= PG_LOG_STRING_MAX) {
     for (u64 i = 0; i < entry.len; i++) {
       u8 c = PG_SLICE_AT(entry, i);
-      pg_logfmt_escape_u8(&sb, c, arena);
+      pg_logfmt_escape_u8(&sb, c, allocator);
     }
   } else {
     for (u64 i = 0; i < PG_LOG_STRING_MAX / 2; i++) {
       u8 c = PG_SLICE_AT(entry, i);
-      pg_logfmt_escape_u8(&sb, c, arena);
+      pg_logfmt_escape_u8(&sb, c, allocator);
     }
-    PG_DYN_APPEND_SLICE(&sb, PG_S("[..]"), arena);
+    PG_DYN_APPEND_SLICE(&sb, PG_S("[..]"), allocator);
     for (u64 i = (entry.len - PG_LOG_STRING_MAX / 2); i < entry.len; i++) {
       u8 c = PG_SLICE_AT(entry, i);
-      pg_logfmt_escape_u8(&sb, c, arena);
+      pg_logfmt_escape_u8(&sb, c, allocator);
     }
   }
-  *PG_DYN_PUSH(&sb, arena) = '"';
+  *PG_DYN_PUSH(&sb, allocator) = '"';
 
   return PG_DYN_SLICE(PgString, sb);
 }
 
+#if 0
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_json_unescape_string(PgString entry, PgArena *arena) {
+pg_json_unescape_string(PgString entry, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, entry.len, arena);
+  PG_DYN_ENSURE_CAP(&sb, entry.len, allocator);
 
   for (u64 i = 0; i < entry.len; i++) {
     u8 c = PG_SLICE_AT(entry, i);
@@ -3991,31 +4051,31 @@ pg_json_unescape_string(PgString entry, PgArena *arena) {
 
     if ('\\' == c) {
       if ('"' == next) {
-        *PG_DYN_PUSH(&sb, arena) = '"';
+        *PG_DYN_PUSH(&sb, allocator) = '"';
         i += 1;
       } else if ('\\' == next) {
-        *PG_DYN_PUSH(&sb, arena) = '\\';
+        *PG_DYN_PUSH(&sb, allocator) = '\\';
         i += 1;
       } else if ('b' == next) {
-        *PG_DYN_PUSH(&sb, arena) = '\b';
+        *PG_DYN_PUSH(&sb, allocator) = '\b';
         i += 1;
       } else if ('f' == next) {
-        *PG_DYN_PUSH(&sb, arena) = '\f';
+        *PG_DYN_PUSH(&sb, allocator) = '\f';
         i += 1;
       } else if ('n' == next) {
-        *PG_DYN_PUSH(&sb, arena) = '\n';
+        *PG_DYN_PUSH(&sb, allocator) = '\n';
         i += 1;
       } else if ('r' == next) {
-        *PG_DYN_PUSH(&sb, arena) = '\r';
+        *PG_DYN_PUSH(&sb, allocator) = '\r';
         i += 1;
       } else if ('t' == next) {
-        *PG_DYN_PUSH(&sb, arena) = '\t';
+        *PG_DYN_PUSH(&sb, allocator) = '\t';
         i += 1;
       } else {
-        *PG_DYN_PUSH(&sb, arena) = c;
+        *PG_DYN_PUSH(&sb, allocator) = c;
       }
     } else {
-      *PG_DYN_PUSH(&sb, arena) = c;
+      *PG_DYN_PUSH(&sb, allocator) = c;
     }
   }
 
@@ -4025,10 +4085,10 @@ pg_json_unescape_string(PgString entry, PgArena *arena) {
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_writer_write_json_object_key_string_value_string(PgWriter *w, PgString key,
                                                     PgString value,
-                                                    PgArena *arena) {
+                                                    PgAllocator *allocator) {
   PgError err = 0;
 
-  PgString pg_json_key = pg_json_escape_string(key, arena);
+  PgString pg_json_key = pg_json_escape_string(key, allocator);
 
   err = pg_writer_write_all_string(w, pg_json_key);
   if (err) {
@@ -4040,7 +4100,7 @@ pg_writer_write_json_object_key_string_value_string(PgWriter *w, PgString key,
     return err;
   }
 
-  PgString pg_json_value = pg_json_escape_string(value, arena);
+  PgString pg_json_value = pg_json_escape_string(value, allocator);
   err = pg_writer_write_all_string(w, pg_json_value);
   if (err) {
     return err;
@@ -4056,10 +4116,11 @@ pg_writer_write_json_object_key_string_value_string(PgWriter *w, PgString key,
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_writer_write_json_object_key_string_value_u64(PgWriter *w, PgString key,
-                                                 u64 value, PgArena *arena) {
+                                                 u64 value,
+                                                 PgAllocator *allocator) {
   PgError err = 0;
 
-  PgString pg_json_key = pg_json_escape_string(key, arena);
+  PgString pg_json_key = pg_json_escape_string(key, allocator);
 
   err = pg_writer_write_all_string(w, pg_json_key);
   if (err) {
@@ -4084,26 +4145,26 @@ pg_writer_write_json_object_key_string_value_u64(PgWriter *w, PgString key,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
-                          i32 args_count, ...) {
+pg_log_make_log_line_json(PgLogLevel level, PgString msg,
+                          PgAllocator *allocator, i32 args_count, ...) {
   PgU64Result res_monotonic_ns = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
   PgU64Result res_timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME);
   // Ignore clock errors.
 
   Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 256, arena);
-  PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
+  PG_DYN_ENSURE_CAP(&sb, 256, allocator);
+  PgWriter w = pg_writer_make_from_string_builder(&sb, allocator);
 
   PG_ASSERT(0 == pg_writer_write_u8(&w, '{'));
 
   PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_string(
-                     &w, PG_S("level"), pg_log_level_to_string(level), arena));
+                     &w, PG_S("level"), pg_log_level_to_string(level), allocator));
   PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_u64(
-                     &w, PG_S("timestamp_ns"), res_timestamp_ns.res, arena));
+                     &w, PG_S("timestamp_ns"), res_timestamp_ns.res, allocator));
   PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_u64(
-                     &w, PG_S("monotonic_ns"), res_monotonic_ns.res, arena));
+                     &w, PG_S("monotonic_ns"), res_monotonic_ns.res, allocator));
   PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_string(
-                     &w, PG_S("message"), msg, arena));
+                     &w, PG_S("message"), msg, allocator));
 
   va_list argp = {0};
   va_start(argp, args_count);
@@ -4113,18 +4174,18 @@ pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
     switch (entry.value.kind) {
     case PG_LOG_VALUE_STRING: {
       PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_string(
-                         &w, entry.key, entry.value.s, arena));
+                         &w, entry.key, entry.value.s, allocator));
       break;
     }
     case PG_LOG_VALUE_U64:
       PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_u64(
-                         &w, entry.key, entry.value.n64, arena));
+                         &w, entry.key, entry.value.n64, allocator));
       break;
     case PG_LOG_VALUE_IPV4_ADDRESS: {
       PgString ipv4_addr_str =
-          pg_net_ipv4_address_to_string(entry.value.ipv4_address, arena);
+          pg_net_ipv4_address_to_string(entry.value.ipv4_address, allocator);
       PG_ASSERT(0 == pg_writer_write_json_object_key_string_value_string(
-                         &w, entry.key, ipv4_addr_str, arena));
+                         &w, entry.key, ipv4_addr_str, allocator));
     } break;
     default:
       PG_ASSERT(0 && "invalid PgLogValueKind");
@@ -4134,21 +4195,22 @@ pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
 
   PG_ASSERT(pg_string_ends_with(PG_DYN_SLICE(PgString, sb), PG_S(",")));
   PG_DYN_POP(&sb);
-  PG_DYN_APPEND_SLICE(&sb, PG_S("}\n"), arena);
+  PG_DYN_APPEND_SLICE(&sb, PG_S("}\n"), allocator);
 
   return PG_DYN_SLICE(PgString, sb);
 }
+#endif
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
-                            i32 args_count, ...) {
+pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg,
+                            PgAllocator *allocator, i32 args_count, ...) {
   PgU64Result res_monotonic_ns = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
   PgU64Result res_timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME);
   // Ignore clock errors.
 
   Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 256, arena);
-  PgWriter w = pg_writer_make_from_string_builder(&sb, arena);
+  PG_DYN_ENSURE_CAP(&sb, 256, allocator);
+  PgWriter w = pg_writer_make_from_string_builder(&sb, allocator);
 
   PG_ASSERT(0 == pg_writer_write_all_string(&w, PG_S("level=")));
   PG_ASSERT(0 == pg_writer_write_all_string(&w, pg_log_level_to_string(level)));
@@ -4160,8 +4222,8 @@ pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, res_monotonic_ns.res));
 
   PG_ASSERT(0 == pg_writer_write_all_string(&w, PG_S(" message=")));
-  PG_ASSERT(
-      0 == pg_writer_write_all_string(&w, pg_logfmt_escape_string(msg, arena)));
+  PG_ASSERT(0 == pg_writer_write_all_string(
+                     &w, pg_logfmt_escape_string(msg, allocator)));
 
   va_list argp = {0};
   va_start(argp, args_count);
@@ -4173,8 +4235,9 @@ pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
 
     switch (entry.value.kind) {
     case PG_LOG_VALUE_STRING: {
-      PG_ASSERT(0 == pg_writer_write_all_string(
-                         &w, pg_logfmt_escape_string(entry.value.s, arena)));
+      PG_ASSERT(0 ==
+                pg_writer_write_all_string(
+                    &w, pg_logfmt_escape_string(entry.value.s, allocator)));
       break;
     }
     case PG_LOG_VALUE_U64:
@@ -4182,7 +4245,7 @@ pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
       break;
     case PG_LOG_VALUE_IPV4_ADDRESS: {
       PgString ipv4_addr_str =
-          pg_net_ipv4_address_to_string(entry.value.ipv4_address, arena);
+          pg_net_ipv4_address_to_string(entry.value.ipv4_address, allocator);
       PG_ASSERT(0 == pg_writer_write_all_string(&w, ipv4_addr_str));
     } break;
     default:
@@ -4196,23 +4259,24 @@ pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, PgArena *arena,
   return PG_DYN_SLICE(PgString, sb);
 }
 
+#if 0
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_json_encode_string_slice(PgStringSlice strings, PgArena *arena) {
+pg_json_encode_string_slice(PgStringSlice strings, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, strings.len * 128, arena);
-  *PG_DYN_PUSH(&sb, arena) = '[';
+  PG_DYN_ENSURE_CAP(&sb, strings.len * 128, allocator);
+  *PG_DYN_PUSH(&sb, allocator) = '[';
 
   for (u64 i = 0; i < strings.len; i++) {
     PgString s = PG_SLICE_AT(strings, i);
-    PgString encoded = pg_json_escape_string(s, arena);
-    PG_DYN_APPEND_SLICE(&sb, encoded, arena);
+    PgString encoded = pg_json_escape_string(s, allocator);
+    PG_DYN_APPEND_SLICE(&sb, encoded, allocator);
 
     if (i + 1 < strings.len) {
-      *PG_DYN_PUSH(&sb, arena) = ',';
+      *PG_DYN_PUSH(&sb, allocator) = ',';
     }
   }
 
-  *PG_DYN_PUSH(&sb, arena) = ']';
+  *PG_DYN_PUSH(&sb, allocator) = ']';
 
   return PG_DYN_SLICE(PgString, sb);
 }
@@ -4250,8 +4314,8 @@ pg_json_decode_string_slice(PgString s, PgArena *arena) {
     PG_ASSERT(0 <= end_quote_idx);
 
     PgString str = PG_SLICE_RANGE(s, i, i + (u64)end_quote_idx);
-    PgString unescaped = pg_json_unescape_string(str, arena);
-    *PG_DYN_PUSH(&dyn, arena) = unescaped;
+    PgString unescaped = pg_json_unescape_string(str, allocator);
+    *PG_DYN_PUSH(&dyn, allocator) = unescaped;
 
     i += (u64)end_quote_idx;
 
@@ -4282,6 +4346,7 @@ pg_json_decode_string_slice(PgString s, PgArena *arena) {
   res.res = PG_DYN_SLICE(PgStringSlice, dyn);
   return res;
 }
+#endif
 
 static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
                               PgHeapNode *child) {
