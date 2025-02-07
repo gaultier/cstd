@@ -1803,20 +1803,19 @@ pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl);
 [[nodiscard]] [[maybe_unused]] static u32
 pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl);
 
-[[nodiscard]] static u64 pg_first_leading_zero_u8(u8 val) {
-  u64 bit_idx = 0;
+// Reimplement `stdc_first_trailing_zero` for portability.
+// I.e. the position (1-indexed) of the first zero bit starting from the least
+// significant bit, 0 if not found.
+[[nodiscard]] static u64 pg_first_trailing_zero_u8(u8 val) {
   u8 bit_pattern = 0b1;
-  // TODO: Check correctness vs `stdc_first_leading_zero`
-  // (which would be nice to use but Zig's musl does not seem to have it).
-  for (u64 j = 0; j < 8; j++) {
+
+  for (u64 j = 1; j <= 8; j++) {
     if (0 == (val & bit_pattern)) {
-      bit_idx = j;
-      break;
+      return j;
     }
     bit_pattern <<= 1;
   }
-  // 1-indexed.
-  return 1 + bit_idx;
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Ok
@@ -1833,7 +1832,7 @@ pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
       continue;
     }
 
-    u64 bit_idx = pg_first_leading_zero_u8(c);
+    u64 bit_idx = pg_first_trailing_zero_u8(c);
     PG_ASSERT(bit_idx < 8);
     PG_ASSERT(bit_idx > 0);
 
