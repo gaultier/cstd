@@ -1807,15 +1807,7 @@ pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl);
 // I.e. the position (1-indexed) of the first zero bit starting from the least
 // significant bit, 0 if not found.
 [[nodiscard]] static u64 pg_first_trailing_zero_u8(u8 val) {
-  u8 bit_pattern = 0b1;
-
-  for (u64 j = 1; j <= 8; j++) {
-    if (0 == (val & bit_pattern)) {
-      return j;
-    }
-    bit_pattern <<= 1;
-  }
-  return 0;
+  return val == 255 ? 0 : (u64)__builtin_ctz((u8)~val) + 1U;
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Ok
