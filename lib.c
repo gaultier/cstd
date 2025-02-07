@@ -1803,18 +1803,11 @@ pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl);
 [[nodiscard]] [[maybe_unused]] static u32
 pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl);
 
-// Reimplement `stdc_first_trailing_zero` for portability.
-// I.e. the position (1-indexed) of the first zero bit starting from the least
-// significant bit, 0 if not found.
-[[nodiscard]] static u64 pg_first_trailing_zero_u8(u8 val) {
-  return val == 255 ? 0 : (u64)__builtin_ctz((u8)~val) + 1U;
-}
-
-[[maybe_unused]] [[nodiscard]] static Pgu64Ok
+[[maybe_unused]] [[nodiscard]] static Pgu32Ok
 pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
   PG_ASSERT(len <= bitfield.len);
 
-  Pgu64Ok res = {0};
+  Pgu32Ok res = {0};
 
   u32 start = pg_rand_u32_min_incl_max_excl(rng, 0, len);
   for (u64 i = 0; i < len; i++) {
@@ -1822,7 +1815,7 @@ pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
     if (pg_bitfield_get(bitfield, idx)) {
       continue;
     }
-    res.res = i * 8 + i;
+    res.res = idx;
     res.ok = true;
     return res;
   }

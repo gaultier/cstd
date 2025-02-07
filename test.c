@@ -1757,24 +1757,6 @@ static void test_heap_remove_in_the_middle() {
   PG_ASSERT(heap.root);
 }
 
-static void test_first_leading_zero() {
-  PG_ASSERT(1 == pg_first_trailing_zero_u8(0));
-  PG_ASSERT(2 == pg_first_trailing_zero_u8(1));
-  PG_ASSERT(1 == pg_first_trailing_zero_u8(2));
-  PG_ASSERT(3 == pg_first_trailing_zero_u8(3));
-  PG_ASSERT(1 == pg_first_trailing_zero_u8(4));
-  PG_ASSERT(2 == pg_first_trailing_zero_u8(5));
-  PG_ASSERT(1 == pg_first_trailing_zero_u8(6));
-  PG_ASSERT(4 == pg_first_trailing_zero_u8(7));
-  PG_ASSERT(1 == pg_first_trailing_zero_u8(8));
-  PG_ASSERT(2 == pg_first_trailing_zero_u8(9));
-
-  PG_ASSERT(8 == pg_first_trailing_zero_u8(127));
-
-  PG_ASSERT(1 == pg_first_trailing_zero_u8(254));
-  PG_ASSERT(0 == pg_first_trailing_zero_u8(255));
-}
-
 int main() {
   test_slice_range();
   test_string_indexof_string();
@@ -1814,5 +1796,4 @@ int main() {
   test_string_to_filename();
   test_heap_insert_dequeue();
   test_heap_remove_in_the_middle();
-  test_first_leading_zero();
 }
