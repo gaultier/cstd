@@ -1817,18 +1817,12 @@ pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
   Pgu64Ok res = {0};
 
   u32 start = pg_rand_u32_min_incl_max_excl(rng, 0, len);
-  for (u64 i = 0; i < bitfield.len; i++) {
+  for (u64 i = 0; i < len; i++) {
     u32 idx = (start + i) % len;
-    u8 c = PG_SLICE_AT(bitfield, idx);
-    if (0xff == c) {
+    if (pg_bitfield_get(bitfield, idx)) {
       continue;
     }
-
-    u64 bit_idx = pg_first_trailing_zero_u8(c);
-    PG_ASSERT(bit_idx < 8);
-    PG_ASSERT(bit_idx > 0);
-
-    res.res = i * 8 + (bit_idx - 1);
+    res.res = i * 8 + i;
     res.ok = true;
     return res;
   }
