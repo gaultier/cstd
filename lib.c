@@ -1793,6 +1793,57 @@ pg_bitfield_get_first_zero(PgString bitfield) {
   return res;
 }
 
+typedef struct {
+  u64 state;
+} PgRng;
+
+[[nodiscard]] [[maybe_unused]] static u32
+pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl);
+
+[[nodiscard]] [[maybe_unused]] static u32
+pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl);
+
+[[nodiscard]] static u64 pg_first_leading_zero_u8(u8 val) {
+  u64 bit_idx = 0;
+  u8 bit_pattern = 0b1;
+  // TODO: Check correctness vs `stdc_first_leading_zero`
+  // (which would be nice to use but Zig's musl does not seem to have it).
+  for (u64 j = 0; j < 8; j++) {
+    if (0 == (val & bit_pattern)) {
+      bit_idx = j;
+      break;
+    }
+    bit_pattern <<= 1;
+  }
+  // 1-indexed.
+  return 1 + bit_idx;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Ok
+pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
+  PG_ASSERT(len <= bitfield.len);
+
+  Pgu64Ok res = {0};
+
+  u32 start = pg_rand_u32_min_incl_max_excl(rng, 0, len);
+  for (u64 i = 0; i < bitfield.len; i++) {
+    u32 idx = (start + i) % len;
+    u8 c = PG_SLICE_AT(bitfield, idx);
+    if (0xff == c) {
+      continue;
+    }
+
+    u64 bit_idx = pg_first_leading_zero_u8(c);
+    PG_ASSERT(bit_idx < 8);
+    PG_ASSERT(bit_idx > 0);
+
+    res.res = i * 8 + (bit_idx - 1);
+    res.ok = true;
+    return res;
+  }
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len);
 
@@ -1838,16 +1889,6 @@ pg_file_open(PgString path, PgFileFlags flags);
 
 [[nodiscard]] [[maybe_unused]] static PgError pg_file_set_size(PgString path,
                                                                u64 size);
-
-typedef struct {
-  u64 state;
-} PgRng;
-
-[[nodiscard]] [[maybe_unused]] static u32
-pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl);
-
-[[nodiscard]] [[maybe_unused]] static u32
-pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl);
 
 [[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s);
 
