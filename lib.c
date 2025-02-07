@@ -169,6 +169,13 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
     (s)->len -= 1;                                                             \
   } while (0)
 
+typedef int PgSocket;
+typedef int PgFile;
+typedef int PgOsHandle;
+
+PG_RESULT(PgFile) PgFileResult;
+PG_RESULT(PgOsHandle) PgOsHandleResult;
+
 // Non-owning.
 typedef struct PgQueue {
   struct PgQueue *prev, *next;
@@ -753,9 +760,20 @@ static void pg_free_heap_libc(PgAllocator *allocator, void *ptr,
   free(ptr);
 }
 
-[[maybe_unused]] [[nodiscard]] static PgAllocator pg_make_heap_allocator() {
-  return (PgAllocator){.alloc_fn = pg_alloc_heap_libc,
-                       .free_fn = pg_free_heap_libc};
+typedef struct {
+  PgAllocFn alloc_fn;
+  PgFreeFn free_fn;
+} PgHeapAllocator;
+static_assert(sizeof(PgHeapAllocator) == sizeof(PgAllocator));
+
+[[maybe_unused]] [[nodiscard]] static PgHeapAllocator pg_make_heap_allocator() {
+  return (PgHeapAllocator){.alloc_fn = pg_alloc_heap_libc,
+                           .free_fn = pg_free_heap_libc};
+}
+
+[[maybe_unused]] [[nodiscard]] static PgAllocator *
+pg_heap_allocator_as_allocator(PgHeapAllocator *allocator) {
+  return (PgAllocator *)allocator;
 }
 
 typedef struct {
@@ -763,6 +781,7 @@ typedef struct {
   PgFreeFn free_fn;
   // Pprof.
   u64 alloc_objects_count, alloc_space, in_use_objects_count, in_use_space;
+  PgFile heap_profile_file;
 } PgTracingAllocator;
 static_assert(sizeof(PgTracingAllocator) >= sizeof(PgAllocator));
 
@@ -816,10 +835,11 @@ static void pg_free_tracing(PgAllocator *allocator, void *ptr, u64 sizeof_type,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgTracingAllocator
-pg_make_tracing_heap_allocator() {
+pg_make_tracing_allocator(PgFile heap_profile_file) {
   return (PgTracingAllocator){
       .alloc_fn = pg_alloc_tracing,
       .free_fn = pg_free_tracing,
+      .heap_profile_file = heap_profile_file,
   };
 }
 
@@ -1772,14 +1792,6 @@ pg_bitfield_get_first_zero(PgString bitfield) {
   }
   return res;
 }
-
-// FIXME: Windows.
-typedef int PgSocket;
-typedef int PgFile;
-typedef int PgOsHandle;
-
-PG_RESULT(PgFile) PgFileResult;
-PG_RESULT(PgOsHandle) PgOsHandleResult;
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len);
