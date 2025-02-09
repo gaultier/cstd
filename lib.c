@@ -1498,6 +1498,15 @@ pg_string_builder_append_u32(Pgu8Dyn *dyn, u32 n, PgAllocator *allocator) {
   PG_DYN_APPEND_SLICE(dyn, s, allocator);
 }
 
+[[maybe_unused]] static void
+pg_string_builder_append_u32_within_capacity(Pgu8Dyn *dyn, u32 n) {
+
+  u8 data[sizeof(n)] = {0};
+  PgString s = {.data = data, .len = sizeof(n)};
+  pg_u32_to_u8x4_be(n, &s);
+  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(dyn, s);
+}
+
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_u64_to_string(u64 n, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
