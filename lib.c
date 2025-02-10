@@ -1754,29 +1754,39 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgAllocator *allocator) {
          (u32)(PG_SLICE_AT(s, 2) << 8) | (u32)(PG_SLICE_AT(s, 3) << 0);
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_bitfield_get(PgString bitfield,
-                                                           u64 idx_bit) {
-  PG_ASSERT(idx_bit < bitfield.len * 8);
+[[nodiscard]] static bool pg_bitfield_get_ptr(u8 *bitfield, u64 bitfield_len,
+                                              u64 idx_bit) {
+  PG_ASSERT(idx_bit < bitfield_len * 8);
 
   u64 idx_byte = idx_bit / 8;
 
-  return PG_SLICE_AT(bitfield, idx_byte) & (1 << (idx_bit % 8));
+  return PG_C_ARRAY_AT(bitfield, bitfield_len, idx_byte) & (1 << (idx_bit % 8));
 }
 
-[[maybe_unused]] static void pg_bitfield_set(PgString bitfield, u64 idx_bit,
-                                             bool val) {
-  PG_ASSERT(idx_bit < bitfield.len * 8);
+[[maybe_unused]] [[nodiscard]] static bool pg_bitfield_get(PgString bitfield,
+                                                           u64 idx_bit) {
+  return pg_bitfield_get_ptr(bitfield.data, bitfield.len, idx_bit);
+}
+
+static void pg_bitfield_set_ptr(u8 *bitfield, u64 bitfield_len, u64 idx_bit,
+                                bool val) {
+  PG_ASSERT(idx_bit < bitfield_len * 8);
 
   u64 idx_byte = idx_bit / 8;
 
-  u8 *ptr = PG_SLICE_AT_PTR(&bitfield, idx_byte);
+  u8 *ptr = PG_C_ARRAY_AT_PTR(bitfield, bitfield_len, idx_byte);
   if (val) {
     *ptr |= 1 << (idx_bit % 8);
   } else {
     *ptr &= ~(1 << (idx_bit % 8));
   }
 
-  PG_ASSERT(val == pg_bitfield_get(bitfield, idx_bit));
+  PG_ASSERT(val == pg_bitfield_get_ptr(bitfield, bitfield_len, idx_bit));
+}
+
+[[maybe_unused]] static void pg_bitfield_set(PgString bitfield, u64 idx_bit,
+                                             bool val) {
+  pg_bitfield_set_ptr(bitfield.data, bitfield.len, idx_bit, val);
 }
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_bitfield_count(PgString bitfield) {
