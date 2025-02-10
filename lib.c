@@ -2472,7 +2472,7 @@ pg_writer_make_from_file(PgFile *file) {
 #define PG_PATH_SEP '\\'
 #define PG_PATH_SEP_S "\\"
 
-#error "TODO"
+// There will be linking errors!
 #endif
 
 #if defined(__linux__)
