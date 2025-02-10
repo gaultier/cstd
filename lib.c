@@ -827,7 +827,8 @@ static void pg_free_tracing(PgAllocator *allocator, void *ptr, u64 sizeof_type,
   tracing_allocator->in_use_space -= space;
 
   fprintf(
-      stderr, "%lu: %lu [%lu: %lu] @ TODO call stack\n",
+      stderr,
+      "%" PRIu64 ": %" PRIu64 " [%" PRIu64 ": %" PRIu64 "] @ TODO call stack\n",
       tracing_allocator->in_use_objects_count, tracing_allocator->in_use_space,
       tracing_allocator->alloc_objects_count, tracing_allocator->alloc_space);
 
@@ -2446,85 +2447,10 @@ end:
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgReader
-pg_reader_make_from_socket(PgSocket socket) {
-  return (PgReader){.read_fn = pg_reader_unix_recv, .ctx = (void *)(u64)socket};
-}
-
-[[maybe_unused]] [[nodiscard]] static PgReader
-pg_reader_make_from_file(PgFile file) {
-  return (PgReader){.read_fn = pg_reader_unix_read, .ctx = (void *)(u64)file};
-}
-
-[[maybe_unused]] [[nodiscard]] static PgWriter
-pg_writer_make_from_socket(PgSocket socket) {
-  return (PgWriter){.write_fn = pg_writer_unix_send,
-                    .ctx = (void *)(u64)socket};
-}
-
-[[maybe_unused]] [[nodiscard]] static PgWriter
-pg_writer_make_from_file(PgFile *file) {
-  return (PgWriter){.write_fn = pg_writer_unix_write, .ctx = (void *)file};
-}
-
 #else
-
-#define PG_PATH_SEP '\\'
-#define PG_PATH_SEP_S "\\"
 
 // There will be linking errors!
 #endif
-
-#if defined(__linux__)
-#include <sys/epoll.h>
-#include <sys/sendfile.h>
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
-  i64 res = 0;
-  do {
-    res = sendfile(fd_out, fd_in, nullptr, n_bytes);
-  } while (-1 == res && EINTR == errno);
-
-  if (res == -1) {
-    return (PgError)errno;
-  }
-  if (res != (i64)n_bytes) {
-    return (PgError)PG_ERR_AGAIN;
-  }
-  return 0;
-}
-
-#endif
-
-#if defined(__FreeBSD__)
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/uio.h>
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_os_sendfile(int fd_in, int fd_out, u64 n_bytes) {
-  int res = 0;
-  do {
-    res = sendfile(fd_in, fd_out, 0, n_bytes, nullptr, nullptr, 0);
-  } while (-1 == res && EINTR == errno);
-
-  if (res == -1) {
-    return (PgError)errno;
-  }
-  return 0;
-}
-#endif
-
-[[maybe_unused]] [[nodiscard]] static PgSocket pg_reader_socket(PgReader *r) {
-  PG_ASSERT(r->ctx);
-  return (PgSocket)(u64)r->ctx;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgSocket pg_writer_socket(PgWriter *w) {
-  PG_ASSERT(w->ctx);
-  return (PgSocket)(u64)w->ctx;
-}
 
 typedef enum {
   HTTP_METHOD_UNKNOWN,
