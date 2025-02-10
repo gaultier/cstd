@@ -1480,6 +1480,19 @@ pg_writer_write_u64_as_string(PgWriter *w, u64 n) {
   return pg_writer_write_all_string(w, s);
 }
 
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_writer_write_i64_as_string(PgWriter *w, i64 n) {
+  u8 tmp[30] = {0};
+  // TODO: Not use snprintf?
+  const int written_count = snprintf((char *)tmp, sizeof(tmp), "%" PRIi64, n);
+
+  PG_ASSERT(written_count > 0);
+
+  PgString s = {.data = tmp, .len = (u64)written_count};
+
+  return pg_writer_write_all_string(w, s);
+}
+
 [[maybe_unused]] static void pg_u32_to_u8x4_be(u32 n, PgString *dst) {
   PG_ASSERT(sizeof(n) == dst->len);
 
@@ -3909,6 +3922,7 @@ pg_http_req_extract_cookie_with_name(PgHttpRequest req, PgString cookie_name,
 typedef enum {
   PG_LOG_VALUE_STRING,
   PG_LOG_VALUE_U64,
+  PG_LOG_VALUE_I64,
   PG_LOG_VALUE_IPV4_ADDRESS,
 } PgLogValueKind;
 
@@ -4029,6 +4043,15 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_entry_i64(PgString k,
+                                                                  i64 v) {
+  return (PgLogEntry){
+      .key = k,
+      .value.kind = PG_LOG_VALUE_I64,
+      .value.n64 = (u64)v,
+  };
+}
+
 [[maybe_unused]] [[nodiscard]] static PgLogEntry
 pg_log_entry_string(PgString k, PgString v) {
   return (PgLogEntry){
@@ -4053,6 +4076,7 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
        u16: pg_log_entry_u16,                                                  \
        u32: pg_log_entry_u32,                                                  \
        u64: pg_log_entry_u64,                                                  \
+       i64: pg_log_entry_i64,                                                  \
        PgIpv4Address: pg_log_entry_ipv4_address,                               \
        PgString: pg_log_entry_string)((PG_S(k)), (v)))
 
@@ -4362,6 +4386,9 @@ pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg,
     }
     case PG_LOG_VALUE_U64:
       PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, entry.value.n64));
+      break;
+    case PG_LOG_VALUE_I64:
+      PG_ASSERT(0 == pg_writer_write_i64_as_string(&w, (i64)entry.value.n64));
       break;
     case PG_LOG_VALUE_IPV4_ADDRESS: {
       PgString ipv4_addr_str =
