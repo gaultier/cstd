@@ -91,7 +91,6 @@ typedef u32 PgError;
 #include <errno.h>
 #define PG_ERR_INVALID_VALUE EINVAL
 #define PG_ERR_IO EIO
-#define PG_ERR_AGAIN EAGAIN
 #else
 // Use the x86_64 Linux errno values.
 #define PG_ERR_INVALID_VALUE 22
@@ -793,7 +792,8 @@ static void *pg_alloc_tracing(PgAllocator *allocator, u64 sizeof_type,
 
   // TODO: Better tracing e.g. with pprof.
   fprintf(stderr,
-          "allocation sizeof_type=%lu alignof_type=%lu elem_count=%lu\n",
+          "allocation sizeof_type=%" PRIu64 " alignof_type=%" PRIu64
+          " elem_count=%" PRIu64 "\n",
           sizeof_type, alignof_type, elem_count);
 
   // TODO: Be aware of `align` here?
@@ -805,7 +805,8 @@ static void *pg_alloc_tracing(PgAllocator *allocator, u64 sizeof_type,
   tracing_allocator->in_use_space += space;
 
   fprintf(
-      stderr, "%lu: %lu [%lu: %lu] @ TODO call stack\n",
+      stderr,
+      "%" PRIu64 ": %" PRIu64 " [%" PRIu64 ": %" PRIu64 "] @ TODO call stack\n",
       tracing_allocator->in_use_objects_count, tracing_allocator->in_use_space,
       tracing_allocator->alloc_objects_count, tracing_allocator->alloc_space);
 
@@ -817,7 +818,8 @@ static void pg_free_tracing(PgAllocator *allocator, void *ptr, u64 sizeof_type,
   PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
   (void)tracing_allocator;
 
-  fprintf(stderr, "free ptr=%p sizeof_type=%lu elem_count=%lu\n", ptr,
+  fprintf(stderr,
+          "free ptr=%p sizeof_type=%" PRIu64 " elem_count=%" PRIu64 "\n", ptr,
           sizeof_type, elem_count);
 
   // TODO: Be aware of `align` here?
@@ -1865,31 +1867,10 @@ typedef enum {
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_time_ns_now(PgClockKind clock_kind);
 
-[[nodiscard]] [[maybe_unused]] static PgStringResult
-pg_file_read_full(PgString path, PgAllocator *allocator);
-
 typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
                     void *ctx, PgArena arena);
-
-// TODO: Async.
-[[nodiscard]] [[maybe_unused]] static PgError
-pg_file_write_data_at_offset_from_start(PgFile file, u64 offset, PgString data);
-
-typedef enum [[clang::flag_enum]] : u8 {
-  PG_FILE_FLAGS_READ = 1,
-  PG_FILE_FLAGS_WRITE = 2,
-  PG_FILE_FLAGS_CREATE = 4,
-} PgFileFlags;
-
-[[nodiscard]] [[maybe_unused]] static PgFileResult
-pg_file_open(PgString path, PgFileFlags flags);
-
-[[nodiscard]] [[maybe_unused]] static PgError pg_file_close(PgFile file);
-
-[[nodiscard]] [[maybe_unused]] static PgError pg_file_set_size(PgString path,
-                                                               u64 size);
 
 [[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s);
 
@@ -1938,16 +1919,10 @@ typedef struct {
 pg_string_to_filename(PgString s);
 
 [[maybe_unused]] [[nodiscard]] static PgReader
-pg_reader_make_from_socket(PgSocket socket);
-
-[[maybe_unused]] [[nodiscard]] static PgReader
 pg_reader_make_from_file(PgFile file);
 
 [[maybe_unused]] [[nodiscard]] static PgWriter
-pg_writer_make_from_socket(PgSocket socket);
-
-[[maybe_unused]] [[nodiscard]] static PgWriter
-pg_writer_make_from_file(PgFile *file);
+pg_writer_make_from_file(PgFile file);
 
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
@@ -1959,6 +1934,43 @@ pg_writer_make_from_file(PgFile *file);
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
+
+  PgWriter *w = self;
+  PG_ASSERT(0 != (u64)w->ctx);
+
+  int fd = (int)(u64)w->ctx;
+  i64 n = 0;
+  do {
+    n = write(fd, buf, buf_len);
+  } while (-1 == n && EINTR == errno);
+
+  PgU64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_writer_file_write(void *self, u8 *buf, size_t buf_len) {
+  return pg_writer_unix_write(self, buf, buf_len);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgWriter
+pg_writer_make_from_file(PgFile file) {
+  return (PgWriter){
+      .ctx = (void *)(u64)file,
+      .write_fn = pg_writer_file_write,
+  };
+}
 
 [[maybe_unused]] [[nodiscard]] static int
 pg_clock_to_linux(PgClockKind clock_kind) {
@@ -2010,191 +2022,6 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
   }
 
   return res;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_reader_unix_read(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
-
-  PgReader *r = self;
-  PG_ASSERT(0 != (u64)r->ctx);
-
-  int fd = (int)(u64)r->ctx;
-  i64 n = 0;
-  do {
-    n = read(fd, buf, buf_len);
-  } while (-1 == n && EINTR == errno);
-
-  PgU64Result res = {0};
-  if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.res = (u64)n;
-  }
-
-  return res;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_reader_unix_recv(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
-
-  PgReader *r = self;
-  PG_ASSERT(0 != (u64)r->ctx);
-
-  int fd = (int)(u64)r->ctx;
-  i64 n = 0;
-  do {
-    n = recv(fd, buf, buf_len, 0);
-  } while (-1 == n && EINTR == errno);
-
-  PgU64Result res = {0};
-  if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.res = (u64)n;
-  }
-
-  return res;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
-
-  PgWriter *w = self;
-  PG_ASSERT(0 != (u64)w->ctx);
-
-  int fd = (int)(u64)w->ctx;
-  i64 n = 0;
-  do {
-    n = write(fd, buf, buf_len);
-  } while (-1 == n && EINTR == errno);
-
-  PgU64Result res = {0};
-  if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.res = (u64)n;
-  }
-
-  return res;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_writer_file_write(void *self, u8 *buf, size_t buf_len) {
-  return pg_writer_unix_write(self, buf, buf_len);
-}
-
-[[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_writer_unix_send(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
-
-  PgWriter *w = self;
-  PG_ASSERT(0 != (u64)w->ctx);
-
-  int fd = (int)(u64)w->ctx;
-  i64 n = 0;
-  do {
-    n = send(fd, buf, buf_len, MSG_NOSIGNAL);
-  } while (-1 == n && EINTR == errno);
-
-  PgU64Result res = {0};
-  if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.res = (u64)n;
-  }
-
-  return res;
-}
-
-[[nodiscard]] [[maybe_unused]] static PgError
-pg_file_write_data_at_offset_from_start(PgFile file, u64 offset,
-                                        PgString data) {
-  i64 ret = 0;
-  do {
-    ret = lseek(file, (off_t)offset, SEEK_SET);
-  } while (-1 == ret && EINTR == errno);
-  if (-1 == ret) {
-    return (PgError)errno;
-  }
-
-  PgWriter w = pg_writer_make_from_file_handle(file);
-  return pg_writer_write_all_string(&w, data);
-}
-
-[[nodiscard]] [[maybe_unused]] static PgFileResult
-pg_file_open(PgString path, PgFileFlags flags) {
-  PgFileResult res = {0};
-
-  int os_flags = 0;
-  if (PG_FILE_FLAGS_READ & flags) {
-    os_flags |= O_RDONLY;
-  }
-  if (PG_FILE_FLAGS_WRITE & flags) {
-    os_flags |= O_WRONLY;
-  }
-  if (PG_FILE_FLAGS_CREATE & flags) {
-    os_flags |= O_CREAT;
-  }
-
-  int mode = 0666; // TODO
-
-  char path_c[PG_PATH_MAX] = {0};
-  if (!pg_cstr_mut_from_string(path_c, path)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-  int ret = 0;
-  do {
-    ret = open(path_c, os_flags, mode);
-  } while (-1 == ret && EINTR == errno);
-
-  if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
-  }
-
-  res.res = (PgFile)ret;
-  return res;
-}
-
-[[nodiscard]] [[maybe_unused]] static PgError pg_file_close(PgFile file) {
-  i32 ret = 0;
-  do {
-    ret = close(file);
-  } while (-1 == ret && EINTR == errno);
-  if (-1 == ret) {
-    return (PgError)errno;
-  }
-
-  return 0;
-}
-
-[[nodiscard]] [[maybe_unused]] static PgError pg_file_set_size(PgString path,
-                                                               u64 size) {
-  PgError res = 0;
-
-  char path_c[PG_PATH_MAX] = {0};
-  if (!pg_cstr_mut_from_string(path_c, path)) {
-    return PG_ERR_INVALID_VALUE;
-  }
-
-  int ret = 0;
-  do {
-    ret = truncate(path_c, (i64)size);
-  } while (-1 == ret && EINTR == errno);
-
-  if (-1 == ret) {
-    res = (PgError)errno;
-    return res;
-  }
-  return 0;
 }
 
 typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
@@ -3910,8 +3737,8 @@ pg_log_make_logger_stdout_json(PgLogLevel level) {
 pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
   PgLogger logger = {
       .level = level,
-      .writer = pg_writer_make_from_file(
-          (PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
+      .writer =
+          pg_writer_make_from_file((PgFile)(u64)STDOUT_FILENO), // TODO: Windows
       .arena = pg_arena_make_from_virtual_mem(8 * PG_KiB),
       .make_log_line = pg_log_make_log_line_logfmt,
   };
