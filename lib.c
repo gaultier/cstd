@@ -1713,6 +1713,9 @@ pg_string_dup(PgString src, PgAllocator *allocator) {
 [[maybe_unused]] [[nodiscard]] static u64
 pg_round_up_multiple_of(u64 n, u64 multiple) {
   PG_ASSERT(0 != multiple);
+  if (0 == n % multiple) {
+    return n;
+  }
 
   u64 factor = n / multiple;
   u64 res = (factor + 1) * multiple;
@@ -2273,16 +2276,16 @@ pg_arena_make_from_virtual_mem(u64 size) {
   PG_ASSERT(size > 0);
 
   u64 page_size = pg_os_get_page_size();
-  u64 os_alloc_size = pg_round_up_multiple_of(size, page_size);
-  PG_ASSERT(0 == os_alloc_size % page_size);
+  u64 size_rounded_up_to_page_size = pg_round_up_multiple_of(size, page_size);
+  PG_ASSERT(0 == size_rounded_up_to_page_size % page_size);
 
-  u64 mmap_size = os_alloc_size;
+  u64 os_alloc_size = size_rounded_up_to_page_size;
   // Page guard before.
-  PG_ASSERT(false == ckd_add(&mmap_size, mmap_size, page_size));
+  PG_ASSERT(false == ckd_add(&os_alloc_size, os_alloc_size, page_size));
   // Page guard after.
-  PG_ASSERT(false == ckd_add(&mmap_size, mmap_size, page_size));
+  PG_ASSERT(false == ckd_add(&os_alloc_size, os_alloc_size, page_size));
 
-  u8 *alloc = mmap(nullptr, mmap_size, PROT_READ | PROT_WRITE,
+  u8 *alloc = mmap(nullptr, os_alloc_size, PROT_READ | PROT_WRITE,
                    MAP_ANON | MAP_PRIVATE, -1, 0);
   PG_ASSERT(nullptr != alloc);
 
@@ -2292,9 +2295,11 @@ pg_arena_make_from_virtual_mem(u64 size) {
   PG_ASSERT(page_guard_before + page_size == (u64)alloc);
 
   u64 page_guard_after = (u64)0;
-  PG_ASSERT(false == ckd_add(&page_guard_after, (u64)alloc, os_alloc_size));
-  PG_ASSERT((u64)alloc + os_alloc_size == page_guard_after);
-  PG_ASSERT(page_guard_before + page_size + os_alloc_size == page_guard_after);
+  PG_ASSERT(false == ckd_add(&page_guard_after, (u64)alloc,
+                             size_rounded_up_to_page_size));
+  PG_ASSERT((u64)alloc + size_rounded_up_to_page_size == page_guard_after);
+  PG_ASSERT(page_guard_before + page_size + size_rounded_up_to_page_size ==
+            page_guard_after);
 
   PG_ASSERT(0 == mprotect((void *)page_guard_before, page_size, PROT_NONE));
   PG_ASSERT(0 == mprotect((void *)page_guard_after, page_size, PROT_NONE));
@@ -2303,6 +2308,7 @@ pg_arena_make_from_virtual_mem(u64 size) {
   // mappings.
   *(u8 *)alloc = 0;
 
+  PG_ASSERT(os_alloc_size >= 2 * page_size);
   return (PgArena){
       .start_original = alloc,
       .start = alloc,
