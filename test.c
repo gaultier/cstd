@@ -104,17 +104,17 @@ static void test_string_split_string() {
 }
 
 static void test_dyn_ensure_cap() {
-  /* u64 arena_cap = 4 * PG_KiB; */
+  u64 arena_cap = 4 * PG_KiB;
 
   // Trigger the optimization when the last allocation in the arena gets
   // extended.
-#if 0
   {
     PgArena arena = pg_arena_make_from_virtual_mem(arena_cap);
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
     Pgu8Dyn dyn = {0};
-    *PG_DYN_PUSH(&dyn, (PgAllocator *)&arena_allocator) = 1;
+    *PG_DYN_PUSH(&dyn, allocator) = 1;
     PG_ASSERT(1 == dyn.len);
     PG_ASSERT(2 == dyn.cap);
 
@@ -123,32 +123,31 @@ static void test_dyn_ensure_cap() {
     PG_ASSERT(dyn.cap == arena_size_expected);
 
     u64 desired_cap = 13;
-    PG_DYN_ENSURE_CAP(&dyn, desired_cap, (PgAllocator *)&arena_allocator);
+    PG_DYN_ENSURE_CAP(&dyn, desired_cap, allocator);
     PG_ASSERT(16 == dyn.cap);
     arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
     PG_ASSERT(16 == arena_size_expected);
   }
-#endif
   // General case.
-#if 0
   {
     PgArena arena = pg_arena_make_from_virtual_mem(arena_cap);
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
     Pgu8Dyn dyn = {0};
-    *PG_DYN_PUSH(&dyn, (PgAllocator *)&arena_allocator) = 1;
+    *PG_DYN_PUSH(&dyn, allocator) = 1;
     PG_ASSERT(1 == dyn.len);
     PG_ASSERT(2 == dyn.cap);
 
     Pgu8Dyn dummy = {0};
-    *PG_DYN_PUSH(&dummy, (PgAllocator *)&arena_allocator) = 2;
-    *PG_DYN_PUSH(&dummy, (PgAllocator *)&arena_allocator) = 3;
+    *PG_DYN_PUSH(&dummy, allocator) = 2;
+    *PG_DYN_PUSH(&dummy, allocator) = 3;
 
     u64 arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
     PG_ASSERT(2 + 2 == arena_size_expected);
 
     // This triggers a new allocation.
-    *PG_DYN_PUSH(&dummy, (PgAllocator *)&arena_allocator) = 4;
+    *PG_DYN_PUSH(&dummy, allocator) = 4;
     PG_ASSERT(3 == dummy.len);
     PG_ASSERT(4 == dummy.cap);
 
@@ -156,13 +155,12 @@ static void test_dyn_ensure_cap() {
     PG_ASSERT(2 + 4 == arena_size_expected);
 
     u64 desired_cap = 13;
-    PG_DYN_ENSURE_CAP(&dyn, desired_cap, (PgAllocator *)&arena_allocator);
+    PG_DYN_ENSURE_CAP(&dyn, desired_cap, allocator);
     PG_ASSERT(16 == dyn.cap);
 
     arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
     PG_ASSERT(16 + 6 == arena_size_expected);
   }
-#endif
 }
 
 static void test_slice_range() {
