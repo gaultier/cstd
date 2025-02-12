@@ -688,9 +688,37 @@ typedef struct {
   u8 *start;
   u8 *end;
 
-  void *os_start;
+  // For stats
+  u8 *start_original;
+  // For releasing the arena.
+  u8 *os_start;
   u64 os_alloc_size;
 } PgArena;
+
+[[maybe_unused]] [[nodiscard]] static u64 pg_arena_mem_use(PgArena arena) {
+  PG_ASSERT(arena.start >= arena.start_original);
+  PG_ASSERT(arena.end >= arena.start_original);
+
+  u64 res = (u64)(arena.start - arena.start_original);
+
+  u64 original_usable_alloc_size = (u64)(arena.end - arena.start_original);
+  PG_ASSERT(res <= original_usable_alloc_size);
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static u64
+pg_arena_mem_available(PgArena arena) {
+  PG_ASSERT(arena.end >= arena.start);
+  PG_ASSERT(arena.end >= arena.start_original);
+
+  u64 res = (u64)(arena.end - arena.start);
+
+  u64 original_usable_alloc_size = (u64)(arena.end - arena.start_original);
+  PG_ASSERT(res <= original_usable_alloc_size);
+
+  return res;
+}
 
 __attribute((malloc, alloc_size(2, 4), alloc_align(3)))
 [[maybe_unused]] [[nodiscard]] static void *
@@ -2265,6 +2293,7 @@ pg_arena_make_from_virtual_mem(u64 size) {
   *(u8 *)alloc = 0;
 
   return (PgArena){
+      .start_original = alloc,
       .start = alloc,
       .end = (u8 *)alloc + size,
       .os_start = (void *)page_guard_before,
