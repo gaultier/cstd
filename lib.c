@@ -1140,7 +1140,7 @@ pg_string_cmp(PgString a, PgString b) {
   ((dyn)->cap < (new_cap))                                                     \
       ? PG_DYN_GROW(dyn, sizeof(*(dyn)->data), _Alignof((dyn)->data[0]),       \
                     new_cap, allocator),                                       \
-      0 : 0
+      PG_ASSERT((dyn)->data), 0 : 0
 
 #define PG_DYN_SPACE(T, dyn)                                                   \
   ((T){.data = (dyn)->data + (dyn)->len, .len = (dyn)->cap - (dyn)->len})
