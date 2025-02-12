@@ -121,6 +121,7 @@ typedef Pgu8Slice PgString;
 
 #define PG_STACKTRACE_MAX 64
 #define PG_LOG_STRING_MAX 256
+#define PG_LOG_LINE_MAX_LENGTH 2048
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
@@ -3976,7 +3977,7 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
     if ((logger)->level > (lvl)) {                                             \
       break;                                                                   \
     };                                                                         \
-    u8 mem[2048] = {0};                                                        \
+    u8 mem[PG_LOG_LINE_MAX_LENGTH] = {0};                                      \
     PgString xxx_log_line =                                                    \
         (logger)->make_log_line(mem, PG_STATIC_ARRAY_LEN(mem), lvl, PG_S(msg), \
                                 PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);  \
