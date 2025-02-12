@@ -1140,7 +1140,7 @@ pg_string_cmp(PgString a, PgString b) {
   ((dyn)->cap < (new_cap))                                                     \
       ? PG_DYN_GROW(dyn, sizeof(*(dyn)->data), _Alignof((dyn)->data[0]),       \
                     new_cap, allocator),                                       \
-      PG_ASSERT((dyn)->data), 0 : 0
+      0 : 0, PG_ASSERT((dyn)->data), 0
 
 #define PG_DYN_SPACE(T, dyn)                                                   \
   ((T){.data = (dyn)->data + (dyn)->len, .len = (dyn)->cap - (dyn)->len})
@@ -2264,6 +2264,8 @@ pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl) {
 
 [[maybe_unused]] [[nodiscard]] static PgArena
 pg_arena_make_from_virtual_mem(u64 size) {
+  PG_ASSERT(size > 0);
+
   u64 page_size = pg_os_get_page_size();
   u64 os_alloc_size = pg_round_up_multiple_of(size, page_size);
   PG_ASSERT(0 == os_alloc_size % page_size);
@@ -2299,7 +2301,7 @@ pg_arena_make_from_virtual_mem(u64 size) {
       .start_original = alloc,
       .start = alloc,
       .end = (u8 *)alloc + size,
-      .os_start = (void *)page_guard_before,
+      .os_start = (u8 *)page_guard_before,
       .os_alloc_size = os_alloc_size,
   };
 }
