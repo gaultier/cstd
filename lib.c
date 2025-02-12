@@ -3821,12 +3821,10 @@ typedef enum {
 } PgLogLevel;
 
 typedef PgString (*PgMakeLogLineFn)(PgLogLevel level, PgString msg,
-                                    PgAllocator *allocator, i32 args_count,
-                                    ...);
+                                    i32 args_count, ...);
 typedef struct {
   PgLogLevel level;
   PgWriter writer;
-  PgArena arena;
   PgMakeLogLineFn make_log_line;
 } PgLogger;
 
@@ -3850,8 +3848,8 @@ pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
                           i32 args_count, ...);
 #endif
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg,
-                            PgAllocator *allocator, i32 args_count, ...);
+pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, i32 args_count,
+                            ...);
 
 #if 0
 [[maybe_unused]] [[nodiscard]] static PgLogger
@@ -3874,7 +3872,6 @@ pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
       .level = level,
       .writer =
           pg_writer_make_from_file((PgFile)(u64)STDOUT_FILENO), // TODO: Windows
-      .arena = pg_arena_make_from_virtual_mem(8 * PG_KiB),
       .make_log_line = pg_log_make_log_line_logfmt,
   };
 
@@ -3979,12 +3976,8 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
     if ((logger)->level > (lvl)) {                                             \
       break;                                                                   \
     };                                                                         \
-    PgArena xxx_tmp_arena = (logger)->arena;                                   \
-    PgArenaAllocator xxx_arena_allocator =                                     \
-        pg_make_arena_allocator(&xxx_tmp_arena);                               \
     PgString xxx_log_line = (logger)->make_log_line(                           \
-        lvl, PG_S(msg), (PgAllocator *)&xxx_arena_allocator,                   \
-        PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);                          \
+        lvl, PG_S(msg), PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);          \
     (logger)->writer.write_fn(&(logger)->writer, xxx_log_line.data,            \
                               xxx_log_line.len);                               \
   } while (0)
@@ -4233,13 +4226,29 @@ pg_log_make_log_line_json(PgLogLevel level, PgString msg,
 }
 #endif
 
+[[nodiscard]] static PgArena pg_arena_make_from_mem(u8 *data, u64 len) {
+  PgArena arena = {
+      .start = data,
+      .end = data + len,
+      .start_original = data,
+  };
+
+  return arena;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg,
-                            PgAllocator *allocator, i32 args_count, ...) {
+pg_log_make_log_line_logfmt(PgLogLevel level, PgString msg, i32 args_count,
+                            ...) {
+  u8 mem[4096] = {0};
+  PgArena arena = pg_arena_make_from_mem(mem, PG_STATIC_ARRAY_LEN(mem));
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  // Ignore clock errors.
   PgU64Result res_monotonic_ns = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
   PgU64Result res_timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME);
-  // Ignore clock errors.
 
+  // FIXME: `try` alloc.
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 256, allocator);
   PgWriter w = pg_writer_make_from_string_builder(&sb, allocator);
