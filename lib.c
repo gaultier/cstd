@@ -1677,12 +1677,11 @@ pg_string_dup(PgString src, PgAllocator *allocator) {
 pg_round_up_multiple_of(u64 n, u64 multiple) {
   PG_ASSERT(0 != multiple);
 
-  if (0 == n % multiple) {
-    return n; // No-op.
-  }
-
   u64 factor = n / multiple;
-  return (factor + 1) * n;
+  u64 res = (factor + 1) * multiple;
+  PG_ASSERT(0 == res % multiple);
+
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
