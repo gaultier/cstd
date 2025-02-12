@@ -115,6 +115,10 @@ typedef Pgu8Slice PgString;
 
 #define PG_SUB_SAT(a, b) ((a) > (b) ? ((a) - (b)) : 0)
 
+[[maybe_unused]] [[nodiscard]] static u64 pg_ns_to_ms(u64 ns) {
+  return ns / 1'000'000;
+}
+
 #define PG_STACKTRACE_MAX 64
 #define PG_LOG_STRING_MAX 256
 
