@@ -734,12 +734,13 @@ typedef struct PgAllocator PgAllocator;
 
 typedef void *(*PgAllocFn)(PgAllocator *allocator, u64 sizeof_type,
                            u64 alignof_type, u64 elem_count);
+typedef void *(*PgReallocFn)(PgAllocator *allocator, void *ptr, u64 sizeof_type,
+                             u64 alignof_type, u64 elem_count);
 typedef void (*PgFreeFn)(PgAllocator *allocator, void *ptr, u64 sizeof_type,
                          u64 elem_count);
-// TODO: realloc.
-
 struct PgAllocator {
   PgAllocFn alloc_fn;
+  PgReallocFn realloc_fn;
   PgFreeFn free_fn;
 };
 
@@ -749,6 +750,15 @@ static void *pg_alloc_heap_libc(PgAllocator *allocator, u64 sizeof_type,
   (void)allocator;
   (void)alignof_type;
   return calloc(sizeof_type, elem_count);
+}
+
+[[nodiscard]]
+static void *pg_realloc_heap_libc(PgAllocator *allocator, void *ptr,
+                                  u64 sizeof_type, u64 alignof_type,
+                                  u64 elem_count) {
+  (void)allocator;
+  (void)alignof_type;
+  return realloc(ptr, sizeof_type * elem_count);
 }
 
 static void pg_free_heap_libc(PgAllocator *allocator, void *ptr,
@@ -761,12 +771,14 @@ static void pg_free_heap_libc(PgAllocator *allocator, void *ptr,
 
 typedef struct {
   PgAllocFn alloc_fn;
+  PgReallocFn realloc_fn;
   PgFreeFn free_fn;
 } PgHeapAllocator;
 static_assert(sizeof(PgHeapAllocator) == sizeof(PgAllocator));
 
 [[maybe_unused]] [[nodiscard]] static PgHeapAllocator pg_make_heap_allocator() {
   return (PgHeapAllocator){.alloc_fn = pg_alloc_heap_libc,
+                           .realloc_fn = pg_realloc_heap_libc,
                            .free_fn = pg_free_heap_libc};
 }
 
@@ -777,6 +789,7 @@ pg_heap_allocator_as_allocator(PgHeapAllocator *allocator) {
 
 typedef struct {
   PgAllocFn alloc_fn;
+  PgReallocFn realloc_fn;
   PgFreeFn free_fn;
   // Pprof.
   u64 alloc_objects_count, alloc_space, in_use_objects_count, in_use_space;
@@ -813,6 +826,38 @@ static void *pg_alloc_tracing(PgAllocator *allocator, u64 sizeof_type,
   return calloc(sizeof_type, elem_count);
 }
 
+[[nodiscard]]
+static void *pg_realloc_tracing(PgAllocator *allocator, void *ptr,
+                                u64 sizeof_type, u64 alignof_type,
+                                u64 elem_count) {
+  PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
+  (void)tracing_allocator;
+
+  // TODO: Better tracing e.g. with pprof.
+  fprintf(stderr,
+          "allocation sizeof_type=%" PRIu64 " alignof_type=%" PRIu64
+          " elem_count=%" PRIu64 "\n",
+          sizeof_type, alignof_type, elem_count);
+
+  // TODO: Be aware of `align` here?
+  u64 space = sizeof_type * elem_count;
+
+  // FIXME: Find out the original alloc size/count to properly update these
+  // stats here.
+  tracing_allocator->alloc_objects_count += elem_count;
+  tracing_allocator->alloc_space += space;
+  tracing_allocator->in_use_objects_count += elem_count;
+  tracing_allocator->in_use_space += space;
+
+  fprintf(
+      stderr,
+      "%" PRIu64 ": %" PRIu64 " [%" PRIu64 ": %" PRIu64 "] @ TODO call stack\n",
+      tracing_allocator->in_use_objects_count, tracing_allocator->in_use_space,
+      tracing_allocator->alloc_objects_count, tracing_allocator->alloc_space);
+
+  return realloc(ptr, space);
+}
+
 static void pg_free_tracing(PgAllocator *allocator, void *ptr, u64 sizeof_type,
                             u64 elem_count) {
   PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
@@ -841,6 +886,7 @@ static void pg_free_tracing(PgAllocator *allocator, void *ptr, u64 sizeof_type,
 pg_make_tracing_allocator(PgFile heap_profile_file) {
   return (PgTracingAllocator){
       .alloc_fn = pg_alloc_tracing,
+      .realloc_fn = pg_realloc_tracing,
       .free_fn = pg_free_tracing,
       .heap_profile_file = heap_profile_file,
   };
@@ -860,6 +906,16 @@ pg_tracing_allocator_as_allocator(PgTracingAllocator *allocator) {
   return allocator->alloc_fn(allocator, sizeof_type, alignof_type, elem_count);
 }
 
+[[maybe_unused]] [[nodiscard]] static void *
+pg_realloc(PgAllocator *allocator, void *ptr, u64 sizeof_type, u64 alignof_type,
+           u64 elem_count) {
+  PG_ASSERT(allocator);
+  PG_ASSERT(allocator->realloc_fn);
+  PG_ASSERT(ptr);
+  return allocator->realloc_fn(allocator, ptr, sizeof_type, alignof_type,
+                               elem_count);
+}
+
 [[maybe_unused]] static void pg_free(PgAllocator *allocator, void *ptr,
                                      u64 sizeof_type, u64 elem_count) {
   PG_ASSERT(allocator);
@@ -869,6 +925,7 @@ pg_tracing_allocator_as_allocator(PgTracingAllocator *allocator) {
 
 typedef struct {
   PgAllocFn alloc_fn;
+  PgReallocFn realloc_fn;
   PgFreeFn free_fn;
   PgArena *arena;
 } PgArenaAllocator;
@@ -880,6 +937,19 @@ static void *pg_alloc_arena(PgAllocator *allocator, u64 sizeof_type,
                             u64 alignof_type, u64 elem_count) {
   PgArenaAllocator *arena_allocator = (PgArenaAllocator *)allocator;
   PgArena *arena = arena_allocator->arena;
+  return pg_try_arena_alloc(arena, sizeof_type, alignof_type, elem_count);
+}
+
+[[maybe_unused]] [[nodiscard]]
+static void *pg_realloc_arena(PgAllocator *allocator, void *ptr,
+                              u64 sizeof_type, u64 alignof_type,
+                              u64 elem_count) {
+  PgArenaAllocator *arena_allocator = (PgArenaAllocator *)allocator;
+  PgArena *arena = arena_allocator->arena;
+  // For arenas, realloc is like alloc.
+  // TODO: Optimization when the ptr the last element in the arena.
+  // In this case simply bump the arena pointer.
+  (void)ptr;
   return pg_try_arena_alloc(arena, sizeof_type, alignof_type, elem_count);
 }
 
@@ -896,6 +966,7 @@ static void pg_free_arena(PgAllocator *allocator, void *ptr, u64 sizeof_type,
 pg_make_arena_allocator(PgArena *arena) {
   return (PgArenaAllocator){
       .alloc_fn = pg_alloc_arena,
+      .realloc_fn = pg_realloc_arena,
       .arena = arena,
       .free_fn = pg_free_arena,
   };
@@ -1023,7 +1094,7 @@ pg_string_cmp(PgString a, PgString b) {
   }
 #endif
   else { // General case.
-    void *data = pg_alloc(allocator, size, align, new_cap);
+    void *data = pg_realloc(allocator, PgReplica.data, size, align, new_cap);
 
     // Import check to avoid overlapping memory ranges in memcpy.
     PG_ASSERT(data != PgReplica.data);
