@@ -745,6 +745,24 @@ pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   return memset(res, 0, count * size);
 }
 
+__attribute((malloc, alloc_size(3, 5), alloc_align(4)))
+[[maybe_unused]] [[nodiscard]] static void *
+pg_try_arena_realloc(PgArena *a, void *ptr, u64 elem_count_old, u64 size,
+                     u64 align, u64 count) {
+  PG_ASSERT(a->start >= (u8 *)ptr);
+
+  u8 *array_end = (u8 *)ptr + elem_count_old * size;
+
+  if (a->start == array_end) { // Optimization.
+    // This is the case of growing the array which is at the end of the arena.
+    // In that case we can simply bump the arena pointer and avoid any copies.
+    a->start += size * (count - elem_count_old);
+    return ptr;
+  }
+
+  return pg_try_arena_alloc(a, size, align, count);
+}
+
 __attribute((malloc, alloc_size(2, 4), alloc_align(3)))
 [[maybe_unused]] [[nodiscard]] static void *
 pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
@@ -762,7 +780,8 @@ typedef struct PgAllocator PgAllocator;
 
 typedef void *(*PgAllocFn)(PgAllocator *allocator, u64 sizeof_type,
                            u64 alignof_type, u64 elem_count);
-typedef void *(*PgReallocFn)(PgAllocator *allocator, void *ptr, u64 sizeof_type,
+typedef void *(*PgReallocFn)(PgAllocator *allocator, void *ptr,
+                             u64 elem_count_old, u64 sizeof_type,
                              u64 alignof_type, u64 elem_count);
 typedef void (*PgFreeFn)(PgAllocator *allocator, void *ptr, u64 sizeof_type,
                          u64 elem_count);
@@ -782,9 +801,10 @@ static void *pg_alloc_heap_libc(PgAllocator *allocator, u64 sizeof_type,
 
 [[nodiscard]]
 static void *pg_realloc_heap_libc(PgAllocator *allocator, void *ptr,
-                                  u64 sizeof_type, u64 alignof_type,
-                                  u64 elem_count) {
+                                  u64 elem_count_old, u64 sizeof_type,
+                                  u64 alignof_type, u64 elem_count) {
   (void)allocator;
+  (void)elem_count_old;
   (void)alignof_type;
   return realloc(ptr, sizeof_type * elem_count);
 }
@@ -856,10 +876,11 @@ static void *pg_alloc_tracing(PgAllocator *allocator, u64 sizeof_type,
 
 [[nodiscard]]
 static void *pg_realloc_tracing(PgAllocator *allocator, void *ptr,
-                                u64 sizeof_type, u64 alignof_type,
-                                u64 elem_count) {
+                                u64 elem_count_old, u64 sizeof_type,
+                                u64 alignof_type, u64 elem_count) {
   PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
   (void)tracing_allocator;
+  PG_ASSERT(elem_count_old <= elem_count);
 
   // TODO: Better tracing e.g. with pprof.
   fprintf(stderr,
@@ -868,13 +889,11 @@ static void *pg_realloc_tracing(PgAllocator *allocator, void *ptr,
           sizeof_type, alignof_type, elem_count);
 
   // TODO: Be aware of `align` here?
-  u64 space = sizeof_type * elem_count;
+  u64 space = sizeof_type * (elem_count - elem_count_old);
 
-  // FIXME: Find out the original alloc size/count to properly update these
-  // stats here.
-  tracing_allocator->alloc_objects_count += elem_count;
+  tracing_allocator->alloc_objects_count += (elem_count - elem_count_old);
   tracing_allocator->alloc_space += space;
-  tracing_allocator->in_use_objects_count += elem_count;
+  tracing_allocator->in_use_objects_count += elem_count - elem_count_old;
   tracing_allocator->in_use_space += space;
 
   fprintf(
@@ -935,13 +954,13 @@ pg_tracing_allocator_as_allocator(PgTracingAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static void *
-pg_realloc(PgAllocator *allocator, void *ptr, u64 sizeof_type, u64 alignof_type,
-           u64 elem_count) {
+pg_realloc(PgAllocator *allocator, void *ptr, u64 elem_count_old,
+           u64 sizeof_type, u64 alignof_type, u64 elem_count) {
   PG_ASSERT(allocator);
   PG_ASSERT(allocator->realloc_fn);
   PG_ASSERT(ptr);
-  return allocator->realloc_fn(allocator, ptr, sizeof_type, alignof_type,
-                               elem_count);
+  return allocator->realloc_fn(allocator, ptr, elem_count_old, sizeof_type,
+                               alignof_type, elem_count);
 }
 
 [[maybe_unused]] static void pg_free(PgAllocator *allocator, void *ptr,
@@ -970,15 +989,13 @@ static void *pg_alloc_arena(PgAllocator *allocator, u64 sizeof_type,
 
 [[maybe_unused]] [[nodiscard]]
 static void *pg_realloc_arena(PgAllocator *allocator, void *ptr,
-                              u64 sizeof_type, u64 alignof_type,
-                              u64 elem_count) {
+                              u64 elem_count_old, u64 sizeof_type,
+                              u64 alignof_type, u64 elem_count) {
   PgArenaAllocator *arena_allocator = (PgArenaAllocator *)allocator;
   PgArena *arena = arena_allocator->arena;
-  // For arenas, realloc is like alloc.
-  // TODO: Optimization when the ptr the last element in the arena.
-  // In this case simply bump the arena pointer.
   (void)ptr;
-  return pg_try_arena_alloc(arena, sizeof_type, alignof_type, elem_count);
+  return pg_try_arena_realloc(arena, ptr, elem_count_old, sizeof_type,
+                              alignof_type, elem_count);
 }
 
 [[maybe_unused]]
@@ -1112,22 +1129,11 @@ pg_string_cmp(PgString a, PgString b) {
   if (nullptr ==
       PgReplica.data) { // First allocation ever for this dynamic array.
     PgReplica.data = pg_alloc(allocator, size, align, new_cap);
-  }
-#if 0
-  else if ((u64)a->start == array_end) { // Optimization.
-    // This is the case of growing the array which is at the end of the arena.
-    // In that case we can simply bump the arena pointer and avoid any copies.
-    (void)pg_arena_alloc(allocator, size, 1 /* Force no padding */,
-                         new_cap - PgReplica.cap);
-  }
-#endif
-  else { // General case.
-    void *data = pg_realloc(allocator, PgReplica.data, size, align, new_cap);
+  } else { // General case.
+    void *data = pg_realloc(allocator, PgReplica.data, PgReplica.cap, size,
+                            align, new_cap);
 
-    // Import check to avoid overlapping memory ranges in memcpy.
-    PG_ASSERT(data != PgReplica.data);
-
-    memcpy(data, PgReplica.data, array_bytes_count);
+    memmove(data, PgReplica.data, array_bytes_count);
     PgReplica.data = data;
   }
   PgReplica.cap = new_cap;
