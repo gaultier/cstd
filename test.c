@@ -300,16 +300,16 @@ static void test_string_cmp() {
 
 static void test_sha1() {
   {
-    u8 hash[PG_SHA1_DIGEST_LENGTH] = {0};
-    pg_sha1(PG_S("abc"), hash);
+    PgSha1 hash = pg_sha1(PG_S("abc"));
 
-    u8 expected_hash[PG_SHA1_DIGEST_LENGTH] = {
-        0xA9, 0x99, 0x3E, 0x36, 0x47, 0x06, 0x81, 0x6A, 0xBA, 0x3E,
-        0x25, 0x71, 0x78, 0x50, 0xC2, 0x6C, 0x9C, 0xD0, 0xD8, 0x9D,
-    };
+    PgSha1 expected_hash = {.data = {
+                                0xA9, 0x99, 0x3E, 0x36, 0x47, 0x06, 0x81,
+                                0x6A, 0xBA, 0x3E, 0x25, 0x71, 0x78, 0x50,
+                                0xC2, 0x6C, 0x9C, 0xD0, 0xD8, 0x9D,
+                            }};
     static_assert(sizeof(hash) == sizeof(expected_hash));
 
-    PG_ASSERT(0 == memcmp(hash, expected_hash, sizeof(hash)));
+    PG_ASSERT(0 == memcmp(hash.data, expected_hash.data, sizeof(hash)));
   }
 }
 

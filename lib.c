@@ -1827,12 +1827,17 @@ pg_string_ieq_ascii(PgString a, PgString b, PgArena arena) {
   return pg_string_eq(a_clone, b_clone);
 }
 
-[[maybe_unused]] static void pg_sha1(PgString s,
-                                     u8 hash[PG_SHA1_DIGEST_LENGTH]) {
+typedef struct {
+  u8 data[PG_SHA1_DIGEST_LENGTH];
+} PgSha1;
+
+[[maybe_unused]] static PgSha1 pg_sha1(PgString s) {
   PG_SHA1_CTX ctx = {0};
   PG_SHA1Init(&ctx);
   PG_SHA1Update(&ctx, s.data, s.len);
-  PG_SHA1Final(hash, &ctx);
+  PgSha1 res = {0};
+  PG_SHA1Final(res.data, &ctx);
+  return res;
 }
 
 typedef struct {
