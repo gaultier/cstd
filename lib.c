@@ -745,15 +745,15 @@ pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   return memset(res, 0, count * size);
 }
 
-__attribute((malloc, alloc_size(3, 5), alloc_align(4)))
+__attribute((malloc, alloc_size(4, 6), alloc_align(5)))
 [[maybe_unused]] [[nodiscard]] static void *
 pg_try_arena_realloc(PgArena *a, void *ptr, u64 elem_count_old, u64 size,
                      u64 align, u64 count) {
-  PG_ASSERT(a->start >= (u8 *)ptr);
+  PG_ASSERT((u64)a->start >= (u64)ptr);
 
-  u8 *array_end = (u8 *)ptr + elem_count_old * size;
+  u64 array_end = (u64)ptr + elem_count_old * size;
 
-  if (a->start == array_end) { // Optimization.
+  if ((u64)a->start == array_end) { // Optimization.
     // This is the case of growing the array which is at the end of the arena.
     // In that case we can simply bump the arena pointer and avoid any copies.
     a->start += size * (count - elem_count_old);
