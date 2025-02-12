@@ -1149,14 +1149,17 @@ PG_DYN(PgString) PgStringDyn;
 PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define PG_DYN_PUSH(s, allocator)                                              \
-  (PG_DYN_ENSURE_CAP(s, (s)->len + 1, allocator), (s)->data + (s)->len++)
+  (PG_DYN_ENSURE_CAP(s, (s)->len + 1, allocator),                              \
+   (s)->len > 0 ? PG_ASSERT((s)->data) : 0, (s)->data + (s)->len++)
 
 #define PG_DYN_PUSH_WITHIN_CAPACITY(s)                                         \
-  (PG_ASSERT(((s)->len < (s)->cap)), ((s)->data + (s)->len++))
+  (PG_ASSERT(((s)->len < (s)->cap)), (s)->len > 0 ? PG_ASSERT((s)->data) : 0,  \
+   ((s)->data + (s)->len++))
 
 #define PG_DYN_POP(s)                                                          \
   do {                                                                         \
     PG_ASSERT((s)->len > 0);                                                   \
+    PG_ASSERT((s)->data);                                                      \
     memset(PG_SLICE_LAST_PTR(s), 0, sizeof((s)->data[(s)->len - 1]));          \
     (s)->len -= 1;                                                             \
   } while (0)
