@@ -120,7 +120,7 @@ typedef Pgu8Slice PgString;
 
 #define PG_STACKTRACE_MAX 64
 #define PG_LOG_STRING_MAX 256
-#define PG_LOG_LINE_MAX_LENGTH 2048
+#define PG_LOG_LINE_MAX_LENGTH 4096
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
@@ -1136,6 +1136,7 @@ pg_string_cmp(PgString a, PgString b) {
   } else { // General case.
     void *data = pg_realloc(allocator, PgReplica.data, PgReplica.cap, size,
                             align, new_cap);
+    PG_ASSERT(data);
 
     memmove(data, PgReplica.data, array_bytes_count);
     PgReplica.data = data;
