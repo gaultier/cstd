@@ -3821,13 +3821,16 @@ typedef enum {
   PG_LOG_LEVEL_ERROR,
 } PgLogLevel;
 
-typedef PgString (*PgMakeLogLineFn)(u8 *mem, u64 mem_len, PgLogLevel level,
-                                    PgString msg, i32 args_count, ...);
-typedef struct {
+typedef struct PgLogger PgLogger;
+typedef PgString (*PgMakeLogLineFn)(u8 *mem, u64 mem_len, PgLogger *logger,
+                                    PgLogLevel level, PgString msg,
+                                    i32 args_count, ...);
+struct PgLogger {
   PgLogLevel level;
   PgWriter writer;
   PgMakeLogLineFn make_log_line;
-} PgLogger;
+  u64 monotonic_epoch;
+};
 
 typedef struct {
   PgLogValueKind kind;
@@ -3849,8 +3852,9 @@ pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
                           i32 args_count, ...);
 #endif
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogLevel level,
-                            PgString msg, i32 args_count, ...);
+pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
+                            PgLogLevel level, PgString msg, i32 args_count,
+                            ...);
 
 #if 0
 [[maybe_unused]] [[nodiscard]] static PgLogger
@@ -3874,6 +3878,7 @@ pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
       .writer =
           pg_writer_make_from_file((PgFile)(u64)STDOUT_FILENO), // TODO: Windows
       .make_log_line = pg_log_make_log_line_logfmt,
+      .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res,
   };
 
   return logger;
@@ -3978,9 +3983,9 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
       break;                                                                   \
     };                                                                         \
     u8 mem[PG_LOG_LINE_MAX_LENGTH] = {0};                                      \
-    PgString xxx_log_line =                                                    \
-        (logger)->make_log_line(mem, PG_STATIC_ARRAY_LEN(mem), lvl, PG_S(msg), \
-                                PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);  \
+    PgString xxx_log_line = (logger)->make_log_line(                           \
+        mem, PG_STATIC_ARRAY_LEN(mem), logger, lvl, PG_S(msg),                 \
+        PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);                          \
     (logger)->writer.write_fn(&(logger)->writer, xxx_log_line.data,            \
                               xxx_log_line.len);                               \
   } while (0)
@@ -4240,14 +4245,16 @@ pg_log_make_log_line_json(PgLogLevel level, PgString msg,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogLevel level,
-                            PgString msg, i32 args_count, ...) {
+pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
+                            PgLogLevel level, PgString msg, i32 args_count,
+                            ...) {
   PgArena arena = pg_arena_make_from_mem(mem, mem_len);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   // Ignore clock errors.
-  u64 monotonic_ns = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res;
+  u64 monotonic_ns =
+      pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res - logger->monotonic_epoch;
   u64 timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME).res;
 
   // FIXME: `try` alloc.
