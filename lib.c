@@ -36,9 +36,8 @@
 
 #define PG_PATH_MAX 4096
 
-#ifndef PG_MIN
 #define PG_MIN(a, b) (((a) < (b)) ? (a) : (b))
-#endif
+#define PG_MAX(a, b) (((a) < (b)) ? (b) : (a))
 
 #define PG_KiB (1024ULL)
 #define PG_MiB (1024ULL * PG_KiB)
