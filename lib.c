@@ -1832,7 +1832,6 @@ typedef struct {
   u8 data[PG_SHA1_DIGEST_LENGTH];
 } PgSha1;
 
-// TODO: Optmized version.
 [[maybe_unused]] static PgSha1 pg_sha1(PgString s) {
   PG_SHA1_CTX ctx = {0};
   PG_SHA1Init(&ctx);
