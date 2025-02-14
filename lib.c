@@ -2022,26 +2022,31 @@ static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
 }
 
 [[maybe_unused]] static PgSha1 pg_sha1(PgString s) {
-  PG_SHA1_CTX ctx = {0};
-  PG_SHA1Init(&ctx);
+  u32 state[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
 
-  size_t i, j;
-
-  j = (size_t)((ctx.count >> 3) & 63);
-  ctx.count += ((uint64_t)s.len << 3);
-  if ((j + s.len) > 63) {
-    (void)memcpy(&ctx.buffer[j], s.data, (i = 64 - j));
-    PG_SHA1Transform(ctx.state, ctx.buffer);
-    for (; i + 63 < s.len; i += 64)
-      pg_sha1_process_x86(ctx.state, &s.data[i], (u32)s.len);
-    j = 0;
-  } else {
-    i = 0;
+  if (s.len > 64) {
+    pg_sha1_process_x86(state, s.data, (u32)s.len);
   }
-  (void)memcpy(&ctx.buffer[j], &s.data[i], s.len - i);
+
+  // Pad the final block.
+  u64 rem = s.len % 64;
+  if (0 != rem) {
+    u8 final_block[64] = {0};
+    memcpy(final_block, &s.data[s.len - rem], rem);
+    final_block[rem] = 0x80;
+
+    for (u64 i = rem; i < 64; i++) {
+      final_block[i] = 0;
+    }
+
+    pg_sha1_process_x86(state, final_block, sizeof(final_block));
+  }
 
   PgSha1 res = {0};
-  PG_SHA1Final(res.data, &ctx);
+  for (u64 i = 0; i < PG_SHA1_DIGEST_LENGTH; i++) {
+    res.data[i] = (uint8_t)((state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);
+  }
+
   return res;
 }
 
