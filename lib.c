@@ -2022,30 +2022,17 @@ static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
 }
 
 [[maybe_unused]] static PgSha1 pg_sha1(PgString s) {
-  u32 state[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
+  PG_SHA1_CTX ctx = {0};
+  PG_SHA1Init(&ctx);
 
   if (s.len > 64) {
-    pg_sha1_process_x86(state, s.data, (u32)s.len);
+    pg_sha1_process_x86(ctx.state, s.data, (u32)(s.len / 64) * 64);
   }
 
-  // Pad the final block.
-  u64 rem = s.len % 64;
-  if (0 != rem) {
-    u8 final_block[64] = {0};
-    memcpy(final_block, &s.data[s.len - rem], rem);
-    final_block[rem] = 0x80;
-
-    for (u64 i = rem; i < 64; i++) {
-      final_block[i] = 0;
-    }
-
-    pg_sha1_process_x86(state, final_block, sizeof(final_block));
-  }
+  PG_SHA1Update(&ctx, s.data + (s.len / 64) * 64, s.len % 64);
 
   PgSha1 res = {0};
-  for (u64 i = 0; i < PG_SHA1_DIGEST_LENGTH; i++) {
-    res.data[i] = (uint8_t)((state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);
-  }
+  PG_SHA1Final(res.data, &ctx);
 
   return res;
 }
