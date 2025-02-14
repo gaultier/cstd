@@ -311,6 +311,20 @@ static void test_sha1() {
 
     PG_ASSERT(0 == memcmp(hash.data, expected_hash.data, sizeof(hash)));
   }
+  {
+    PgSha1 hash = pg_sha1(
+        PG_S("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoi"
+             "jklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"));
+
+    PgSha1 expected_hash = {.data = {
+                                0xa4, 0x9b, 0x24, 0x46, 0xa0, 0x2c, 0x64,
+                                0x5b, 0xf4, 0x19, 0xf9, 0x95, 0xb6, 0x70,
+                                0x91, 0x25, 0x3a, 0x04, 0xa2, 0x59,
+                            }};
+    static_assert(sizeof(hash) == sizeof(expected_hash));
+
+    PG_ASSERT(0 == memcmp(hash.data, expected_hash.data, sizeof(hash)));
+  }
 }
 
 static void test_slice_swap_remove() {
