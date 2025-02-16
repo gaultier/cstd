@@ -2023,11 +2023,21 @@ static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
 }
 
 [[maybe_unused]] static PgSha1 pg_sha1(PgString s) {
-  u32 state[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
+  PG_SHA1_CTX ctx = {0};
+  PG_SHA1Init(&ctx);
 
   // Process as many 64 bytes chunks as possible.
-  pg_sha1_process_x86(state, s.data, (u32)s.len);
+  pg_sha1_process_x86(ctx.state, s.data, (u32)s.len);
 
+  u64 len_rounded_down_64 = (s.len / 64) * 64;
+  u64 rem = s.len % 64;
+  memcpy(ctx.buffer, s.data + len_rounded_down_64, rem);
+
+  ctx.count = s.len * 8;
+  PgSha1 res = {0};
+  PG_SHA1Final(res.data, &ctx);
+
+#if 0
   u64 len = (s.len / 64) * 64;
   u64 rem = s.len % 64;
 
@@ -2035,9 +2045,19 @@ static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
   u8 last_chunk[64] = {0};
   memcpy(last_chunk, s.data + len, rem);
   // FIXME: Case of overflowing => then need to do 2 rounds.
-  PG_ASSERT(rem < sizeof(last_chunk));
+  PG_ASSERT(rem < (64 - 1 - 8));
   last_chunk[rem] = 0x80;
-  last_chunk[63] = rem * 8; // Length in bits.
+  u8 final_count[8] = {0};
+  u64 len_bits = s.len * 8;
+  for (u64 i = 0; i < 8; i++) {
+    final_count[i] = (uint8_t)((len_bits >> ((7 - (i & 7)) * 8)) &
+                               255); /* Endian independent */
+  }
+
+  // Append ml, the original message length in bits, as a 64-bit big-endian
+  // integer.
+  memcpy(last_chunk + 64 - 8, final_count, 8);
+
   // Process last chunk.
   pg_sha1_process_x86(state, last_chunk, sizeof(last_chunk));
 
@@ -2046,6 +2066,7 @@ static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
   for (u64 i = 0; i < PG_SHA1_DIGEST_LENGTH; i++) {
     res.data[i] = (uint8_t)((state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);
   }
+#endif
 
   return res;
 }
