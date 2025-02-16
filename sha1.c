@@ -199,11 +199,16 @@ static void PG_SHA1Update(PG_SHA1_CTX *context, const uint8_t *data,
                           size_t len) {
   size_t i, j;
 
+  // j = (count * 8) % 64
   j = (size_t)((context->count >> 3) & 63);
+  // count += len*8
   context->count += ((uint64_t)len << 3);
-  if ((j + len) > 63) {
+  if ((j + len) > 63) { // Too big to fit in 64 bytes => Do a round.
+    // i = 64 - j i.e. i = 64 - ((count * 8) % 64)
     (void)memcpy(&context->buffer[j], data, (i = 64 - j));
+    // Why do we do a first round here?
     PG_SHA1Transform(context->state, context->buffer);
+    // Process each chunk, 64 bytes at a time.
     for (; i + 63 < len; i += 64)
       PG_SHA1Transform(context->state, (uint8_t *)&data[i]);
     j = 0;
