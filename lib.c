@@ -1834,7 +1834,7 @@ typedef struct {
 
 #if defined(PG_SHA1_HW) && defined(__x86_64__)
 #include <immintrin.h>
-// Process as many 128 bits chunks as possible.
+// Process as many 64 bytes chunks as possible.
 static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
                                 uint32_t length) {
   __m128i ABCD, ABCD_SAVE, E0, E0_SAVE, E1;
