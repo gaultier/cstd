@@ -2037,37 +2037,6 @@ static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
   PgSha1 res = {0};
   PG_SHA1Final(res.data, &ctx);
 
-#if 0
-  u64 len = (s.len / 64) * 64;
-  u64 rem = s.len % 64;
-
-  // Post-process (pad).
-  u8 last_chunk[64] = {0};
-  memcpy(last_chunk, s.data + len, rem);
-  // FIXME: Case of overflowing => then need to do 2 rounds.
-  PG_ASSERT(rem < (64 - 1 - 8));
-  last_chunk[rem] = 0x80;
-  u8 final_count[8] = {0};
-  u64 len_bits = s.len * 8;
-  for (u64 i = 0; i < 8; i++) {
-    final_count[i] = (uint8_t)((len_bits >> ((7 - (i & 7)) * 8)) &
-                               255); /* Endian independent */
-  }
-
-  // Append ml, the original message length in bits, as a 64-bit big-endian
-  // integer.
-  memcpy(last_chunk + 64 - 8, final_count, 8);
-
-  // Process last chunk.
-  pg_sha1_process_x86(state, last_chunk, sizeof(last_chunk));
-
-  PgSha1 res = {0};
-  // Extract final hash value from state.
-  for (u64 i = 0; i < PG_SHA1_DIGEST_LENGTH; i++) {
-    res.data[i] = (uint8_t)((state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);
-  }
-#endif
-
   return res;
 }
 
