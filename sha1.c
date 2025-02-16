@@ -215,6 +215,7 @@ static void PG_SHA1Update(PG_SHA1_CTX *context, const uint8_t *data,
   } else {
     i = 0;
   }
+  // Remainder, smaller than one chunk.
   (void)memcpy(&context->buffer[j], &data[i], len - i);
 }
 
@@ -225,13 +226,21 @@ static void PG_SHA1Pad(PG_SHA1_CTX *context) {
   uint8_t finalcount[8];
   size_t i;
 
+  // Transform the original length in bits (`context->count`) from native to
+  // big-endian.
   for (i = 0; i < 8; i++) {
     finalcount[i] = (uint8_t)((context->count >> ((7 - (i & 7)) * 8)) &
                               255); /* Endian independent */
   }
+  // Append the bit '1' to the message e.g. by adding 0x80 if message length is
+  // a multiple of 8 bits.
   PG_SHA1Update(context, (uint8_t *)"\200", 1);
+  // Append 0 ≤ k < 512 bits '0', such that the resulting message length in bits
+  // is congruent to −64 ≡ 448 (mod 512).
   while ((context->count & 504) != 448)
     PG_SHA1Update(context, (uint8_t *)"\0", 1);
+  // Append ml, the original message length in bits, as a 64-bit big-endian
+  // integer. Thus, the total length is a multiple of 512 bits.
   PG_SHA1Update(context, finalcount, 8); /* Should cause a PG_SHA1Transform() */
 }
 
@@ -239,7 +248,9 @@ static void PG_SHA1Final(uint8_t digest[PG_SHA1_DIGEST_LENGTH],
                          PG_SHA1_CTX *context) {
   size_t i;
 
+  // Post-process.
   PG_SHA1Pad(context);
+  // Extract final hash value from state.
   for (i = 0; i < PG_SHA1_DIGEST_LENGTH; i++) {
     digest[i] =
         (uint8_t)((context->state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);
