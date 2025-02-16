@@ -213,6 +213,7 @@ static void PG_SHA1Update(PG_SHA1_CTX *context, const uint8_t *data,
       PG_SHA1Transform(context->state, (uint8_t *)&data[i]);
     j = 0;
   } else {
+    // Too small too fit in a chunk, just buffer the data in `context->buffer`.
     i = 0;
   }
   // Remainder, smaller than one chunk.
@@ -251,6 +252,9 @@ static void PG_SHA1Final(uint8_t digest[PG_SHA1_DIGEST_LENGTH],
   // Post-process.
   PG_SHA1Pad(context);
   // Extract final hash value from state.
+  // Produce the final hash value (big-endian) as a 160-bit number:
+  // hh = (h0 leftshift 128) or (h1 leftshift 96) or (h2 leftshift 64) or (h3
+  // leftshift 32) or h4
   for (i = 0; i < PG_SHA1_DIGEST_LENGTH; i++) {
     digest[i] =
         (uint8_t)((context->state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);

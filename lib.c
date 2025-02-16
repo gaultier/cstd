@@ -1834,6 +1834,7 @@ typedef struct {
 
 #if defined(PG_SHA1_HW) && defined(__x86_64__)
 #include <immintrin.h>
+// Process as many 128 bits chunks as possible.
 static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
                                 uint32_t length) {
   __m128i ABCD, ABCD_SAVE, E0, E0_SAVE, E1;
@@ -2022,17 +2023,29 @@ static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
 }
 
 [[maybe_unused]] static PgSha1 pg_sha1(PgString s) {
-  PG_SHA1_CTX ctx = {0};
-  PG_SHA1Init(&ctx);
+  u32 state[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
 
-  if (s.len > 64) {
-    pg_sha1_process_x86(ctx.state, s.data, (u32)(s.len / 64) * 64);
-  }
+  // Process as many 64 bytes chunks as possible.
+  pg_sha1_process_x86(state, s.data, (u32)s.len);
 
-  PG_SHA1Update(&ctx, s.data + (s.len / 64) * 64, s.len % 64);
+  u64 len = (s.len / 64) * 64;
+  u64 rem = s.len % 64;
+
+  // Post-process (pad).
+  u8 last_chunk[64] = {0};
+  memcpy(last_chunk, s.data + len, rem);
+  // FIXME: Case of overflowing => then need to do 2 rounds.
+  PG_ASSERT(rem < sizeof(last_chunk));
+  last_chunk[rem] = 0x80;
+  last_chunk[63] = rem * 8; // Length in bits.
+  // Process last chunk.
+  pg_sha1_process_x86(state, last_chunk, sizeof(last_chunk));
 
   PgSha1 res = {0};
-  PG_SHA1Final(res.data, &ctx);
+  // Extract final hash value from state.
+  for (u64 i = 0; i < PG_SHA1_DIGEST_LENGTH; i++) {
+    res.data[i] = (uint8_t)((state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);
+  }
 
   return res;
 }
