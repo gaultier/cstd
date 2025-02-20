@@ -239,13 +239,12 @@ typedef struct {
   u64 count;
 } PgHeap;
 
-__attribute((unused)) __attribute((warn_unused_result)) static bool
-pg_character_is_hex_digit(u8 c) {
+__attribute((warn_unused_result)) static bool pg_character_is_hex_digit(u8 c) {
   return ('0' <= c && c <= '9') || ('A' <= c && c <= 'F') ||
          ('a' <= c && c <= 'f');
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static bool
+__attribute((warn_unused_result)) static bool
 pg_character_is_alphabetical(u8 c) {
   return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
 }
@@ -254,7 +253,7 @@ __attribute((warn_unused_result)) static bool pg_character_is_numeric(u8 c) {
   return ('0' <= c && c <= '9');
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static bool
+__attribute((warn_unused_result)) static bool
 pg_character_is_alphanumeric(u8 c) {
   return pg_character_is_numeric(c) || pg_character_is_alphabetical(c);
 }
@@ -304,7 +303,7 @@ pg_string_is_alphabetical(PgString s) {
   return true;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgString
+__attribute((warn_unused_result)) static PgString
 pg_string_trim_left(PgString s, u8 c) {
   PgString res = s;
 
@@ -320,7 +319,7 @@ pg_string_trim_left(PgString s, u8 c) {
   return res;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgString
+__attribute((warn_unused_result)) static PgString
 pg_string_trim_right(PgString s, u8 c) {
   PgString res = s;
 
@@ -727,7 +726,7 @@ pg_arena_mem_available(PgArena arena) {
   return res;
 }
 
-__attribute((malloc, alloc_size(2, 4), alloc_align(3))) __attribute((unused))
+__attribute((malloc, alloc_size(2, 4), alloc_align(3)))
 __attribute((warn_unused_result)) static void *
 pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   PG_ASSERT(a->start != NULL);
@@ -752,7 +751,7 @@ pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   return memset(res, 0, count * size);
 }
 
-__attribute((malloc, alloc_size(4, 6), alloc_align(5))) __attribute((unused))
+__attribute((malloc, alloc_size(4, 6), alloc_align(5)))
 __attribute((warn_unused_result)) static void *
 pg_try_arena_realloc(PgArena *a, void *ptr, u64 elem_count_old, u64 size,
                      u64 align, u64 count) {
@@ -1036,7 +1035,7 @@ pg_string_make(u64 len, PgAllocator *allocator) {
   return res;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static char *
+__attribute((warn_unused_result)) static char *
 pg_string_to_cstr(PgString s, PgAllocator *allocator) {
   char *res = (char *)pg_alloc(allocator, sizeof(u8), 1, s.len + 1);
   if (NULL != s.data) {
@@ -1048,7 +1047,7 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
   return res;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static bool
+__attribute((warn_unused_result)) static bool
 pg_cstr_mut_from_string(char *str_c, PgString s) {
   PG_ASSERT(str_c);
 
@@ -1224,8 +1223,7 @@ __attribute((unused)) static PgRing pg_ring_make(u64 cap,
   return (PgRing){.data = pg_string_make(cap, allocator)};
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static u64
-pg_ring_write_space(PgRing rg) {
+__attribute((warn_unused_result)) static u64 pg_ring_write_space(PgRing rg) {
   if (rg.idx_write == rg.idx_read) { // Empty.
     return rg.data.len - 1;
   } else if (rg.idx_write < rg.idx_read) { // Easy case.
@@ -1433,7 +1431,7 @@ pg_ring_read_u32(PgRing *rg, u32 *val) {
   return pg_ring_read_slice(rg, s);
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgU64Result
+__attribute((warn_unused_result)) static PgU64Result
 pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(NULL != self);
   PG_ASSERT(NULL != buf);
@@ -3062,7 +3060,6 @@ pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
   return res;
 }
 
-__attribute((unused))
 __attribute((warn_unused_result)) static PgUrlUserInfoResult
 pg_url_parse_user_info(PgString s) {
   PgUrlUserInfoResult res = {0};
@@ -3084,7 +3081,7 @@ pg_url_parse_user_info(PgString s) {
 
 PG_RESULT(u16) Pgu16Result;
 
-__attribute((unused)) __attribute((warn_unused_result)) static Pgu16Result
+__attribute((warn_unused_result)) static Pgu16Result
 pg_url_parse_port(PgString s) {
   Pgu16Result res = {0};
 
@@ -3106,7 +3103,6 @@ pg_url_parse_port(PgString s) {
   return res;
 }
 
-__attribute((unused))
 __attribute((warn_unused_result)) static PgUrlAuthorityResult
 pg_url_parse_authority(PgString s) {
   PgUrlAuthorityResult res = {0};
@@ -3154,7 +3150,7 @@ pg_url_parse_authority(PgString s) {
   return res;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static bool
+__attribute((warn_unused_result)) static bool
 pg_url_is_scheme_valid(PgString scheme) {
   if (PG_SLICE_IS_EMPTY(scheme)) {
     return false;
@@ -3404,7 +3400,7 @@ pg_http_parse_request_status_line(PgString status_line,
   return res;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgKeyValueResult
+__attribute((warn_unused_result)) static PgKeyValueResult
 pg_http_parse_header(PgString s) {
   PgKeyValueResult res = {0};
 
