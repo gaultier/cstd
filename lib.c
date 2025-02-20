@@ -2604,7 +2604,7 @@ typedef enum {
   HTTP_METHOD_POST
 } PgHttpMethod;
 
-__attribute((unused)) PgString static pg_http_method_to_string(PgHttpMethod m) {
+PgString static pg_http_method_to_string(PgHttpMethod m) {
   switch (m) {
   case HTTP_METHOD_UNKNOWN:
     return PG_S("unknown");
@@ -2760,7 +2760,7 @@ __attribute((unused)) static void pg_http_push_header(PgKeyValueDyn *headers,
       (PgKeyValue){.key = key, .value = value};
 }
 
-__attribute((warn_unused_result)) __attribute((unused)) static PgError
+__attribute((warn_unused_result)) static PgError
 pg_writer_url_encode(PgWriter *w, PgString key, PgString value) {
   PgError err = 0;
 
@@ -2810,7 +2810,7 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value) {
   return 0;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgError
+__attribute((warn_unused_result)) static PgError
 pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req) {
   PgError err = 0;
 
@@ -2868,7 +2868,7 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req) {
   return 0;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgError
+__attribute((warn_unused_result)) static PgError
 pg_http_response_write_status_line(PgWriter *w, PgHttpResponse res) {
   PgError err = 0;
 
@@ -2910,7 +2910,7 @@ pg_http_response_write_status_line(PgWriter *w, PgHttpResponse res) {
   return 0;
 }
 
-__attribute((warn_unused_result)) __attribute((unused)) static PgError
+__attribute((warn_unused_result)) static PgError
 pg_http_write_header(PgWriter *w, PgKeyValue header) {
   PgError err = 0;
 
