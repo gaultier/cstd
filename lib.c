@@ -3534,7 +3534,7 @@ pg_http_read_request(PgRing *rg, u64 max_http_headers, PgAllocator *allocator) {
   return res;
 }
 
-__attribute((warn_unused_result)) __attribute((unused)) static PgError
+__attribute((warn_unused_result)) static PgError
 pg_http_write_request(PgWriter *w, PgHttpRequest req) {
   PgError err = 0;
 
@@ -4065,7 +4065,7 @@ pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
   return logger;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgString
+__attribute((warn_unused_result)) static PgString
 pg_log_level_to_string(PgLogLevel level) {
   switch (level) {
   case PG_LOG_LEVEL_DEBUG:
@@ -4211,8 +4211,7 @@ pg_json_escape_string(PgString entry, PgAllocator *allocator) {
 }
 #endif
 
-__attribute((unused)) static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c,
-                                                      PgAllocator *allocator) {
+static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c, PgAllocator *allocator) {
   if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' || c == '.' ||
       pg_character_is_alphanumeric(c)) {
     *PG_DYN_PUSH(sb, allocator) = c;
@@ -4225,7 +4224,7 @@ __attribute((unused)) static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c,
   }
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgString
+__attribute((warn_unused_result)) static PgString
 pg_logfmt_escape_string(PgString entry, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 2 + PG_CLAMP(0, entry.len, PG_LOG_STRING_MAX + 4) * 2,
@@ -4426,7 +4425,7 @@ pg_arena_make_from_mem(u8 *data, u64 len) {
   return arena;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgString
+__attribute((warn_unused_result)) static PgString
 pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
                             PgLogLevel level, PgString msg, i32 args_count,
                             ...) {
