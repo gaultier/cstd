@@ -307,7 +307,7 @@ static void test_sha1() {
                                 0x6A, 0xBA, 0x3E, 0x25, 0x71, 0x78, 0x50,
                                 0xC2, 0x6C, 0x9C, 0xD0, 0xD8, 0x9D,
                             }};
-    static_assert(sizeof(hash) == sizeof(expected_hash));
+    PG_ASSERT(sizeof(hash) == sizeof(expected_hash));
 
     PG_ASSERT(0 == memcmp(hash.data, expected_hash.data, sizeof(hash)));
   }
@@ -321,7 +321,7 @@ static void test_sha1() {
                                 0x5b, 0xf4, 0x19, 0xf9, 0x95, 0xb6, 0x70,
                                 0x91, 0x25, 0x3a, 0x04, 0xa2, 0x59,
                             }};
-    static_assert(sizeof(hash) == sizeof(expected_hash));
+    PG_ASSERT(sizeof(hash) == sizeof(expected_hash));
 
     PG_ASSERT(0 == memcmp(hash.data, expected_hash.data, sizeof(hash)));
   }
@@ -474,7 +474,7 @@ static void test_make_log_line() {
 
 static void test_u8x4_be_to_u32_and_back() {
   {
-    u32 n = 123'456'789;
+    u32 n = 123456789;
     u8 data[sizeof(n)] = {0};
     PgString s = {.data = data, .len = sizeof(n)};
     pg_u32_to_u8x4_be(n, &s);
@@ -1682,8 +1682,8 @@ static bool u64_node_less_than(PgHeapNode *a, PgHeapNode *b) {
 }
 
 // For debugging.
-__attribute((unused))
-static bool u64_node_print(PgHeapNode *node, u64 depth, bool left, void *ctx) {
+__attribute((unused)) static bool u64_node_print(PgHeapNode *node, u64 depth,
+                                                 bool left, void *ctx) {
   PG_ASSERT(node);
   (void)ctx;
 

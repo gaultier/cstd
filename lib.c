@@ -114,7 +114,7 @@ typedef Pgu8Slice PgString;
 
 __attribute((unused)) __attribute((warn_unused_result)) static u64
 pg_ns_to_ms(u64 ns) {
-  return ns / 1'000'000;
+  return ns / 1000 * 000;
 }
 
 #define PG_STACKTRACE_MAX 64
@@ -827,7 +827,6 @@ typedef struct {
   PgReallocFn realloc_fn;
   PgFreeFn free_fn;
 } PgHeapAllocator;
-static_assert(sizeof(PgHeapAllocator) == sizeof(PgAllocator));
 
 __attribute((unused)) __attribute((warn_unused_result)) static PgHeapAllocator
 pg_make_heap_allocator() {
@@ -849,7 +848,6 @@ typedef struct {
   u64 alloc_objects_count, alloc_space, in_use_objects_count, in_use_space;
   PgFile heap_profile_file;
 } PgTracingAllocator;
-static_assert(sizeof(PgTracingAllocator) >= sizeof(PgAllocator));
 
 __attribute((warn_unused_result)) static void *
 pg_alloc_tracing(PgAllocator *allocator, u64 sizeof_type, u64 alignof_type,
@@ -982,8 +980,6 @@ typedef struct {
   PgFreeFn free_fn;
   PgArena *arena;
 } PgArenaAllocator;
-
-static_assert(sizeof(PgArenaAllocator) >= sizeof(PgAllocator));
 
 __attribute((unused)) __attribute((warn_unused_result)) static void *
 pg_alloc_arena(PgAllocator *allocator, u64 sizeof_type, u64 alignof_type,
