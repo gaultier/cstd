@@ -1644,21 +1644,19 @@ pg_u64_to_string(u64 n, PgAllocator *allocator) {
   return PG_DYN_SLICE(PgString, sb);
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static u8
-pg_u8_to_character_hex(u8 n) {
+__attribute((warn_unused_result)) static u8 pg_u8_to_character_hex(u8 n) {
   PG_ASSERT(n < 16);
   const u8 lut[] = "0123456789abcdef";
   return lut[n];
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static u8
-pg_u8_to_character_hex_upper(u8 n) {
+__attribute((warn_unused_result)) static u8 pg_u8_to_character_hex_upper(u8 n) {
   PG_ASSERT(n < 16);
   const u8 lut[] = "0123456789ABCDEF";
   return lut[n];
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgError
+__attribute((warn_unused_result)) static PgError
 pg_writer_write_u8_hex_upper(PgWriter *w, u8 n) {
 
   u8 c1 = n & 15; // i.e. `% 16`.
@@ -1684,7 +1682,7 @@ pg_string_dup(PgString src, PgAllocator *allocator) {
   return dst;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static u64
+__attribute((warn_unused_result)) static u64
 pg_round_up_multiple_of(u64 n, u64 multiple) {
   PG_ASSERT(0 != multiple);
   if (0 == n % multiple) {
@@ -1698,7 +1696,7 @@ pg_round_up_multiple_of(u64 n, u64 multiple) {
   return res;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static i64
+__attribute((warn_unused_result)) static i64
 pg_string_indexof_unescaped_byte(PgString haystack, u8 needle, u8 escape) {
   for (u64 i = 0; i < haystack.len; i++) {
     u8 c = PG_SLICE_AT(haystack, i);
