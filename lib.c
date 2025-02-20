@@ -151,7 +151,7 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 
 #define PG_C_ARRAY_AT_PTR(arr, len, idx)                                       \
   (((i64)(idx) >= (i64)(len)) ? (__builtin_trap(), &(arr)[0])                  \
-                              : (PG_ASSERT(nullptr != (arr)), (&(arr)[idx])))
+                              : (PG_ASSERT(NULL != (arr)), (&(arr)[idx])))
 
 #define PG_C_ARRAY_AT(arr, len, idx) (*PG_C_ARRAY_AT_PTR(arr, len, idx))
 
@@ -284,7 +284,7 @@ PG_SLICE(PgString) PgStringSlice;
 PG_RESULT(PgStringSlice) PgStringSliceResult;
 
 #define PG_SLICE_IS_EMPTY(s)                                                   \
-  (((s).len == 0) ? true : (PG_ASSERT(nullptr != (s).data), false))
+  (((s).len == 0) ? true : (PG_ASSERT(NULL != (s).data), false))
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
 
@@ -308,7 +308,7 @@ pg_string_is_alphabetical(PgString s) {
   PgString res = s;
 
   for (u64 s_i = 0; s_i < s.len; s_i++) {
-    PG_ASSERT(s.data != nullptr);
+    PG_ASSERT(s.data != NULL);
     if (PG_C_ARRAY_AT(s.data, s.len, s_i) != c) {
       return res;
     }
@@ -324,7 +324,7 @@ pg_string_is_alphabetical(PgString s) {
   PgString res = s;
 
   for (i64 s_i = (i64)s.len - 1; s_i >= 0; s_i--) {
-    PG_ASSERT(s.data != nullptr);
+    PG_ASSERT(s.data != NULL);
     if (PG_C_ARRAY_AT(s.data, s.len, s_i) != c) {
       return res;
     }
@@ -359,7 +359,7 @@ pg_string_indexof_byte(PgString haystack, u8 needle) {
   }
 
   const u8 *res = memchr(haystack.data, needle, haystack.len);
-  if (res == nullptr) {
+  if (res == NULL) {
     return -1;
   }
 
@@ -369,7 +369,7 @@ pg_string_indexof_byte(PgString haystack, u8 needle) {
 #define PG_SLICE_RANGE(s, start, end)                                          \
   ((typeof((s))){                                                              \
       .data = (s).len == PG_CLAMP(0, start, (s).len)                           \
-                  ? nullptr                                                    \
+                  ? NULL                                                    \
                   : PG_C_ARRAY_AT_PTR((s).data, (s).len,                       \
                                       PG_CLAMP(0, start, (s).len)),            \
       .len =                                                                   \
@@ -384,13 +384,13 @@ pg_string_indexof_byte(PgString haystack, u8 needle) {
     return true;
   }
 
-  if (a.data == nullptr && b.data == nullptr && a.len == b.len) {
+  if (a.data == NULL && b.data == NULL && a.len == b.len) {
     return true;
   }
-  if (a.data == nullptr) {
+  if (a.data == NULL) {
     return false;
   }
-  if (b.data == nullptr) {
+  if (b.data == NULL) {
     return false;
   }
 
@@ -398,8 +398,8 @@ pg_string_indexof_byte(PgString haystack, u8 needle) {
     return false;
   }
 
-  PG_ASSERT(a.data != nullptr);
-  PG_ASSERT(b.data != nullptr);
+  PG_ASSERT(a.data != NULL);
+  PG_ASSERT(b.data != NULL);
   PG_ASSERT(a.len == b.len);
 
   return memcmp(a.data, b.data, a.len) == 0;
@@ -407,7 +407,7 @@ pg_string_indexof_byte(PgString haystack, u8 needle) {
 
 [[maybe_unused]] [[nodiscard]] static i64
 pg_string_indexof_string(PgString haystack, PgString needle) {
-  if (haystack.data == nullptr) {
+  if (haystack.data == NULL) {
     return -1;
   }
 
@@ -415,7 +415,7 @@ pg_string_indexof_string(PgString haystack, PgString needle) {
     return -1;
   }
 
-  if (needle.data == nullptr) {
+  if (needle.data == NULL) {
     return -1;
   }
 
@@ -427,8 +427,8 @@ pg_string_indexof_string(PgString haystack, PgString needle) {
     return -1;
   }
 
-  PG_ASSERT(nullptr != haystack.data);
-  PG_ASSERT(nullptr != needle.data);
+  PG_ASSERT(NULL != haystack.data);
+  PG_ASSERT(NULL != needle.data);
   u64 j = 0;
   u8 needle_first = PG_SLICE_AT(needle, 0);
 
@@ -590,8 +590,8 @@ pg_string_starts_with(PgString haystack, PgString needle) {
   if (haystack.len == 0 || haystack.len < needle.len) {
     return false;
   }
-  PG_ASSERT(nullptr != haystack.data);
-  PG_ASSERT(nullptr != needle.data);
+  PG_ASSERT(NULL != haystack.data);
+  PG_ASSERT(NULL != needle.data);
 
   PgString start = PG_SLICE_RANGE(haystack, 0, needle.len);
 
@@ -647,8 +647,8 @@ pg_string_ends_with(PgString haystack, PgString needle) {
   if (haystack.len == 0 || haystack.len < needle.len) {
     return false;
   }
-  PG_ASSERT(nullptr != haystack.data);
-  PG_ASSERT(nullptr != needle.data);
+  PG_ASSERT(NULL != haystack.data);
+  PG_ASSERT(NULL != needle.data);
 
   PgString end = PG_SLICE_RANGE_START(haystack, haystack.len - needle.len);
 
@@ -727,7 +727,7 @@ pg_arena_mem_available(PgArena arena) {
 __attribute((malloc, alloc_size(2, 4), alloc_align(3)))
 [[maybe_unused]] [[nodiscard]] static void *
 pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
-  PG_ASSERT(a->start != nullptr);
+  PG_ASSERT(a->start != NULL);
 
   const u64 padding = (-(u64)a->start & (align - 1));
   PG_ASSERT(padding <= align);
@@ -735,11 +735,11 @@ pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   const i64 available = (i64)a->end - (i64)a->start - (i64)padding;
   PG_ASSERT(available >= 0);
   if (count > (u64)available / size) {
-    return nullptr;
+    return NULL;
   }
 
   void *res = a->start + padding;
-  PG_ASSERT(res != nullptr);
+  PG_ASSERT(res != NULL);
   PG_ASSERT(res <= (void *)a->end);
 
   a->start += padding + count * size;
@@ -1098,7 +1098,7 @@ pg_string_cmp(PgString a, PgString b) {
 
 [[maybe_unused]] static void PG_DYN_GROW(void *slice, u64 size, u64 align,
                                          u64 count, PgAllocator *allocator) {
-  PG_ASSERT(nullptr != slice);
+  PG_ASSERT(NULL != slice);
 
   struct {
     void *data;
@@ -1130,7 +1130,7 @@ pg_string_cmp(PgString a, PgString b) {
   PG_ASSERT((u64)PgReplica.data <= array_end);
   // PG_ASSERT(array_end < (u64)a->end);
 
-  if (nullptr ==
+  if (NULL ==
       PgReplica.data) { // First allocation ever for this dynamic array.
     PgReplica.data = pg_alloc(allocator, size, align, new_cap);
   } else { // General case.
@@ -1143,7 +1143,7 @@ pg_string_cmp(PgString a, PgString b) {
   }
   PgReplica.cap = new_cap;
 
-  PG_ASSERT(nullptr != slice);
+  PG_ASSERT(NULL != slice);
   memcpy(slice, &PgReplica, sizeof(PgReplica));
 }
 
@@ -1261,7 +1261,7 @@ typedef struct {
 
 [[maybe_unused]] [[nodiscard]] static bool pg_ring_write_slice(PgRing *rg,
                                                                PgString data) {
-  PG_ASSERT(nullptr != rg->data.data);
+  PG_ASSERT(NULL != rg->data.data);
   PG_ASSERT(rg->idx_read <= rg->data.len);
   PG_ASSERT(rg->idx_write <= rg->data.len);
   PG_ASSERT(rg->data.len > 0);
@@ -1324,7 +1324,7 @@ typedef struct {
 
 [[maybe_unused]] [[nodiscard]] static bool pg_ring_read_slice(PgRing *rg,
                                                               PgString data) {
-  PG_ASSERT(nullptr != rg->data.data);
+  PG_ASSERT(NULL != rg->data.data);
   PG_ASSERT(rg->idx_read <= rg->data.len);
   PG_ASSERT(rg->idx_write <= rg->data.len);
   PG_ASSERT(rg->data.len > 0);
@@ -1332,7 +1332,7 @@ typedef struct {
   if (0 == data.len) {
     return true;
   }
-  PG_ASSERT(nullptr != data.data);
+  PG_ASSERT(NULL != data.data);
 
   if (rg->idx_write == rg->idx_read) { // Empty.
     return false;
@@ -1452,8 +1452,8 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
+  PG_ASSERT(NULL != self);
+  PG_ASSERT(NULL != buf);
 
   PgWriter *w = self;
   Pgu8Dyn *sb = w->ctx;
@@ -1466,8 +1466,8 @@ pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_reader_ring_read(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
+  PG_ASSERT(NULL != self);
+  PG_ASSERT(NULL != buf);
 
   PgReader *r = self;
   PgRing *ring = r->ctx;
@@ -1480,8 +1480,8 @@ pg_reader_ring_read(void *self, u8 *buf, size_t buf_len) {
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_ring_write(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
+  PG_ASSERT(NULL != self);
+  PG_ASSERT(NULL != buf);
 
   PgWriter *w = self;
   PgRing *ring = w->ctx;
@@ -1512,7 +1512,7 @@ pg_writer_make_from_ring(PgRing *ring) {
 
 [[maybe_unused]] [[nodiscard]] static PgError pg_writer_write_u8(PgWriter *w,
                                                                  u8 c) {
-  PG_ASSERT(nullptr != w->write_fn);
+  PG_ASSERT(NULL != w->write_fn);
 
   PgU64Result res = w->write_fn(w, &c, 1);
   if (res.err) {
@@ -1524,7 +1524,7 @@ pg_writer_make_from_ring(PgRing *ring) {
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_writer_write_all_string(PgWriter *w, PgString s) {
-  PG_ASSERT(nullptr != w->write_fn);
+  PG_ASSERT(NULL != w->write_fn);
 
   PgString remaining = s;
   for (u64 _i = 0; _i < s.len; _i++) {
@@ -1768,7 +1768,7 @@ pg_skip_over_whitespace(PgString s, u64 idx_start) {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_clone(PgString s, PgAllocator *allocator) {
   PgString res = pg_string_make(s.len, allocator);
-  if (res.data != nullptr) {
+  if (res.data != NULL) {
     memcpy(res.data, s.data, s.len);
   }
 
@@ -1786,13 +1786,13 @@ pg_string_clone(PgString s, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static bool
 pg_string_ieq_ascii(PgString a, PgString b, PgArena arena) {
-  if (a.data == nullptr && b.data == nullptr && a.len == b.len) {
+  if (a.data == NULL && b.data == NULL && a.len == b.len) {
     return true;
   }
-  if (a.data == nullptr) {
+  if (a.data == NULL) {
     return false;
   }
-  if (b.data == nullptr) {
+  if (b.data == NULL) {
     return false;
   }
 
@@ -1800,8 +1800,8 @@ pg_string_ieq_ascii(PgString a, PgString b, PgArena arena) {
     return false;
   }
 
-  PG_ASSERT(a.data != nullptr);
-  PG_ASSERT(b.data != nullptr);
+  PG_ASSERT(a.data != NULL);
+  PG_ASSERT(b.data != NULL);
   PG_ASSERT(a.len == b.len);
 
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -2263,8 +2263,8 @@ pg_writer_make_from_file(PgFile file);
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != self);
-  PG_ASSERT(nullptr != buf);
+  PG_ASSERT(NULL != self);
+  PG_ASSERT(NULL != buf);
 
   PgWriter *w = self;
   PG_ASSERT(0 != (u64)w->ctx);
@@ -2491,9 +2491,9 @@ pg_arena_make_from_virtual_mem(u64 size) {
   // Page guard after.
   PG_ASSERT(false == ckd_add(&os_alloc_size, os_alloc_size, page_size));
 
-  u8 *alloc = mmap(nullptr, os_alloc_size, PROT_READ | PROT_WRITE,
+  u8 *alloc = mmap(NULL, os_alloc_size, PROT_READ | PROT_WRITE,
                    MAP_ANON | MAP_PRIVATE, -1, 0);
-  PG_ASSERT(nullptr != alloc);
+  PG_ASSERT(NULL != alloc);
 
   u64 page_guard_before = (u64)alloc;
 
@@ -2525,12 +2525,12 @@ pg_arena_make_from_virtual_mem(u64 size) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError pg_arena_release(PgArena *arena) {
-  if (nullptr == arena->start) {
+  if (NULL == arena->start) {
     return 0;
   }
 
-  PG_ASSERT(nullptr != arena->end);
-  PG_ASSERT(nullptr != arena->os_start);
+  PG_ASSERT(NULL != arena->end);
+  PG_ASSERT(NULL != arena->os_start);
 
   int ret = munmap(arena->os_start, arena->os_alloc_size);
   if (-1 == ret) {
@@ -4171,10 +4171,10 @@ pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
 #define pg_log(logger, lvl, msg, ...)                                          \
   do {                                                                         \
-    if (nullptr == (logger)) {                                                 \
+    if (NULL == (logger)) {                                                 \
       break;                                                                   \
     }                                                                          \
-    PG_ASSERT(nullptr != (logger)->make_log_line);                             \
+    PG_ASSERT(NULL != (logger)->make_log_line);                             \
     if ((logger)->level > (lvl)) {                                             \
       break;                                                                   \
     };                                                                         \
@@ -4623,7 +4623,7 @@ static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
 
   // Is the old parent the root node?
   // Then the new parent (i.e. `child`) should now be the min-heap root.
-  if (nullptr == parent_before.parent) {
+  if (NULL == parent_before.parent) {
     heap->root = child;
   } else if (parent_before.parent && parent_before.parent->left == parent) {
     // Fix grand-parent left|right.
@@ -4785,7 +4785,7 @@ typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
   }
 
   PG_ASSERT(heap->root);
-  PG_ASSERT(nullptr == heap->root->parent);
+  PG_ASSERT(NULL == heap->root->parent);
   PG_ASSERT(node);
   PG_ASSERT(less_than);
 
@@ -4834,13 +4834,13 @@ typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
 
   // Unlink the max node.
   PgHeapNode *child = *max;
-  *max = nullptr;
+  *max = NULL;
 
   // Removing either the max node or the last node in the tree?
   if (child == node) {
     if (child == heap->root) {
       PG_ASSERT(0 == heap->count);
-      heap->root = nullptr;
+      heap->root = NULL;
     }
     // Nothing else to do.
     return;

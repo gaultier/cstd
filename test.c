@@ -1709,7 +1709,7 @@ static void test_heap_insert_dequeue() {
     node->value = value;
     pg_heap_insert(&heap, &node->heap, u64_node_less_than);
 #if 0
-    pg_heap_node_iter(heap.root, u64_node_print, 0, true, nullptr);
+    pg_heap_node_iter(heap.root, u64_node_print, 0, true, NULL);
     printf("---\n");
 #endif
 
