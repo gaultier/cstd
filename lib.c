@@ -1445,7 +1445,7 @@ pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
   return (PgU64Result){.res = buf_len};
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgU64Result
+__attribute((warn_unused_result)) static PgU64Result
 pg_reader_ring_read(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(NULL != self);
   PG_ASSERT(NULL != buf);
@@ -1459,7 +1459,7 @@ pg_reader_ring_read(void *self, u8 *buf, size_t buf_len) {
   return (PgU64Result){.res = s.len};
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgU64Result
+__attribute((warn_unused_result)) static PgU64Result
 pg_writer_ring_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(NULL != self);
   PG_ASSERT(NULL != buf);
@@ -1474,7 +1474,7 @@ pg_writer_ring_write(void *self, u8 *buf, size_t buf_len) {
   return (PgU64Result){.res = s.len};
 }
 
-__attribute((warn_unused_result)) __attribute((unused)) static PgWriter
+__attribute((warn_unused_result)) static PgWriter
 pg_writer_make_from_string_builder(Pgu8Dyn *sb, PgAllocator *allocator) {
   PgWriter w = {0};
   w.ctx = sb;
@@ -1491,8 +1491,8 @@ pg_writer_make_from_ring(PgRing *ring) {
   return w;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgError
-pg_writer_write_u8(PgWriter *w, u8 c) {
+__attribute((warn_unused_result)) static PgError pg_writer_write_u8(PgWriter *w,
+                                                                    u8 c) {
   PG_ASSERT(NULL != w->write_fn);
 
   PgU64Result res = w->write_fn(w, &c, 1);
@@ -1503,7 +1503,7 @@ pg_writer_write_u8(PgWriter *w, u8 c) {
   return res.res == 1 ? 0 : PG_ERR_IO;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgError
+__attribute((warn_unused_result)) static PgError
 pg_writer_write_all_string(PgWriter *w, PgString s) {
   PG_ASSERT(NULL != w->write_fn);
 
@@ -1582,7 +1582,7 @@ pg_writer_write_u64_as_string(PgWriter *w, u64 n) {
   return pg_writer_write_all_string(w, s);
 }
 
-__attribute((warn_unused_result)) __attribute((unused)) static PgError
+__attribute((warn_unused_result)) static PgError
 pg_writer_write_i64_as_string(PgWriter *w, i64 n) {
   u8 tmp[30] = {0};
   u64 idx = PG_STATIC_ARRAY_LEN(tmp);
@@ -1606,7 +1606,7 @@ pg_writer_write_i64_as_string(PgWriter *w, i64 n) {
   return pg_writer_write_all_string(w, s);
 }
 
-__attribute((unused)) static void pg_u32_to_u8x4_be(u32 n, PgString *dst) {
+static void pg_u32_to_u8x4_be(u32 n, PgString *dst) {
   PG_ASSERT(sizeof(n) == dst->len);
 
   *(PG_SLICE_AT_PTR(dst, 0)) = (u8)(n >> 24);
