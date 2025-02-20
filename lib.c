@@ -367,7 +367,7 @@ pg_string_indexof_byte(PgString haystack, u8 needle) {
 }
 
 #define PG_SLICE_RANGE(s, start, end)                                          \
-  ((typeof((s))){                                                              \
+  ((__typeof__((s))){                                                          \
       .data = (s).len == PG_CLAMP(0, start, (s).len)                           \
                   ? NULL                                                       \
                   : PG_C_ARRAY_AT_PTR((s).data, (s).len,                       \
@@ -2104,7 +2104,7 @@ pg_bitfield_get_first_zero(PgString bitfield) {
     }
 
     u64 bit_idx = 0;
-    u8 bit_pattern = 0b1;
+    u8 bit_pattern = 0x1;
     // TODO: Check correctness.
     for (u64 j = 0; j < 8; j++) {
       if (0 == (c & bit_pattern)) {
@@ -2339,6 +2339,7 @@ __attribute((warn_unused_result)) __attribute((unused)) static PgError
 pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
                     void *ctx, PgArena arena) {
 
+  i64 ret = 0;
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
@@ -2376,7 +2377,6 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
     PG_ASSERT(space.len > 0);
     PG_ASSERT(space.len <= chunk_size);
 
-    i64 ret = 0;
     do {
       ret = read(fd, space.data, space.len);
     } while (-1 == ret && EINTR == errno);
@@ -2395,7 +2395,6 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
   }
 
 end:
-  int ret = 0;
   do {
     ret = close(fd);
   } while (-1 == ret && EINTR == errno);
