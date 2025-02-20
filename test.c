@@ -1682,7 +1682,7 @@ static bool u64_node_less_than(PgHeapNode *a, PgHeapNode *b) {
 }
 
 // For debugging.
-[[maybe_unused]]
+__attribute((unused))
 static bool u64_node_print(PgHeapNode *node, u64 depth, bool left, void *ctx) {
   PG_ASSERT(node);
   (void)ctx;
