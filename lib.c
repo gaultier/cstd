@@ -348,7 +348,7 @@ typedef struct {
   PgString sep;
 } PgSplitIterator;
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgSplitIterator
+__attribute((warn_unused_result)) static PgSplitIterator
 pg_string_split_string(PgString s, PgString sep) {
   return (PgSplitIterator){.s = s, .sep = sep};
 }
@@ -451,7 +451,7 @@ pg_string_indexof_string(PgString haystack, PgString needle) {
   return -1;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgStringOk
+__attribute((warn_unused_result)) static PgStringOk
 pg_string_split_next(PgSplitIterator *it) {
   if (PG_SLICE_IS_EMPTY(it->s)) {
     return (PgStringOk){0};
@@ -484,7 +484,6 @@ typedef struct {
   bool consumed;
 } PgStringPairConsume;
 
-__attribute((unused))
 __attribute((warn_unused_result)) static PgStringPairConsume
 pg_string_consume_until_byte_excl(PgString haystack, u8 needle) {
   PgStringPairConsume res = {0};
@@ -504,7 +503,6 @@ pg_string_consume_until_byte_excl(PgString haystack, u8 needle) {
   return res;
 }
 
-__attribute((unused))
 __attribute((warn_unused_result)) static PgStringPairConsume
 pg_string_consume_until_byte_incl(PgString haystack, u8 needle) {
   PgStringPairConsume res = {0};
@@ -552,7 +550,6 @@ pg_string_consume_until_any_byte_incl(PgString haystack, PgString needles) {
   return res;
 }
 
-__attribute((unused))
 __attribute((warn_unused_result)) static PgStringPairConsumeAny
 pg_string_consume_until_any_byte_excl(PgString haystack, PgString needles) {
   PgStringPairConsumeAny res = {0};
@@ -575,7 +572,7 @@ pg_string_consume_until_any_byte_excl(PgString haystack, PgString needles) {
   return res;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static i64
+__attribute((warn_unused_result)) static i64
 pg_string_indexof_any_byte(PgString haystack, PgString needle) {
   for (i64 i = 0; i < (i64)haystack.len; i++) {
     u8 c_h = PG_SLICE_AT(haystack, i);
@@ -1266,7 +1263,7 @@ __attribute((warn_unused_result)) static u64 pg_ring_read_space(PgRing rg) {
   PG_ASSERT(0);
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static bool
+__attribute((warn_unused_result)) static bool
 pg_ring_write_slice(PgRing *rg, PgString data) {
   PG_ASSERT(NULL != rg->data.data);
   PG_ASSERT(rg->idx_read <= rg->data.len);
@@ -2990,7 +2987,7 @@ PG_RESULT(PgUrlAuthority) PgUrlAuthorityResult;
 
 PG_RESULT(PgUrl) PgUrlResult;
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgStringDynResult
+__attribute((warn_unused_result)) static PgStringDynResult
 pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
   PgStringDynResult res = {0};
 
@@ -3028,7 +3025,6 @@ pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
   return res;
 }
 
-__attribute((unused))
 __attribute((warn_unused_result)) static PgDynKeyValueResult
 pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
   PgDynKeyValueResult res = {0};
@@ -3180,7 +3176,7 @@ pg_url_is_scheme_valid(PgString scheme) {
   return true;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgUrlResult
+__attribute((warn_unused_result)) static PgUrlResult
 pg_url_parse_after_authority(PgString s, PgAllocator *allocator) {
   PgUrlResult res = {0};
   PgString remaining = s;
@@ -3305,7 +3301,6 @@ pg_http_url_is_valid(PgUrl u) {
   return true;
 }
 
-__attribute((unused))
 __attribute((warn_unused_result)) static PgHttpRequestStatusLineResult
 pg_http_parse_request_status_line(PgString status_line,
                                   PgAllocator *allocator) {
