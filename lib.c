@@ -1564,7 +1564,7 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r) {
   return res;
 }
 
-__attribute((warn_unused_result)) __attribute((unused)) static PgError
+__attribute((warn_unused_result)) static PgError
 pg_writer_write_u64_as_string(PgWriter *w, u64 n) {
   u8 tmp[30] = {0};
   u64 idx = PG_STATIC_ARRAY_LEN(tmp);
@@ -1746,7 +1746,7 @@ pg_skip_over_whitespace(PgString s, u64 idx_start) {
   return idx;
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgString
+__attribute((warn_unused_result)) static PgString
 pg_string_clone(PgString s, PgAllocator *allocator) {
   PgString res = pg_string_make(s.len, allocator);
   if (res.data != NULL) {
@@ -1756,7 +1756,7 @@ pg_string_clone(PgString s, PgAllocator *allocator) {
   return res;
 }
 
-__attribute((unused)) static void pg_string_lowercase_ascii_mut(PgString s) {
+static void pg_string_lowercase_ascii_mut(PgString s) {
   for (u64 i = 0; i < s.len; i++) {
     u8 *c = PG_C_ARRAY_AT_PTR(s.data, s.len, i);
     if ('A' <= *c && *c <= 'Z') {
@@ -1765,7 +1765,7 @@ __attribute((unused)) static void pg_string_lowercase_ascii_mut(PgString s) {
   }
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static bool
+__attribute((warn_unused_result)) static bool
 pg_string_ieq_ascii(PgString a, PgString b, PgArena arena) {
   if (a.data == NULL && b.data == NULL && a.len == b.len) {
     return true;
@@ -2026,7 +2026,7 @@ typedef struct {
 PG_DYN(PgIpv4Address) PgIpv4AddressDyn;
 PG_SLICE(PgIpv4Address) PgIpv4AddressSlice;
 
-__attribute((unused)) __attribute((warn_unused_result)) static PgString
+__attribute((warn_unused_result)) static PgString
 pg_net_ipv4_address_to_string(PgIpv4Address address, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 3 * 4 + 4 + 5, allocator);
@@ -2061,8 +2061,8 @@ pg_bitfield_get_ptr(u8 *bitfield, u64 bitfield_len, u64 idx_bit) {
   return PG_C_ARRAY_AT(bitfield, bitfield_len, idx_byte) & (1 << (idx_bit % 8));
 }
 
-__attribute((unused)) __attribute((warn_unused_result)) static bool
-pg_bitfield_get(PgString bitfield, u64 idx_bit) {
+__attribute((warn_unused_result)) static bool pg_bitfield_get(PgString bitfield,
+                                                              u64 idx_bit) {
   return pg_bitfield_get_ptr(bitfield.data, bitfield.len, idx_bit);
 }
 
@@ -2421,7 +2421,7 @@ pg_string_to_filename(PgString s) {
 
 // From https://nullprogram.com/blog/2017/09/21/.
 // PCG.
-__attribute((warn_unused_result)) __attribute((unused)) static u32
+__attribute((warn_unused_result)) static u32
 pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl) {
   PG_ASSERT(rng);
   PG_ASSERT(min_incl <= max_incl);
@@ -2439,7 +2439,7 @@ pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl) {
   return res;
 }
 
-__attribute((warn_unused_result)) __attribute((unused)) static u32
+__attribute((warn_unused_result)) static u32
 pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl) {
   PG_ASSERT(max_excl > 0);
   return pg_rand_u32_min_incl_max_incl(rng, min_incl, max_excl - 1);
@@ -2452,8 +2452,7 @@ __attribute((unused)) static void pg_rand_string_mut(PgRng *rng, PgString s) {
   }
 }
 
-__attribute((warn_unused_result)) __attribute((unused)) static u64
-pg_os_get_page_size() {
+__attribute((warn_unused_result)) static u64 pg_os_get_page_size() {
   i64 ret = 0;
   do {
     ret = sysconf(_SC_PAGE_SIZE);
