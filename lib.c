@@ -1586,12 +1586,17 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r) {
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_writer_write_u64_as_string(PgWriter *w, u64 n) {
   u8 tmp[30] = {0};
-  // TODO: Not use snprintf?
-  const int written_count = snprintf((char *)tmp, sizeof(tmp), "%" PRIu64, n);
+  u64 idx = PG_STATIC_ARRAY_LEN(tmp);
 
-  PG_ASSERT(written_count > 0);
+  while (n > 0) {
+    idx -= 1;
+    PG_C_ARRAY_AT(tmp, PG_STATIC_ARRAY_LEN(tmp), idx) = '0' + (n % 10);
+    n /= 10;
+  }
 
-  PgString s = {.data = tmp, .len = (u64)written_count};
+  PG_ASSERT(idx <= PG_STATIC_ARRAY_LEN(tmp));
+
+  PgString s = {.data = tmp + idx, .len = PG_STATIC_ARRAY_LEN(tmp) - idx};
 
   return pg_writer_write_all_string(w, s);
 }
