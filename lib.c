@@ -1665,51 +1665,21 @@ pg_u64_to_string(u64 n, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_character_hex(u8 n) {
   PG_ASSERT(n < 16);
-
-  if (n <= 9) {
-    return n + '0';
-  } else if (10 == n) {
-    return 'a';
-  } else if (11 == n) {
-    return 'b';
-  } else if (12 == n) {
-    return 'c';
-  } else if (13 == n) {
-    return 'd';
-  } else if (14 == n) {
-    return 'e';
-  } else if (15 == n) {
-    return 'f';
-  }
-  PG_ASSERT(0);
+  const u8 lut[] = "0123456789abcdef";
+  return lut[n];
 }
 
 [[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_character_hex_upper(u8 n) {
   PG_ASSERT(n < 16);
-
-  if (n <= 9) {
-    return n + '0';
-  } else if (10 == n) {
-    return 'A';
-  } else if (11 == n) {
-    return 'B';
-  } else if (12 == n) {
-    return 'C';
-  } else if (13 == n) {
-    return 'D';
-  } else if (14 == n) {
-    return 'E';
-  } else if (15 == n) {
-    return 'F';
-  }
-  PG_ASSERT(0);
+  const u8 lut[] = "0123456789ABCDEF";
+  return lut[n];
 }
 
 [[maybe_unused]] [[nodiscard]]
 static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n) {
 
-  u8 c1 = n % 16;
-  u8 c2 = n / 16;
+  u8 c1 = n & 15; // i.e. `% 16`.
+  u8 c2 = n >> 4; // i.e. `/ 16`
 
   PgError err = 0;
   err = pg_writer_write_u8(w, pg_u8_to_character_hex_upper(c2));
