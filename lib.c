@@ -2841,6 +2841,8 @@ pg_time_ns_now(PgClockKind clock_kind) {
 }
 
 [[nodiscard]] PgError pg_virtual_mem_release(void *ptr, u64 size) {
+  (void)size;
+
   if (0 == VirtualFree(ptr, 0, MEM_RELEASE)) {
     return (PgError)pg_os_get_last_error();
   }
