@@ -2668,9 +2668,14 @@ pg_time_ns_now(PgClockKind clock_kind) {
 
   switch (clock_kind) {
   case PG_CLOCK_KIND_MONOTONIC: {
-    LARGE_INTEGER val = {0};
-    PG_ASSERT(QueryPerformanceCounter(&val));
-    res.res = (u64)val.QuadPart;
+    static LARGE_INTEGER frequency = {0};
+    if (!frequency.QuadPart) {
+      QueryPerformanceFrequency(&frequency);
+      PG_ASSERT(frequency.QuadPart);
+    }
+    LARGE_INTEGER counter = {0};
+    PG_ASSERT(QueryPerformanceCounter(&counter));
+    res.res = (u64)counter.QuadPart / (u64)frequency.QuadPart;
     return res;
   }
   case PG_CLOCK_KIND_REALTIME: {
