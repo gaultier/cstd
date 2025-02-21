@@ -2241,10 +2241,93 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
                     void *ctx, PgArena arena);
 
 [[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size();
-[[maybe_unused]] [[nodiscard]] static PgArena
-pg_arena_make_from_virtual_mem(u64 size);
 
-[[maybe_unused]] [[nodiscard]] static PgError pg_arena_release(PgArena *arena);
+typedef enum [[clang::flag_enum]] {
+  PG_VIRTUAL_MEM_FLAGS_NONE = 0,
+  PG_VIRTUAL_MEM_FLAGS_READ = 1,
+  PG_VIRTUAL_MEM_FLAGS_WRITE = 2,
+  PG_VIRTUAL_MEM_FLAGS_EXEC = 4,
+} PgVirtualMemFlags;
+
+[[nodiscard]] i32 pg_os_get_last_error();
+[[nodiscard]] PgVoidPtrResult pg_virtual_mem_alloc(u64 size,
+                                                   PgVirtualMemFlags flags);
+[[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
+                                             PgVirtualMemFlags flags_old,
+                                             PgVirtualMemFlags flags_new);
+[[nodiscard]] PgError pg_virtual_mem_release(void *ptr, u64 size);
+
+[[nodiscard]] u64 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags);
+
+[[maybe_unused]] [[nodiscard]] static PgArena
+pg_arena_make_from_virtual_mem(u64 size) {
+  PG_ASSERT(size > 0);
+
+  u64 page_size = pg_os_get_page_size();
+  u64 size_rounded_up_to_page_size = pg_round_up_multiple_of(size, page_size);
+  PG_ASSERT(0 == size_rounded_up_to_page_size % page_size);
+
+  u64 os_alloc_size = size_rounded_up_to_page_size;
+  // Page guard before.
+  PG_ASSERT(false == ckd_add(&os_alloc_size, os_alloc_size, page_size));
+  // Page guard after.
+  PG_ASSERT(false == ckd_add(&os_alloc_size, os_alloc_size, page_size));
+
+  PgVoidPtrResult res_alloc = pg_virtual_mem_alloc(
+      os_alloc_size, PG_VIRTUAL_MEM_FLAGS_READ | PG_VIRTUAL_MEM_FLAGS_WRITE);
+  if (res_alloc.err) {
+    // TODO: Better error handling.
+    PG_ASSERT(0);
+  }
+  PG_ASSERT(res_alloc.res);
+  u8 *alloc = res_alloc.res;
+
+  u64 page_guard_before = (u64)alloc;
+
+  PG_ASSERT(false == ckd_add((u64 *)&alloc, (u64)alloc, page_size));
+  PG_ASSERT(page_guard_before + page_size == (u64)alloc);
+
+  u64 page_guard_after = (u64)0;
+  PG_ASSERT(false == ckd_add(&page_guard_after, (u64)alloc,
+                             size_rounded_up_to_page_size));
+  PG_ASSERT((u64)alloc + size_rounded_up_to_page_size == page_guard_after);
+  PG_ASSERT(page_guard_before + page_size + size_rounded_up_to_page_size ==
+            page_guard_after);
+
+  PG_ASSERT(0 == pg_virtual_mem_protect((void *)page_guard_before, page_size,
+                                        PG_VIRTUAL_MEM_FLAGS_READ |
+                                            PG_VIRTUAL_MEM_FLAGS_WRITE,
+                                        PG_VIRTUAL_MEM_FLAGS_NONE));
+
+  PG_ASSERT(0 == pg_virtual_mem_protect((void *)page_guard_after, page_size,
+                                        PG_VIRTUAL_MEM_FLAGS_READ |
+                                            PG_VIRTUAL_MEM_FLAGS_WRITE,
+                                        PG_VIRTUAL_MEM_FLAGS_NONE));
+
+  // Trigger a page fault preemptively to detect invalid virtual memory
+  // mappings.
+  *(u8 *)alloc = 0;
+
+  PG_ASSERT(os_alloc_size >= 2 * page_size);
+  return (PgArena){
+      .start_original = alloc,
+      .start = alloc,
+      .end = (u8 *)alloc + size,
+      .os_start = (u8 *)page_guard_before,
+      .os_alloc_size = os_alloc_size,
+  };
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError pg_arena_release(PgArena *arena) {
+  if (nullptr == arena->start) {
+    return 0;
+  }
+
+  PG_ASSERT(nullptr != arena->end);
+  PG_ASSERT(nullptr != arena->os_start);
+
+  return pg_virtual_mem_release(arena->os_start, arena->os_alloc_size);
+}
 
 #if 0
 typedef enum {
@@ -2290,6 +2373,52 @@ pg_writer_make_from_file(PgFile file);
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+
+[[nodiscard]] i32 pg_os_get_last_error() { return errno; }
+
+[[nodiscard]] u64 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags) {
+  u64 res = 0;
+  if (flags & PG_VIRTUAL_MEM_FLAGS_READ) {
+    res |= PROT_READ;
+  }
+  if (flags & PG_VIRTUAL_MEM_FLAGS_WRITE) {
+    res |= PROT_WRITE;
+  }
+  if (flags & PG_VIRTUAL_MEM_FLAGS_EXEC) {
+    res |= PROT_EXEC;
+  }
+  return res;
+}
+
+[[nodiscard]] PgVoidPtrResult pg_virtual_mem_alloc(u64 size,
+                                                   PgVirtualMemFlags flags) {
+  PgVoidPtrResult res = {0};
+  res.res = mmap(nullptr, size, (int)pg_virtual_mem_flags_to_os_flags(flags),
+                 MAP_ANON | MAP_PRIVATE, -1, 0);
+  if (!res.res) {
+    res.err = (PgError)pg_os_get_last_error();
+  }
+  return res;
+}
+
+[[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
+                                             PgVirtualMemFlags flags_old,
+                                             PgVirtualMemFlags flags_new) {
+  (void)flags_old;
+
+  if (-1 ==
+      mprotect(ptr, size, (i32)pg_virtual_mem_flags_to_os_flags(flags_new))) {
+    return (PgError)pg_os_get_last_error();
+  }
+  return 0;
+}
+
+[[nodiscard]] PgError pg_virtual_mem_release(void *ptr, u64 size) {
+  if (-1 == munmap(ptr, size)) {
+    return (PgError)pg_os_get_last_error();
+  }
+  return 0;
+}
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
@@ -2472,69 +2601,6 @@ pg_string_to_filename(PgString s) {
   PG_ASSERT(ret >= 0);
 
   return (u64)ret;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgArena
-pg_arena_make_from_virtual_mem(u64 size) {
-  PG_ASSERT(size > 0);
-
-  u64 page_size = pg_os_get_page_size();
-  u64 size_rounded_up_to_page_size = pg_round_up_multiple_of(size, page_size);
-  PG_ASSERT(0 == size_rounded_up_to_page_size % page_size);
-
-  u64 os_alloc_size = size_rounded_up_to_page_size;
-  // Page guard before.
-  PG_ASSERT(false == ckd_add(&os_alloc_size, os_alloc_size, page_size));
-  // Page guard after.
-  PG_ASSERT(false == ckd_add(&os_alloc_size, os_alloc_size, page_size));
-
-  u8 *alloc = mmap(nullptr, os_alloc_size, PROT_READ | PROT_WRITE,
-                   MAP_ANON | MAP_PRIVATE, -1, 0);
-  PG_ASSERT(nullptr != alloc);
-
-  u64 page_guard_before = (u64)alloc;
-
-  PG_ASSERT(false == ckd_add((u64 *)&alloc, (u64)alloc, page_size));
-  PG_ASSERT(page_guard_before + page_size == (u64)alloc);
-
-  u64 page_guard_after = (u64)0;
-  PG_ASSERT(false == ckd_add(&page_guard_after, (u64)alloc,
-                             size_rounded_up_to_page_size));
-  PG_ASSERT((u64)alloc + size_rounded_up_to_page_size == page_guard_after);
-  PG_ASSERT(page_guard_before + page_size + size_rounded_up_to_page_size ==
-            page_guard_after);
-
-  PG_ASSERT(0 == mprotect((void *)page_guard_before, page_size, PROT_NONE));
-  PG_ASSERT(0 == mprotect((void *)page_guard_after, page_size, PROT_NONE));
-
-  // Trigger a page fault preemptively to detect invalid virtual memory
-  // mappings.
-  *(u8 *)alloc = 0;
-
-  PG_ASSERT(os_alloc_size >= 2 * page_size);
-  return (PgArena){
-      .start_original = alloc,
-      .start = alloc,
-      .end = (u8 *)alloc + size,
-      .os_start = (u8 *)page_guard_before,
-      .os_alloc_size = os_alloc_size,
-  };
-}
-
-[[maybe_unused]] [[nodiscard]] static PgError pg_arena_release(PgArena *arena) {
-  if (nullptr == arena->start) {
-    return 0;
-  }
-
-  PG_ASSERT(nullptr != arena->end);
-  PG_ASSERT(nullptr != arena->os_start);
-
-  int ret = munmap(arena->os_start, arena->os_alloc_size);
-  if (-1 == ret) {
-    return (PgError)errno;
-  }
-
-  return 0;
 }
 
 [[maybe_unused]] static PgStringResult
