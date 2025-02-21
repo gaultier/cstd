@@ -2674,6 +2674,20 @@ end:
 // -- Win32 ---
 bool QueryPerformanceCounter(u64 *val);
 i32 GetLastError();
+void *VirtualAlloc(void *addr, u64 size, i32 allocation_type, i32 protect);
+bool VirtualFree(void *addr, u64 size, i32 free_type);
+bool VirtualProtect(void *addr, u64 size, i32 protect_flags_new,
+                    i32 protect_flags_old);
+#define PAGE_EXECUTE 0x10
+#define PAGE_EXECUTE_READ 0x20
+#define PAGE_EXECUTE_READWRITE 0x40
+#define PAGE_NOACCESS 0x01
+#define PAGE_READONLY 0x02
+#define PAGE_READWRITE 0x04
+
+#define MEM_COMMIT 0x00001000
+#define MEM_RESERVE 0x00002000
+#define MEM_RELEASE 0x00008000
 // ---------
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
@@ -2690,13 +2704,14 @@ pg_time_ns_now(PgClockKind clock_kind) {
 [[nodiscard]] u64 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags) {
   u64 res = 0;
   if (flags & PG_VIRTUAL_MEM_FLAGS_READ) {
-    res |= PROT_READ;
+    res |= PAGE_NOACCESS;
   }
+  // Apparently there is no write-only flag.
   if (flags & PG_VIRTUAL_MEM_FLAGS_WRITE) {
-    res |= PROT_WRITE;
+    res |= PAGE_READWRITE;
   }
   if (flags & PG_VIRTUAL_MEM_FLAGS_EXEC) {
-    res |= PROT_EXEC;
+    res |= PAGE_READONLY;
   }
   return res;
 }
@@ -2704,8 +2719,9 @@ pg_time_ns_now(PgClockKind clock_kind) {
 [[nodiscard]] PgVoidPtrResult pg_virtual_mem_alloc(u64 size,
                                                    PgVirtualMemFlags flags) {
   PgVoidPtrResult res = {0};
-  res.res = mmap(nullptr, size, (int)pg_virtual_mem_flags_to_os_flags(flags),
-                 MAP_ANON | MAP_PRIVATE, -1, 0);
+  // Note: We will reserve the guard pages right now.
+  res.res = VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE,
+                         (int)pg_virtual_mem_flags_to_os_flags(flags));
   if (!res.res) {
     res.err = (PgError)pg_os_get_last_error();
   }
@@ -2717,15 +2733,16 @@ pg_time_ns_now(PgClockKind clock_kind) {
                                              PgVirtualMemFlags flags_new) {
   (void)flags_old;
 
-  if (-1 ==
-      mprotect(ptr, size, (i32)pg_virtual_mem_flags_to_os_flags(flags_new))) {
+  if (0 == VirtualProtect(ptr, size,
+                          (i32)pg_virtual_mem_flags_to_os_flags(flags_new),
+                          (i32)pg_virtual_mem_flags_to_os_flags(flags_old))) {
     return (PgError)pg_os_get_last_error();
   }
   return 0;
 }
 
 [[nodiscard]] PgError pg_virtual_mem_release(void *ptr, u64 size) {
-  if (-1 == munmap(ptr, size)) {
+  if (0 == VirtualFree(ptr, 0, MEM_RELEASE)) {
     return (PgError)pg_os_get_last_error();
   }
   return 0;
