@@ -178,8 +178,10 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
   } while (0)
 
 typedef int PgSocket;
-typedef int PgFileDescriptor;
-typedef void *PgFileHandle;
+typedef union {
+  int fd;
+  void *ptr;
+} PgFileDescriptor;
 
 PG_RESULT(PgFileDescriptor) PgFileResult;
 
@@ -1221,8 +1223,9 @@ typedef struct {
 } PgReader;
 
 typedef struct {
-  void *ctx;
+  PgFileDescriptor file;
   WriteFn write_fn;
+  PgFileDescriptor ctx;
   // Only useful for writing to a string builder (aka `Pgu8Dyn`).
   PgAllocator *allocator; // TODO: Should it be instead in DYN_ structs?
 } PgWriter;
@@ -1471,7 +1474,7 @@ pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != buf);
 
   PgWriter *w = self;
-  Pgu8Dyn *sb = w->ctx;
+  Pgu8Dyn *sb = w->ctx.ptr;
 
   PgString s = {.data = buf, .len = buf_len};
   PG_DYN_APPEND_SLICE(sb, s, w->allocator);
@@ -1499,7 +1502,7 @@ pg_writer_ring_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != buf);
 
   PgWriter *w = self;
-  PgRing *ring = w->ctx;
+  PgRing *ring = w->ctx.ptr;
 
   PgString s = {.data = buf,
                 .len = PG_MIN(buf_len, pg_ring_write_space(*ring))};
@@ -1511,7 +1514,7 @@ pg_writer_ring_write(void *self, u8 *buf, size_t buf_len) {
 [[nodiscard]] [[maybe_unused]] static PgWriter
 pg_writer_make_from_string_builder(Pgu8Dyn *sb, PgAllocator *allocator) {
   PgWriter w = {0};
-  w.ctx = sb;
+  w.ctx.ptr = sb;
   w.allocator = allocator;
   w.write_fn = pg_writer_string_builder_write;
   return w;
@@ -1520,7 +1523,7 @@ pg_writer_make_from_string_builder(Pgu8Dyn *sb, PgAllocator *allocator) {
 [[nodiscard]] [[maybe_unused]] static PgWriter
 pg_writer_make_from_ring(PgRing *ring) {
   PgWriter w = {0};
-  w.ctx = ring;
+  w.ctx.ptr = ring;
   w.write_fn = pg_writer_ring_write;
   return w;
 }
@@ -2237,15 +2240,7 @@ pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_writer_file_handle_write(void *self, u8 *buf, size_t buf_len);
-
-[[nodiscard]] [[maybe_unused]] static PgWriter
-pg_writer_make_from_file_handle(PgFileDescriptor file) {
-  PgWriter w = {0};
-  w.ctx = (void *)(u64)file;
-  w.write_fn = pg_writer_file_handle_write;
-  return w;
-}
+pg_writer_file_write(void *self, u8 *buf, size_t buf_len);
 
 typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
 [[nodiscard]] [[maybe_unused]] static PgError
@@ -2381,16 +2376,19 @@ typedef struct {
 [[maybe_unused]] [[nodiscard]] static PgReader
 pg_reader_make_from_file(PgFileDescriptor file);
 
-[[nodiscard]] static PgWriter pg_writer_make_from_file(PgFileDescriptor file) {
-  return (PgWriter){
-      .ctx = (void *)(u64)file,
-      .write_fn = pg_writer_file_handle_write,
+[[maybe_unused]] [[nodiscard]] static PgWriter
+pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
+  PgWriter w = {
+      .ctx = file,
+      .write_fn = pg_writer_file_write,
   };
+
+  return w;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgFileHandle pg_os_get_stdin_handle();
-[[maybe_unused]] [[nodiscard]] static PgFileHandle pg_os_get_stdout_handle();
-[[maybe_unused]] [[nodiscard]] static PgFileHandle pg_os_get_stderr_handle();
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin();
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout();
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr();
 
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
@@ -2402,6 +2400,16 @@ pg_reader_make_from_file(PgFileDescriptor file);
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin() {
+  return (PgFileDescriptor){.fd = STDIN_FILENO};
+}
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout() {
+  return (PgFileDescriptor){.fd = STDOUT_FILENO};
+}
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr() {
+  return (PgFileDescriptor){.fd = STDERR_FILENO};
+}
 
 [[nodiscard]] i32 pg_os_get_last_error() { return errno; }
 
@@ -2448,17 +2456,16 @@ pg_reader_make_from_file(PgFileDescriptor file);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
+pg_writer_unix_file_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
 
   PgWriter *w = self;
-  PG_ASSERT(0 != (u64)w->ctx);
 
-  int fd = (int)(u64)w->ctx;
-  i64 n = 0;
+  PgFileDescriptor file = w->ctx;
+  isize n = 0;
   do {
-    n = write(fd, buf, buf_len);
+    n = write(file.fd, buf, buf_len);
   } while (-1 == n && EINTR == errno);
 
   PgU64Result res = {0};
@@ -2472,8 +2479,8 @@ pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_writer_file_handle_write(void *self, u8 *buf, size_t buf_len) {
-  return pg_writer_unix_write(self, buf, buf_len);
+pg_writer_file_write(void *self, u8 *buf, size_t buf_len) {
+  return pg_writer_unix_file_write(self, buf, buf_len);
 }
 
 [[maybe_unused]] [[nodiscard]] static int
@@ -2687,16 +2694,14 @@ end:
 #include <io.h>
 #include <windows.h>
 
-[[maybe_unused]] [[nodiscard]] static PgFileHandle pg_os_get_stdin_handle() {
-  return GetStdHandle(STD_INPUT_HANDLE);
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin() {
+  return (PgFileDescriptor){.ptr = GetStdHandle(STD_INPUT_HANDLE)};
 }
-
-[[maybe_unused]] [[nodiscard]] static PgFileHandle pg_os_get_stdout_handle() {
-  return GetStdHandle(STD_OUTPUT_HANDLE);
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout() {
+  return (PgFileDescriptor){.ptr = GetStdHandle(STD_OUTPUT_HANDLE)};
 }
-
-[[maybe_unused]] [[nodiscard]] static PgFileHandle pg_os_get_stderr_handle() {
-  return GetStdHandle(STD_ERROR_HANDLE);
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr() {
+  return (PgFileDescriptor){.ptr = GetStdHandle(STD_ERROR_HANDLE)};
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
@@ -2705,11 +2710,11 @@ pg_writer_win32_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != buf);
 
   PgWriter *w = self;
-  PG_ASSERT(0 != (u64)w->ctx);
 
-  PgFileDescriptor fd = (PgFileDescriptor)(u64)w->ctx;
+  PgFileDescriptor file = (PgFileDescriptor)w->ctx;
+  HANDLE handle = file.ptr;
   DWORD n = 0;
-  bool ok = WriteFile((HANDLE)_get_osfhandle(fd), buf, buf_len, &n, nullptr);
+  bool ok = WriteFile(handle, buf, buf_len, &n, nullptr);
   PgU64Result res = {0};
   if (!ok) {
     res.err = pg_os_get_last_error();
@@ -2721,7 +2726,7 @@ pg_writer_win32_write(void *self, u8 *buf, size_t buf_len) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_writer_file_handle_write(void *self, u8 *buf, size_t buf_len) {
+pg_writer_file_write(void *self, u8 *buf, size_t buf_len) {
   return pg_writer_win32_write(self, buf, buf_len);
 }
 
@@ -2758,7 +2763,7 @@ pg_time_ns_now(PgClockKind clock_kind) {
   return res;
 }
 
-[[nodiscard]] i32 pg_os_get_last_error() { return GetLastError(); }
+[[nodiscard]] i32 pg_os_get_last_error() { return (i32)GetLastError(); }
 
 [[nodiscard]] i32 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags) {
   if (PG_VIRTUAL_MEM_FLAGS_NONE == flags) {
@@ -2796,7 +2801,7 @@ pg_time_ns_now(PgClockKind clock_kind) {
 
   DWORD flags_old = 0;
   if (0 == VirtualProtect(ptr, size,
-                          pg_virtual_mem_flags_to_os_flags(flags_new),
+                          (DWORD)pg_virtual_mem_flags_to_os_flags(flags_new),
                           &flags_old)) {
     return (PgError)pg_os_get_last_error();
   }
@@ -4260,7 +4265,7 @@ pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
 pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
   PgLogger logger = {
       .level = level,
-      .writer = pg_writer_make_from_file(STDOUT_FILENO),
+      .writer = pg_writer_make_from_file_descriptor(pg_os_stdout()),
       .make_log_line = pg_log_make_log_line_logfmt,
       .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res,
   };
