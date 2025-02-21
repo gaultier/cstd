@@ -3781,16 +3781,16 @@ GB_DLL_IMPORT int StretchDIBits(HDC hdc, int XDest, int YDest, int nDestWidth,
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor
 pg_os_get_stdin_descriptor() {
-  return (PgFileDescriptor)_fileno(GetStdHandle(STD_INPUT_HANDLE));
+  return (PgFileDescriptor)0;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor
 pg_os_get_stdout_descriptor() {
-  return (PgFileDescriptor)_fileno(GetStdHandle(STD_OUTPUT_HANDLE));
+  return (PgFileDescriptor)1;
 }
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor
 pg_os_get_stderr_descriptor() {
-  return (PgFileDescriptor)_fileno(GetStdHandle(STD_ERROR_HANDLE));
+  return (PgFileDescriptor)2;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFileHandle pg_os_get_stdin_handle() {
@@ -3851,9 +3851,12 @@ pg_time_ns_now(PgClockKind clock_kind) {
     res.res = (u64)val.QuadPart;
     return res;
   }
-  case PG_CLOCK_KIND_REALTIME:
-    PG_ASSERT(0 && "todo");
+  case PG_CLOCK_KIND_REALTIME: {
+    FILETIME ft = {0};
+    GetSystemTimeAsFileTime(&ft);
+    res.res = (((u64)ft.dwHighDateTime) << 32) | ((u64)ft.dwLowDateTime);
     return res;
+  }
   default:
     PG_ASSERT(0);
   }
