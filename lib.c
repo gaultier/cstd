@@ -122,7 +122,7 @@ typedef Pgu8Slice PgString;
 
 #define PG_STACKTRACE_MAX 64
 #define PG_LOG_STRING_MAX 256
-#define PG_LOG_LINE_MAX_LENGTH 4096
+#define PG_LOG_LINE_MAX_LENGTH 8192
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
