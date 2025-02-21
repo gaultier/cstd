@@ -2144,15 +2144,51 @@ pg_bitfield_get_first_zero(PgString bitfield) {
   return res;
 }
 
+typedef enum {
+  PG_CLOCK_KIND_MONOTONIC,
+  PG_CLOCK_KIND_REALTIME,
+  // TODO: More?
+} PgClockKind;
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_time_ns_now(PgClockKind clock_kind);
+
 typedef struct {
   u64 state;
 } PgRng;
 
+// From https://nullprogram.com/blog/2017/09/21/.
+// PCG.
 [[nodiscard]] [[maybe_unused]] static u32
-pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl);
+pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl) {
+  PG_ASSERT(rng);
+  PG_ASSERT(min_incl <= max_incl);
+
+  uint64_t m = 0x9b60933458e17d7d;
+  uint64_t a = 0xd737232eeccdf7ed;
+  rng->state = rng->state * m + a;
+  int shift = 29 - (rng->state >> 61);
+  u32 rand = (u32)(rng->state >> shift);
+
+  u32 res = min_incl + (u32)((float)rand * ((float)max_incl - (float)min_incl) /
+                             (float)UINT32_MAX);
+  PG_ASSERT(min_incl <= res);
+  PG_ASSERT(res <= max_incl);
+  return res;
+}
 
 [[nodiscard]] [[maybe_unused]] static u32
-pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl);
+pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl) {
+  PG_ASSERT(max_excl > 0);
+  return pg_rand_u32_min_incl_max_incl(rng, min_incl, max_excl - 1);
+}
+
+[[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s) {
+  for (u64 i = 0; i < s.len; i++) {
+    *PG_C_ARRAY_AT_PTR(s.data, s.len, i) =
+        (u8)pg_rand_u32_min_incl_max_incl(rng, 0, UINT8_MAX);
+  }
+}
 
 [[maybe_unused]] [[nodiscard]] static Pgu32Ok
 pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
@@ -2173,31 +2209,6 @@ pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_writer_file_write(void *self, u8 *buf, size_t buf_len);
-
-[[nodiscard]] [[maybe_unused]] static PgWriter
-pg_writer_make_from_file_handle(PgFile file) {
-  PgWriter w = {0};
-  w.ctx = (void *)(u64)file;
-  w.write_fn = pg_writer_file_write;
-  return w;
-}
-
-typedef enum {
-  PG_CLOCK_KIND_MONOTONIC,
-  PG_CLOCK_KIND_REALTIME,
-  // TODO: More?
-} PgClockKind;
-
-[[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_time_ns_now(PgClockKind clock_kind);
-
-typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
-[[nodiscard]] [[maybe_unused]] static PgError
-pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
-                    void *ctx, PgArena arena);
-
 [[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s);
 
 [[nodiscard]] [[maybe_unused]] static PgRng pg_rand_make() {
@@ -2209,6 +2220,22 @@ pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
 
   return rng;
 }
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_writer_file_write(void *self, u8 *buf, size_t buf_len);
+
+[[nodiscard]] [[maybe_unused]] static PgWriter
+pg_writer_make_from_file_handle(PgFile file) {
+  PgWriter w = {0};
+  w.ctx = (void *)(u64)file;
+  w.write_fn = pg_writer_file_write;
+  return w;
+}
+
+typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
+                    void *ctx, PgArena arena);
 
 [[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size();
 [[maybe_unused]] [[nodiscard]] static PgArena
@@ -2431,39 +2458,6 @@ pg_string_to_filename(PgString s) {
     }
   }
   return s;
-}
-
-// From https://nullprogram.com/blog/2017/09/21/.
-// PCG.
-[[nodiscard]] [[maybe_unused]] static u32
-pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl) {
-  PG_ASSERT(rng);
-  PG_ASSERT(min_incl <= max_incl);
-
-  uint64_t m = 0x9b60933458e17d7d;
-  uint64_t a = 0xd737232eeccdf7ed;
-  rng->state = rng->state * m + a;
-  int shift = 29 - (rng->state >> 61);
-  u32 rand = (u32)(rng->state >> shift);
-
-  u32 res = min_incl + (u32)((float)rand * ((float)max_incl - (float)min_incl) /
-                             (float)UINT32_MAX);
-  PG_ASSERT(min_incl <= res);
-  PG_ASSERT(res <= max_incl);
-  return res;
-}
-
-[[nodiscard]] [[maybe_unused]] static u32
-pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl) {
-  PG_ASSERT(max_excl > 0);
-  return pg_rand_u32_min_incl_max_incl(rng, min_incl, max_excl - 1);
-}
-
-[[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s) {
-  for (u64 i = 0; i < s.len; i++) {
-    *PG_C_ARRAY_AT_PTR(s.data, s.len, i) =
-        (u8)pg_rand_u32_min_incl_max_incl(rng, 0, UINT8_MAX);
-  }
 }
 
 [[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size() {
