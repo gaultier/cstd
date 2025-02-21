@@ -2675,7 +2675,9 @@ pg_time_ns_now(PgClockKind clock_kind) {
     }
     LARGE_INTEGER counter = {0};
     PG_ASSERT(QueryPerformanceCounter(&counter));
-    res.res = (u64)counter.QuadPart / (u64)frequency.QuadPart;
+    double seconds = (double)counter.QuadPart / (double)frequency.QuadPart;
+
+    res.res = (u64)(PG_Seconds * seconds);
     return res;
   }
   case PG_CLOCK_KIND_REALTIME: {
