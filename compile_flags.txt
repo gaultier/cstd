@@ -13,3 +13,4 @@
 -Wno-pre-c11-compat
 -Wno-cast-qual
 -Wno-unknown-warning-option
+-Wno-used-but-marked-unused 
