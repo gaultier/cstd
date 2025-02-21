@@ -1625,7 +1625,7 @@ pg_writer_write_i64_as_string(PgWriter *w, i64 n) {
   u64 idx = PG_STATIC_ARRAY_LEN(tmp);
 
   u64 val = n < 0 ? (u64)-n : (u64)n;
-  while (n > 0) {
+  while (val > 0) {
     idx -= 1;
     PG_C_ARRAY_AT(tmp, PG_STATIC_ARRAY_LEN(tmp), idx) = '0' + (val % 10);
     val /= 10;
