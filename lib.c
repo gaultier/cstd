@@ -2690,6 +2690,7 @@ end:
 #else
 
 // -- Win32 ---
+#ifndef SYSTEM_INFO
 typedef struct _SYSTEM_INFO {
   union {
     i32 dwOemId;
@@ -2708,29 +2709,65 @@ typedef struct _SYSTEM_INFO {
   i16 wProcessorLevel;
   i16 wProcessorRevision;
 } SYSTEM_INFO, *LPSYSTEM_INFO;
+#endif
 
 typedef i32 PgWin32Handle;
 
+#ifndef GetStdHandle
 PgWin32Handle GetStdHandle(i32 std_handle);
+#endif
+#ifndef WriteFile
 bool WriteFile(PgWin32Handle file, void *buffer, i32 buffer_len, i32 *written,
                void *overlapped);
+#endif
+#ifndef GetSystemInfo
 void GetSystemInfo(SYSTEM_INFO *info);
+#endif
+#ifndef QueryPerformanceCounter
 bool QueryPerformanceCounter(u64 *val);
+#endif
+#ifndef GetLastError
 i32 GetLastError();
+#endif
+#ifndef VirtualAlloc
 void *VirtualAlloc(void *addr, u64 size, i32 allocation_type, i32 protect);
+#endif
+#ifndef VirtualFree
 bool VirtualFree(void *addr, u64 size, i32 free_type);
+#endif
+#ifndef VirtualProtect
 bool VirtualProtect(void *addr, u64 size, i32 protect_flags_new,
                     i32 *protect_flags_old);
-#define PAGE_EXECUTE 0x10
-#define PAGE_EXECUTE_READ 0x20
-#define PAGE_EXECUTE_READWRITE 0x40
-#define PAGE_NOACCESS 0x01
-#define PAGE_READONLY 0x02
-#define PAGE_READWRITE 0x04
+#endif
 
+#ifndef PAGE_EXECUTE
+#define PAGE_EXECUTE 0x10
+#endif
+#ifndef PAGE_EXECUTE_READ
+#define PAGE_EXECUTE_READ 0x20
+#endif
+#ifndef PAGE_EXECUTE_READWRITE
+#define PAGE_EXECUTE_READWRITE 0x40
+#endif
+#ifndef PAGE_NOACCESS
+#define PAGE_NOACCESS 0x01
+#endif
+#ifndef PAGE_READONLY
+#define PAGE_READONLY 0x02
+#endif
+#ifndef PAGE_READWRITE
+#define PAGE_READWRITE 0x04
+#endif
+
+#ifndef MEM_COMMIT
 #define MEM_COMMIT 0x00001000
+#endif
+#ifndef MEM_RESERVE
 #define MEM_RESERVE 0x00002000
+#endif
+#ifndef MEM_RELEASE
 #define MEM_RELEASE 0x00008000
+#endif
 
 #define STD_INPUT_HANDLE ((i32) - 10)
 #define STD_OUTPUT_HANDLE ((i32) - 11)
