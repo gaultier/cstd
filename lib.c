@@ -2385,8 +2385,12 @@ typedef struct {
 [[maybe_unused]] [[nodiscard]] static PgReader
 pg_reader_make_from_file(PgFile file);
 
-[[maybe_unused]] [[nodiscard]] static PgWriter
-pg_writer_make_from_file(PgFile file);
+[[nodiscard]] static PgWriter pg_writer_make_from_file(PgFile file) {
+  return (PgWriter){
+      .ctx = (void *)(u64)file,
+      .write_fn = pg_writer_file_write,
+  };
+}
 
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
@@ -2472,14 +2476,6 @@ pg_writer_unix_write(void *self, u8 *buf, size_t buf_len) {
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len) {
   return pg_writer_unix_write(self, buf, buf_len);
-}
-
-[[maybe_unused]] [[nodiscard]] static PgWriter
-pg_writer_make_from_file(PgFile file) {
-  return (PgWriter){
-      .ctx = (void *)(u64)file,
-      .write_fn = pg_writer_file_write,
-  };
 }
 
 [[maybe_unused]] [[nodiscard]] static int
@@ -2704,6 +2700,8 @@ typedef struct _SYSTEM_INFO {
   i16 wProcessorRevision;
 } SYSTEM_INFO, *LPSYSTEM_INFO;
 
+bool WriteFile(i32 file, void *buffer, i32 buffer_len, i32 *written,
+               void *overlapped);
 void GetSystemInfo(SYSTEM_INFO *info);
 bool QueryPerformanceCounter(u64 *val);
 i32 GetLastError();
@@ -2722,6 +2720,32 @@ bool VirtualProtect(void *addr, u64 size, i32 protect_flags_new,
 #define MEM_RESERVE 0x00002000
 #define MEM_RELEASE 0x00008000
 // ---------
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_writer_win32_write(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
+
+  PgWriter *w = self;
+  PG_ASSERT(0 != (u64)w->ctx);
+
+  int fd = (int)(u64)w->ctx;
+  i32 n = 0;
+  bool ok = WriteFile(fd, buf, buf_len, &n, nullptr);
+  PgU64Result res = {0};
+  if (!ok) {
+    res.err = pg_os_get_last_error();
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_writer_file_write(void *self, u8 *buf, size_t buf_len) {
+  return pg_writer_win32_write(self, buf, buf_len);
+}
 
 [[nodiscard]] static u64 pg_os_get_page_size() {
   SYSTEM_INFO info;
@@ -4230,21 +4254,6 @@ pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
 pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
                             PgLogLevel level, PgString msg, i32 args_count,
                             ...);
-
-#if 0
-[[maybe_unused]] [[nodiscard]] static PgLogger
-pg_log_make_logger_stdout_json(PgLogLevel level) {
-  PgLogger logger = {
-      .level = level,
-      .writer = pg_writer_make_from_file(
-          (PgFile *)(u64)STDOUT_FILENO), // TODO: Windows
-      .arena = pg_arena_make_from_virtual_mem(8 * PG_KiB),
-      .make_log_line = pg_log_make_log_line_json,
-  };
-
-  return logger;
-}
-#endif
 
 [[maybe_unused]] [[nodiscard]] static PgLogger
 pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
