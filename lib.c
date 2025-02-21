@@ -2268,7 +2268,7 @@ typedef enum [[clang::flag_enum]] {
                                              PgVirtualMemFlags flags_new);
 [[nodiscard]] PgError pg_virtual_mem_release(void *ptr, u64 size);
 
-[[nodiscard]] u64 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags);
+[[nodiscard]] i32 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags);
 
 [[maybe_unused]] [[nodiscard]] static PgArena
 pg_arena_make_from_virtual_mem(u64 size) {
@@ -2421,7 +2421,7 @@ pg_reader_make_from_file(PgFile file);
 
 [[nodiscard]] i32 pg_os_get_last_error() { return errno; }
 
-[[nodiscard]] u64 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags) {
+[[nodiscard]] i32 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags) {
   u64 res = 0;
   if (flags & PG_VIRTUAL_MEM_FLAGS_READ) {
     res |= PROT_READ;
@@ -2432,13 +2432,15 @@ pg_reader_make_from_file(PgFile file);
   if (flags & PG_VIRTUAL_MEM_FLAGS_EXEC) {
     res |= PROT_EXEC;
   }
-  return res;
+  return (i32)res;
 }
 
 [[nodiscard]] PgVoidPtrResult pg_virtual_mem_alloc(u64 size,
                                                    PgVirtualMemFlags flags) {
+  PG_ASSERT(size > 0);
+
   PgVoidPtrResult res = {0};
-  res.res = mmap(nullptr, size, (int)pg_virtual_mem_flags_to_os_flags(flags),
+  res.res = mmap(nullptr, size, pg_virtual_mem_flags_to_os_flags(flags),
                  MAP_ANON | MAP_PRIVATE, -1, 0);
   if (!res.res) {
     res.err = (PgError)pg_os_get_last_error();
@@ -2451,8 +2453,7 @@ pg_reader_make_from_file(PgFile file);
                                              PgVirtualMemFlags flags_new) {
   (void)flags_old;
 
-  if (-1 ==
-      mprotect(ptr, size, (i32)pg_virtual_mem_flags_to_os_flags(flags_new))) {
+  if (-1 == mprotect(ptr, size, pg_virtual_mem_flags_to_os_flags(flags_new))) {
     return (PgError)pg_os_get_last_error();
   }
   return 0;
@@ -2802,7 +2803,7 @@ pg_time_ns_now(PgClockKind clock_kind) {
 
 [[nodiscard]] i32 pg_os_get_last_error() { return GetLastError(); }
 
-[[nodiscard]] u64 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags) {
+[[nodiscard]] i32 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags) {
   u64 res = 0;
   if (flags & PG_VIRTUAL_MEM_FLAGS_READ) {
     res |= PAGE_NOACCESS;
@@ -2814,15 +2815,17 @@ pg_time_ns_now(PgClockKind clock_kind) {
   if (flags & PG_VIRTUAL_MEM_FLAGS_EXEC) {
     res |= PAGE_READONLY;
   }
-  return res;
+  return (i32)res;
 }
 
 [[nodiscard]] PgVoidPtrResult pg_virtual_mem_alloc(u64 size,
                                                    PgVirtualMemFlags flags) {
+  PG_ASSERT(size > 0);
+
   PgVoidPtrResult res = {0};
   // Note: We will reserve the guard pages right now.
   res.res = VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE,
-                         (int)pg_virtual_mem_flags_to_os_flags(flags));
+                         pg_virtual_mem_flags_to_os_flags(flags));
   if (!res.res) {
     res.err = (PgError)pg_os_get_last_error();
   }
@@ -2835,8 +2838,8 @@ pg_time_ns_now(PgClockKind clock_kind) {
   (void)flags_old;
 
   if (0 == VirtualProtect(ptr, size,
-                          (i32)pg_virtual_mem_flags_to_os_flags(flags_new),
-                          (i32)pg_virtual_mem_flags_to_os_flags(flags_old))) {
+                          pg_virtual_mem_flags_to_os_flags(flags_new),
+                          pg_virtual_mem_flags_to_os_flags(flags_old))) {
     return (PgError)pg_os_get_last_error();
   }
   return 0;
