@@ -2390,6 +2390,12 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout();
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr();
 
+[[maybe_unused]] static PgU64Result pg_file_read(PgFileDescriptor file,
+                                                 PgString buf, u64 offset);
+
+[[maybe_unused]] static PgStringResult
+pg_file_read_full(PgString path, PgAllocator *allocator);
+
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
@@ -2535,77 +2541,6 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
   return res;
 }
 
-typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
-
-// TODO: Async.
-[[nodiscard]] [[maybe_unused]] static PgError
-pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
-                    void *ctx, PgArena arena) {
-
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
-
-  char path_c[PG_PATH_MAX] = {0};
-  if (!pg_cstr_mut_from_string(path_c, path)) {
-    return PG_ERR_INVALID_VALUE;
-  }
-
-  int fd = 0;
-  do {
-    fd = open(path_c, O_RDONLY);
-  } while (-1 == fd && EINTR == errno);
-
-  if (fd < 0) {
-    return (PgError)errno;
-  }
-
-  Pgu8Dyn chunk = {0};
-  PG_DYN_ENSURE_CAP(&chunk, chunk_size, allocator);
-  PgError err = 0;
-
-  for (;;) {
-    PgString space = PG_DYN_SPACE(PgString, &chunk);
-    if (pg_string_is_empty(space)) {
-      PG_ASSERT(chunk_size == chunk.len);
-      err = on_chunk(PG_DYN_SLICE(PgString, chunk), ctx);
-      if (err) {
-        goto end;
-      }
-
-      chunk.len = 0;
-      space = PG_DYN_SPACE(PgString, &chunk);
-    }
-
-    PG_ASSERT(space.len > 0);
-    PG_ASSERT(space.len <= chunk_size);
-
-    i64 ret = 0;
-    do {
-      ret = read(fd, space.data, space.len);
-    } while (-1 == ret && EINTR == errno);
-
-    if (-1 == ret) {
-      err = (PgError)errno;
-      goto end;
-    }
-
-    if (0 == ret) { // EOF.
-      err = on_chunk(PG_DYN_SLICE(PgString, chunk), ctx);
-      goto end;
-    }
-
-    chunk.len += (u64)ret;
-  }
-
-end:
-  int ret = 0;
-  do {
-    ret = close(fd);
-  } while (-1 == ret && EINTR == errno);
-
-  return err;
-}
-
 [[nodiscard]] static u64 pg_os_get_page_size() {
   i64 ret = 0;
   do {
@@ -2615,6 +2550,24 @@ end:
   PG_ASSERT(ret > 0);
 
   return (u64)ret;
+}
+
+[[maybe_unused]] static PgU64Result pg_file_read(PgFileDescriptor file,
+                                                 PgString buf, u64 offset) {
+  PgU64Result res = {0};
+
+  isize n = 0;
+  do {
+    n = pread(file.fd, buf.data, buf.len, (off_t)offset);
+  } while (-1 == n && EINTR == errno);
+
+  if (-1 == n) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u64)n;
+  return res;
 }
 
 [[maybe_unused]] static PgStringResult
