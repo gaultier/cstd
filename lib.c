@@ -2388,13 +2388,6 @@ pg_reader_make_from_file(PgFileDescriptor file);
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor
-pg_os_get_stdin_descriptor();
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor
-pg_os_get_stdout_descriptor();
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor
-pg_os_get_stderr_descriptor();
-
 [[maybe_unused]] [[nodiscard]] static PgFileHandle pg_os_get_stdin_handle();
 [[maybe_unused]] [[nodiscard]] static PgFileHandle pg_os_get_stdout_handle();
 [[maybe_unused]] [[nodiscard]] static PgFileHandle pg_os_get_stderr_handle();
@@ -2409,21 +2402,6 @@ pg_os_get_stderr_descriptor();
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor
-pg_os_get_stdin_descriptor() {
-  return 0;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor
-pg_os_get_stdout_descriptor() {
-  return 1;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor
-pg_os_get_stderr_descriptor() {
-  return 2;
-}
 
 [[nodiscard]] i32 pg_os_get_last_error() { return errno; }
 
@@ -3778,20 +3756,6 @@ GB_DLL_IMPORT int StretchDIBits(HDC hdc, int XDest, int YDest, int nDestWidth,
 // IMPORTANT TODO(bill): FIX THIS!!!!
 #endif // Bill's Mini Windows.h
 // ---------
-
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor
-pg_os_get_stdin_descriptor() {
-  return (PgFileDescriptor)0;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor
-pg_os_get_stdout_descriptor() {
-  return (PgFileDescriptor)1;
-}
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor
-pg_os_get_stderr_descriptor() {
-  return (PgFileDescriptor)2;
-}
 
 [[maybe_unused]] [[nodiscard]] static PgFileHandle pg_os_get_stdin_handle() {
   return GetStdHandle(STD_INPUT_HANDLE);
@@ -5366,8 +5330,7 @@ pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
 pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
   PgLogger logger = {
       .level = level,
-      .writer = pg_writer_make_from_file(
-          (PgFileDescriptor)pg_os_get_stdout_descriptor()),
+      .writer = pg_writer_make_from_file(STDOUT_FILENO),
       .make_log_line = pg_log_make_log_line_logfmt,
       .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res,
   };
