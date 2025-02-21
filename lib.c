@@ -4241,7 +4241,10 @@ typedef struct {
   PgLogValueKind kind;
   union {
     PgString s;
+    u32 n32;
     u64 n64;
+    i32 s32;
+    i64 s64;
     PgIpv4Address ipv4_address;
   };
 } PgLogValue;
@@ -4287,8 +4290,9 @@ pg_log_level_to_string(PgLogLevel level) {
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_entry_int(PgString k,
-                                                                  int v) {
+#define pg_log_cu8(k, v) pg_log_u8(PG_S(k), v)
+
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u8(PgString k, u8 v) {
   return (PgLogEntry){
       .key = k,
       .value.kind = PG_LOG_VALUE_U64,
@@ -4296,8 +4300,9 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_entry_u16(PgString k,
-                                                                  u16 v) {
+#define pg_log_cu16(k, v) pg_log_u16(PG_S(k), v)
+
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u16(PgString k, u16 v) {
   return (PgLogEntry){
       .key = k,
       .value.kind = PG_LOG_VALUE_U64,
@@ -4305,8 +4310,9 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_entry_u32(PgString k,
-                                                                  u32 v) {
+#define pg_log_cu32(k, v) pg_log_u32(PG_S(k), v)
+
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u32(PgString k, u32 v) {
   return (PgLogEntry){
       .key = k,
       .value.kind = PG_LOG_VALUE_U64,
@@ -4314,8 +4320,9 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_entry_u64(PgString k,
-                                                                  u64 v) {
+#define pg_log_cu64(k, v) pg_log_u64(PG_S(k), v)
+
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u64(PgString k, u64 v) {
   return (PgLogEntry){
       .key = k,
       .value.kind = PG_LOG_VALUE_U64,
@@ -4323,17 +4330,31 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_entry_i64(PgString k,
-                                                                  i64 v) {
+#define pg_log_ci32(k, v) pg_log_i32(PG_S(k), v)
+
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_i32(PgString k, i32 v) {
   return (PgLogEntry){
       .key = k,
       .value.kind = PG_LOG_VALUE_I64,
-      .value.n64 = (u64)v,
+      .value.s64 = (i64)v,
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry
-pg_log_entry_string(PgString k, PgString v) {
+#define pg_log_cerr(k, v) pg_log_i32(PG_S(k), (i32)v)
+#define pg_log_err(k, v) pg_log_i32(k, (i32)v)
+
+#define pg_log_ci64(k, v) pg_log_i64(PG_S(k), v)
+
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_i64(PgString k, i64 v) {
+  return (PgLogEntry){
+      .key = k,
+      .value.kind = PG_LOG_VALUE_I64,
+      .value.s64 = v,
+  };
+}
+
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_s(PgString k,
+                                                          PgString v) {
   return (PgLogEntry){
       .key = k,
       .value.kind = PG_LOG_VALUE_STRING,
@@ -4341,24 +4362,18 @@ pg_log_entry_string(PgString k, PgString v) {
   };
 }
 
-[[maybe_unused]] [[nodiscard]] static PgLogEntry
-pg_log_entry_ipv4_address(PgString k, PgIpv4Address v) {
+#define pg_log_cs(k, v) pg_log_s(PG_S(k), v)
+
+#define pg_log_cipv4(k, v) pg_log_ipv4(PG_S(k), v)
+
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_ipv4(PgString k,
+                                                             PgIpv4Address v) {
   return (PgLogEntry){
       .key = k,
       .value.kind = PG_LOG_VALUE_IPV4_ADDRESS,
       .value.ipv4_address = v,
   };
 }
-
-#define PG_L(k, v)                                                             \
-  (_Generic((v),                                                               \
-       int: pg_log_entry_int,                                                  \
-       u16: pg_log_entry_u16,                                                  \
-       u32: pg_log_entry_u32,                                                  \
-       u64: pg_log_entry_u64,                                                  \
-       i64: pg_log_entry_i64,                                                  \
-       PgIpv4Address: pg_log_entry_ipv4_address,                               \
-       PgString: pg_log_entry_string)((PG_S(k)), (v)))
 
 #define PG_LOG_ARGS_COUNT(...)                                                 \
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
@@ -4683,7 +4698,7 @@ pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
       PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, entry.value.n64));
       break;
     case PG_LOG_VALUE_I64:
-      PG_ASSERT(0 == pg_writer_write_i64_as_string(&w, (i64)entry.value.n64));
+      PG_ASSERT(0 == pg_writer_write_i64_as_string(&w, entry.value.s64));
       break;
     case PG_LOG_VALUE_IPV4_ADDRESS: {
       PgString ipv4_addr_str =

@@ -1621,7 +1621,8 @@ static void test_log() {
     PgLogger logger = pg_log_make_logger_stdout_logfmt(PG_LOG_LEVEL_DEBUG);
     logger.writer = pg_writer_make_from_string_builder(&sb, allocator);
 
-    pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world", PG_L("foo", PG_S("bar")));
+    pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world",
+           pg_log_cs("foo", PG_S("bar")));
 
     PgString out = PG_DYN_SLICE(PgString, sb);
     PG_ASSERT(pg_string_starts_with(out, PG_S("level=info ")));
@@ -1634,7 +1635,7 @@ static void test_log() {
     logger.writer = pg_writer_make_from_string_builder(&sb, allocator);
 
     pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world",
-           PG_L("foo", PG_S("bar")));
+           pg_log_s(PG_S("foo"), PG_S("bar")));
 
     PgString out = PG_DYN_SLICE(PgString, sb);
     PG_ASSERT(pg_string_is_empty(out));
