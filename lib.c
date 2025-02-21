@@ -2240,7 +2240,7 @@ typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
 pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
                     void *ctx, PgArena arena);
 
-[[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size();
+[[nodiscard]] static u64 pg_os_get_page_size();
 
 typedef enum [[clang::flag_enum]] {
   PG_VIRTUAL_MEM_FLAGS_NONE = 0,
@@ -2592,7 +2592,7 @@ pg_string_to_filename(PgString s) {
   return s;
 }
 
-[[nodiscard]] [[maybe_unused]] static u64 pg_os_get_page_size() {
+[[nodiscard]] static u64 pg_os_get_page_size() {
   i64 ret = 0;
   do {
     ret = sysconf(_SC_PAGE_SIZE);
@@ -2672,6 +2672,26 @@ end:
 #else
 
 // -- Win32 ---
+typedef struct _SYSTEM_INFO {
+  union {
+    i32 dwOemId;
+    struct {
+      i16 wProcessorArchitecture;
+      i16 wReserved;
+    } DUMMYSTRUCTNAME;
+  } DUMMYUNIONNAME;
+  i32 dwPageSize;
+  void *lpMinimumApplicationAddress;
+  void *lpMaximumApplicationAddress;
+  i32 *dwActiveProcessorMask;
+  i32 dwNumberOfProcessors;
+  i32 dwProcessorType;
+  i32 dwAllocationGranularity;
+  i16 wProcessorLevel;
+  i16 wProcessorRevision;
+} SYSTEM_INFO, *LPSYSTEM_INFO;
+
+void GetSystemInfo(SYSTEM_INFO *info);
 bool QueryPerformanceCounter(u64 *val);
 i32 GetLastError();
 void *VirtualAlloc(void *addr, u64 size, i32 allocation_type, i32 protect);
@@ -2689,6 +2709,12 @@ bool VirtualProtect(void *addr, u64 size, i32 protect_flags_new,
 #define MEM_RESERVE 0x00002000
 #define MEM_RELEASE 0x00008000
 // ---------
+
+[[nodiscard]] static u64 pg_os_get_page_size() {
+  SYSTEM_INFO info;
+  GetSystemInfo(&info);
+  return (u64)info.dwPageSize;
+}
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_time_ns_now(PgClockKind clock_kind) {
