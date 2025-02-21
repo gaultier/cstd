@@ -2242,11 +2242,6 @@ pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len);
 
-typedef PgError (*PgFileReadOnChunk)(PgString chunk, void *ctx);
-[[nodiscard]] [[maybe_unused]] static PgError
-pg_file_read_chunks(PgString path, u64 chunk_size, PgFileReadOnChunk on_chunk,
-                    void *ctx, PgArena arena);
-
 [[nodiscard]] static u64 pg_os_get_page_size();
 
 typedef enum [[clang::flag_enum]] {
