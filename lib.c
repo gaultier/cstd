@@ -2713,6 +2713,7 @@ end:
 // Bill's Mini Windows.h
 //
 //
+#define _WINDOWS_
 
 #define WINAPI __stdcall
 #define WINAPIV __cdecl
