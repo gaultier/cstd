@@ -2788,7 +2788,16 @@ pg_writer_file_write(void *self, u8 *buf, size_t buf_len) {
 pg_time_ns_now(PgClockKind clock_kind) {
   PgU64Result res = {0};
 
-  PG_ASSERT(QueryPerformanceCounter(&res.res));
+  switch (clock_kind) {
+  case PG_CLOCK_KIND_MONOTONIC:
+    PG_ASSERT(QueryPerformanceCounter(&res.res));
+    return res;
+  case PG_CLOCK_KIND_REALTIME:
+    PG_ASSERT(0 && "todo");
+    return res;
+  default:
+    PG_ASSERT(0);
+  }
 
   return res;
 }
@@ -2796,7 +2805,6 @@ pg_time_ns_now(PgClockKind clock_kind) {
 [[nodiscard]] i32 pg_os_get_last_error() { return GetLastError(); }
 
 [[nodiscard]] i32 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags) {
-  u64 res = 0;
   if (PG_VIRTUAL_MEM_FLAGS_NONE == flags) {
     return PAGE_NOACCESS;
   }
@@ -2819,7 +2827,6 @@ pg_time_ns_now(PgClockKind clock_kind) {
   PgVoidPtrResult res = {0};
   // Note: We will reserve the guard pages right now.
 
-  i32 win32_flags = pg_virtual_mem_flags_to_os_flags(flags);
   res.res = VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE,
                          pg_virtual_mem_flags_to_os_flags(flags));
   if (!res.res) {
