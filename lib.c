@@ -2483,7 +2483,7 @@ pg_writer_file_write(void *self, u8 *buf, size_t buf_len) {
   return pg_writer_unix_file_write(self, buf, buf_len);
 }
 
-[[maybe_unused]] [[nodiscard]] static int
+[[maybe_unused]] [[nodiscard]] static clockid_t
 pg_clock_to_linux(PgClockKind clock_kind) {
   switch (clock_kind) {
   case PG_CLOCK_KIND_MONOTONIC:
