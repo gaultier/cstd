@@ -2623,7 +2623,7 @@ end:
     ret = sysconf(_SC_PAGE_SIZE);
   } while (-1 == ret && EINTR == errno);
 
-  PG_ASSERT(ret >= 0);
+  PG_ASSERT(ret > 0);
 
   return (u64)ret;
 }
@@ -2785,7 +2785,10 @@ pg_writer_file_write(void *self, u8 *buf, size_t buf_len) {
 [[nodiscard]] static u64 pg_os_get_page_size() {
   SYSTEM_INFO info;
   GetSystemInfo(&info);
-  return (u64)info.dwPageSize;
+  u64 res = (u64)info.dwPageSize;
+
+  PG_ASSERT(res > 0);
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
