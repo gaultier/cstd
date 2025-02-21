@@ -2602,6 +2602,17 @@ end:
 
 #else
 
+bool QueryPerformanceCounter(u64 *val);
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_time_ns_now(PgClockKind clock_kind) {
+  PgU64Result res = {0};
+
+  PG_ASSERT(QueryPerformanceCounter(&res.res));
+
+  return res;
+}
+
 // There will be linking errors!
 #endif
 
