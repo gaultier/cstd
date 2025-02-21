@@ -1661,12 +1661,17 @@ static void test_path_base_name() {
                    pg_path_base_name(PG_S(PG_PATH_SEPARATOR_S
                                           "a" PG_PATH_SEPARATOR_S
                                           "b" PG_PATH_SEPARATOR_S "foo.mp3"))));
-  PG_ASSERT(pg_string_eq(PG_S("b\\" PG_PATH_SEPARATOR_S "foo.mp3"),
-                         pg_path_base_name(PG_S("/a/b\\/foo.mp3"))));
-  PG_ASSERT(pg_string_eq(PG_S("foo.mp3"),
-                         pg_path_base_name(PG_S("/a/b/../foo.mp3"))));
+  PG_ASSERT(pg_string_eq(
+      PG_S("b foo.mp3"),
+      pg_path_base_name(
+          PG_S("" PG_PATH_SEPARATOR_S "a" PG_PATH_SEPARATOR_S "b foo.mp3"))));
+  PG_ASSERT(pg_string_eq(
+      PG_S("foo.mp3"),
+      pg_path_base_name(PG_S("/a" PG_PATH_SEPARATOR_S "b" PG_PATH_SEPARATOR_S
+                             ".." PG_PATH_SEPARATOR_S "foo.mp3"))));
   PG_ASSERT(
-      pg_string_eq(PG_S("foo.mp3"), pg_path_base_name(PG_S("./foo.mp3"))));
+      pg_string_eq(PG_S("foo.mp3"),
+                   pg_path_base_name(PG_S("." PG_PATH_SEPARATOR_S "foo.mp3"))));
 }
 
 typedef struct {
