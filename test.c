@@ -1681,22 +1681,6 @@ static bool u64_node_less_than(PgHeapNode *a, PgHeapNode *b) {
   return una->value < unb->value;
 }
 
-// For debugging.
-[[maybe_unused]]
-static bool u64_node_print(PgHeapNode *node, u64 depth, bool left, void *ctx) {
-  PG_ASSERT(node);
-  (void)ctx;
-
-  u64Node *un = PG_CONTAINER_OF(node, u64Node, heap);
-
-  for (u64 i = 0; i < depth; i++) {
-    printf("  ");
-  }
-  printf("[D001] %c %lu\n", left ? 'L' : 'R', un->value);
-
-  return true;
-}
-
 static void test_heap_insert_dequeue() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
@@ -1708,10 +1692,6 @@ static void test_heap_insert_dequeue() {
     u64Node *node = pg_arena_new(&arena, u64Node, 1);
     node->value = value;
     pg_heap_insert(&heap, &node->heap, u64_node_less_than);
-#if 0
-    pg_heap_node_iter(heap.root, u64_node_print, 0, true, nullptr);
-    printf("---\n");
-#endif
 
     pg_heap_node_sanity_check(heap.root, u64_node_less_than);
   }
