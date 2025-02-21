@@ -2711,13 +2711,13 @@ pg_writer_win32_write(void *self, u8 *buf, size_t buf_len) {
 
   PgWriter *w = self;
 
-  PgFileDescriptor file = (PgFileDescriptor)w->ctx;
+  PgFileDescriptor file = w->ctx;
   HANDLE handle = file.ptr;
   DWORD n = 0;
-  bool ok = WriteFile(handle, buf, buf_len, &n, nullptr);
+  bool ok = WriteFile(handle, buf, (DWORD)buf_len, &n, nullptr);
   PgU64Result res = {0};
   if (!ok) {
-    res.err = pg_os_get_last_error();
+    res.err = (PgError)pg_os_get_last_error();
   } else {
     res.res = (u64)n;
   }
@@ -2789,7 +2789,7 @@ pg_time_ns_now(PgClockKind clock_kind) {
   // Note: We will reserve the guard pages right now.
 
   res.res = VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE,
-                         pg_virtual_mem_flags_to_os_flags(flags));
+                         (DWORD)pg_virtual_mem_flags_to_os_flags(flags));
   if (!res.res) {
     res.err = (PgError)pg_os_get_last_error();
   }
