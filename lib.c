@@ -4,7 +4,6 @@
 // TODO: IPv6.
 // TODO: *Pool allocator?*
 // TODO: Randomize arena guard pages.
-// TODO: Sha1 hardware accelerated?
 // TODO: HTTP compression (gzip, etc)
 // TODO: TLS 1.3
 // TODO: Pprof memory profiling.
