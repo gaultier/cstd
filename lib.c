@@ -369,6 +369,17 @@ pg_string_indexof_byte(PgString haystack, u8 needle) {
   return res - haystack.data;
 }
 
+[[nodiscard]] static i64 pg_string_last_indexof_byte(PgString haystack,
+                                                     u8 needle) {
+  for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
+    u8 c = PG_SLICE_AT(haystack, i);
+    if (needle == c) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 #define PG_SLICE_RANGE(s, start, end)                                          \
   ((typeof((s))){                                                              \
       .data = (s).len == PG_CLAMP(0, start, (s).len)                           \
@@ -2354,8 +2365,22 @@ typedef struct {
 } PgPath;
 #endif
 
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_string_to_filename(PgString s);
+#ifdef PG_OS_UNIX
+#define PG_PATH_SEPARATOR '/'
+#define PG_PATH_SEPARATOR_S "/"
+#else
+#define PG_PATH_SEPARATOR '\\'
+#define PG_PATH_SEPARATOR_S "\\"
+#endif
+
+[[maybe_unused]] [[nodiscard]] static PgString pg_path_base_name(PgString s) {
+  i64 idx = pg_string_last_indexof_byte(s, PG_PATH_SEPARATOR);
+  if (-1 == idx) {
+    return s;
+  } else {
+    return PG_SLICE_RANGE_START(s, (u64)idx + 1);
+  }
+}
 
 [[maybe_unused]] [[nodiscard]] static PgReader
 pg_reader_make_from_file(PgFile file);
@@ -2578,18 +2603,6 @@ end:
   } while (-1 == ret && EINTR == errno);
 
   return err;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_string_to_filename(PgString s) {
-  for (i64 i = (i64)s.len - 1; i >= 0; i--) {
-    u8 cur = PG_SLICE_AT(s, i);
-    u8 prev = i > 0 ? PG_SLICE_AT(s, i - 1) : 0;
-    if ('/' == cur && '\\' != prev) {
-      return PG_SLICE_RANGE_START(s, (u64)i + 1);
-    }
-  }
-  return s;
 }
 
 [[nodiscard]] static u64 pg_os_get_page_size() {

@@ -1650,20 +1650,23 @@ static void test_div_ceil() {
   PG_ASSERT(2 == pg_div_ceil(5, 4));
 }
 
-static void test_string_to_filename() {
-  PG_ASSERT(pg_string_eq(PG_S(""), pg_string_to_filename(PG_S(""))));
-  PG_ASSERT(pg_string_eq(PG_S(""), pg_string_to_filename(PG_S("/"))));
-  PG_ASSERT(pg_string_eq(PG_S("foo"), pg_string_to_filename(PG_S("foo"))));
+static void test_path_base_name() {
+  PG_ASSERT(pg_string_eq(PG_S(""), pg_path_base_name(PG_S(""))));
   PG_ASSERT(
-      pg_string_eq(PG_S("foo.mp3"), pg_string_to_filename(PG_S("foo.mp3"))));
-  PG_ASSERT(pg_string_eq(PG_S("foo.mp3"),
-                         pg_string_to_filename(PG_S("/a/b/foo.mp3"))));
-  PG_ASSERT(pg_string_eq(PG_S("b\\/foo.mp3"),
-                         pg_string_to_filename(PG_S("/a/b\\/foo.mp3"))));
-  PG_ASSERT(pg_string_eq(PG_S("foo.mp3"),
-                         pg_string_to_filename(PG_S("/a/b/../foo.mp3"))));
+      pg_string_eq(PG_S(""), pg_path_base_name(PG_S("" PG_PATH_SEPARATOR_S))));
+  PG_ASSERT(pg_string_eq(PG_S("foo"), pg_path_base_name(PG_S("foo"))));
+  PG_ASSERT(pg_string_eq(PG_S("foo.mp3"), pg_path_base_name(PG_S("foo.mp3"))));
   PG_ASSERT(
-      pg_string_eq(PG_S("foo.mp3"), pg_string_to_filename(PG_S("./foo.mp3"))));
+      pg_string_eq(PG_S("foo.mp3"),
+                   pg_path_base_name(PG_S(PG_PATH_SEPARATOR_S
+                                          "a" PG_PATH_SEPARATOR_S
+                                          "b" PG_PATH_SEPARATOR_S "foo.mp3"))));
+  PG_ASSERT(pg_string_eq(PG_S("b\\" PG_PATH_SEPARATOR_S "foo.mp3"),
+                         pg_path_base_name(PG_S("/a/b\\/foo.mp3"))));
+  PG_ASSERT(pg_string_eq(PG_S("foo.mp3"),
+                         pg_path_base_name(PG_S("/a/b/../foo.mp3"))));
+  PG_ASSERT(
+      pg_string_eq(PG_S("foo.mp3"), pg_path_base_name(PG_S("./foo.mp3"))));
 }
 
 typedef struct {
@@ -1785,7 +1788,7 @@ int main() {
   // test_http_request_response();
   test_log();
   test_div_ceil();
-  test_string_to_filename();
+  test_path_base_name();
   test_heap_insert_dequeue();
   test_heap_remove_in_the_middle();
 }
