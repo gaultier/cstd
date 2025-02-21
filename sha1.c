@@ -74,7 +74,7 @@ static void PG_SHA1Transform(uint32_t state[5],
                              const uint8_t buffer[PG_SHA1_BLOCK_LENGTH]) {
   uint32_t a, b, c, d, e;
   uint8_t workspace[PG_SHA1_BLOCK_LENGTH];
-  PG_CHAR64LONG16 *block = (PG_CHAR64LONG16 *)workspace;
+  PG_CHAR64LONG16 *block = (void *)(PG_CHAR64LONG16 *)(void *)workspace;
 
   (void)memcpy(block, buffer, PG_SHA1_BLOCK_LENGTH);
 
