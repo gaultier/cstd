@@ -2671,7 +2671,10 @@ end:
 
 #else
 
+// -- Win32 ---
 bool QueryPerformanceCounter(u64 *val);
+i32 GetLastError();
+// ---------
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_time_ns_now(PgClockKind clock_kind) {
@@ -2680,6 +2683,52 @@ pg_time_ns_now(PgClockKind clock_kind) {
   PG_ASSERT(QueryPerformanceCounter(&res.res));
 
   return res;
+}
+
+[[nodiscard]] i32 pg_os_get_last_error() { return GetLastError(); }
+
+[[nodiscard]] u64 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags) {
+  u64 res = 0;
+  if (flags & PG_VIRTUAL_MEM_FLAGS_READ) {
+    res |= PROT_READ;
+  }
+  if (flags & PG_VIRTUAL_MEM_FLAGS_WRITE) {
+    res |= PROT_WRITE;
+  }
+  if (flags & PG_VIRTUAL_MEM_FLAGS_EXEC) {
+    res |= PROT_EXEC;
+  }
+  return res;
+}
+
+[[nodiscard]] PgVoidPtrResult pg_virtual_mem_alloc(u64 size,
+                                                   PgVirtualMemFlags flags) {
+  PgVoidPtrResult res = {0};
+  res.res = mmap(nullptr, size, (int)pg_virtual_mem_flags_to_os_flags(flags),
+                 MAP_ANON | MAP_PRIVATE, -1, 0);
+  if (!res.res) {
+    res.err = (PgError)pg_os_get_last_error();
+  }
+  return res;
+}
+
+[[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
+                                             PgVirtualMemFlags flags_old,
+                                             PgVirtualMemFlags flags_new) {
+  (void)flags_old;
+
+  if (-1 ==
+      mprotect(ptr, size, (i32)pg_virtual_mem_flags_to_os_flags(flags_new))) {
+    return (PgError)pg_os_get_last_error();
+  }
+  return 0;
+}
+
+[[nodiscard]] PgError pg_virtual_mem_release(void *ptr, u64 size) {
+  if (-1 == munmap(ptr, size)) {
+    return (PgError)pg_os_get_last_error();
+  }
+  return 0;
 }
 
 // There will be linking errors!
