@@ -2392,6 +2392,10 @@ pg_reader_make_from_file(PgFile file);
   };
 }
 
+[[maybe_unused]] [[nodiscard]] static PgFile pg_os_get_stdin_handle();
+[[maybe_unused]] [[nodiscard]] static PgFile pg_os_get_stdout_handle();
+[[maybe_unused]] [[nodiscard]] static PgFile pg_os_get_stderr_handle();
+
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
@@ -2402,6 +2406,18 @@ pg_reader_make_from_file(PgFile file);
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+
+[[maybe_unused]] [[nodiscard]] static PgFile pg_os_get_stdin_handle() {
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgFile pg_os_get_stdout_handle() {
+  return 1;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgFile pg_os_get_stderr_handle() {
+  return 2;
+}
 
 [[nodiscard]] i32 pg_os_get_last_error() { return errno; }
 
@@ -2700,7 +2716,10 @@ typedef struct _SYSTEM_INFO {
   i16 wProcessorRevision;
 } SYSTEM_INFO, *LPSYSTEM_INFO;
 
-bool WriteFile(i32 file, void *buffer, i32 buffer_len, i32 *written,
+typedef i32 PgWin32Handle;
+
+PgWin32Handle GetStdHandle(i32 std_handle);
+bool WriteFile(PgWin32Handle file, void *buffer, i32 buffer_len, i32 *written,
                void *overlapped);
 void GetSystemInfo(SYSTEM_INFO *info);
 bool QueryPerformanceCounter(u64 *val);
@@ -2719,7 +2738,23 @@ bool VirtualProtect(void *addr, u64 size, i32 protect_flags_new,
 #define MEM_COMMIT 0x00001000
 #define MEM_RESERVE 0x00002000
 #define MEM_RELEASE 0x00008000
+
+#define STD_INPUT_HANDLE ((i32) - 10)
+#define STD_OUTPUT_HANDLE ((i32) - 11)
+#define STD_ERROR_HANDLE ((i32) - 12)
 // ---------
+
+[[maybe_unused]] [[nodiscard]] static PgFile pg_os_get_stdin_handle() {
+  return GetStdHandle(STD_INPUT_HANDLE);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgFile pg_os_get_stdout_handle() {
+  return GetStdHandle(STD_OUTPUT_HANDLE);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgFile pg_os_get_stderr_handle() {
+  return GetStdHandle(STD_ERROR_HANDLE);
+}
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_win32_write(void *self, u8 *buf, size_t buf_len) {
@@ -4259,8 +4294,7 @@ pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
 pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
   PgLogger logger = {
       .level = level,
-      .writer =
-          pg_writer_make_from_file((PgFile)(u64)STDOUT_FILENO), // TODO: Windows
+      .writer = pg_writer_make_from_file((PgFile)pg_os_get_stdout_handle()),
       .make_log_line = pg_log_make_log_line_logfmt,
       .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res,
   };
