@@ -2264,7 +2264,6 @@ typedef enum [[clang::flag_enum]] {
 [[nodiscard]] PgVoidPtrResult pg_virtual_mem_alloc(u64 size,
                                                    PgVirtualMemFlags flags);
 [[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
-                                             PgVirtualMemFlags flags_old,
                                              PgVirtualMemFlags flags_new);
 [[nodiscard]] PgError pg_virtual_mem_release(void *ptr, u64 size);
 
@@ -2306,13 +2305,9 @@ pg_arena_make_from_virtual_mem(u64 size) {
             page_guard_after);
 
   PG_ASSERT(0 == pg_virtual_mem_protect((void *)page_guard_before, page_size,
-                                        PG_VIRTUAL_MEM_FLAGS_READ |
-                                            PG_VIRTUAL_MEM_FLAGS_WRITE,
                                         PG_VIRTUAL_MEM_FLAGS_NONE));
 
   PG_ASSERT(0 == pg_virtual_mem_protect((void *)page_guard_after, page_size,
-                                        PG_VIRTUAL_MEM_FLAGS_READ |
-                                            PG_VIRTUAL_MEM_FLAGS_WRITE,
                                         PG_VIRTUAL_MEM_FLAGS_NONE));
 
   // Trigger a page fault preemptively to detect invalid virtual memory
@@ -2449,10 +2444,7 @@ pg_reader_make_from_file(PgFile file);
 }
 
 [[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
-                                             PgVirtualMemFlags flags_old,
                                              PgVirtualMemFlags flags_new) {
-  (void)flags_old;
-
   if (-1 == mprotect(ptr, size, pg_virtual_mem_flags_to_os_flags(flags_new))) {
     return (PgError)pg_os_get_last_error();
   }
@@ -2728,7 +2720,7 @@ i32 GetLastError();
 void *VirtualAlloc(void *addr, u64 size, i32 allocation_type, i32 protect);
 bool VirtualFree(void *addr, u64 size, i32 free_type);
 bool VirtualProtect(void *addr, u64 size, i32 protect_flags_new,
-                    i32 protect_flags_old);
+                    i32 *protect_flags_old);
 #define PAGE_EXECUTE 0x10
 #define PAGE_EXECUTE_READ 0x20
 #define PAGE_EXECUTE_READWRITE 0x40
@@ -2805,17 +2797,19 @@ pg_time_ns_now(PgClockKind clock_kind) {
 
 [[nodiscard]] i32 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags) {
   u64 res = 0;
-  if (flags & PG_VIRTUAL_MEM_FLAGS_READ) {
-    res |= PAGE_NOACCESS;
+  if (PG_VIRTUAL_MEM_FLAGS_NONE == flags) {
+    return PAGE_NOACCESS;
   }
-  // Apparently there is no write-only flag.
+
   if (flags & PG_VIRTUAL_MEM_FLAGS_WRITE) {
-    res |= PAGE_READWRITE;
+    return PAGE_READWRITE;
   }
-  if (flags & PG_VIRTUAL_MEM_FLAGS_EXEC) {
-    res |= PAGE_READONLY;
+
+  if (PG_VIRTUAL_MEM_FLAGS_READ == flags) {
+    return PAGE_READONLY;
   }
-  return (i32)res;
+
+  PG_ASSERT(0 && "todo");
 }
 
 [[nodiscard]] PgVoidPtrResult pg_virtual_mem_alloc(u64 size,
@@ -2824,6 +2818,8 @@ pg_time_ns_now(PgClockKind clock_kind) {
 
   PgVoidPtrResult res = {0};
   // Note: We will reserve the guard pages right now.
+
+  i32 win32_flags = pg_virtual_mem_flags_to_os_flags(flags);
   res.res = VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE,
                          pg_virtual_mem_flags_to_os_flags(flags));
   if (!res.res) {
@@ -2833,13 +2829,12 @@ pg_time_ns_now(PgClockKind clock_kind) {
 }
 
 [[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
-                                             PgVirtualMemFlags flags_old,
                                              PgVirtualMemFlags flags_new) {
-  (void)flags_old;
 
+  i32 flags_old = 0;
   if (0 == VirtualProtect(ptr, size,
                           pg_virtual_mem_flags_to_os_flags(flags_new),
-                          pg_virtual_mem_flags_to_os_flags(flags_old))) {
+                          &flags_old)) {
     return (PgError)pg_os_get_last_error();
   }
   return 0;
