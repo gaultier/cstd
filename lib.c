@@ -2326,31 +2326,6 @@ pg_arena_make_from_virtual_mem(u64 size) {
   return pg_virtual_mem_release(arena->os_start, arena->os_alloc_size);
 }
 
-#if 0
-typedef enum {
-  PG_PATH_COMPONENT_KIND_ROOT_DIR,
-  PG_PATH_COMPONENT_KIND_CURRENT_DIR,
-  PG_PATH_COMPONENT_KIND_PARENT_DIR,
-  PG_PATH_COMPONENT_KIND_PREFIX, // Only on Windows, e.g. `C:`.
-  PG_PATH_COMPONENT_KIND_NORMAL,
-} PgPathComponentKind;
-
-typedef struct {
-  PgPathComponentKind kind;
-  PgString s; // If `kind == PG_PATH_COMPONENT_KIND_NORMAL`.
-} PgPathComponent;
-
-PG_DYN(PgPathComponent) PgPathComponentDyn;
-PG_SLICE(PgPathComponent) PgPathComponentSlice;
-
-typedef struct {
-  PgPathComponentSlice
-      components; // E.g. `[foo, bar, baz, song]` for `/foo/bar/baz/song.mp3`.
-  PgString file_name; // E.g. `song.mp3`.
-  PgString extension; // E.g. `mp3`.
-} PgPath;
-#endif
-
 #ifdef PG_OS_UNIX
 #define PG_PATH_SEPARATOR '/'
 #define PG_PATH_SEPARATOR_S "/"
