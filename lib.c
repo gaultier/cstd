@@ -2374,6 +2374,15 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
 [[maybe_unused]] static PgStringResult
 pg_file_read_full(PgString path, PgAllocator *allocator);
 
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
+pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_file_close(PgFileDescriptor file);
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_file_size(PgFileDescriptor file);
+
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
@@ -2548,69 +2557,72 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
   return res;
 }
 
-[[maybe_unused]] static PgStringResult
-pg_file_read_full(PgString path, PgAllocator *allocator) {
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
+pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator) {
+  PgFileDescriptorResult res = {0};
+  char *path_os = pg_string_to_cstr(path, allocator);
 
-  PgStringResult res = {0};
-  char *path_c = pg_string_to_cstr(path, allocator);
+  int flags = 0;
+  switch (access & PG_FILE_ACCESS_ALL) {
+  case PG_FILE_ACCESS_READ:
+    flags = O_RDONLY;
+    break;
+  case PG_FILE_ACCESS_WRITE:
+    flags = O_WRONLY;
+    break;
+  case PG_FILE_ACCESS_APPEND:
+    flags = O_APPEND;
+    break;
+  case PG_FILE_ACCESS_READ | PG_FILE_ACCESS_READ_WRITE:
+    flags = O_RDWR;
+    break;
+  case PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE:
+    flags = O_RDWR;
+    break;
+  case PG_FILE_ACCESS_APPEND | PG_FILE_ACCESS_READ_WRITE:
+    flags = O_RDWR | O_APPEND;
+    break;
+  default:
+    PG_ASSERT(0);
+  }
 
-  int fd = 0;
-  do {
-    fd = open(path_c, O_RDONLY);
-  } while (-1 == fd && EINTR == errno);
+  int fd = open(path_os, flags, 0600);
+  pg_free(allocator, path_os);
 
-  if (fd < 0) {
-    res.err = (PgError)errno;
+  if (-1 == fd) {
+    res.err = (PgError)pg_os_get_last_error();
     return res;
   }
 
+  res.res.fd = fd;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_file_close(PgFileDescriptor file) {
+  if (-1 == close(file.fd)) {
+    return (PgError)pg_os_get_last_error();
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_file_size(PgFileDescriptor file) {
+  PgU64Result res = {0};
   struct stat st = {0};
 
   int ret = 0;
   do {
-    ret = stat(path_c, &st);
+    ret = fstat(file.fd, &st);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    goto end;
+    res.err = (PgError)pg_os_get_last_error();
+    return res;
   }
 
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, (u64)st.st_size, allocator);
-
-  for (u64 lim = 0; lim < (u64)st.st_size; lim++) {
-    if ((u64)st.st_size == sb.len) {
-      break;
-    }
-
-    PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
-    i64 read_n = 0;
-    do {
-      read_n = read(fd, space.data, space.len);
-    } while (-1 == read_n && EINTR == errno);
-
-    if (-1 == read_n) {
-      res.err = (PgError)errno;
-      goto end;
-    }
-
-    if (0 == read_n) {
-      res.err = (PgError)PG_ERR_INVALID_VALUE;
-      goto end;
-    }
-
-    PG_ASSERT((u64)read_n <= space.len);
-
-    sb.len += (u64)read_n;
-  }
-
-end:
-  do {
-    ret = close(fd);
-  } while (-1 == ret && EINTR == errno);
-
-  res.res = PG_DYN_SLICE(PgString, sb);
+  res.res = (u64)st.st_size;
   return res;
 }
 
