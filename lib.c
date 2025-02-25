@@ -2142,7 +2142,7 @@ pg_bitfield_get_first_zero(PgString bitfield) {
     }
 
     u64 bit_idx = 0;
-    u8 bit_pattern = 0b1;
+    u8 bit_pattern = 1;
     // TODO: Check correctness.
     for (u64 j = 0; j < 8; j++) {
       if (0 == (c & bit_pattern)) {
