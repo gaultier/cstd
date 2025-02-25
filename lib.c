@@ -2380,9 +2380,6 @@ pg_file_close(PgFileDescriptor file);
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_file_size(PgFileDescriptor file);
 
-[[nodiscard]] static PgU64Result pg_file_read_at(PgFileDescriptor file,
-                                                 PgString dst, u64 offset);
-
 [[nodiscard]] static PgU64Result pg_file_read(PgFileDescriptor file,
                                               PgString dst);
 
@@ -2954,15 +2951,18 @@ pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator) {
   return res;
 }
 
-[[nodiscard]] static PgError pg_file_read_at(PgFileDescriptor file,
-                                             PgString dst, u64 offset) {
+[[nodiscard]] static PgU64Result pg_file_read_at(PgFileDescriptor file,
+                                                 PgString dst, u64 offset) {
+  PgU64Result res = {0};
+
   LARGE_INTEGER li_offset;
   li_offset.QuadPart = offset;
-  if (!SetFilePointerEx(fd.p, li_offset, nullptr, FILE_BEGIN)) {
-    return (PgError)pg_os_get_last_error();
+  if (!SetFilePointerEx(file.ptr, li_offset, nullptr, FILE_BEGIN)) {
+    res.err = (PgError)pg_os_get_last_error();
+    return res;
   }
 
-  return 0
+  return pg_file_read(file, dst);
 }
 
 #endif
