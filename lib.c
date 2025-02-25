@@ -816,8 +816,7 @@ typedef void *(*PgAllocFn)(PgAllocator *allocator, u64 sizeof_type,
 typedef void *(*PgReallocFn)(PgAllocator *allocator, void *ptr,
                              u64 elem_count_old, u64 sizeof_type,
                              u64 alignof_type, u64 elem_count);
-typedef void (*PgFreeFn)(PgAllocator *allocator, void *ptr, u64 sizeof_type,
-                         u64 elem_count);
+typedef void (*PgFreeFn)(PgAllocator *allocator, void *ptr);
 struct PgAllocator {
   PgAllocFn alloc_fn;
   PgReallocFn realloc_fn;
@@ -842,11 +841,8 @@ static void *pg_realloc_heap_libc(PgAllocator *allocator, void *ptr,
   return realloc(ptr, sizeof_type * elem_count);
 }
 
-static void pg_free_heap_libc(PgAllocator *allocator, void *ptr,
-                              u64 sizeof_type, u64 elem_count) {
+static void pg_free_heap_libc(PgAllocator *allocator, void *ptr) {
   (void)allocator;
-  (void)sizeof_type;
-  (void)elem_count;
   free(ptr);
 }
 
@@ -938,10 +934,12 @@ static void *pg_realloc_tracing(PgAllocator *allocator, void *ptr,
   return realloc(ptr, space);
 }
 
-static void pg_free_tracing(PgAllocator *allocator, void *ptr, u64 sizeof_type,
-                            u64 elem_count) {
+static void pg_free_tracing(PgAllocator *allocator, void *ptr) {
   PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
   (void)tracing_allocator;
+  // FIXME
+  u64 sizeof_type = 0;
+  u64 elem_count = 0;
 
   fprintf(stderr,
           "free ptr=%p sizeof_type=%" PRIu64 " elem_count=%" PRIu64 "\n", ptr,
@@ -996,11 +994,10 @@ pg_realloc(PgAllocator *allocator, void *ptr, u64 elem_count_old,
                                alignof_type, elem_count);
 }
 
-[[maybe_unused]] static void pg_free(PgAllocator *allocator, void *ptr,
-                                     u64 sizeof_type, u64 elem_count) {
+[[maybe_unused]] static void pg_free(PgAllocator *allocator, void *ptr) {
   PG_ASSERT(allocator);
   PG_ASSERT(allocator->alloc_fn);
-  allocator->free_fn(allocator, ptr, sizeof_type, elem_count);
+  allocator->free_fn(allocator, ptr);
 }
 
 typedef struct {
@@ -1032,12 +1029,11 @@ static void *pg_realloc_arena(PgAllocator *allocator, void *ptr,
 }
 
 [[maybe_unused]]
-static void pg_free_arena(PgAllocator *allocator, void *ptr, u64 sizeof_type,
-                          u64 elem_count) {
+static void pg_free_arena(PgAllocator *allocator, void *ptr) {
   (void)allocator;
   (void)ptr;
-  (void)sizeof_type;
-  (void)elem_count;
+
+  // TODO: Free if ptr is the last allocation.
 }
 
 [[maybe_unused]] [[nodiscard]] static PgArenaAllocator
@@ -1445,7 +1441,7 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
     PgString dst = pg_string_make(pg_ring_read_space(*rg), allocator);
     PG_ASSERT(pg_ring_read_slice(rg, dst));
     *rg = cpy_rg; // Reset.
-    pg_free(allocator, dst.data, sizeof(u8), dst.len);
+    pg_free(allocator, dst.data);
 
     idx = pg_string_indexof_string(dst, needle);
     if (-1 == idx) {
@@ -1462,7 +1458,7 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
     PgString dst_needle = pg_string_make(needle.len, allocator);
     PG_ASSERT(pg_ring_read_slice(rg, dst_needle));
     PG_ASSERT(pg_string_eq(needle, dst_needle));
-    pg_free(allocator, dst_needle.data, sizeof(u8), dst_needle.len);
+    pg_free(allocator, dst_needle.data);
   }
 
   return res;
@@ -2835,8 +2831,7 @@ pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator) {
       res_path_os.res.data, desired_access, FILE_SHARE_READ | FILE_SHARE_DELETE,
       nullptr, creation_disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
 
-  pg_free(allocator, res_path_os.res.data, sizeof(wchar_t),
-          res_path_os.res.len);
+  pg_free(allocator, res_path_os.res.data);
 
   if (INVALID_HANDLE_VALUE == handle) {
     res.err = (PgError)pg_os_get_last_error();
@@ -2917,6 +2912,10 @@ pg_file_read_full(PgString path, PgAllocator *allocator) {
 
 end:
   (void)pg_file_close(file);
+  if (res.err && sb.data) {
+    pg_free(allocator, sb.data);
+    return res;
+  }
 
   res.res = PG_DYN_SLICE(PgString, sb);
   return res;
