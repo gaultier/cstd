@@ -1835,7 +1835,7 @@ typedef struct {
   u8 data[PG_SHA1_DIGEST_LENGTH];
 } PgSha1;
 
-#if defined(PG_SHA1_HW) && defined(__x86_64__)
+#if defined(__x86_64__) && defined(__SSSE3__) && defined(__SHA__)
 #include <immintrin.h>
 // Process as many 64 bytes chunks as possible.
 static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
