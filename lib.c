@@ -2969,7 +2969,7 @@ pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator) {
   PgU64Result res = {0};
 
   LARGE_INTEGER li_offset;
-  li_offset.QuadPart = offset;
+  li_offset.QuadPart = (LONGLONG)offset;
   if (!SetFilePointerEx(file.ptr, li_offset, nullptr, FILE_BEGIN)) {
     res.err = (PgError)pg_os_get_last_error();
     return res;
