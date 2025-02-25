@@ -2612,7 +2612,20 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
 
 [[maybe_unused]] static PgU64Result pg_file_read(PgFileDescriptor file,
                                                  PgString buf) {
-  return pg_file_read_at(file, buf, 0);
+  PgU64Result res = {0};
+
+  isize n = 0;
+  do {
+    n = read(file.fd, buf.data, buf.len);
+  } while (-1 == n && EINTR == errno);
+
+  if (-1 == n) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u64)n;
+  return res;
 }
 
 [[maybe_unused]] static PgU64Result pg_file_read_at(PgFileDescriptor file,
