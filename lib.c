@@ -2384,25 +2384,9 @@ pg_file_size(PgFileDescriptor file);
                                               PgString dst);
 
 [[maybe_unused]] static PgStringResult
-pg_file_read_full(PgString path, PgAllocator *allocator) {
+pg_file_read_full_from_descriptor(PgFileDescriptor file, u64 size,
+                                  PgAllocator *allocator) {
   PgStringResult res = {0};
-
-  PgFileDescriptorResult res_file =
-      pg_file_open(path, PG_FILE_ACCESS_READ, allocator);
-  if (res_file.err) {
-    res.err = res_file.err;
-    return res;
-  }
-
-  PgFileDescriptor file = res_file.res;
-
-  PgU64Result res_size = pg_file_size(file);
-  if (res_size.err) {
-    res.err = res_size.err;
-    goto end;
-  }
-
-  u64 size = res_size.res;
 
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, size, allocator);
@@ -2438,6 +2422,35 @@ end:
   }
 
   res.res = PG_DYN_SLICE(PgString, sb);
+  return res;
+}
+
+[[maybe_unused]] static PgStringResult
+pg_file_read_full_from_path(PgString path, PgAllocator *allocator) {
+  PgStringResult res = {0};
+
+  PgFileDescriptorResult res_file =
+      pg_file_open(path, PG_FILE_ACCESS_READ, allocator);
+  if (res_file.err) {
+    res.err = res_file.err;
+    return res;
+  }
+
+  PgFileDescriptor file = res_file.res;
+
+  PgU64Result res_size = pg_file_size(file);
+  if (res_size.err) {
+    res.err = res_size.err;
+    goto end;
+  }
+
+  u64 size = res_size.res;
+
+  res = pg_file_read_full_from_descriptor(file, size, allocator);
+
+end:
+  (void)pg_file_close(file);
+
   return res;
 }
 
