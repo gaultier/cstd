@@ -189,13 +189,10 @@ typedef enum {
   PG_FILE_ACCESS_READ = 1 << 0,
   PG_FILE_ACCESS_WRITE = 1 << 1,
   PG_FILE_ACCESS_READ_WRITE = 1 << 2,
-  PG_FILE_ACCESS_APPEND = 1 << 3,
-
 } PgFileAccess;
 
 static const u64 PG_FILE_ACCESS_ALL =
-    PG_FILE_ACCESS_READ | PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE |
-    PG_FILE_ACCESS_APPEND;
+    PG_FILE_ACCESS_READ | PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE;
 
 // Non-owning.
 typedef struct PgQueue {
@@ -2372,7 +2369,8 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
                                                     PgString buf, u64 offset);
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
-pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator);
+pg_file_open(PgString path, PgFileAccess access, bool create_if_not_exists,
+             PgAllocator *allocator);
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_file_close(PgFileDescriptor file);
@@ -2433,7 +2431,7 @@ pg_file_read_full_from_path(PgString path, PgAllocator *allocator) {
   PgStringResult res = {0};
 
   PgFileDescriptorResult res_file =
-      pg_file_open(path, PG_FILE_ACCESS_READ, allocator);
+      pg_file_open(path, PG_FILE_ACCESS_READ, false, allocator);
   if (res_file.err) {
     res.err = res_file.err;
     return res;
@@ -2658,7 +2656,8 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
-pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator) {
+pg_file_open(PgString path, PgFileAccess access, bool create_if_not_exists,
+             PgAllocator *allocator) {
   PgFileDescriptorResult res = {0};
 
   int flags = 0;
@@ -2669,14 +2668,16 @@ pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator) {
   case PG_FILE_ACCESS_WRITE:
     flags = O_WRONLY;
     break;
-  case PG_FILE_ACCESS_APPEND:
-    flags = O_APPEND;
-    break;
   case PG_FILE_ACCESS_READ_WRITE:
     flags = O_RDWR;
     break;
+  case PG_FILE_ACCESS_NONE:
   default:
     PG_ASSERT(0);
+  }
+
+  if (create_if_not_exists) {
+    flags |= O_CREAT;
   }
 
   char *path_os = pg_string_to_cstr(path, allocator);
@@ -2912,37 +2913,25 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
 }
 
 [[nodiscard]] static PgFileDescriptorResult
-pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator) {
+pg_file_open(PgString path, PgFileAccess access, bool create_if_not_exists,
+             PgAllocator *allocator) {
   PgFileDescriptorResult res = {0};
 
   DWORD desired_access = 0;
-  DWORD creation_disposition = 0;
+  DWORD creation_disposition =
+      create_if_not_exists ? CREATE_ALWAYS : OPEN_EXISTING;
 
-  switch (access & PG_FILE_ACCESS_ALL) {
+  switch (access) {
   case PG_FILE_ACCESS_READ:
     desired_access = GENERIC_READ;
-    creation_disposition = OPEN_EXISTING;
     break;
   case PG_FILE_ACCESS_WRITE:
     desired_access = GENERIC_WRITE;
-    creation_disposition = CREATE_ALWAYS;
     break;
-  case PG_FILE_ACCESS_APPEND:
-    desired_access = GENERIC_WRITE;
-    creation_disposition = OPEN_ALWAYS;
-    break;
-  case PG_FILE_ACCESS_READ | PG_FILE_ACCESS_READ_WRITE:
+  case PG_FILE_ACCESS_READ_WRITE:
     desired_access = GENERIC_READ | GENERIC_WRITE;
-    creation_disposition = OPEN_EXISTING;
     break;
-  case PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE:
-    desired_access = GENERIC_READ | GENERIC_WRITE;
-    creation_disposition = CREATE_ALWAYS;
-    break;
-  case PG_FILE_ACCESS_APPEND | PG_FILE_ACCESS_READ_WRITE:
-    desired_access = GENERIC_READ | GENERIC_WRITE;
-    creation_disposition = OPEN_ALWAYS;
-    break;
+  case PG_FILE_ACCESS_NONE:
   default:
     PG_ASSERT(0);
   }
