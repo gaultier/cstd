@@ -182,7 +182,20 @@ typedef union {
   void *ptr;
 } PgFileDescriptor;
 
-PG_RESULT(PgFileDescriptor) PgFileResult;
+PG_RESULT(PgFileDescriptor) PgFileDescriptorResult;
+
+typedef enum {
+  PG_FILE_ACCESS_NONE = 0,
+  PG_FILE_ACCESS_READ = 1 << 0,
+  PG_FILE_ACCESS_WRITE = 1 << 1,
+  PG_FILE_ACCESS_READ_WRITE = 1 << 2,
+  PG_FILE_ACCESS_APPEND = 1 << 3,
+
+} PgFileAccess;
+
+static const u64 PG_FILE_ACCESS_ALL =
+    PG_FILE_ACCESS_READ | PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE |
+    PG_FILE_ACCESS_APPEND;
 
 // Non-owning.
 typedef struct PgQueue {
@@ -2626,6 +2639,13 @@ end:
   return (PgFileDescriptor){.ptr = GetStdHandle(STD_ERROR_HANDLE)};
 }
 
+typedef struct {
+  wchar_t *data;
+  u64 len;
+} PgWtf16String;
+
+PG_RESULT(PgWtf16String) PgWtf16StringResult;
+
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_win32_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
@@ -2746,7 +2766,161 @@ pg_time_ns_now(PgClockKind clock_kind) {
   return 0;
 }
 
-// There will be linking errors!
+[[nodiscard]] static PgWtf16StringResult
+pg_string_to_wtf16(PgString s, PgAllocator *allocator) {
+  int wlen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                 (const char *)s.data, s.len, nullptr, 0);
+  PgWtf16StringResult res = {0};
+
+  if (0 == wlen) {
+    res.err = (PgError)pg_os_get_last_error();
+    return res;
+  }
+
+  res.res.len = (u64)wlen + 1;
+  res.res.data =
+      pg_alloc(allocator, sizeof(wchar_t), _Alignof(wchar_t), res.res.len);
+  PG_ASSERT(res.res.data);
+  PG_ASSERT(0 != MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                     (const char *)s.data, s.len, res.res.data,
+                                     res.res.len));
+  PG_ASSERT(0 == res.res.data[res.res.len - 1]);
+
+  return res;
+}
+
+[[nodiscard]] static PgFileDescriptorResult
+pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator) {
+  PgFileDescriptorResult res = {0};
+
+  DWORD desired_access = 0;
+  DWORD creation_disposition = 0;
+
+  switch (access & PG_FILE_ACCESS_ALL) {
+  case PG_FILE_ACCESS_READ:
+    desired_access = GENERIC_READ;
+    creation_disposition = OPEN_EXISTING;
+    break;
+  case PG_FILE_ACCESS_WRITE:
+    desired_access = GENERIC_WRITE;
+    creation_disposition = CREATE_ALWAYS;
+    break;
+  case PG_FILE_ACCESS_APPEND:
+    desired_access = GENERIC_WRITE;
+    creation_disposition = OPEN_ALWAYS;
+    break;
+  case PG_FILE_ACCESS_READ | PG_FILE_ACCESS_READ_WRITE:
+    desired_access = GENERIC_READ | GENERIC_WRITE;
+    creation_disposition = OPEN_EXISTING;
+    break;
+  case PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE:
+    desired_access = GENERIC_READ | GENERIC_WRITE;
+    creation_disposition = CREATE_ALWAYS;
+    break;
+  case PG_FILE_ACCESS_APPEND | PG_FILE_ACCESS_READ_WRITE:
+    desired_access = GENERIC_READ | GENERIC_WRITE;
+    creation_disposition = OPEN_ALWAYS;
+    break;
+  default:
+    PG_ASSERT(0);
+  }
+
+  PgWtf16StringResult res_path_os = pg_string_to_wtf16(path, allocator);
+  if (res_path_os.err) {
+    res.err = res_path_os.err;
+    return res;
+  }
+
+  HANDLE handle = CreateFileW(
+      res_path_os.res.data, desired_access, FILE_SHARE_READ | FILE_SHARE_DELETE,
+      nullptr, creation_disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+  pg_free(allocator, res_path_os.res.data, sizeof(wchar_t),
+          res_path_os.res.len);
+
+  if (INVALID_HANDLE_VALUE == handle) {
+    res.err = (PgError)pg_os_get_last_error();
+    return res;
+  }
+
+  res.res.ptr = handle;
+  return res;
+}
+
+[[nodiscard]] static PgError pg_file_close(PgFileDescriptor file) {
+  if (0 == CloseHandle(file.ptr)) {
+    return (PgError)pg_os_get_last_error();
+  }
+
+  return 0;
+}
+
+[[nodiscard]] static PgU64Result pg_file_size(PgFileDescriptor file) {
+  PgU64Result res = {0};
+
+  LARGE_INTEGER size;
+  if (0 == GetFileSizeEx(file.ptr, &size)) {
+    res.err = (PgError)pg_os_get_last_error();
+    return res;
+  }
+
+  res.res = (u64)size.QuadPart;
+  return res;
+}
+
+[[maybe_unused]] static PgStringResult
+pg_file_read_full(PgString path, PgAllocator *allocator) {
+  PgStringResult res = {0};
+
+  PgFileDescriptorResult res_file =
+      pg_file_open(path, PG_FILE_ACCESS_READ, allocator);
+  if (res_file.err) {
+    res.err = res_file.err;
+    return res;
+  }
+
+  PgFileDescriptor file = res_file.res;
+
+  PgU64Result res_size = pg_file_size(file);
+  if (res_size.err) {
+    res.err = res_size.err;
+    goto end;
+  }
+
+  u64 size = res_size.res;
+
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, size, allocator);
+
+  for (u64 lim = 0; lim < size; lim++) {
+    if (size == sb.len) {
+      break;
+    }
+
+    PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
+    u64 read_n = 0;
+    if (0 ==
+        ReadFile(file.ptr, space.data, space.len, (LPDWORD)&read_n, nullptr)) {
+      res.err = (PgError)pg_os_get_last_error();
+      goto end;
+    }
+
+    if (0 == read_n) {
+      res.err = (PgError)PG_ERR_INVALID_VALUE;
+      goto end;
+    }
+
+    PG_ASSERT((u64)read_n <= space.len);
+
+    sb.len += (u64)read_n;
+  }
+
+end:
+  (void)pg_file_close(file);
+
+  res.res = PG_DYN_SLICE(PgString, sb);
+  return res;
+}
 #endif
 
 typedef enum {
