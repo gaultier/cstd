@@ -2765,7 +2765,7 @@ pg_time_ns_now(PgClockKind clock_kind) {
 [[nodiscard]] static PgWtf16StringResult
 pg_string_to_wtf16(PgString s, PgAllocator *allocator) {
   int wlen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                                 (const char *)s.data, s.len, nullptr, 0);
+                                 (const char *)s.data, (i32)s.len, nullptr, 0);
   PgWtf16StringResult res = {0};
 
   if (0 == wlen) {
@@ -2778,8 +2778,8 @@ pg_string_to_wtf16(PgString s, PgAllocator *allocator) {
       pg_alloc(allocator, sizeof(wchar_t), _Alignof(wchar_t), res.res.len);
   PG_ASSERT(res.res.data);
   PG_ASSERT(0 != MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                                     (const char *)s.data, s.len, res.res.data,
-                                     res.res.len));
+                                     (const char *)s.data, (i32)s.len,
+                                     res.res.data, (i32)res.res.len));
   PG_ASSERT(0 == res.res.data[res.res.len - 1]);
 
   return res;
@@ -2894,8 +2894,8 @@ pg_file_read_full(PgString path, PgAllocator *allocator) {
 
     PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
     u64 read_n = 0;
-    if (0 ==
-        ReadFile(file.ptr, space.data, space.len, (LPDWORD)&read_n, nullptr)) {
+    if (0 == ReadFile(file.ptr, space.data, (DWORD)space.len, (LPDWORD)&read_n,
+                      nullptr)) {
       res.err = (PgError)pg_os_get_last_error();
       goto end;
     }
