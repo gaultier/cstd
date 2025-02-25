@@ -2368,11 +2368,8 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout();
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr();
 
-[[maybe_unused]] static PgU64Result pg_file_read(PgFileDescriptor file,
-                                                 PgString buf, u64 offset);
-
-[[maybe_unused]] static PgStringResult
-pg_file_read_full(PgString path, PgAllocator *allocator);
+[[maybe_unused]] static PgU64Result pg_file_read_at(PgFileDescriptor file,
+                                                    PgString buf, u64 offset);
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
 pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator);
@@ -2382,6 +2379,70 @@ pg_file_close(PgFileDescriptor file);
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_file_size(PgFileDescriptor file);
+
+[[nodiscard]] static PgU64Result pg_file_read_at(PgFileDescriptor file,
+                                                 PgString dst, u64 offset);
+
+[[nodiscard]] static PgU64Result pg_file_read(PgFileDescriptor file,
+                                              PgString dst);
+
+[[maybe_unused]] static PgStringResult
+pg_file_read_full(PgString path, PgAllocator *allocator) {
+  PgStringResult res = {0};
+
+  PgFileDescriptorResult res_file =
+      pg_file_open(path, PG_FILE_ACCESS_READ, allocator);
+  if (res_file.err) {
+    res.err = res_file.err;
+    return res;
+  }
+
+  PgFileDescriptor file = res_file.res;
+
+  PgU64Result res_size = pg_file_size(file);
+  if (res_size.err) {
+    res.err = res_size.err;
+    goto end;
+  }
+
+  u64 size = res_size.res;
+
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, size, allocator);
+
+  for (u64 lim = 0; lim < size; lim++) {
+    if (size == sb.len) {
+      break;
+    }
+
+    PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
+    PgU64Result res_read = pg_file_read(file, space);
+    if (res_read.err) {
+      res.err = (PgError)pg_os_get_last_error();
+      goto end;
+    }
+
+    u64 read_n = res_read.res;
+    if (0 == read_n) {
+      res.err = (PgError)PG_ERR_INVALID_VALUE;
+      goto end;
+    }
+
+    PG_ASSERT((u64)read_n <= space.len);
+
+    sb.len += (u64)read_n;
+  }
+
+end:
+  (void)pg_file_close(file);
+  if (res.err && sb.data) {
+    pg_free(allocator, sb.data);
+    return res;
+  }
+
+  res.res = PG_DYN_SLICE(PgString, sb);
+  return res;
+}
 
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
@@ -2540,7 +2601,12 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
 }
 
 [[maybe_unused]] static PgU64Result pg_file_read(PgFileDescriptor file,
-                                                 PgString buf, u64 offset) {
+                                                 PgString buf) {
+  return pg_file_read_at(file, buf, 0);
+}
+
+[[maybe_unused]] static PgU64Result pg_file_read_at(PgFileDescriptor file,
+                                                    PgString buf, u64 offset) {
   PgU64Result res = {0};
 
   isize n = 0;
@@ -2875,63 +2941,30 @@ pg_file_open(PgString path, PgFileAccess access, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] static PgStringResult
-pg_file_read_full(PgString path, PgAllocator *allocator) {
-  PgStringResult res = {0};
+[[nodiscard]] static PgU64Result pg_file_read(PgFileDescriptor file,
+                                              PgString dst) {
+  PgU64Result res = {0};
 
-  PgFileDescriptorResult res_file =
-      pg_file_open(path, PG_FILE_ACCESS_READ, allocator);
-  if (res_file.err) {
-    res.err = res_file.err;
+  if (0 == ReadFile(file.ptr, dst.data, (DWORD)dst.len, (LPDWORD)&res.res,
+                    nullptr)) {
+    res.err = (PgError)pg_os_get_last_error();
     return res;
   }
 
-  PgFileDescriptor file = res_file.res;
-
-  PgU64Result res_size = pg_file_size(file);
-  if (res_size.err) {
-    res.err = res_size.err;
-    goto end;
-  }
-
-  u64 size = res_size.res;
-
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, size, allocator);
-
-  for (u64 lim = 0; lim < size; lim++) {
-    if (size == sb.len) {
-      break;
-    }
-
-    PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
-    u64 read_n = 0;
-    if (0 == ReadFile(file.ptr, space.data, (DWORD)space.len, (LPDWORD)&read_n,
-                      nullptr)) {
-      res.err = (PgError)pg_os_get_last_error();
-      goto end;
-    }
-
-    if (0 == read_n) {
-      res.err = (PgError)PG_ERR_INVALID_VALUE;
-      goto end;
-    }
-
-    PG_ASSERT((u64)read_n <= space.len);
-
-    sb.len += (u64)read_n;
-  }
-
-end:
-  (void)pg_file_close(file);
-  if (res.err && sb.data) {
-    pg_free(allocator, sb.data);
-    return res;
-  }
-
-  res.res = PG_DYN_SLICE(PgString, sb);
   return res;
 }
+
+[[nodiscard]] static PgError pg_file_read_at(PgFileDescriptor file,
+                                             PgString dst, u64 offset) {
+  LARGE_INTEGER li_offset;
+  li_offset.QuadPart = offset;
+  if (!SetFilePointerEx(fd.p, li_offset, nullptr, FILE_BEGIN)) {
+    return (PgError)pg_os_get_last_error();
+  }
+
+  return 0
+}
+
 #endif
 
 typedef enum {
