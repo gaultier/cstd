@@ -455,12 +455,16 @@ pg_string_indexof_string(PgString haystack, PgString needle) {
     return -1;
   }
 
+  if (needle.len == haystack.len) {
+    return pg_string_eq(haystack, needle) ? 0 : -1;
+  }
+
   PG_ASSERT(nullptr != haystack.data);
   PG_ASSERT(nullptr != needle.data);
   u64 j = 0;
   u8 needle_first = PG_SLICE_AT(needle, 0);
 
-  for (u64 _i = 0; _i < haystack.len - needle.len - 1; _i++) {
+  for (u64 _i = 0; _i < haystack.len - needle.len; _i++) {
     PgString remaining = PG_SLICE_RANGE_START(haystack, j);
     i64 idx = pg_string_indexof_byte(remaining, needle_first);
     if (-1 == idx) {
@@ -2623,43 +2627,49 @@ end:
 
 [[nodiscard]] [[maybe_unused]]
 static PgError pg_process_capture_std_io(PgProcess process) {
-  struct pollfd fds[3] = {0};
-  u64 fds_cap = PG_STATIC_ARRAY_LEN(fds);
-  u64 fds_len = 0;
+  bool alive[4096] = {0};
+  alive[process.stdin_pipe.fd] = !!process.stdin_pipe.fd;
+  alive[process.stdout_pipe.fd] = !!process.stdout_pipe.fd;
+  alive[process.stderr_pipe.fd] = !!process.stderr_pipe.fd;
 
-  if (process.stdin_pipe.fd) {
+  if (alive[process.stdin_pipe.fd]) {
     PG_ASSERT(process.ring_stdin);
-
-    *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
-        .fd = process.stdin_pipe.fd,
-        .events = POLLOUT,
-    };
-    fds_len += 1;
   }
-
-  if (process.stdout_pipe.fd) {
+  if (alive[process.stdout_pipe.fd]) {
     PG_ASSERT(process.ring_stdout);
-
-    *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
-        .fd = process.stdout_pipe.fd,
-        .events = POLLIN,
-    };
-    fds_len += 1;
   }
-
-  if (process.stderr_pipe.fd) {
+  if (alive[process.stderr_pipe.fd]) {
     PG_ASSERT(process.ring_stderr);
-
-    *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
-        .fd = process.stderr_pipe.fd,
-        .events = POLLIN,
-    };
-    fds_len += 1;
   }
+  for (;;) {
+    struct pollfd fds[3] = {0};
+    u64 fds_len = 0;
 
-  u64 fds_active = fds_len;
+    if (alive[process.stdin_pipe.fd]) {
+      PG_ASSERT(fds_len <= 2);
+      fds[fds_len++] = (struct pollfd){
+          .fd = process.stdin_pipe.fd,
+          .events = POLLOUT,
+      };
+    }
+    if (alive[process.stdout_pipe.fd]) {
+      PG_ASSERT(fds_len <= 2);
+      fds[fds_len++] = (struct pollfd){
+          .fd = process.stdout_pipe.fd,
+          .events = POLLIN,
+      };
+    }
+    if (alive[process.stderr_pipe.fd]) {
+      PG_ASSERT(fds_len <= 2);
+      fds[fds_len++] = (struct pollfd){
+          .fd = process.stderr_pipe.fd,
+          .events = POLLIN,
+      };
+    }
+    if (0 == fds_len) {
+      break;
+    }
 
-  while (fds_active) {
     int ret_poll = poll(fds, (nfds_t)fds_len, -1);
     if (-1 == ret_poll) {
       return (PgError)errno;
@@ -2673,8 +2683,7 @@ static PgError pg_process_capture_std_io(PgProcess process) {
       struct pollfd pollfd = PG_C_ARRAY_AT(fds, fds_len, i);
       if (pollfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
         close(pollfd.fd);
-        PG_ASSERT(fds_active > 0);
-        fds_active -= 1;
+        alive[pollfd.fd] = false;
         continue;
       }
 
@@ -2683,28 +2692,28 @@ static PgError pg_process_capture_std_io(PgProcess process) {
         PG_ASSERT(process.stdin_pipe.fd == pollfd.fd);
 
         if (0 == pg_ring_read_space(*process.ring_stdin)) {
-          PG_ASSERT(fds_active > 0);
-          fds_active -= 1;
-          close(process.stdin_pipe.fd);
-        } else {
-          u8 to_write_buf[4096] = {0};
-          PgString to_write = {.data = to_write_buf,
-                               .len = pg_ring_read_space(*process.ring_stdin)};
-          PgRing bck = *process.ring_stdin;
-          PG_ASSERT(true == pg_ring_read_slice(&bck, to_write));
-
-          ssize_t ret_write = write(pollfd.fd, to_write.data, to_write.len);
-          if (-1 == ret_write) {
-            return (PgError)errno;
-          }
-
-          // Read from the real ring buffer what `write(2)` has actually
-          // written.
-          PgString actually_written = {.data = to_write_buf,
-                                       .len = (u64)ret_write};
-          PG_ASSERT(true ==
-                    pg_ring_read_slice(process.ring_stdin, actually_written));
+          close(pollfd.fd);
+          alive[pollfd.fd] = false;
+          continue;
         }
+
+        u8 to_write_buf[4096] = {0};
+        PgString to_write = {.data = to_write_buf,
+                             .len = pg_ring_read_space(*process.ring_stdin)};
+        PgRing bck = *process.ring_stdin;
+        PG_ASSERT(true == pg_ring_read_slice(&bck, to_write));
+
+        ssize_t ret_write = write(pollfd.fd, to_write.data, to_write.len);
+        if (-1 == ret_write) {
+          return (PgError)errno;
+        }
+
+        // Read from the real ring buffer what `write(2)` has actually
+        // written.
+        PgString actually_written = {.data = to_write_buf,
+                                     .len = (u64)ret_write};
+        PG_ASSERT(true ==
+                  pg_ring_read_slice(process.ring_stdin, actually_written));
       }
 
       if (pollfd.revents & POLLIN) {
@@ -2732,9 +2741,8 @@ static PgError pg_process_capture_std_io(PgProcess process) {
           }
 
           if (0 == ret_read) {
-            PG_ASSERT(fds_active > 0);
-            fds_active -= 1;
             close(pollfd.fd);
+            alive[pollfd.fd] = false;
             continue;
           }
 
