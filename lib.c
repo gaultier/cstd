@@ -613,6 +613,11 @@ pg_string_indexof_any_byte(PgString haystack, PgString needle) {
   return -1;
 }
 
+[[maybe_unused]] [[nodiscard]] static bool pg_string_contains(PgString haystack,
+                                                              PgString needle) {
+  return -1 != pg_string_indexof_string(haystack, needle);
+}
+
 [[maybe_unused]] [[nodiscard]] static bool
 pg_string_starts_with(PgString haystack, PgString needle) {
   if (haystack.len == 0 || haystack.len < needle.len) {

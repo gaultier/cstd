@@ -1813,6 +1813,11 @@ static void test_process_capture() {
   PG_ASSERT(!status.signaled);
   PG_ASSERT(!status.core_dumped);
   PG_ASSERT(!status.stopped);
+
+  PgString process_stdout =
+      pg_string_make(pg_ring_read_space(ring_stdout), allocator);
+  PG_ASSERT(true == pg_ring_read_slice(&ring_stdout, process_stdout));
+  PG_ASSERT(pg_string_contains(process_stdout, PG_S("test.c")));
 }
 
 int main() {
