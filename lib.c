@@ -2545,19 +2545,21 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   if (pid > 0) {
     if (options.ring_stdout) {
-      PG_ASSERT(0 == close(pipe_stdout[0]));
-
-      int ret_dup2 = dup2(pipe_stdout[1], STDOUT_FILENO);
-      PG_ASSERT(-1 != ret_dup2);
+      PG_ASSERT(0 == close(pipe_stdout[1]));
     }
 
     res.res.pid = (u64)pid;
     res.res.stdout_pipe.fd = pipe_stdout[0];
+    res.res.ring_stdout = options.ring_stdout;
+    // TODO: stdin, stderr.
     return res;
   }
 
   if (options.ring_stdout) {
     PG_ASSERT(0 == close(pipe_stdout[0]));
+
+    int ret_dup2 = dup2(pipe_stdout[1], STDOUT_FILENO);
+    PG_ASSERT(-1 != ret_dup2);
   }
 
   execvp(path_c, args_c.data);
@@ -2596,7 +2598,9 @@ static PgError pg_process_capture_std_io(PgProcess process) {
     fds_len += 1;
   }
 
-  for (;;) {
+  u64 fds_active = fds_len;
+
+  while (fds_active) {
     int ret_poll = poll(fds, (nfds_t)fds_len, -1);
     if (-1 == ret_poll) {
       return (PgError)errno;
@@ -2608,8 +2612,10 @@ static PgError pg_process_capture_std_io(PgProcess process) {
 
     for (u64 i = 0; i < (u64)ret_poll; i++) {
       struct pollfd pollfd = PG_C_ARRAY_AT(fds, fds_len, i);
-      if (pollfd.revents & (POLL_ERR | POLL_HUP)) {
+      if (pollfd.revents & (POLL_ERR | POLL_HUP | POLLNVAL)) {
         close(pollfd.fd);
+        PG_ASSERT(fds_active > 0);
+        fds_active -= 1;
         continue;
       }
 
@@ -2618,6 +2624,8 @@ static PgError pg_process_capture_std_io(PgProcess process) {
         PG_ASSERT(process.stdin_pipe.fd == pollfd.fd);
 
         if (0 == pg_ring_read_space(*process.ring_stdin)) {
+          PG_ASSERT(fds_active > 0);
+          fds_active -= 1;
           close(process.stdin_pipe.fd);
         } else {
           u8 to_write_buf[4096] = {0};
@@ -2649,6 +2657,7 @@ static PgError pg_process_capture_std_io(PgProcess process) {
         } else {
           PG_ASSERT(0);
         }
+        PG_ASSERT(dst);
 
         if (0 == pg_ring_write_space(*dst)) {
           // TODO: Sleep?
@@ -2656,7 +2665,7 @@ static PgError pg_process_capture_std_io(PgProcess process) {
         } else {
           u8 read_buf[4096] = {0};
           size_t read_max =
-              PG_MIN(pg_ring_read_space(*dst), PG_STATIC_ARRAY_LEN(read_buf));
+              PG_MIN(pg_ring_write_space(*dst), PG_STATIC_ARRAY_LEN(read_buf));
 
           ssize_t ret_read = read(pollfd.fd, read_buf, read_max);
           if (-1 == ret_read) {
@@ -2664,6 +2673,8 @@ static PgError pg_process_capture_std_io(PgProcess process) {
           }
 
           if (0 == ret_read) {
+            PG_ASSERT(fds_active > 0);
+            fds_active -= 1;
             close(pollfd.fd);
             continue;
           }
