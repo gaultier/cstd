@@ -2452,6 +2452,8 @@ pg_file_size(PgFileDescriptor file);
 
 [[nodiscard]] static PgU64Result pg_file_read(PgFileDescriptor file,
                                               PgString dst);
+[[maybe_unused]] static PgU64Result pg_file_write(PgFileDescriptor file,
+                                                  PgString s);
 
 [[maybe_unused]] static PgStringResult
 pg_file_read_full_from_descriptor(PgFileDescriptor file, u64 size,
@@ -2495,6 +2497,35 @@ end:
   return res;
 }
 
+[[maybe_unused]] static PgError
+pg_file_write_full_with_descriptor(PgFileDescriptor file, PgString content) {
+  PgError err = 0;
+  PgString remaining = content;
+  for (u64 lim = 0; lim < content.len; lim++) {
+    if (pg_string_is_empty(remaining)) {
+      break;
+    }
+
+    PgU64Result res_write = pg_file_write(file, remaining);
+    if (res_write.err) {
+      err = (PgError)pg_os_get_last_error();
+      goto end;
+    }
+
+    u64 write_n = res_write.res;
+    if (0 == write_n) {
+      err = (PgError)PG_ERR_INVALID_VALUE;
+      goto end;
+    }
+
+    remaining = PG_SLICE_RANGE_START(remaining, write_n);
+  }
+
+end:
+  (void)pg_file_close(file);
+  return err;
+}
+
 [[maybe_unused]] static PgStringResult
 pg_file_read_full_from_path(PgString path, PgAllocator *allocator) {
   PgStringResult res = {0};
@@ -2522,6 +2553,26 @@ end:
   (void)pg_file_close(file);
 
   return res;
+}
+
+[[maybe_unused]] static PgError
+pg_file_write_full(PgString path, PgString content, PgAllocator *allocator) {
+  PgError err = 0;
+
+  PgFileDescriptorResult res_file =
+      pg_file_open(path, PG_FILE_ACCESS_WRITE, true, allocator);
+  if (res_file.err) {
+    err = res_file.err;
+    return err;
+  }
+
+  PgFileDescriptor file = res_file.res;
+
+  err = pg_file_write_full_with_descriptor(file, content);
+
+  (void)pg_file_close(file);
+
+  return err;
 }
 
 typedef struct {
@@ -3012,6 +3063,24 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
   return res;
 }
 
+[[maybe_unused]] static PgU64Result pg_file_write(PgFileDescriptor file,
+                                                  PgString s) {
+  PgU64Result res = {0};
+
+  isize n = 0;
+  do {
+    n = write(file.fd, s.data, s.len);
+  } while (-1 == n && EINTR == errno);
+
+  if (-1 == n) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u64)n;
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_file_truncate(PgFileDescriptor file, u64 size) {
   if (-1 == ftruncate(file.fd, (i64)size)) {
@@ -3367,6 +3436,19 @@ pg_file_open(PgString path, PgFileAccess access, bool create_if_not_exists,
 
   if (0 == ReadFile(file.ptr, dst.data, (DWORD)dst.len, (LPDWORD)&res.res,
                     nullptr)) {
+    res.err = (PgError)pg_os_get_last_error();
+    return res;
+  }
+
+  return res;
+}
+
+[[nodiscard]] static PgU64Result pg_file_write(PgFileDescriptor file,
+                                               PgString s) {
+  PgU64Result res = {0};
+
+  if (0 ==
+      WriteFile(file.ptr, s.data, (DWORD)s.len, (LPDWORD)&res.res, nullptr)) {
     res.err = (PgError)pg_os_get_last_error();
     return res;
   }
