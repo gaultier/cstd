@@ -2522,27 +2522,27 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
   }
   PG_ASSERT(args.len + 1 == args_c.len);
 
-  int pipe_stdin[2] = {0};
+  int pipe_stdin_rw[2] = {0};
   if (options.ring_stdin) {
-    int ret = pipe(pipe_stdin);
+    int ret = pipe(pipe_stdin_rw);
     if (-1 == ret) {
       res.err = (PgError)errno;
       goto end;
     }
   }
 
-  int pipe_stdout[2] = {0};
+  int pipe_stdout_rw[2] = {0};
   if (options.ring_stdout) {
-    int ret = pipe(pipe_stdout);
+    int ret = pipe(pipe_stdout_rw);
     if (-1 == ret) {
       res.err = (PgError)errno;
       goto end;
     }
   }
 
-  int pipe_stderr[2] = {0};
+  int pipe_stderr_rw[2] = {0};
   if (options.ring_stderr) {
-    int ret = pipe(pipe_stderr);
+    int ret = pipe(pipe_stderr_rw);
     if (-1 == ret) {
       res.err = (PgError)errno;
       goto end;
@@ -2558,23 +2558,23 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   if (0 == pid) { // Child.
     if (options.ring_stdin) {
-      PG_ASSERT(0 == close(pipe_stdin[1]));
+      PG_ASSERT(0 == close(pipe_stdin_rw[1]));
 
-      int ret_dup2 = dup2(pipe_stdin[0], STDIN_FILENO);
+      int ret_dup2 = dup2(pipe_stdin_rw[0], STDIN_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     }
 
     if (options.ring_stdout) {
-      PG_ASSERT(0 == close(pipe_stdout[0]));
+      PG_ASSERT(0 == close(pipe_stdout_rw[0]));
 
-      int ret_dup2 = dup2(pipe_stdout[1], STDOUT_FILENO);
+      int ret_dup2 = dup2(pipe_stdout_rw[1], STDOUT_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     }
 
     if (options.ring_stderr) {
-      PG_ASSERT(0 == close(pipe_stderr[0]));
+      PG_ASSERT(0 == close(pipe_stderr_rw[0]));
 
-      int ret_dup2 = dup2(pipe_stderr[1], STDERR_FILENO);
+      int ret_dup2 = dup2(pipe_stderr_rw[1], STDERR_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     }
     execvp(path_c, args_c.data);
@@ -2583,8 +2583,12 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   PG_ASSERT(pid > 0); // Parent.
   res.res.pid = (u64)pid;
-  res.res.stdout_pipe.fd = pipe_stdout[0];
+  res.res.stdin_pipe.fd = pipe_stdin_rw[1];
+  res.res.ring_stdin = options.ring_stdin;
+  res.res.stdout_pipe.fd = pipe_stdout_rw[0];
   res.res.ring_stdout = options.ring_stdout;
+  res.res.stderr_pipe.fd = pipe_stderr_rw[0];
+  res.res.ring_stderr = options.ring_stderr;
 
 end:
   for (u64 i = 0; i < args_c.len; i++) {
@@ -2592,9 +2596,15 @@ end:
     pg_free(allocator, arg_c);
   }
 
-  close(pipe_stdin[0]);
-  close(pipe_stdout[1]);
-  close(pipe_stderr[1]);
+  if (pipe_stdin_rw[0]) {
+    close(pipe_stdin_rw[0]);
+  }
+  if (pipe_stdout_rw[1]) {
+    close(pipe_stdout_rw[1]);
+  }
+  if (pipe_stderr_rw[1]) {
+    close(pipe_stderr_rw[1]);
+  }
 
   return res;
 }
@@ -2606,6 +2616,8 @@ static PgError pg_process_capture_std_io(PgProcess process) {
   u64 fds_len = 0;
 
   if (process.stdin_pipe.fd) {
+    PG_ASSERT(process.ring_stdin);
+
     *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
         .fd = process.stdin_pipe.fd,
         .events = POLLOUT,
@@ -2614,6 +2626,8 @@ static PgError pg_process_capture_std_io(PgProcess process) {
   }
 
   if (process.stdout_pipe.fd) {
+    PG_ASSERT(process.ring_stdout);
+
     *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
         .fd = process.stdout_pipe.fd,
         .events = POLLIN,
@@ -2622,6 +2636,8 @@ static PgError pg_process_capture_std_io(PgProcess process) {
   }
 
   if (process.stderr_pipe.fd) {
+    PG_ASSERT(process.ring_stderr);
+
     *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
         .fd = process.stderr_pipe.fd,
         .events = POLLIN,
