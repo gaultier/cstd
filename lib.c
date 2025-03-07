@@ -2487,7 +2487,6 @@ pg_file_read_full_from_descriptor(PgFileDescriptor file, u64 size,
   }
 
 end:
-  (void)pg_file_close(file);
   if (res.err && sb.data) {
     pg_free(allocator, sb.data);
     return res;
@@ -2522,7 +2521,6 @@ pg_file_write_full_with_descriptor(PgFileDescriptor file, PgString content) {
   }
 
 end:
-  (void)pg_file_close(file);
   return err;
 }
 
