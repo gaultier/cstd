@@ -513,7 +513,7 @@ pg_string_cut_string(PgString s, PgString needle) {
   }
 
   res.left = PG_SLICE_RANGE(s, 0, (u64)idx);
-  res.right = PG_SLICE_RANGE_START(s, (u64)idx + 1);
+  res.right = PG_SLICE_RANGE_START(s, (u64)idx + needle.len);
   res.ok = true;
 
   return res;
