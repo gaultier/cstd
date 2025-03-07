@@ -2606,6 +2606,18 @@ end:
     close(pipe_stderr_rw[1]);
   }
 
+  if (res.err) {
+    if (pipe_stdin_rw[1]) {
+      close(pipe_stdin_rw[1]);
+    }
+    if (pipe_stdout_rw[0]) {
+      close(pipe_stdout_rw[0]);
+    }
+    if (pipe_stderr_rw[0]) {
+      close(pipe_stderr_rw[0]);
+    }
+  }
+
   return res;
 }
 
