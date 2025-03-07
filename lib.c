@@ -2606,7 +2606,8 @@ static PgError pg_process_capture_std_io(PgProcess process) {
     for (u64 i = 0; i < (u64)ret_poll; i++) {
       struct pollfd pollfd = PG_C_ARRAY_AT(fds, fds_len, i);
       if (pollfd.revents & (POLL_ERR | POLL_HUP)) {
-        return 0;
+        close(pollfd.fd);
+        continue;
       }
 
       if (pollfd.revents & POLL_OUT) {
@@ -2638,13 +2639,10 @@ static PgError pg_process_capture_std_io(PgProcess process) {
 
       if (pollfd.revents & POLL_IN) {
         PgRing *dst = nullptr;
-        PgFileDescriptor src_fd = {0};
         if (process.stdout_pipe.fd == pollfd.fd) {
           dst = process.ring_stdout;
-          src_fd = process.stdout_pipe;
         } else if (process.stderr_pipe.fd == pollfd.fd) {
           dst = process.ring_stderr;
-          src_fd = process.stderr_pipe;
         } else {
           PG_ASSERT(0);
         }
@@ -2657,9 +2655,14 @@ static PgError pg_process_capture_std_io(PgProcess process) {
           size_t read_max =
               PG_MIN(pg_ring_read_space(*dst), PG_STATIC_ARRAY_LEN(read_buf));
 
-          ssize_t ret_read = read(src_fd.fd, read_buf, read_max);
+          ssize_t ret_read = read(pollfd.fd, read_buf, read_max);
           if (-1 == ret_read) {
             return (PgError)errno;
+          }
+
+          if (0 == ret_read) {
+            close(pollfd.fd);
+            continue;
           }
 
           PgString actually_read = {.data = read_buf, .len = (u64)ret_read};
