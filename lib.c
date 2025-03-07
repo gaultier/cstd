@@ -2396,6 +2396,16 @@ pg_arena_make_from_virtual_mem(u64 size) {
   }
 }
 
+[[maybe_unused]] [[nodiscard]] static PgString pg_path_stem(PgString s) {
+  PgString base_name = pg_path_base_name(s);
+  i64 idx = pg_string_last_indexof_byte(base_name, '.');
+  if (-1 == idx) {
+    return base_name;
+  }
+
+  return PG_SLICE_RANGE(base_name, 0, (u64)idx);
+}
+
 [[maybe_unused]] [[nodiscard]] static PgReader
 pg_reader_make_from_file(PgFileDescriptor file);
 
