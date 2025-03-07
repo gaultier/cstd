@@ -2805,8 +2805,10 @@ static PgError pg_process_capture_std_io(PgProcess process) {
         }
 
         u8 to_write_buf[4096] = {0};
-        PgString to_write = {.data = to_write_buf,
-                             .len = pg_ring_read_space(*process.ring_stdin)};
+        PgString to_write = {
+            .data = to_write_buf,
+            .len = PG_MIN(PG_STATIC_ARRAY_LEN(to_write_buf),
+                          pg_ring_read_space(*process.ring_stdin))};
         PgRing bck = *process.ring_stdin;
         PG_ASSERT(true == pg_ring_read_slice(&bck, to_write));
 
