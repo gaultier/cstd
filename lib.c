@@ -99,6 +99,7 @@ typedef u32 PgError;
 #define PG_ERR_TOO_BIG 7
 #endif
 
+PG_RESULT(i32) PgI32Result;
 PG_RESULT(u64) PgU64Result;
 PG_RESULT(bool) PgBoolResult;
 PG_RESULT(void *) PgVoidPtrResult;
@@ -2332,10 +2333,6 @@ pg_arena_make_from_virtual_mem(u64 size) {
   return pg_virtual_mem_release(arena->os_start, arena->os_alloc_size);
 }
 
-[[nodiscard]] [[maybe_unused]]
-static PgU64Result pg_process_spawn(PgString path, PgStringSlice args,
-                                    PgAllocator *allocator);
-
 #ifdef PG_OS_UNIX
 #define PG_PATH_SEPARATOR '/'
 #define PG_PATH_SEPARATOR_S "/"
@@ -2460,30 +2457,83 @@ end:
   return res;
 }
 
+typedef struct {
+  i32 exit_status;
+  i32 signal;
+  bool exited, signaled, core_dumped, stopped;
+} PgProcessStatus;
+PG_RESULT(PgProcessStatus) PgProcessExitResult;
+
+typedef struct {
+  u64 pid;
+  PgRing *ring_stdin, *ring_stdout, *ring_stderr;
+  PgFileDescriptor stdin_pipe, stdout_pipe, stderr_pipe;
+} PgProcess;
+PG_RESULT(PgProcess) PgProcessResult;
+
+typedef struct {
+  PgRing *ring_stdin, *ring_stdout, *ring_stderr;
+} PgProcessSpawnOptions;
+
+[[nodiscard]] [[maybe_unused]]
+static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
+                                        PgProcessSpawnOptions options,
+                                        PgAllocator *allocator);
+
+[[nodiscard]] [[maybe_unused]]
+static PgProcessExitResult pg_process_wait(PgProcess process);
+
+static void pg_process_release(PgProcess process);
+
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
 [[nodiscard]] [[maybe_unused]]
-static PgU64Result pg_process_spawn(PgString path, PgStringSlice args,
-                                    PgAllocator *allocator) {
-  PgU64Result res = {0};
+static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
+                                        PgProcessSpawnOptions options,
+                                        PgAllocator *allocator) {
+  PgProcessResult res = {0};
 
   char *path_c = (char *)pg_string_to_cstr(path, allocator);
 
   PgCstrDyn args_c = {0};
-  PG_DYN_ENSURE_CAP(&args_c, args.len + 1, allocator);
+  PG_DYN_ENSURE_CAP(&args_c, args.len + 2, allocator);
+  *PG_DYN_PUSH(&args_c, allocator) = path_c;
+
   for (u64 i = 0; i < args.len; i++) {
     PgString arg = PG_SLICE_AT(args, i);
 
     *PG_DYN_PUSH(&args_c, allocator) = pg_string_to_cstr(arg, allocator);
+  }
+
+#if 0
+  if (options.stdin) {
+    int pipe_stdin[2] = {0};
+    int ret = pipe(pipe_stdin);
+    if (-1 == ret) {
+      res.err = (PgError)errno;
+      return res;
+    }
+    PG_ASSERT(0 == close(pipe_stdin[0]));
+  }
+#endif
+  int pipe_stdout[2] = {0};
+  if (options.ring_stdout) {
+    int ret = pipe(pipe_stdout);
+    if (-1 == ret) {
+      res.err = (PgError)errno;
+      return res;
+    }
   }
 
   int pid = fork();
@@ -2494,14 +2544,167 @@ static PgU64Result pg_process_spawn(PgString path, PgStringSlice args,
   }
 
   if (pid > 0) {
-    res.res = (u64)pid;
+    if (options.ring_stdout) {
+      PG_ASSERT(0 == close(pipe_stdout[1]));
+    }
+
+    res.res.pid = (u64)pid;
+    res.res.stdout_pipe.fd = pipe_stdout[0];
     return res;
+  }
+
+  if (options.ring_stdout) {
+    PG_ASSERT(0 == close(pipe_stdout[0]));
   }
 
   execvp(path_c, args_c.data);
   PG_ASSERT(0 && "unreachable");
 
   return res;
+}
+
+[[nodiscard]] [[maybe_unused]]
+static PgError pg_process_capture_std_io(PgProcess process) {
+  struct pollfd fds[3] = {0};
+  u64 fds_cap = PG_STATIC_ARRAY_LEN(fds);
+  u64 fds_len = 0;
+
+  if (process.stdin_pipe.fd) {
+    *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
+        .fd = process.stdin_pipe.fd,
+        .events = POLL_OUT,
+    };
+    fds_len += 1;
+  }
+
+  if (process.stdout_pipe.fd) {
+    *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
+        .fd = process.stdout_pipe.fd,
+        .events = POLL_IN,
+    };
+    fds_len += 1;
+  }
+
+  if (process.stderr_pipe.fd) {
+    *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
+        .fd = process.stderr_pipe.fd,
+        .events = POLL_IN,
+    };
+    fds_len += 1;
+  }
+
+  for (;;) {
+    int ret_poll = poll(fds, (nfds_t)fds_len, -1);
+    if (-1 == ret_poll) {
+      return (PgError)errno;
+    }
+
+    if (0 == ret_poll) {
+      break;
+    }
+
+    for (u64 i = 0; i < (u64)ret_poll; i++) {
+      struct pollfd pollfd = PG_C_ARRAY_AT(fds, fds_len, i);
+      if (pollfd.revents & (POLL_ERR | POLL_HUP)) {
+        return 0;
+      }
+
+      if (pollfd.revents & POLL_OUT) {
+        PG_ASSERT(process.ring_stdin);
+        PG_ASSERT(process.stdin_pipe.fd == pollfd.fd);
+
+        if (0 == pg_ring_read_space(*process.ring_stdin)) {
+          close(process.stdin_pipe.fd);
+        } else {
+          u8 to_write_buf[4096] = {0};
+          PgString to_write = {.data = to_write_buf,
+                               .len = pg_ring_read_space(*process.ring_stdin)};
+          PgRing bck = *process.ring_stdin;
+          PG_ASSERT(true == pg_ring_read_slice(&bck, to_write));
+
+          ssize_t ret_write = write(pollfd.fd, to_write.data, to_write.len);
+          if (-1 == ret_write) {
+            return (PgError)errno;
+          }
+
+          // Read from the real ring buffer what `write(2)` has actually
+          // written.
+          PgString actually_written = {.data = to_write_buf,
+                                       .len = (u64)ret_write};
+          PG_ASSERT(true ==
+                    pg_ring_read_slice(process.ring_stdin, actually_written));
+        }
+      }
+
+      if (pollfd.revents & POLL_IN) {
+        PgRing *dst = nullptr;
+        PgFileDescriptor src_fd = {0};
+        if (process.stdout_pipe.fd == pollfd.fd) {
+          dst = process.ring_stdout;
+          src_fd = process.stdout_pipe;
+        } else if (process.stderr_pipe.fd == pollfd.fd) {
+          dst = process.ring_stderr;
+          src_fd = process.stderr_pipe;
+        } else {
+          PG_ASSERT(0);
+        }
+
+        if (0 == pg_ring_write_space(*dst)) {
+          // TODO: Sleep?
+          continue;
+        } else {
+          u8 read_buf[4096] = {0};
+          size_t read_max =
+              PG_MIN(pg_ring_read_space(*dst), PG_STATIC_ARRAY_LEN(read_buf));
+
+          ssize_t ret_read = read(src_fd.fd, read_buf, read_max);
+          if (-1 == ret_read) {
+            return (PgError)errno;
+          }
+
+          PgString actually_read = {.data = read_buf, .len = (u64)ret_read};
+          PG_ASSERT(true == pg_ring_write_slice(dst, actually_read));
+        }
+      }
+    }
+  }
+
+  return 0;
+}
+
+[[nodiscard]] [[maybe_unused]]
+static PgProcessExitResult pg_process_wait(PgProcess process) {
+  PgProcessExitResult res = {0};
+
+  int status = 0;
+  int ret = waitpid((pid_t)process.pid, &status, 0);
+
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res.exit_status = WEXITSTATUS(status);
+  res.res.exited = WIFEXITED(status);
+  res.res.signaled = WIFSIGNALED(status);
+  res.res.signal = WTERMSIG(status);
+  res.res.core_dumped = WCOREDUMP(status);
+  res.res.stopped = WIFSTOPPED(status);
+
+  return res;
+}
+
+[[maybe_unused]]
+static void pg_process_release(PgProcess process) {
+  if (process.stdin_pipe.fd) {
+    close(process.stdin_pipe.fd);
+  }
+  if (process.stdout_pipe.fd) {
+    close(process.stdout_pipe.fd);
+  }
+  if (process.stderr_pipe.fd) {
+    close(process.stderr_pipe.fd);
+  }
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin() {

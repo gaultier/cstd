@@ -1758,6 +1758,33 @@ static void test_heap_remove_in_the_middle() {
   PG_ASSERT(heap.root);
 }
 
+static void test_process_no_capture() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgStringDyn args = {0};
+  *PG_DYN_PUSH(&args, allocator) = PG_S("ls-files");
+
+  PgProcessSpawnOptions options = {0};
+  PgProcessResult res_spawn = pg_process_spawn(
+      PG_S("git"), PG_DYN_SLICE(PgStringSlice, args), options, allocator);
+  PG_ASSERT(0 == res_spawn.err);
+
+  PgProcess process = res_spawn.res;
+
+  PgProcessExitResult res_wait = pg_process_wait(process);
+  PG_ASSERT(0 == res_wait.err);
+
+  PgProcessStatus status = res_wait.res;
+  PG_ASSERT(0 == status.exit_status);
+  PG_ASSERT(0 == status.signal);
+  PG_ASSERT(status.exited);
+  PG_ASSERT(!status.signaled);
+  PG_ASSERT(!status.core_dumped);
+  PG_ASSERT(!status.stopped);
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_string();
@@ -1797,4 +1824,5 @@ int main() {
   test_path_base_name();
   test_heap_insert_dequeue();
   test_heap_remove_in_the_middle();
+  test_process_no_capture();
 }
