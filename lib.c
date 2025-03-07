@@ -107,6 +107,7 @@ PG_OK(u64) Pgu64Ok;
 
 PG_DYN(u8) Pgu8Dyn;
 PG_SLICE(u8) Pgu8Slice;
+PG_DYN(char *) PgCstrDyn;
 typedef Pgu8Slice PgString;
 
 #define PG_STATIC_ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
@@ -2331,6 +2332,10 @@ pg_arena_make_from_virtual_mem(u64 size) {
   return pg_virtual_mem_release(arena->os_start, arena->os_alloc_size);
 }
 
+[[nodiscard]] [[maybe_unused]]
+static PgU64Result pg_process_spawn(PgString path, PgStringSlice args,
+                                    PgAllocator *allocator);
+
 #ifdef PG_OS_UNIX
 #define PG_PATH_SEPARATOR '/'
 #define PG_PATH_SEPARATOR_S "/"
@@ -2465,6 +2470,39 @@ end:
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+
+[[nodiscard]] [[maybe_unused]]
+static PgU64Result pg_process_spawn(PgString path, PgStringSlice args,
+                                    PgAllocator *allocator) {
+  PgU64Result res = {0};
+
+  char *path_c = (char *)pg_string_to_cstr(path, allocator);
+
+  PgCstrDyn args_c = {0};
+  PG_DYN_ENSURE_CAP(&args_c, args.len + 1, allocator);
+  for (u64 i = 0; i < args.len; i++) {
+    PgString arg = PG_SLICE_AT(args, i);
+
+    *PG_DYN_PUSH(&args_c, allocator) = pg_string_to_cstr(arg, allocator);
+  }
+
+  int pid = fork();
+
+  if (-1 == pid) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  if (pid > 0) {
+    res.res = (u64)pid;
+    return res;
+  }
+
+  execvp(path_c, args_c.data);
+  PG_ASSERT(0 && "unreachable");
+
+  return res;
+}
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin() {
   return (PgFileDescriptor){.fd = STDIN_FILENO};
