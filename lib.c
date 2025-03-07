@@ -383,17 +383,6 @@ pg_string_indexof_byte(PgString haystack, u8 needle) {
   return res - haystack.data;
 }
 
-[[nodiscard]] static i64 pg_string_last_indexof_byte(PgString haystack,
-                                                     u8 needle) {
-  for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
-    u8 c = PG_SLICE_AT(haystack, i);
-    if (needle == c) {
-      return i;
-    }
-  }
-  return -1;
-}
-
 #define PG_SLICE_RANGE(s, start, end)                                          \
   ((typeof((s))){                                                              \
       .data = (s).len == PG_CLAMP(0, start, (s).len)                           \
@@ -405,6 +394,38 @@ pg_string_indexof_byte(PgString haystack, u8 needle) {
   })
 
 #define PG_SLICE_RANGE_START(s, start) PG_SLICE_RANGE(s, start, (s).len)
+
+typedef struct {
+  PgString left, right;
+  bool ok;
+} PgStringCut;
+
+[[maybe_unused]] [[nodiscard]] static PgStringCut
+pg_string_cut_byte(PgString s, u8 needle) {
+  PgStringCut res = {0};
+
+  i64 idx = pg_string_indexof_byte(s, needle);
+  if (-1 == idx) {
+    return res;
+  }
+
+  res.left = PG_SLICE_RANGE(s, 0, (u64)idx);
+  res.right = PG_SLICE_RANGE_START(s, (u64)idx + 1);
+  res.ok = true;
+
+  return res;
+}
+
+[[nodiscard]] static i64 pg_string_last_indexof_byte(PgString haystack,
+                                                     u8 needle) {
+  for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
+    u8 c = PG_SLICE_AT(haystack, i);
+    if (needle == c) {
+      return i;
+    }
+  }
+  return -1;
+}
 
 [[maybe_unused]] [[nodiscard]] static bool pg_string_eq(PgString a,
                                                         PgString b) {
