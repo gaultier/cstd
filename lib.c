@@ -1101,15 +1101,15 @@ pg_string_make(u64 len, PgAllocator *allocator) {
   PgString res = {0};
   res.len = len;
   res.data = pg_alloc(allocator, sizeof(u8), _Alignof(u8), len);
+  PG_ASSERT(res.data);
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static char *
 pg_string_to_cstr(PgString s, PgAllocator *allocator) {
   char *res = (char *)pg_alloc(allocator, sizeof(u8), 1, s.len + 1);
-  if (NULL != s.data) {
-    memcpy(res, s.data, s.len);
-  }
+  PG_ASSERT(res);
+  memcpy(res, s.data, s.len);
 
   PG_ASSERT(0 == PG_C_ARRAY_AT(res, s.len + 1, s.len));
 
@@ -1203,6 +1203,7 @@ pg_string_cmp(PgString a, PgString b) {
   if (nullptr ==
       PgReplica.data) { // First allocation ever for this dynamic array.
     PgReplica.data = pg_alloc(allocator, size, align, new_cap);
+    PG_ASSERT(PgReplica.data);
   } else { // General case.
     void *data = pg_realloc(allocator, PgReplica.data, PgReplica.cap, size,
                             align, new_cap);
