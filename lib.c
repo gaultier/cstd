@@ -1122,30 +1122,30 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
 }
 
 typedef enum {
-  STRING_CMP_LESS = -1,
-  STRING_CMP_EQ = 0,
-  STRING_CMP_GREATER = 1,
+  PG_STRING_CMP_LESS = -1,
+  PG_STRING_CMP_EQ = 0,
+  PG_STRING_CMP_GREATER = 1,
 } PgStringCompare;
 
 [[maybe_unused]] [[nodiscard]] static PgStringCompare
 pg_string_cmp(PgString a, PgString b) {
   int cmp = memcmp(a.data, b.data, PG_MIN(a.len, b.len));
   if (cmp < 0) {
-    return STRING_CMP_LESS;
+    return PG_STRING_CMP_LESS;
   } else if (cmp > 0) {
-    return STRING_CMP_GREATER;
+    return PG_STRING_CMP_GREATER;
   } else if (a.len == b.len) {
-    return STRING_CMP_EQ;
+    return PG_STRING_CMP_EQ;
   }
 
   PG_ASSERT(0 == cmp);
   PG_ASSERT(a.len != b.len);
 
   if (a.len < b.len) {
-    return STRING_CMP_LESS;
+    return PG_STRING_CMP_LESS;
   }
   if (a.len > b.len) {
-    return STRING_CMP_GREATER;
+    return PG_STRING_CMP_GREATER;
   }
   PG_ASSERT(0);
 }
