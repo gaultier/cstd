@@ -1289,7 +1289,7 @@ typedef struct {
 } PgRing;
 
 [[maybe_unused]] static PgRing pg_ring_make(u64 cap, PgAllocator *allocator) {
-  return (PgRing){.data = pg_string_make(cap, allocator)};
+  return (PgRing){.data = pg_string_make(cap + 1, allocator)};
 }
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_ring_write_space(PgRing rg) {

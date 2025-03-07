@@ -1792,7 +1792,7 @@ static void test_process_no_capture() {
 }
 
 static void test_process_capture() {
-  PgArena arena = pg_arena_make_from_virtual_mem(8 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(16 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
@@ -1837,7 +1837,7 @@ static void test_process_capture() {
 }
 
 static void test_process_stdin() {
-  PgArena arena = pg_arena_make_from_virtual_mem(8 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(16 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
