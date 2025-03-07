@@ -2577,7 +2577,7 @@ static PgError pg_process_capture_std_io(PgProcess process) {
   if (process.stdin_pipe.fd) {
     *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
         .fd = process.stdin_pipe.fd,
-        .events = POLL_OUT,
+        .events = POLLOUT,
     };
     fds_len += 1;
   }
@@ -2585,7 +2585,7 @@ static PgError pg_process_capture_std_io(PgProcess process) {
   if (process.stdout_pipe.fd) {
     *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
         .fd = process.stdout_pipe.fd,
-        .events = POLL_IN,
+        .events = POLLIN,
     };
     fds_len += 1;
   }
@@ -2593,7 +2593,7 @@ static PgError pg_process_capture_std_io(PgProcess process) {
   if (process.stderr_pipe.fd) {
     *PG_C_ARRAY_AT_PTR(fds, fds_cap, fds_len) = (struct pollfd){
         .fd = process.stderr_pipe.fd,
-        .events = POLL_IN,
+        .events = POLLIN,
     };
     fds_len += 1;
   }
@@ -2612,14 +2612,14 @@ static PgError pg_process_capture_std_io(PgProcess process) {
 
     for (u64 i = 0; i < (u64)ret_poll; i++) {
       struct pollfd pollfd = PG_C_ARRAY_AT(fds, fds_len, i);
-      if (pollfd.revents & (POLL_ERR | POLL_HUP | POLLNVAL)) {
+      if (pollfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
         close(pollfd.fd);
         PG_ASSERT(fds_active > 0);
         fds_active -= 1;
         continue;
       }
 
-      if (pollfd.revents & POLL_OUT) {
+      if (pollfd.revents & POLLOUT) {
         PG_ASSERT(process.ring_stdin);
         PG_ASSERT(process.stdin_pipe.fd == pollfd.fd);
 
@@ -2648,7 +2648,7 @@ static PgError pg_process_capture_std_io(PgProcess process) {
         }
       }
 
-      if (pollfd.revents & POLL_IN) {
+      if (pollfd.revents & POLLIN) {
         PgRing *dst = nullptr;
         if (process.stdout_pipe.fd == pollfd.fd) {
           dst = process.ring_stdout;
