@@ -503,6 +503,22 @@ pg_string_indexof_string(PgString haystack, PgString needle) {
   return -1;
 }
 
+[[maybe_unused]] [[nodiscard]] static PgStringCut
+pg_string_cut_string(PgString s, PgString needle) {
+  PgStringCut res = {0};
+
+  i64 idx = pg_string_indexof_string(s, needle);
+  if (-1 == idx) {
+    return res;
+  }
+
+  res.left = PG_SLICE_RANGE(s, 0, (u64)idx);
+  res.right = PG_SLICE_RANGE_START(s, (u64)idx + 1);
+  res.ok = true;
+
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgStringOk
 pg_string_split_next(PgSplitIterator *it) {
   if (PG_SLICE_IS_EMPTY(it->s)) {
