@@ -2406,6 +2406,17 @@ pg_arena_make_from_virtual_mem(u64 size) {
   return PG_SLICE_RANGE(base_name, 0, (u64)idx);
 }
 
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_string_concat(PgString left, PgString right, PgAllocator *allocator) {
+  PgString res = pg_string_make(left.len + right.len, allocator);
+  PG_ASSERT(res.data);
+
+  memcpy(res.data, left.data, left.len);
+  memcpy(res.data + left.len, right.data, right.len);
+
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgReader
 pg_reader_make_from_file(PgFileDescriptor file);
 
