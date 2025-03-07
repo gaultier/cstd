@@ -2520,24 +2520,32 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
     *PG_DYN_PUSH(&args_c, allocator) = pg_string_to_cstr(arg, allocator);
   }
+  PG_ASSERT(args.len + 1 == args_c.len);
 
-#if 0
-  if (options.stdin) {
-    int pipe_stdin[2] = {0};
+  int pipe_stdin[2] = {0};
+  if (options.ring_stdin) {
     int ret = pipe(pipe_stdin);
     if (-1 == ret) {
       res.err = (PgError)errno;
-      return res;
+      goto end;
     }
-    PG_ASSERT(0 == close(pipe_stdin[0]));
   }
-#endif
+
   int pipe_stdout[2] = {0};
   if (options.ring_stdout) {
     int ret = pipe(pipe_stdout);
     if (-1 == ret) {
       res.err = (PgError)errno;
-      return res;
+      goto end;
+    }
+  }
+
+  int pipe_stderr[2] = {0};
+  if (options.ring_stderr) {
+    int ret = pipe(pipe_stderr);
+    if (-1 == ret) {
+      res.err = (PgError)errno;
+      goto end;
     }
   }
 
@@ -2545,30 +2553,48 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   if (-1 == pid) {
     res.err = (PgError)errno;
-    return res;
+    goto end;
   }
 
-  if (pid > 0) {
-    if (options.ring_stdout) {
-      PG_ASSERT(0 == close(pipe_stdout[1]));
+  if (0 == pid) { // Child.
+    if (options.ring_stdin) {
+      PG_ASSERT(0 == close(pipe_stdin[1]));
+
+      int ret_dup2 = dup2(pipe_stdin[0], STDIN_FILENO);
+      PG_ASSERT(-1 != ret_dup2);
     }
 
-    res.res.pid = (u64)pid;
-    res.res.stdout_pipe.fd = pipe_stdout[0];
-    res.res.ring_stdout = options.ring_stdout;
-    // TODO: stdin, stderr.
-    return res;
+    if (options.ring_stdout) {
+      PG_ASSERT(0 == close(pipe_stdout[0]));
+
+      int ret_dup2 = dup2(pipe_stdout[1], STDOUT_FILENO);
+      PG_ASSERT(-1 != ret_dup2);
+    }
+
+    if (options.ring_stderr) {
+      PG_ASSERT(0 == close(pipe_stderr[0]));
+
+      int ret_dup2 = dup2(pipe_stderr[1], STDERR_FILENO);
+      PG_ASSERT(-1 != ret_dup2);
+    }
+    execvp(path_c, args_c.data);
+    PG_ASSERT(0 && "unreachable");
   }
 
-  if (options.ring_stdout) {
-    PG_ASSERT(0 == close(pipe_stdout[0]));
+  PG_ASSERT(pid > 0); // Parent.
+  res.res.pid = (u64)pid;
+  res.res.stdout_pipe.fd = pipe_stdout[0];
+  res.res.ring_stdout = options.ring_stdout;
 
-    int ret_dup2 = dup2(pipe_stdout[1], STDOUT_FILENO);
-    PG_ASSERT(-1 != ret_dup2);
+end:
+  for (u64 i = 0; i < args_c.len; i++) {
+    char *arg_c = PG_SLICE_AT(args_c, i);
+    pg_free(allocator, arg_c);
   }
 
-  execvp(path_c, args_c.data);
-  PG_ASSERT(0 && "unreachable");
+  close(pipe_stdin[0]);
+  close(pipe_stdout[1]);
+  close(pipe_stderr[1]);
 
   return res;
 }
