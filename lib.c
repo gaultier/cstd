@@ -1205,13 +1205,9 @@ pg_string_cmp(PgString a, PgString b) {
     PgReplica.data = pg_alloc(allocator, size, align, new_cap);
     PG_ASSERT(PgReplica.data);
   } else { // General case.
-    void *data = pg_realloc(allocator, PgReplica.data, PgReplica.cap, size,
-                            align, new_cap);
+    PgReplica.data = pg_realloc(allocator, PgReplica.data, PgReplica.cap, size,
+                                align, new_cap);
     PG_ASSERT(PgReplica.data);
-    PG_ASSERT(data);
-
-    memmove(data, PgReplica.data, array_bytes_count);
-    PgReplica.data = data;
   }
   PgReplica.cap = new_cap;
 
