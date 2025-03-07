@@ -2545,7 +2545,10 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   if (pid > 0) {
     if (options.ring_stdout) {
-      PG_ASSERT(0 == close(pipe_stdout[1]));
+      PG_ASSERT(0 == close(pipe_stdout[0]));
+
+      int ret_dup2 = dup2(pipe_stdout[1], STDOUT_FILENO);
+      PG_ASSERT(-1 != ret_dup2);
     }
 
     res.res.pid = (u64)pid;
