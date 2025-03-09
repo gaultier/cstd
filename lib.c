@@ -2576,18 +2576,31 @@ typedef struct {
   i32 exit_status;
   i32 signal;
   bool exited, signaled, core_dumped, stopped;
+  // Only if `spawn_options.stdout == PG_CHILD_PROCESS_STD_IO_PIPE`.
+  PgString stdout;
+  // Only if `spawn_options.stderr == PG_CHILD_PROCESS_STD_IO_PIPE`.
+  PgString stderr;
 } PgProcessStatus;
 PG_RESULT(PgProcessStatus) PgProcessExitResult;
 
 typedef struct {
   u64 pid;
-  PgRing *ring_stdin, *ring_stdout, *ring_stderr;
-  PgFileDescriptor stdin_pipe, stdout_pipe, stderr_pipe;
+  // Only if `spawn_options.stdin == PG_CHILD_PROCESS_STD_IO_PIPE`.
+  PgFileDescriptor stdin_pipe;
 } PgProcess;
 PG_RESULT(PgProcess) PgProcessResult;
 
+typedef enum {
+  PG_CHILD_PROCESS_STD_IO_INHERIT,
+  // `/dev/null` on Unix, `NUL` on Windows.
+  PG_CHILD_PROCESS_STD_IO_IGNORE,
+  PG_CHILD_PROCESS_STD_IO_PIPE,
+  PG_CHILD_PROCESS_STD_IO_CLOSE,
+} PgChildProcessStdIo;
+
 typedef struct {
-  PgRing *ring_stdin, *ring_stdout, *ring_stderr;
+  PgChildProcessStdIo stdin, stdout, stderr;
+  // TODO: env, cwd, etc.
 } PgProcessSpawnOptions;
 
 [[nodiscard]] [[maybe_unused]]
@@ -2613,6 +2626,36 @@ static void pg_process_release(PgProcess process);
 #include <time.h>
 #include <unistd.h>
 
+#define PG_PIPE_READ 0
+#define PG_PIPE_WRITE 1
+
+[[nodiscard]] static PgError pg_process_set_std_io(int fd_old, int fd_new,
+                                                   PgChildProcessStdIo kind) {
+
+  switch (kind) {
+  case PG_CHILD_PROCESS_STD_IO_INHERIT:
+    return 0;
+  case PG_CHILD_PROCESS_STD_IO_IGNORE:
+  case PG_CHILD_PROCESS_STD_IO_PIPE: {
+    int ret = dup2(fd_old, fd_new);
+    if (-1 == ret) {
+      return (PgError)errno;
+    }
+
+    return 0;
+  }
+  case PG_CHILD_PROCESS_STD_IO_CLOSE: {
+    int ret = close(fd_old);
+    if (-1 == ret) {
+      return (PgError)errno;
+    }
+    return 0;
+  }
+  default:
+    PG_ASSERT(0);
+  }
+}
+
 [[nodiscard]] [[maybe_unused]]
 static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
                                         PgProcessSpawnOptions options,
@@ -2632,12 +2675,16 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
   }
   PG_ASSERT(args.len + 1 == args_c.len);
 
-  int pipe_stdin_rw[2] = {0};
-  if (options.ring_stdin) {
-    int ret = pipe(pipe_stdin_rw);
-    if (-1 == ret) {
-      res.err = (PgError)errno;
-      goto end;
+  int stdin_fd_new = STDIN_FILENO;
+  {
+    int stdin_pipe[2] = {0};
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdin) {
+      int ret = pipe(stdin_pipe);
+      if (-1 == ret) {
+        res.err = (PgError)errno;
+        goto end;
+      }
+      close(stdin_pipe[PG_PIPE_WRITE]);
     }
   }
 
@@ -2668,9 +2715,9 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   if (0 == pid) { // Child.
     if (options.ring_stdin) {
-      PG_ASSERT(0 == close(pipe_stdin_rw[1]));
+      PG_ASSERT(0 == close(pipe_stdin[1]));
 
-      int ret_dup2 = dup2(pipe_stdin_rw[0], STDIN_FILENO);
+      int ret_dup2 = dup2(pipe_stdin[0], STDIN_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     }
 
@@ -2693,7 +2740,7 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   PG_ASSERT(pid > 0); // Parent.
   res.res.pid = (u64)pid;
-  res.res.stdin_pipe.fd = pipe_stdin_rw[1];
+  res.res.stdin_pipe.fd = pipe_stdin[1];
   res.res.ring_stdin = options.ring_stdin;
   res.res.stdout_pipe.fd = pipe_stdout_rw[0];
   res.res.ring_stdout = options.ring_stdout;
@@ -2706,8 +2753,8 @@ end:
     pg_free(allocator, arg_c);
   }
 
-  if (pipe_stdin_rw[0]) {
-    close(pipe_stdin_rw[0]);
+  if (pipe_stdin[0]) {
+    close(pipe_stdin[0]);
   }
   if (pipe_stdout_rw[1]) {
     close(pipe_stdout_rw[1]);
@@ -2717,8 +2764,8 @@ end:
   }
 
   if (res.err) {
-    if (pipe_stdin_rw[1]) {
-      close(pipe_stdin_rw[1]);
+    if (pipe_stdin[1]) {
+      close(pipe_stdin[1]);
     }
     if (pipe_stdout_rw[0]) {
       close(pipe_stdout_rw[0]);
