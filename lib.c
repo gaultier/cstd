@@ -2632,6 +2632,10 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 static PgProcessExitResult pg_process_wait(PgProcess process,
                                            PgAllocator *allocator);
 
+[[nodiscard]] [[maybe_unused]] static PgU64Result
+pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
+                              u64 offset);
+
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
@@ -2644,6 +2648,65 @@ static PgProcessExitResult pg_process_wait(PgProcess process,
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+
+#ifdef __linux__
+#include <sys/sendfile.h>
+#endif
+
+[[nodiscard]] [[maybe_unused]] static PgU64Result
+pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
+                              u64 offset) {
+  PgU64Result res = {0};
+
+  PgU64Result res_size = pg_file_size(src);
+  if (res_size.err) {
+    res.err = res_size.err;
+    return res;
+  }
+
+#ifdef __linux__
+  ssize_t ret = sendfile(dst.fd, src.fd, offset ? (off_t *)&offset : nullptr,
+                         res_size.res);
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+  res.res = (u64)ret;
+#else
+  // TODO: sendfile on freebsd.
+
+  for (u64 _i = 0; _i < res_size.res; _i++) {
+    u8 tmp[4096] = {0};
+    ssize_t ret_read = pread(src.fd, tmp, PG_STATIC_ARRAY_LEN(tmp), offset);
+    if (-1 == ret_read) {
+      res.err = (PgError)errno;
+      return res;
+    }
+    if (0 == ret_read) {
+      return res;
+    }
+
+    u64 j = 0;
+    for (; j < ret_read;) {
+      ssize_t ret_write = pwrite(dst.fd, tmp + j, ret_read - j, offset + j);
+      if (-1 == ret_write) {
+        res.err = (PgError)errno;
+        return res;
+      }
+      if (0 == ret_write) {
+        return res;
+      }
+      j += ret_write;
+    }
+    PG_ASSERT(j == ret_read);
+
+    res.res += ret_read;
+    offset += ret_read;
+  }
+#endif
+
+  return res;
+}
 
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
