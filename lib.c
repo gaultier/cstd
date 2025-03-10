@@ -2619,7 +2619,7 @@ typedef enum {
 } PgChildProcessStdIo;
 
 typedef struct {
-  PgChildProcessStdIo stdin, stdout, stderr;
+  PgChildProcessStdIo stdin_capture, stdout_capture, stderr_capture;
   // TODO: env, cwd, etc.
 } PgProcessSpawnOptions;
 
@@ -2671,7 +2671,7 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   int stdin_pipe[2] = {0};
   {
-    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdin) {
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdin_capture) {
       int ret = pipe(stdin_pipe);
       if (-1 == ret) {
         res.err = (PgError)errno;
@@ -2682,7 +2682,7 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   int stdout_pipe[2] = {0};
   {
-    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdout) {
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdout_capture) {
       int ret = pipe(stdout_pipe);
       if (-1 == ret) {
         res.err = (PgError)errno;
@@ -2693,7 +2693,7 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   int stderr_pipe[2] = {0};
   {
-    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stderr) {
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stderr_capture) {
       int ret = pipe(stderr_pipe);
       if (-1 == ret) {
         res.err = (PgError)errno;
@@ -2711,9 +2711,10 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   if (0 == pid) { // Child.
 
-    bool need_ignore = (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdin) ||
-                       (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdout) ||
-                       (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stderr);
+    bool need_ignore =
+        (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdin_capture) ||
+        (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdout_capture) ||
+        (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stderr_capture);
 
     int fd_ignore = 0;
     if (need_ignore) {
@@ -2721,35 +2722,35 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
       PG_ASSERT(-1 != fd_ignore);
     }
 
-    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdin) {
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdin_capture) {
       PG_ASSERT(0 == close(stdin_pipe[PG_PIPE_WRITE]));
       int ret_dup2 = dup2(stdin_pipe[PG_PIPE_READ], STDIN_FILENO);
       PG_ASSERT(-1 != ret_dup2);
-    } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stdin) {
+    } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stdin_capture) {
       PG_ASSERT(0 == close(STDIN_FILENO));
-    } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdin) {
+    } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdin_capture) {
       int ret_dup2 = dup2(fd_ignore, STDIN_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     }
 
-    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdout) {
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdout_capture) {
       PG_ASSERT(0 == close(stdout_pipe[PG_PIPE_READ]));
       int ret_dup2 = dup2(stdout_pipe[PG_PIPE_WRITE], STDOUT_FILENO);
       PG_ASSERT(-1 != ret_dup2);
-    } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stdout) {
+    } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stdout_capture) {
       PG_ASSERT(0 == close(STDOUT_FILENO));
-    } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdout) {
+    } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdout_capture) {
       int ret_dup2 = dup2(fd_ignore, STDOUT_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     }
 
-    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stderr) {
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stderr_capture) {
       PG_ASSERT(0 == close(stderr_pipe[PG_PIPE_READ]));
       int ret_dup2 = dup2(stderr_pipe[PG_PIPE_WRITE], STDERR_FILENO);
       PG_ASSERT(-1 != ret_dup2);
-    } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stderr) {
+    } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stderr_capture) {
       PG_ASSERT(0 == close(STDERR_FILENO));
-    } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stderr) {
+    } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stderr_capture) {
       int ret_dup2 = dup2(fd_ignore, STDERR_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     }
