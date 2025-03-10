@@ -2812,38 +2812,64 @@ pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
   }
 
   while (process.stdout_pipe.fd || process.stderr_pipe.fd) {
-    if (process.stdout_pipe.fd) {
-      u8 tmp[4096] = {0};
-      ssize_t read_stdout =
-          read(process.stdout_pipe.fd, tmp, PG_STATIC_ARRAY_LEN(tmp));
-      if (-1 == read_stdout) {
-        res.err = (PgError)errno;
-        goto end;
-      }
-      if (0 == read_stdout) {
-        close(process.stdout_pipe.fd);
-        process.stdout_pipe.fd = 0;
-      }
+    struct pollfd pollfds[2] = {0};
+    nfds_t pollfds_len = 0;
 
-      PgString actually_read = {.data = tmp, .len = (u64)read_stdout};
-      PG_DYN_APPEND_SLICE(&stdout_sb, actually_read, allocator);
+    if (process.stdout_pipe.fd) {
+      pollfds[pollfds_len++] = (struct pollfd){
+          .fd = process.stdout_pipe.fd,
+          .events = POLLIN,
+      };
     }
 
     if (process.stderr_pipe.fd) {
+      pollfds[pollfds_len++] = (struct pollfd){
+          .fd = process.stderr_pipe.fd,
+          .events = POLLIN,
+      };
+    }
+
+    int res_poll = poll(pollfds, pollfds_len, -1);
+    if (-1 == res_poll) {
+      res.err = (PgError)errno;
+      goto end;
+    }
+
+    if (0 == res_poll) {
+      break;
+    }
+
+    for (u64 i = 0; i < (u64)res_poll; i++) {
+      struct pollfd pollfd = PG_C_ARRAY_AT(pollfds, pollfds_len, i);
+
+      PgFileDescriptor *fd = &process.stdout_pipe;
+      Pgu8Dyn *sb = &stdout_sb;
+      if (pollfd.fd == process.stderr_pipe.fd) {
+        fd = &process.stderr_pipe;
+        sb = &stderr_sb;
+      }
+
+      if (pollfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+        close(pollfd.fd);
+        fd->fd = 0;
+        continue;
+      }
+
+      PG_ASSERT(pollfd.revents & POLLIN);
+
       u8 tmp[4096] = {0};
-      ssize_t read_stderr =
-          read(process.stderr_pipe.fd, tmp, PG_STATIC_ARRAY_LEN(tmp));
-      if (-1 == read_stderr) {
+      ssize_t read_n = read(pollfd.fd, tmp, PG_STATIC_ARRAY_LEN(tmp));
+      if (-1 == read_n) {
         res.err = (PgError)errno;
         goto end;
       }
-      if (0 == read_stderr) {
-        close(process.stderr_pipe.fd);
-        process.stderr_pipe.fd = 0;
+      if (0 == read_n) {
+        close(pollfd.fd);
+        fd->fd = 0;
       }
 
-      PgString actually_read = {.data = tmp, .len = (u64)read_stderr};
-      PG_DYN_APPEND_SLICE(&stderr_sb, actually_read, allocator);
+      PgString actually_read = {.data = tmp, .len = (u64)read_n};
+      PG_DYN_APPEND_SLICE(sb, actually_read, allocator);
     }
   }
 
