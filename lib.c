@@ -2655,13 +2655,13 @@ pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
-                              Pgu64Ok offset, u64 len) {
-  PG_ASSERT(offset.res < len);
+                              Pgu64Ok offset_opt, u64 len) {
+  PG_ASSERT(offset_opt.res < len);
 
   u64 copied = 0;
 
 #ifdef __linux__
-  off_t *offset_ptr = offset.ok ? (off_t *)&offset.res : nullptr;
+  off_t *offset_ptr = offset_opt.ok ? (off_t *)&offset_opt.res : nullptr;
 
   while (copied < len) {
     u64 sendfile_len = len - copied;
@@ -2669,9 +2669,11 @@ pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
     if (-1 == ret) {
       return (PgError)errno;
     }
+    if (0 == ret) {
+      return (copied == len) ? 0 : PG_ERR_IO;
+    }
     copied += (u64)ret;
-    offset_ptr = (off_t *)&offset.res;
-    offset_ptr += (u64)ret;
+    offset_ptr = offset_ptr ? offset_ptr : (off_t *)&offset_opt.res;
   }
 #else
   // TODO: sendfile on freebsd.
@@ -2835,24 +2837,24 @@ end:
   }
 
   if (stdin_pipe[PG_PIPE_READ]) {
-    close(stdin_pipe[PG_PIPE_READ]);
+    PG_ASSERT(0 == close(stdin_pipe[PG_PIPE_READ]));
   }
   if (stdout_pipe[PG_PIPE_WRITE]) {
-    close(stdout_pipe[PG_PIPE_WRITE]);
+    PG_ASSERT(0 == close(stdout_pipe[PG_PIPE_WRITE]));
   }
   if (stderr_pipe[PG_PIPE_WRITE]) {
-    close(stderr_pipe[PG_PIPE_WRITE]);
+    PG_ASSERT(0 == close(stderr_pipe[PG_PIPE_WRITE]));
   }
 
   if (res.err) {
     if (stdin_pipe[PG_PIPE_WRITE]) {
-      close(stdin_pipe[PG_PIPE_WRITE]);
+      PG_ASSERT(0 == close(stdin_pipe[PG_PIPE_WRITE]));
     }
     if (stdout_pipe[PG_PIPE_READ]) {
-      close(stdout_pipe[PG_PIPE_READ]);
+      PG_ASSERT(0 == close(stdout_pipe[PG_PIPE_READ]));
     }
     if (stderr_pipe[PG_PIPE_READ]) {
-      close(stderr_pipe[PG_PIPE_READ]);
+      PG_ASSERT(0 == close(stderr_pipe[PG_PIPE_READ]));
     }
   }
 
@@ -2913,7 +2915,7 @@ pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
       }
 
       if (pollfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
-        close(pollfd.fd);
+        PG_ASSERT(0 == close(pollfd.fd));
         fd->fd = 0;
         continue;
       }
@@ -2927,8 +2929,9 @@ pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
         goto end;
       }
       if (0 == read_n) {
-        close(pollfd.fd);
+        PG_ASSERT(0 == close(pollfd.fd));
         fd->fd = 0;
+        continue;
       }
 
       PgString actually_read = {.data = tmp, .len = (u64)read_n};
@@ -2943,13 +2946,13 @@ end:
   }
 
   if (process.stdin_pipe.fd) {
-    close(process.stdin_pipe.fd);
+    PG_ASSERT(0 == close(process.stdin_pipe.fd));
   }
   if (process.stdout_pipe.fd) {
-    close(process.stdout_pipe.fd);
+    PG_ASSERT(0 == close(process.stdout_pipe.fd));
   }
   if (process.stderr_pipe.fd) {
-    close(process.stderr_pipe.fd);
+    PG_ASSERT(0 == close(process.stderr_pipe.fd));
   }
 
   res.res.stdout_captured = PG_DYN_SLICE(PgString, stdout_sb);

@@ -1853,6 +1853,7 @@ static void test_process_stdin() {
   PG_ASSERT(msg.len == res_write.res);
 
   PG_ASSERT(0 == pg_file_close(process.stdin_pipe));
+  process.stdin_pipe.fd = 0;
 
   PgProcessExitResult res_wait = pg_process_wait(process, allocator);
   PG_ASSERT(0 == res_wait.err);
