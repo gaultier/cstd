@@ -2632,9 +2632,9 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 static PgProcessExitResult pg_process_wait(PgProcess process,
                                            PgAllocator *allocator);
 
-[[nodiscard]] [[maybe_unused]] static PgU64Result
+[[nodiscard]] [[maybe_unused]] static PgError
 pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
-                              u64 offset);
+                              Pgu64Ok offset);
 
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
@@ -2653,25 +2653,27 @@ pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
 #include <sys/sendfile.h>
 #endif
 
-[[nodiscard]] [[maybe_unused]] static PgU64Result
+[[nodiscard]] [[maybe_unused]] static PgError
 pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
-                              u64 offset) {
-  PgU64Result res = {0};
-
+                              Pgu64Ok offset) {
   PgU64Result res_size = pg_file_size(src);
   if (res_size.err) {
-    res.err = res_size.err;
-    return res;
+    return res_size.err;
   }
 
+  u64 copied = 0;
+
 #ifdef __linux__
-  ssize_t ret = sendfile(dst.fd, src.fd, offset ? (off_t *)&offset : nullptr,
-                         res_size.res);
-  if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+  off_t offset_ = (off_t)offset.res;
+
+  while (copied < res_size.res) {
+    ssize_t ret = sendfile(dst.fd, src.fd, &offset_, res_size.res);
+    if (-1 == ret) {
+      return (PgError)errno;
+    }
+    copied += (u64)ret;
+    offset_ += ret;
   }
-  res.res = (u64)ret;
 #else
   // TODO: sendfile on freebsd.
 
@@ -2700,12 +2702,12 @@ pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
     }
     PG_ASSERT(j == ret_read);
 
-    res.res += ret_read;
+    copied += ret_read;
     offset += ret_read;
   }
 #endif
 
-  return res;
+  return 0;
 }
 
 #define PG_PIPE_READ 0
