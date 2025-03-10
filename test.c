@@ -1825,11 +1825,9 @@ static void test_process_capture() {
   PG_ASSERT(!status.stopped);
 
   PG_ASSERT(pg_string_contains(status.stdout_captured, PG_S("test.c")));
-
   PG_ASSERT(pg_string_is_empty(status.stderr_captured));
 }
 
-#if 0
 static void test_process_stdin() {
   PgArena arena = pg_arena_make_from_virtual_mem(16 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -1838,11 +1836,10 @@ static void test_process_stdin() {
   PgStringDyn args = {0};
   *PG_DYN_PUSH(&args, allocator) = PG_S("lo wo");
 
-
   PgProcessSpawnOptions options = {
-      .stdin = &ring_stdin,
-      .ring_stdout = &ring_stdout,
-      .ring_stderr = &ring_stderr,
+      .stdin_capture = PG_CHILD_PROCESS_STD_IO_PIPE,
+      .stdout_capture = PG_CHILD_PROCESS_STD_IO_PIPE,
+      .stderr_capture = PG_CHILD_PROCESS_STD_IO_PIPE,
   };
   PgProcessResult res_spawn = pg_process_spawn(
       PG_S("grep"), PG_DYN_SLICE(PgStringSlice, args), options, allocator);
@@ -1850,9 +1847,14 @@ static void test_process_stdin() {
 
   PgProcess process = res_spawn.res;
 
-  PG_ASSERT(0 == pg_process_capture_std_io(process));
+  PgString msg = PG_S("hello world");
+  PgU64Result res_write = pg_file_write(process.stdin_pipe, msg);
+  PG_ASSERT(0 == res_write.err);
+  PG_ASSERT(msg.len == res_write.res);
 
-  PgProcessExitResult res_wait = pg_process_wait(process);
+  PG_ASSERT(0 == pg_file_close(process.stdin_pipe));
+
+  PgProcessExitResult res_wait = pg_process_wait(process, allocator);
   PG_ASSERT(0 == res_wait.err);
 
   PgProcessStatus status = res_wait.res;
@@ -1863,14 +1865,9 @@ static void test_process_stdin() {
   PG_ASSERT(!status.core_dumped);
   PG_ASSERT(!status.stopped);
 
-  PgString process_stdout =
-      pg_string_make(pg_ring_read_space(ring_stdout), allocator);
-  PG_ASSERT(true == pg_ring_read_slice(&ring_stdout, process_stdout));
-  PG_ASSERT(pg_string_contains(process_stdout, PG_S("hello world")));
-
-  PG_ASSERT(0 == pg_ring_read_space(ring_stderr));
+  PG_ASSERT(pg_string_contains(status.stdout_captured, msg));
+  PG_ASSERT(pg_string_is_empty(status.stderr_captured));
 }
-#endif
 
 int main() {
   test_slice_range();
@@ -1913,7 +1910,5 @@ int main() {
   test_heap_remove_in_the_middle();
   test_process_no_capture();
   test_process_capture();
-#if 0
   test_process_stdin();
-#endif
 }
