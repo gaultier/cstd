@@ -2634,7 +2634,7 @@ static PgProcessExitResult pg_process_wait(PgProcess process,
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
-                              Pgu64Ok offset);
+                              Pgu64Ok offset, u64 len);
 
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
@@ -2655,27 +2655,28 @@ pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
-                              Pgu64Ok offset) {
-  PgU64Result res_size = pg_file_size(src);
-  if (res_size.err) {
-    return res_size.err;
-  }
+                              Pgu64Ok offset, u64 len) {
+  PG_ASSERT(offset.res < len);
 
+  u64 to_copy = len - offset.res;
   u64 copied = 0;
 
 #ifdef __linux__
-  off_t offset_ = (off_t)offset.res;
+  off_t *offset_ptr = offset.ok ? (off_t *)&offset.res : nullptr;
 
-  while (copied < res_size.res) {
-    ssize_t ret = sendfile(dst.fd, src.fd, &offset_, res_size.res);
+  while (copied < to_copy) {
+    u64 sendfile_len = to_copy - (offset_ptr ? (u64)*offset_ptr : 0);
+    ssize_t ret = sendfile(dst.fd, src.fd, offset_ptr, sendfile_len);
     if (-1 == ret) {
       return (PgError)errno;
     }
     copied += (u64)ret;
-    offset_ += ret;
+    offset_ptr = (off_t *)&offset.res;
+    offset_ptr += (u64)ret;
   }
 #else
   // TODO: sendfile on freebsd.
+  PG_ASSERT(0 && "todo");
 
   for (u64 _i = 0; _i < res_size.res; _i++) {
     u8 tmp[4096] = {0};
