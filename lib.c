@@ -178,6 +178,16 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
     (s)->len -= 1;                                                             \
   } while (0)
 
+[[maybe_unused]] [[nodiscard]] static u64 pg_hash_fnv(PgString s) {
+  u64 hash = 0x100;
+  for (u64 i = 0; i < s.len; i++) {
+    u8 c = PG_SLICE_AT(s, i);
+    hash ^= c;
+    hash *= 1111111111111111111;
+  }
+  return hash;
+}
+
 typedef int PgSocket;
 typedef union {
   int fd;
