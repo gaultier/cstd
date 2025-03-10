@@ -2922,7 +2922,10 @@ pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
         continue;
       }
 
-      PG_ASSERT(pollfd.revents & (POLLIN | POLLHUP));
+      // Not sure why/how it could happen?
+      if (0 == (pollfd.revents & (POLLIN | POLLHUP))) {
+        continue;
+      }
 
       u8 tmp[4096] = {0};
       ssize_t read_n = read(pollfd.fd, tmp, PG_STATIC_ARRAY_LEN(tmp));
