@@ -3232,7 +3232,7 @@ pg_file_open(PgString path, PgFileAccess access, bool create_if_not_exists,
     flags = O_RDONLY;
     break;
   case PG_FILE_ACCESS_WRITE:
-    flags = O_WRONLY;
+    flags = O_WRONLY | O_TRUNC;
     break;
   case PG_FILE_ACCESS_READ_WRITE:
     flags = O_RDWR;
@@ -3950,15 +3950,15 @@ pg_html_sanitize(PgString s, PgAllocator *allocator) {
     u8 c = PG_SLICE_AT(s, i);
 
     if ('&' == c) {
-      PG_DYN_APPEND_SLICE(&res, PG_S("&amp"), allocator);
+      PG_DYN_APPEND_SLICE(&res, PG_S("&amp;"), allocator);
     } else if ('<' == c) {
-      PG_DYN_APPEND_SLICE(&res, PG_S("&lt"), allocator);
+      PG_DYN_APPEND_SLICE(&res, PG_S("&lt;"), allocator);
     } else if ('>' == c) {
-      PG_DYN_APPEND_SLICE(&res, PG_S("&gt"), allocator);
+      PG_DYN_APPEND_SLICE(&res, PG_S("&gt;"), allocator);
     } else if ('"' == c) {
-      PG_DYN_APPEND_SLICE(&res, PG_S("&quot"), allocator);
+      PG_DYN_APPEND_SLICE(&res, PG_S("&quot;"), allocator);
     } else if ('\'' == c) {
-      PG_DYN_APPEND_SLICE(&res, PG_S("&#x27"), allocator);
+      PG_DYN_APPEND_SLICE(&res, PG_S("&#39;"), allocator);
     } else {
       *PG_DYN_PUSH(&res, allocator) = c;
     }
