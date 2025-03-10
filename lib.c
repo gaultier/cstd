@@ -359,6 +359,16 @@ pg_string_is_alphabetical(PgString s) {
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_string_trim_space(PgString s) {
+  PgString res = s;
+  res = pg_string_trim(res, ' ');
+  res = pg_string_trim(res, '\n');
+  res = pg_string_trim(res, '\t');
+  res = pg_string_trim(res, '\r');
+  return res;
+}
+
 typedef struct {
   PgString s;
   PgString sep;
@@ -1744,6 +1754,13 @@ pg_u64_to_string(u64 n, PgAllocator *allocator) {
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
 
   return PG_DYN_SLICE(PgString, sb);
+}
+
+[[maybe_unused]] static void
+pg_string_builder_append_u64_as_string(Pgu8Dyn *sb, u64 n,
+                                       PgAllocator *allocator) {
+  PgWriter w = pg_writer_make_from_string_builder(sb, allocator);
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
 }
 
 [[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_character_hex(u8 n) {
