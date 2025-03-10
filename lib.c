@@ -1255,9 +1255,8 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 #define PG_DYN_APPEND_SLICE(dst, src, allocator)                               \
   do {                                                                         \
     PG_DYN_ENSURE_CAP(dst, (dst)->len + (src).len, (allocator));               \
-    for (u64 _iii = 0; _iii < src.len; _iii++) {                               \
-      *PG_DYN_PUSH(dst, allocator) = PG_SLICE_AT(src, _iii);                   \
-    }                                                                          \
+    memmove((dst)->data + (dst)->len, (src).data, (src).len);                  \
+    (dst)->len += (src).len;                                                   \
   } while (0)
 
 #define PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(dst, src)                          \
