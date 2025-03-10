@@ -5920,4 +5920,77 @@ typedef int (*PgCmpFn)(const void *a, const void *b);
   }
 }
 
+typedef struct {
+  u8 value[16];
+  u8 version;
+} PgUuid;
+[[maybe_unused]] [[nodiscard]] static PgUuid pg_uuid_v5(PgUuid namespace,
+                                                        PgString name) {
+  PG_SHA1_CTX ctx = {0};
+  PG_SHA1Init(&ctx);
+  PG_SHA1Update(&ctx, namespace.value, PG_STATIC_ARRAY_LEN(namespace.value));
+  PG_SHA1Update(&ctx, name.data, name.len);
+
+  PgSha1 digest = {0};
+  PG_SHA1Final(digest.data, &ctx);
+
+  PgUuid res = {.version = 5};
+  memcpy(res.value, digest.data, 16);
+
+  res.value[6] &= 0x0F;
+  res.value[6] |= 0x50;
+
+  res.value[8] &= 0x3F;
+  res.value[8] |= 0x80;
+
+  return res;
+}
+
+#define PG_UUID_STRING_LENGTH (8 + 4 + 4 + 4 + 12 + 4)
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_uuid_to_string(PgUuid uuid, PgAllocator *allocator) {
+  PgString res = pg_string_make(PG_UUID_STRING_LENGTH, allocator);
+  u64 i = 0;
+
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[0] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[0] & 0xF);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[1] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[1] & 0xF);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[2] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[2] & 0xF);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[3] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[3] & 0xF);
+  res.data[i++] = '-';
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[4] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[4] & 0xF);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[5] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[5] & 0xF);
+  res.data[i++] = '-';
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[6] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[6] & 0xF);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[7] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[7] & 0xF);
+  res.data[i++] = '-';
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[8] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[8] & 0xF);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[9] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[9] & 0xF);
+  res.data[i++] = '-';
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[10] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[10] & 0xF);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[11] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[11] & 0xF);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[12] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[12] & 0xF);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[13] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[13] & 0xF);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[14] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[14] & 0xF);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[15] >> 4);
+  res.data[i++] = pg_u8_to_character_hex(uuid.value[15] & 0xF);
+
+  return res;
+}
+
 #endif
