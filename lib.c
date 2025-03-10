@@ -1153,32 +1153,37 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
 }
 
 typedef enum {
-  PG_STRING_CMP_LESS = -1,
-  PG_STRING_CMP_EQ = 0,
-  PG_STRING_CMP_GREATER = 1,
-} PgStringCompare;
+  PG_CMP_LESS = -1,
+  PG_CMP_EQ = 0,
+  PG_CMP_GREATER = 1,
+} PgCompare;
 
-[[maybe_unused]] [[nodiscard]] static PgStringCompare
-pg_string_cmp(PgString a, PgString b) {
+[[maybe_unused]] [[nodiscard]] static PgCompare pg_string_cmp(PgString a,
+                                                              PgString b) {
   int cmp = memcmp(a.data, b.data, PG_MIN(a.len, b.len));
   if (cmp < 0) {
-    return PG_STRING_CMP_LESS;
+    return PG_CMP_LESS;
   } else if (cmp > 0) {
-    return PG_STRING_CMP_GREATER;
+    return PG_CMP_GREATER;
   } else if (a.len == b.len) {
-    return PG_STRING_CMP_EQ;
+    return PG_CMP_EQ;
   }
 
   PG_ASSERT(0 == cmp);
   PG_ASSERT(a.len != b.len);
 
   if (a.len < b.len) {
-    return PG_STRING_CMP_LESS;
+    return PG_CMP_LESS;
   }
   if (a.len > b.len) {
-    return PG_STRING_CMP_GREATER;
+    return PG_CMP_GREATER;
   }
   PG_ASSERT(0);
+}
+
+[[maybe_unused]] [[nodiscard]] static int pg_string_cmp_qsort(const void *a,
+                                                              const void *b) {
+  return pg_string_cmp(*(const PgString *)a, *(const PgString *)b);
 }
 
 [[maybe_unused]] static void PG_DYN_GROW(void *slice, u64 size, u64 align,
@@ -1486,16 +1491,6 @@ pg_ring_write_ptr(PgRing *rg, u8 *data, u64 data_len) {
   PgString s = {.data = data, .len = data_len};
   return pg_ring_write_slice(rg, s);
 }
-
-#define pg_ring_read_struct(ring, val)                                         \
-  (pg_ring_read_space(*(ring)) < (sizeof(*(val)))                              \
-       ? false                                                                 \
-       : (pg_ring_read_ptr(ring, (u8 *)val, sizeof(*val))))
-
-#define pg_ring_write_struct(ring, val)                                        \
-  (pg_ring_write_space(*(ring)) < sizeof((val))                                \
-       ? false                                                                 \
-       : (pg_ring_write_ptr(ring, (u8 *)&val, sizeof(val))))
 
 [[maybe_unused]] [[nodiscard]] static PgStringOk
 pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
@@ -5889,6 +5884,31 @@ typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
 [[maybe_unused]] static void pg_heap_dequeue(PgHeap *heap,
                                              PgHeapLessThanFn less_than) {
   pg_heap_node_remove(heap, heap->root, less_than);
+}
+
+typedef int (*PgCmpFn)(const void *a, const void *b);
+
+[[maybe_unused]] static void pg_sort_unique(void *elems, u64 elem_size,
+                                            u64 elems_count, PgCmpFn cmp_fn) {
+  // TODO: own sort.
+  qsort(elems, elems_count, elem_size, cmp_fn);
+
+  if (elems_count <= 1) {
+    return;
+  }
+
+  for (u64 i = 1; i < elems_count;) {
+    void *previous = (u8 *)elems + elem_size * (i - 1);
+    void *current = (u8 *)elems + elem_size * i;
+    if (PG_CMP_EQ == cmp_fn(previous, current)) {
+      void *last = (u8 *)elems + elem_size * (elems_count - 1);
+      memcpy(current, last, elem_size);
+      PG_ASSERT(elems_count > 0);
+      elems_count -= 1;
+    } else {
+      i += 1;
+    }
+  }
 }
 
 #endif
