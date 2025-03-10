@@ -838,7 +838,9 @@ pg_try_arena_realloc(PgArena *a, void *ptr, u64 elem_count_old, u64 size,
     return ptr;
   }
 
-  return pg_try_arena_alloc(a, size, align, count);
+  void *res = pg_try_arena_alloc(a, size, align, count);
+  memmove(res, ptr, size * count);
+  return res;
 }
 
 __attribute((malloc, alloc_size(2, 4), alloc_align(3)))
@@ -1255,7 +1257,8 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 #define PG_DYN_APPEND_SLICE(dst, src, allocator)                               \
   do {                                                                         \
     PG_DYN_ENSURE_CAP(dst, (dst)->len + (src).len, (allocator));               \
-    memmove((dst)->data + (dst)->len, (src).data, (src).len);                  \
+    memmove((dst)->data + (dst)->len * sizeof(*(dst)->data), (src).data,       \
+            (src).len * sizeof(*(dst)->data));                                 \
     (dst)->len += (src).len;                                                   \
   } while (0)
 
