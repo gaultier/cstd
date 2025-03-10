@@ -2632,8 +2632,6 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 static PgProcessExitResult pg_process_wait(PgProcess process,
                                            PgAllocator *allocator);
 
-static void pg_process_release(PgProcess process);
-
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
@@ -2877,7 +2875,16 @@ end:
   if (res.err) {
     pg_free(allocator, stdout_sb.data);
     pg_free(allocator, stderr_sb.data);
-  } else {
+  }
+
+  if (process.stdin_pipe.fd) {
+    close(process.stdin_pipe.fd);
+  }
+  if (process.stdout_pipe.fd) {
+    close(process.stdout_pipe.fd);
+  }
+  if (process.stderr_pipe.fd) {
+    close(process.stderr_pipe.fd);
   }
 
   res.res.stdout_captured = PG_DYN_SLICE(PgString, stdout_sb);
@@ -2915,19 +2922,6 @@ static PgProcessExitResult pg_process_wait(PgProcess process,
   res.res.stderr_captured = res_capture.res.stderr_captured;
 
   return res;
-}
-
-[[maybe_unused]]
-static void pg_process_release(PgProcess process) {
-  if (process.stdin_pipe.fd) {
-    close(process.stdin_pipe.fd);
-  }
-  if (process.stdout_pipe.fd) {
-    close(process.stdout_pipe.fd);
-  }
-  if (process.stderr_pipe.fd) {
-    close(process.stderr_pipe.fd);
-  }
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin() {
