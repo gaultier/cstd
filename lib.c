@@ -5889,22 +5889,21 @@ typedef bool (*PgHeapIterFn)(PgHeapNode *node, u64 depth, bool left, void *ctx);
 typedef int (*PgCmpFn)(const void *a, const void *b);
 
 [[maybe_unused]] static void pg_sort_unique(void *elems, u64 elem_size,
-                                            u64 elems_count, PgCmpFn cmp_fn) {
+                                            u64 *elems_count, PgCmpFn cmp_fn) {
   // TODO: own sort.
-  qsort(elems, elems_count, elem_size, cmp_fn);
+  qsort(elems, *elems_count, elem_size, cmp_fn);
 
-  if (elems_count <= 1) {
+  if (*elems_count <= 1) {
     return;
   }
 
-  for (u64 i = 1; i < elems_count;) {
+  for (u64 i = 1; i < *elems_count;) {
     void *previous = (u8 *)elems + elem_size * (i - 1);
     void *current = (u8 *)elems + elem_size * i;
     if (PG_CMP_EQ == cmp_fn(previous, current)) {
-      void *last = (u8 *)elems + elem_size * (elems_count - 1);
-      memcpy(current, last, elem_size);
-      PG_ASSERT(elems_count > 0);
-      elems_count -= 1;
+      memmove(previous, current, elem_size * (*elems_count - i));
+      PG_ASSERT(*elems_count > 0);
+      *elems_count -= 1;
     } else {
       i += 1;
     }
