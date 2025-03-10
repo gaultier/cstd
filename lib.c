@@ -2914,13 +2914,13 @@ pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
         sb = &stderr_sb;
       }
 
-      if (pollfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+      if (pollfd.revents & (POLLERR | POLLNVAL)) {
         PG_ASSERT(0 == close(pollfd.fd));
         fd->fd = 0;
         continue;
       }
 
-      PG_ASSERT(pollfd.revents & POLLIN);
+      PG_ASSERT(pollfd.revents & (POLLIN | POLLHUP));
 
       u8 tmp[4096] = {0};
       ssize_t read_n = read(pollfd.fd, tmp, PG_STATIC_ARRAY_LEN(tmp));
