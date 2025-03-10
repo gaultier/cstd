@@ -2658,14 +2658,13 @@ pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
                               Pgu64Ok offset, u64 len) {
   PG_ASSERT(offset.res < len);
 
-  u64 to_copy = len - offset.res;
   u64 copied = 0;
 
 #ifdef __linux__
   off_t *offset_ptr = offset.ok ? (off_t *)&offset.res : nullptr;
 
-  while (copied < to_copy) {
-    u64 sendfile_len = to_copy - (offset_ptr ? (u64)*offset_ptr : 0);
+  while (copied < len) {
+    u64 sendfile_len = len - copied;
     ssize_t ret = sendfile(dst.fd, src.fd, offset_ptr, sendfile_len);
     if (-1 == ret) {
       return (PgError)errno;
