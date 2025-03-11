@@ -559,7 +559,7 @@ pg_string_split_string(PgString s, PgString sep) {
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
-pg_string_indexof_byte(PgString haystack, u8 needle) {
+pg_string_indexof_rune(PgString haystack, PgRune needle) {
   if (PG_SLICE_IS_EMPTY(haystack)) {
     return -1;
   }
@@ -587,19 +587,28 @@ typedef struct {
 } PgStringCut;
 
 [[maybe_unused]] [[nodiscard]] static PgStringCut
-pg_string_cut_byte(PgString s, u8 needle) {
+pg_string_cut_rune(PgString s, PgRune needle) {
   PgStringCut res = {0};
 
-  i64 idx = pg_string_indexof_byte(s, needle);
-  if (-1 == idx) {
-    return res;
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+
+  u64 idx = 0;
+  for (;;) {
+    idx = it.idx;
+    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    if (res_rune.err || !res_rune.res) {
+      return res;
+    }
+
+    if (needle == res_rune.res) {
+      res.left = PG_SLICE_RANGE(s, 0, idx);
+      res.right = PG_SLICE_RANGE_START(s, it.idx);
+      res.ok = true;
+      return res;
+    }
   }
 
-  res.left = PG_SLICE_RANGE(s, 0, (u64)idx);
-  res.right = PG_SLICE_RANGE_START(s, (u64)idx + 1);
-  res.ok = true;
-
-  return res;
+  PG_ASSERT(0);
 }
 
 [[nodiscard]] static i64 pg_string_last_indexof_byte(PgString haystack,
@@ -673,7 +682,7 @@ pg_string_indexof_string(PgString haystack, PgString needle) {
 
   for (u64 _i = 0; _i < haystack.len - needle.len; _i++) {
     PgString remaining = PG_SLICE_RANGE_START(haystack, j);
-    i64 idx = pg_string_indexof_byte(remaining, needle_first);
+    i64 idx = pg_string_indexof_rune(remaining, needle_first);
     if (-1 == idx) {
       return -1;
     }
@@ -742,7 +751,7 @@ typedef struct {
 pg_string_consume_until_byte_excl(PgString haystack, u8 needle) {
   PgStringPairConsume res = {0};
 
-  i64 idx = pg_string_indexof_byte(haystack, needle);
+  i64 idx = pg_string_indexof_rune(haystack, needle);
   if (-1 == idx) {
     res.left = haystack;
     res.right = haystack;
@@ -761,7 +770,7 @@ pg_string_consume_until_byte_excl(PgString haystack, u8 needle) {
 pg_string_consume_until_byte_incl(PgString haystack, u8 needle) {
   PgStringPairConsume res = {0};
 
-  i64 idx = pg_string_indexof_byte(haystack, needle);
+  i64 idx = pg_string_indexof_rune(haystack, needle);
   if (-1 == idx) {
     res.left = haystack;
     res.right = haystack;
@@ -4501,7 +4510,7 @@ pg_http_parse_request_status_line(PgString status_line,
     remaining = consume.res;
   }
 
-  i64 idx_space = pg_string_indexof_byte(remaining, ' ');
+  i64 idx_space = pg_string_indexof_rune(remaining, ' ');
   if (-1 == idx_space) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
@@ -4576,7 +4585,7 @@ pg_http_parse_request_status_line(PgString status_line,
 pg_http_parse_header(PgString s) {
   PgKeyValueResult res = {0};
 
-  i64 idx = pg_string_indexof_byte(s, ':');
+  i64 idx = pg_string_indexof_rune(s, ':');
   if (-1 == idx) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
