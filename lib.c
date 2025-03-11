@@ -547,7 +547,7 @@ pg_string_is_alphabetical(PgString s) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim(PgString s,
-                                                              u8 c) {
+                                                              PgRune c) {
   PgString res = pg_string_trim_left(s, c);
   res = pg_string_trim_right(res, c);
 

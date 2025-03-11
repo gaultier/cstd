@@ -71,8 +71,8 @@ static void test_string_indexof_string() {
 
   // Found, one occurence.
   {
-    PG_ASSERT(0 == pg_string_indexof_string(PG_S("hello world\n"),
-                                            PG_S("hello world")));
+    PG_ASSERT(0 == pg_string_indexof_string(PG_S("hello 🍌 world\n"),
+                                            PG_S("hello 🍌 world")));
   }
 
   // Found, first occurence.
@@ -99,8 +99,14 @@ static void test_string_indexof_string() {
 }
 
 static void test_string_trim() {
-  PgString trimmed = pg_string_trim(PG_S("   foo "), ' ');
-  PG_ASSERT(pg_string_eq(trimmed, PG_S("foo")));
+  {
+    PgString trimmed = pg_string_trim(PG_S("   foo "), ' ');
+    PG_ASSERT(pg_string_eq(trimmed, PG_S("foo")));
+  }
+  {
+    PgString trimmed = pg_string_trim(PG_S("🍌🍌foo🍌"), 0x1f34c /* 🍌 */);
+    PG_ASSERT(pg_string_eq(trimmed, PG_S("foo")));
+  }
 }
 
 static void test_string_split_byte() {
