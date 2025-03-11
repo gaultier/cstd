@@ -673,55 +673,6 @@ static void test_string_indexof_any_byte() {
   }
 }
 
-#if 0
-static void test_log_entry_quote_value() {
-  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-  // Nothing to escape.
-  {
-    PgString s = PG_S("hello");
-    PgString expected = PG_S("\"hello\"");
-    PG_ASSERT(pg_string_eq(expected, pg_json_escape_string(s, &arena)));
-  }
-  {
-    PgString s = PG_S("{\"id\": 1}");
-    PgString expected = PG_S("\"{\\\"id\\\": 1}\"");
-    PG_ASSERT(pg_string_eq(expected, pg_json_escape_string(s, &arena)));
-  }
-  {
-    PgString s = PG_S("192.168.1.2:12345");
-    PgString expected = PG_S("\"192.168.1.2:12345\"");
-    PG_ASSERT(pg_string_eq(expected, pg_json_escape_string(s, &arena)));
-  }
-  {
-    u8 backslash = 0x5c;
-    u8 double_quote = '"';
-    u8 data[] = {backslash, double_quote};
-    PgString s = {.data = data, .len = sizeof(data)};
-
-    u8 data_expected[] = {double_quote, backslash,    backslash,
-                          backslash,    double_quote, double_quote};
-    PgString expected = {.data = data_expected, .len = sizeof(data_expected)};
-    PG_ASSERT(pg_string_eq(expected, pg_json_escape_string(s, &arena)));
-  }
-}
-#endif
-
-#if 0
-static void test_make_log_line() {
-  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-
-  PgString pg_log_line = pg_log_make_log_line_json(
-      PG_LOG_LEVEL_DEBUG, PG_S("foobar"), &arena, 2, PG_L("num", 42),
-      PG_L("s", PG_S("hello \"world\"")));
-
-  PgString expected_suffix = PG_S(
-      "\"message\":\"foobar\",\"num\":42,\"s\":\"hello \\\"world\\\"\"}\n");
-  PG_ASSERT(pg_string_starts_with(
-      pg_log_line, PG_S("{\"level\":\"debug\",\"timestamp_ns\":")));
-  PG_ASSERT(pg_string_ends_with(pg_log_line, expected_suffix));
-}
-#endif
-
 static void test_u8x4_be_to_u32_and_back() {
   {
     u32 n = 123'456'789;
