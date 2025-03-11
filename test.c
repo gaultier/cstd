@@ -586,7 +586,7 @@ static void test_slice_swap_remove() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
   {
-    PgString s = pg_string_dup(PG_S("hello world!"), allocator);
+    PgString s = pg_string_clone(PG_S("hello world!"), allocator);
     PG_SLICE_SWAP_REMOVE(&s, 4);
     PG_ASSERT(pg_string_eq(s, PG_S("hell! world")));
   }
@@ -719,9 +719,9 @@ static void test_bitfield() {
     PG_ASSERT(!pg_bitfield_get(bitfield, 15));
   }
   {
-    PgString bitfield = pg_string_dup(PG_S("\x3"
-                                           "\x2"),
-                                      allocator);
+    PgString bitfield = pg_string_clone(PG_S("\x3"
+                                             "\x2"),
+                                        allocator);
     PG_ASSERT(3 == pg_bitfield_count(bitfield));
 
     pg_bitfield_set(bitfield, 0, true);
@@ -756,11 +756,11 @@ static void test_bitfield() {
     PG_ASSERT(!pg_bitfield_get(bitfield, 15));
   }
   {
-    PgString bitfield = pg_string_dup(PG_S("\x20"
-                                           "\x01"
-                                           "\x80"
-                                           "\x90"),
-                                      allocator);
+    PgString bitfield = pg_string_clone(PG_S("\x20"
+                                             "\x01"
+                                             "\x80"
+                                             "\x90"),
+                                        allocator);
     PG_ASSERT(5 == pg_bitfield_count(bitfield));
     pg_bitfield_set(bitfield, 28, true);
     PG_ASSERT(5 == pg_bitfield_count(bitfield));
@@ -846,7 +846,7 @@ static void test_ring_buffer_read_write_slice() {
     PG_ASSERT(0 == pg_ring_read_space(rg));
     PG_ASSERT(true == pg_ring_read_slice(&rg, (PgString){0}));
 
-    PgString dst = pg_string_dup(PG_S("xyz"), allocator);
+    PgString dst = pg_string_clone(PG_S("xyz"), allocator);
     PG_ASSERT(false == pg_ring_read_slice(&rg, dst));
   }
 
@@ -857,7 +857,7 @@ static void test_ring_buffer_read_write_slice() {
     PG_ASSERT(5 == rg.idx_write);
     PG_ASSERT(5 == pg_ring_read_space(rg));
 
-    PgString dst = pg_string_dup(PG_S("xyz"), allocator);
+    PgString dst = pg_string_clone(PG_S("xyz"), allocator);
     PG_ASSERT(pg_ring_read_slice(&rg, dst));
     PG_ASSERT(pg_string_eq(dst, PG_S("hel")));
     PG_ASSERT(3 == rg.idx_read);
@@ -873,7 +873,7 @@ static void test_ring_buffer_read_write_slice() {
     PG_ASSERT(11 == pg_ring_read_space(rg));
     PG_ASSERT(2 == rg.idx_write);
 
-    dst = pg_string_dup(PG_S("abcdefghijk"), allocator);
+    dst = pg_string_clone(PG_S("abcdefghijk"), allocator);
     PG_ASSERT(pg_ring_read_slice(&rg, dst));
     PG_ASSERT(pg_string_eq(dst, PG_S("lo world!ab")));
     PG_ASSERT(2 == rg.idx_read);

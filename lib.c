@@ -1978,14 +1978,6 @@ static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_string_dup(PgString src, PgAllocator *allocator) {
-  PgString dst = pg_string_make(src.len, allocator);
-  memcpy(dst.data, src.data, src.len);
-
-  return dst;
-}
-
 [[maybe_unused]] [[nodiscard]] static u64
 pg_round_up_multiple_of(u64 n, u64 multiple) {
   PG_ASSERT(0 != multiple);
@@ -2020,31 +2012,20 @@ pg_string_indexof_unescaped_rune(PgString haystack, PgRune needle,
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
-pg_string_indexof_any_unescaped_byte(PgString haystack, PgString needles,
-                                     u8 escape) {
-  for (u64 i = 0; i < needles.len; i++) {
-    i64 idx = pg_string_indexof_unescaped_rune(haystack,
-                                               PG_SLICE_AT(needles, i), escape);
+pg_string_indexof_any_unescaped_rune(PgString haystack, PgString needles,
+                                     PgRune escape) {
+  PgUtf8Iterator it = pg_make_utf8_iterator(needles);
+  PgRuneResult res_rune = {0};
+  for (res_rune = pg_utf8_iterator_next(&it);
+       0 == res_rune.err && 0 != res_rune.res;
+       res_rune = pg_utf8_iterator_next(&it)) {
+    PgRune needle = res_rune.res;
+    i64 idx = pg_string_indexof_unescaped_rune(haystack, needle, escape);
     if (-1 != idx) {
       return idx;
     }
   }
   return -1;
-}
-
-[[maybe_unused]] [[nodiscard]] static u64
-pg_skip_over_whitespace(PgString s, u64 idx_start) {
-  PG_ASSERT(idx_start < s.len);
-
-  u64 idx = idx_start;
-  for (; idx < s.len; idx++) {
-    u8 c = PG_SLICE_AT(s, idx);
-    if (' ' != c) {
-      return idx;
-    }
-  }
-
-  return idx;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
@@ -5312,95 +5293,6 @@ pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
 
   return PG_DYN_SLICE(PgString, sb);
 }
-
-#if 0
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_json_encode_string_slice(PgStringSlice strings, PgAllocator *allocator) {
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, strings.len * 128, allocator);
-  *PG_DYN_PUSH(&sb, allocator) = '[';
-
-  for (u64 i = 0; i < strings.len; i++) {
-    PgString s = PG_SLICE_AT(strings, i);
-    PgString encoded = pg_json_escape_string(s, allocator);
-    PG_DYN_APPEND_SLICE(&sb, encoded, allocator);
-
-    if (i + 1 < strings.len) {
-      *PG_DYN_PUSH(&sb, allocator) = ',';
-    }
-  }
-
-  *PG_DYN_PUSH(&sb, allocator) = ']';
-
-  return PG_DYN_SLICE(PgString, sb);
-}
-
-[[maybe_unused]] [[nodiscard]] static PgStringSliceResult
-pg_json_decode_string_slice(PgString s, PgArena *arena) {
-  PgStringSliceResult res = {0};
-  if (s.len < 2) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-  if ('[' != PG_SLICE_AT(s, 0)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-
-  PgStringDyn dyn = {0};
-  for (u64 i = 1; i < s.len - 2;) {
-    i = pg_skip_over_whitespace(s, i);
-
-    u8 c = PG_SLICE_AT(s, i);
-    if ('"' != c) { // Opening quote.
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
-    }
-    i += 1;
-
-    PgString remaining = PG_SLICE_RANGE_START(s, i);
-    i64 end_quote_idx = pg_string_indexof_unescaped_byte(remaining, '"', '\\');
-    if (-1 == end_quote_idx) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
-    }
-
-    PG_ASSERT(0 <= end_quote_idx);
-
-    PgString str = PG_SLICE_RANGE(s, i, i + (u64)end_quote_idx);
-    PgString unescaped = pg_json_unescape_string(str, allocator);
-    *PG_DYN_PUSH(&dyn, allocator) = unescaped;
-
-    i += (u64)end_quote_idx;
-
-    if ('"' != c) { // Closing quote.
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
-    }
-    i += 1;
-
-    i = pg_skip_over_whitespace(s, i);
-    if (i + 1 == s.len) {
-      break;
-    }
-
-    c = PG_SLICE_AT(s, i);
-    if (',' != c) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
-    }
-    i += 1;
-  }
-
-  if (']' != PG_SLICE_AT(s, s.len - 1)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-
-  res.res = PG_DYN_SLICE(PgStringSlice, dyn);
-  return res;
-}
-#endif
 
 static void pg_heap_node_swap(PgHeap *heap, PgHeapNode *parent,
                               PgHeapNode *child) {
