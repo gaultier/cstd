@@ -951,19 +951,25 @@ pg_string_parse_u64(PgString s) {
     return res;
   }
 
-  u64 i = 0;
-  for (; i < s.len; i++) {
-    u8 c = PG_SLICE_AT(s, i);
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+  u64 last_idx = 0;
+  for (;;) {
+    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    if (0 != res_rune.err || 0 == res_rune.res) {
+      break;
+    }
 
+    PgRune c = res_rune.res;
     if (!pg_character_is_numeric(c)) { // End of numbers sequence.
       break;
     }
 
     res.n *= 10;
-    res.n += (u8)PG_SLICE_AT(s, i) - '0';
+    res.n += (u8)c - '0';
     res.present = true;
+    last_idx = it.idx;
   }
-  res.remaining = PG_SLICE_RANGE_START(s, i);
+  res.remaining = PG_SLICE_RANGE_START(s, last_idx);
   return res;
 }
 

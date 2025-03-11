@@ -2328,10 +2328,8 @@ int main() {
   test_process_no_capture();
   test_process_capture();
   test_process_stdin();
-#if 0
   test_html_tokenize_no_attributes();
   test_html_tokenize_with_key_no_value();
   test_html_tokenize_with_attributes();
   test_html_tokenize_nested();
-#endif
 }
