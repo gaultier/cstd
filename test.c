@@ -215,34 +215,34 @@ static void test_slice_range() {
 static void test_utf8_iterator() {
   {
     PgString s = PG_S("2匹の🀅🂣©");
-    PgStringUtf8Iterator it = pg_string_utf8(s);
+    PgUtf8Iterator it = pg_make_utf8_iterator(s);
 
     PgRuneResult res = {0};
-    res = pg_string_utf8_next(&it);
+    res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(0x32 == res.res);
 
-    res = pg_string_utf8_next(&it);
+    res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(0x5339 == res.res);
 
-    res = pg_string_utf8_next(&it);
+    res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(0x306e == res.res);
 
-    res = pg_string_utf8_next(&it);
+    res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(0x1f005 == res.res);
 
-    res = pg_string_utf8_next(&it);
+    res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(0x1f0a3 == res.res);
 
-    res = pg_string_utf8_next(&it);
+    res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(0x00A9 == res.res);
 
-    res = pg_string_utf8_next(&it);
+    res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
     PG_ASSERT(0 == res.res);
   }

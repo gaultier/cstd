@@ -2458,21 +2458,21 @@ pg_string_concat(PgString left, PgString right, PgAllocator *allocator) {
 typedef struct {
   PgString s;
   u64 idx;
-} PgStringUtf8Iterator;
+} PgUtf8Iterator;
 
 typedef u32 PgRune;
 PG_RESULT(PgRune) PgRuneResult;
 
-[[maybe_unused]] [[nodiscard]] static PgStringUtf8Iterator
-pg_string_utf8(PgString s) {
-  PgStringUtf8Iterator it = {0};
+[[maybe_unused]] [[nodiscard]] static PgUtf8Iterator
+pg_make_utf8_iterator(PgString s) {
+  PgUtf8Iterator it = {0};
   it.s = s;
 
   return it;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgRuneResult
-pg_string_utf8_next(PgStringUtf8Iterator *it) {
+pg_utf8_iterator_next(PgUtf8Iterator *it) {
   PgRuneResult res = {0};
 
   PgString s = PG_SLICE_RANGE_START(it->s, it->idx);
