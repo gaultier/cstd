@@ -5828,8 +5828,8 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
 
   /* PgString comment_start = PG_S("<!--"); */
   /* PgString comment_end = PG_S("-->"); */
-  u8 tag_start = '<';
-  u8 slash = '/';
+  PgRune tag_start = '<';
+  PgRune slash = '/';
   PgString attribute_separator = PG_S("\x09"
                                       "\x0A"
                                       "\x0C"
@@ -5889,22 +5889,25 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
           return res;
         }
 
-        PgString text = {.data = s.data + pos};
         // TODO: comment.
-        while (pos < s.len && PG_SLICE_AT(s, pos) != tag_start) {
-          pos += 1;
-        }
-        text.len = (u64)(s.data + pos - text.data);
-        PG_ASSERT(text.len <= s.len);
 
-        if (!pg_string_is_empty(pg_string_trim_space(text))) {
-          PgHtmlToken token = {
-              .start = (u32)(text.data - s.data),
-              .end = (u32)(text.data + text.len - s.data),
-              .kind = PG_HTML_TOKEN_KIND_TEXT,
-              .text = text,
-          };
-          *PG_DYN_PUSH(&res.res, allocator) = token;
+        PgStringCut cut =
+            pg_string_cut_rune(PG_SLICE_RANGE_START(s, pos), tag_start);
+        if (cut.ok) {
+          pos += cut.left.len;
+
+          PgString text = pg_string_trim_space(cut.left);
+          if (!pg_string_is_empty(text)) {
+            PgHtmlToken token = {
+                .start = (u32)(text.data - s.data),
+                .end = (u32)(text.data + text.len - s.data),
+                .kind = PG_HTML_TOKEN_KIND_TEXT,
+                .text = text,
+            };
+            *PG_DYN_PUSH(&res.res, allocator) = token;
+          }
+        } else {
+          return res;
         }
       }
     }
