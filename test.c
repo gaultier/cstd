@@ -215,6 +215,10 @@ static void test_slice_range() {
 static void test_utf8_iterator() {
   {
     PgString s = PG_S("2匹の🀅🂣©");
+    PgU64Result res_count = pg_utf8_count(s);
+    PG_ASSERT(0 == res_count.err);
+    PG_ASSERT(6 == res_count.res);
+
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
 
     PgRuneResult res = {0};
