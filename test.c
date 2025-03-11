@@ -1967,7 +1967,7 @@ static void test_html_tokenize_with_key_no_value() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgString s = PG_S("<html hidden>foo</html>");
+  PgString s = PG_S("<html aria-hidden>foo</html>");
   PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
   PG_ASSERT(0 == res.err);
 
@@ -1986,24 +1986,24 @@ static void test_html_tokenize_with_key_no_value() {
     PgHtmlToken token = PG_SLICE_AT(tokens, 1);
     PG_ASSERT(PG_HTML_TOKEN_KIND_ATTRIBUTE == token.kind);
     PG_ASSERT(6 == token.start);
-    PG_ASSERT(12 == token.end);
-    PG_ASSERT(pg_string_eq(PG_S("hidden"), token.attribute.key));
+    PG_ASSERT(17 == token.end);
+    PG_ASSERT(pg_string_eq(PG_S("aria-hidden"), token.attribute.key));
     PG_ASSERT(pg_string_eq(PG_S(""), token.attribute.value));
   }
 
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 2);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == token.kind);
-    PG_ASSERT(13 == token.start);
-    PG_ASSERT(16 == token.end);
+    PG_ASSERT(18 == token.start);
+    PG_ASSERT(21 == token.end);
     PG_ASSERT(pg_string_eq(PG_S("foo"), pg_string_trim_space(token.text)));
   }
 
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 3);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind);
-    PG_ASSERT(18 == token.start);
-    PG_ASSERT(22 == token.end);
+    PG_ASSERT(23 == token.start);
+    PG_ASSERT(27 == token.end);
     PG_ASSERT(pg_string_eq(PG_S("html"), token.tag));
   }
 }

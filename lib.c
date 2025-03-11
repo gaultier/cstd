@@ -6051,14 +6051,15 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
       return 0;
     }
 
-    if (!pg_character_is_alphabetical(PG_SLICE_AT(s, *pos))) {
-      return PG_HTML_PARSE_ERROR_UNEXPECTED_CHARACTER_IN_ATTRIBUTE_NAME;
-    }
-
     PgKeyValue kv = {0};
     kv.key.data = s.data + *pos;
 
-    while (*pos < s.len && pg_character_is_alphabetical(PG_SLICE_AT(s, *pos))) {
+    while (*pos < s.len) {
+      c = PG_SLICE_AT(s, *pos);
+      if (0x09 == c || 0x0A == c || 0x0C == c || 0x0D == c || 0x20 == c ||
+          0x2F == c || '>' == c || '=' == c) {
+        break;
+      }
       *pos += 1;
     }
     kv.key.len = (u64)(s.data + *pos - kv.key.data);
