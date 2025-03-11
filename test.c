@@ -1,6 +1,10 @@
 #include "lib.c"
 
 static void test_string_indexof_rune() {
+  // Empty.
+  {
+    PG_ASSERT(-1 == pg_string_indexof_rune(PG_S(""), 0x805e /* 聞 */));
+  }
 
   // Unicode
   {
