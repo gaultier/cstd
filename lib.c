@@ -1913,8 +1913,8 @@ pg_writer_write_i64_as_string(PgWriter *w, i64 n) {
   *(PG_SLICE_AT_PTR(dst, 3)) = (u8)(n >> 0);
 }
 
-[[maybe_unused]] static void
-pg_string_builder_append_u32(Pgu8Dyn *dyn, u32 n, PgAllocator *allocator) {
+[[maybe_unused]] static void pg_byte_buffer_append_u32(Pgu8Dyn *dyn, u32 n,
+                                                       PgAllocator *allocator) {
 
   u8 data[sizeof(n)] = {0};
   PgString s = {.data = data, .len = sizeof(n)};
@@ -1923,7 +1923,7 @@ pg_string_builder_append_u32(Pgu8Dyn *dyn, u32 n, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] static void
-pg_string_builder_append_u32_within_capacity(Pgu8Dyn *dyn, u32 n) {
+pg_byte_buffer_append_u32_within_capacity(Pgu8Dyn *dyn, u32 n) {
 
   u8 data[sizeof(n)] = {0};
   PgString s = {.data = data, .len = sizeof(n)};
@@ -1943,8 +1943,7 @@ pg_u64_to_string(u64 n, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] static void
-pg_string_builder_append_u64_as_string(Pgu8Dyn *sb, u64 n,
-                                       PgAllocator *allocator) {
+pg_string_builder_append_u64(Pgu8Dyn *sb, u64 n, PgAllocator *allocator) {
   PgWriter w = pg_writer_make_from_string_builder(sb, allocator);
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
 }
@@ -2002,24 +2001,21 @@ pg_round_up_multiple_of(u64 n, u64 multiple) {
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
-pg_string_indexof_unescaped_byte(PgString haystack, u8 needle, u8 escape) {
-  for (u64 i = 0; i < haystack.len; i++) {
-    u8 c = PG_SLICE_AT(haystack, i);
-
-    if (c != needle) {
-      continue;
+pg_string_indexof_unescaped_rune(PgString haystack, PgRune needle,
+                                 PgRune escape) {
+  while (!pg_string_is_empty(haystack)) {
+    i64 idx = pg_string_indexof_rune(haystack, needle);
+    if (-1 == idx) {
+      return -1;
     }
 
-    if (i == 0) {
-      return (i64)i;
+    PgString remaining = PG_SLICE_RANGE_START(
+        haystack, (u64)idx + pg_utf8_rune_bytes_count(needle));
+    if (escape != pg_string_first(remaining)) {
+      return idx;
     }
-
-    u8 previous = PG_SLICE_AT(haystack, i - 1);
-    if (escape != previous) {
-      return (i64)i;
-    }
+    haystack = remaining;
   }
-
   return -1;
 }
 
@@ -2027,7 +2023,7 @@ pg_string_indexof_unescaped_byte(PgString haystack, u8 needle, u8 escape) {
 pg_string_indexof_any_unescaped_byte(PgString haystack, PgString needles,
                                      u8 escape) {
   for (u64 i = 0; i < needles.len; i++) {
-    i64 idx = pg_string_indexof_unescaped_byte(haystack,
+    i64 idx = pg_string_indexof_unescaped_rune(haystack,
                                                PG_SLICE_AT(needles, i), escape);
     if (-1 != idx) {
       return idx;
