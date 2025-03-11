@@ -212,6 +212,42 @@ static void test_slice_range() {
   PG_ASSERT(pg_string_eq(PG_SLICE_AT(s, 2), PG_SLICE_AT(range, 1)));
 }
 
+static void test_utf8_iterator() {
+  {
+    PgString s = PG_S("2匹のカエル");
+    PgStringUtf8Iterator it = pg_string_utf8(s);
+
+    PgRuneResult res = {0};
+    res = pg_string_utf8_next(&it);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(0x32 == res.res);
+
+    res = pg_string_utf8_next(&it);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(0x5339 == res.res);
+
+    res = pg_string_utf8_next(&it);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(0x306e == res.res);
+
+    res = pg_string_utf8_next(&it);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(0x30ab == res.res);
+
+    res = pg_string_utf8_next(&it);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(0x30a8 == res.res);
+
+    res = pg_string_utf8_next(&it);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(0x30eb == res.res);
+
+    res = pg_string_utf8_next(&it);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(0 == res.res);
+  }
+}
+
 static void test_string_consume() {
   {
     PgStringOk res = pg_string_consume_byte(PG_S(""), '{');
@@ -2080,6 +2116,7 @@ static void test_html_tokenize_nested() {
 
 int main() {
   test_slice_range();
+  test_utf8_iterator();
   test_string_indexof_string();
   test_string_trim();
   test_string_split_byte();

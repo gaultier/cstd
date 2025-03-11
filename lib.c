@@ -2455,6 +2455,73 @@ pg_string_concat(PgString left, PgString right, PgAllocator *allocator) {
   return res;
 }
 
+typedef struct {
+  PgString s;
+  u64 idx;
+} PgStringUtf8Iterator;
+
+typedef u32 PgRune;
+PG_RESULT(PgRune) PgRuneResult;
+
+[[maybe_unused]] [[nodiscard]] static PgStringUtf8Iterator
+pg_string_utf8(PgString s) {
+  PgStringUtf8Iterator it = {0};
+  it.s = s;
+
+  return it;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgRuneResult
+pg_string_utf8_next(PgStringUtf8Iterator *it) {
+  PgRuneResult res = {0};
+
+  PgString s = PG_SLICE_RANGE_START(it->s, it->idx);
+  if (pg_string_is_empty(s)) {
+    return res;
+  }
+
+  u8 c0 = PG_SLICE_AT(s, 0);
+  // One byte.
+  if (0b0000'0000 == (c0 & 0b1000'0000)) {
+    res.res = c0 & 0x7F;
+    it->idx += 1;
+    return res;
+  }
+
+  // 2 bytes.
+  if (0b1100'000 == (c0 & 0b1110'0000)) {
+    u8 c1 = PG_SLICE_AT(s, 1);
+    res.res = (((PgRune)c0 & 0b0001'1111) << 6) | ((PgRune)c1 & 0b0011'1111);
+    it->idx += 2;
+    return res;
+  }
+
+  // 3 bytes.
+  if (0b1110'0000 == (c0 & 0b1111'0000)) {
+    u8 c1 = PG_SLICE_AT(s, 1);
+    u8 c2 = PG_SLICE_AT(s, 2);
+    res.res = (((PgRune)c0 & 0b0000'1111) << 12) |
+              (((PgRune)c1 & 0b0011'1111) << 6) | ((PgRune)c2 & 0b0011'1111);
+    it->idx += 3;
+    return res;
+  }
+
+  // 4 bytes.
+  if (0b1111'0000 == (c0 & 0b1111'1000)) {
+    u8 c1 = PG_SLICE_AT(s, 1);
+    u8 c2 = PG_SLICE_AT(s, 2);
+    u8 c3 = PG_SLICE_AT(s, 3);
+    res.res = (((PgRune)c3 & 0b0000'0111) << 18) |
+              (((PgRune)c2 & 0b0000'1111) << 12) |
+              (((PgRune)c1 & 0b0011'1111) << 6) | ((PgRune)c2 & 0b0011'1111);
+    it->idx += 4;
+    return res;
+  }
+
+  res.err = PG_ERR_INVALID_VALUE;
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgReader
 pg_reader_make_from_file(PgFileDescriptor file);
 
