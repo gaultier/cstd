@@ -6185,7 +6185,7 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
         text.len = (u64)(s.data + pos - text.data);
         PG_ASSERT(text.len <= s.len);
 
-        if (!pg_string_is_empty(text)) {
+        if (!pg_string_is_empty(pg_string_trim_space(text))) {
           PgHtmlToken token = {
               .start = (u32)(text.data - s.data),
               .end = (u32)(text.data + text.len - s.data),

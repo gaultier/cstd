@@ -1962,6 +1962,76 @@ static void test_html_tokenize_with_attributes() {
   }
 }
 
+static void test_html_tokenize_nested() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgString s = PG_S("<html id=\"bar\" > foo <span>bar</span> </html>");
+  PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
+  PG_ASSERT(0 == res.err);
+
+  PgHtmlTokenDyn tokens = res.res;
+  PG_ASSERT(7 == tokens.len);
+
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 0);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind);
+    PG_ASSERT(1 == token.start);
+    PG_ASSERT(5 == token.end);
+    PG_ASSERT(pg_string_eq(PG_S("html"), token.tag));
+  }
+
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 1);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_ATTRIBUTE == token.kind);
+    PG_ASSERT(6 == token.start);
+    PG_ASSERT(13 == token.end);
+    PG_ASSERT(pg_string_eq(PG_S("id"), token.attribute.key));
+    PG_ASSERT(pg_string_eq(PG_S("bar"), token.attribute.value));
+  }
+
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 2);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == token.kind);
+    /* PG_ASSERT(29 == token.start); */
+    /* PG_ASSERT(35 == token.end); */
+    PG_ASSERT(pg_string_eq(PG_S("foo"), pg_string_trim_space(token.text)));
+  }
+
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 3);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind);
+    /* PG_ASSERT(1 == token.start); */
+    /* PG_ASSERT(5 == token.end); */
+    PG_ASSERT(pg_string_eq(PG_S("span"), token.tag));
+  }
+
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 4);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == token.kind);
+    /* PG_ASSERT(29 == token.start); */
+    /* PG_ASSERT(35 == token.end); */
+    PG_ASSERT(pg_string_eq(PG_S("bar"), pg_string_trim_space(token.text)));
+  }
+
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 5);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind);
+    /* PG_ASSERT(1 == token.start); */
+    /* PG_ASSERT(5 == token.end); */
+    PG_ASSERT(pg_string_eq(PG_S("span"), token.tag));
+  }
+
+  {
+    PgHtmlToken token4 = PG_SLICE_AT(tokens, 6);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token4.kind);
+    /* PG_ASSERT(37 == token4.start); */
+    /* PG_ASSERT(41 == token4.end); */
+    PG_ASSERT(pg_string_eq(PG_S("html"), token4.tag));
+  }
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_string();
@@ -2006,4 +2076,5 @@ int main() {
   test_process_stdin();
   test_html_tokenize_no_attributes();
   test_html_tokenize_with_attributes();
+  test_html_tokenize_nested();
 }
