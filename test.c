@@ -6,6 +6,7 @@ static void test_string_indexof_rune() {
   {
     PgString haystack = PG_S("朝日新聞デジタル");
     PG_ASSERT(9 == pg_string_indexof_rune(haystack, 0x805e /* 聞 */));
+    PG_ASSERT(-1 == pg_string_indexof_rune(haystack, 0x1f34c /* 🍌 */));
   }
 }
 
