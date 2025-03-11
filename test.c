@@ -1,5 +1,14 @@
 #include "lib.c"
 
+static void test_string_indexof_rune() {
+
+  // Unicode
+  {
+    PgString haystack = PG_S("朝日新聞デジタル");
+    PG_ASSERT(9 == pg_string_indexof_rune(haystack, 0x805e /* 聞 */));
+  }
+}
+
 static void test_string_indexof_string() {
   // Empty haystack.
   {
@@ -2244,6 +2253,7 @@ static void test_html_tokenize_nested() {
 int main() {
   test_slice_range();
   test_utf8_iterator();
+  test_string_indexof_rune();
   test_string_indexof_string();
   test_string_trim();
   test_string_split_byte();
