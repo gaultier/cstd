@@ -742,7 +742,7 @@ typedef struct {
 } PgStringPairConsume;
 
 [[maybe_unused]] [[nodiscard]] static PgStringPairConsume
-pg_string_consume_until_byte_excl(PgString haystack, u8 needle) {
+pg_string_consume_until_rune_excl(PgString haystack, PgRune needle) {
   PgStringPairConsume res = {0};
 
   i64 idx = pg_string_indexof_rune(haystack, needle);
@@ -761,7 +761,7 @@ pg_string_consume_until_byte_excl(PgString haystack, u8 needle) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringPairConsume
-pg_string_consume_until_byte_incl(PgString haystack, u8 needle) {
+pg_string_consume_until_rune_incl(PgString haystack, PgRune needle) {
   PgStringPairConsume res = {0};
 
   i64 idx = pg_string_indexof_rune(haystack, needle);
@@ -772,7 +772,8 @@ pg_string_consume_until_byte_incl(PgString haystack, u8 needle) {
   }
 
   res.left = PG_SLICE_RANGE(haystack, 0, (u64)idx);
-  res.right = PG_SLICE_RANGE_START(haystack, (u64)idx + 1);
+  res.right = PG_SLICE_RANGE_START(haystack,
+                                   (u64)idx + pg_utf8_rune_bytes_count(needle));
   res.consumed = true;
 
   return res;
@@ -781,17 +782,21 @@ pg_string_consume_until_byte_incl(PgString haystack, u8 needle) {
 typedef struct {
   PgString left, right;
   bool consumed;
-  u8 matched;
+  PgRune matched;
 } PgStringPairConsumeAny;
 
 [[maybe_unused]] [[nodiscard]] static PgStringPairConsumeAny
-pg_string_consume_until_any_byte_incl(PgString haystack, PgString needles) {
+pg_string_consume_until_any_rune_incl(PgString haystack, PgString needles) {
   PgStringPairConsumeAny res = {0};
 
-  for (u64 i = 0; i < needles.len; i++) {
-    u8 needle = PG_SLICE_AT(needles, i);
+  PgUtf8Iterator it = pg_make_utf8_iterator(needles);
+  PgRuneResult res_rune = {0};
+  for (res_rune = pg_utf8_iterator_next(&it);
+       0 == res_rune.err && 0 != res_rune.res;
+       res_rune = pg_utf8_iterator_next(&it)) {
+    PgRune needle = res_rune.res;
     PgStringPairConsume res_consume =
-        pg_string_consume_until_byte_incl(haystack, needle);
+        pg_string_consume_until_rune_incl(haystack, needle);
     if (res_consume.consumed) {
       res.left = res_consume.left;
       res.right = res_consume.right;
@@ -807,13 +812,17 @@ pg_string_consume_until_any_byte_incl(PgString haystack, PgString needles) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringPairConsumeAny
-pg_string_consume_until_any_byte_excl(PgString haystack, PgString needles) {
+pg_string_consume_until_any_rune_excl(PgString haystack, PgString needles) {
   PgStringPairConsumeAny res = {0};
 
-  for (u64 i = 0; i < needles.len; i++) {
-    u8 needle = PG_SLICE_AT(needles, i);
+  PgUtf8Iterator it = pg_make_utf8_iterator(needles);
+  PgRuneResult res_rune = {0};
+  for (res_rune = pg_utf8_iterator_next(&it);
+       0 == res_rune.err && 0 != res_rune.res;
+       res_rune = pg_utf8_iterator_next(&it)) {
+    PgRune needle = res_rune.res;
     PgStringPairConsume res_consume =
-        pg_string_consume_until_byte_excl(haystack, needle);
+        pg_string_consume_until_rune_excl(haystack, needle);
     if (res_consume.consumed) {
       res.left = res_consume.left;
       res.right = res_consume.right;
@@ -829,7 +838,7 @@ pg_string_consume_until_any_byte_excl(PgString haystack, PgString needles) {
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
-pg_string_indexof_any_byte(PgString haystack, PgString needle) {
+pg_string_indexof_any_rune(PgString haystack, PgString needle) {
   for (i64 i = 0; i < (i64)haystack.len; i++) {
     u8 c_h = PG_SLICE_AT(haystack, i);
 
@@ -4162,7 +4171,7 @@ PG_RESULT(PgUrl) PgUrlResult;
 pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
   PgStringDynResult res = {0};
 
-  if (-1 != pg_string_indexof_any_byte(s, PG_S("?#:"))) {
+  if (-1 != pg_string_indexof_any_rune(s, PG_S("?#:"))) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
@@ -4212,12 +4221,12 @@ pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
 
   for (u64 _i = 0; _i < s.len; _i++) {
     PgStringPairConsume res_consume_and =
-        pg_string_consume_until_byte_incl(remaining, '&');
+        pg_string_consume_until_rune_incl(remaining, '&');
     remaining = res_consume_and.right;
 
     PgString kv = res_consume_and.left;
     PgStringPairConsume res_consume_eq =
-        pg_string_consume_until_byte_incl(kv, '=');
+        pg_string_consume_until_rune_incl(kv, '=');
     PgString k = res_consume_eq.left;
     PgString v = res_consume_eq.consumed ? res_consume_eq.right : PG_S("");
 
@@ -4284,7 +4293,7 @@ pg_url_parse_authority(PgString s) {
   // User info, optional.
   {
     PgStringPairConsume user_info_and_rem =
-        pg_string_consume_until_byte_incl(remaining, '@');
+        pg_string_consume_until_rune_incl(remaining, '@');
     remaining = user_info_and_rem.right;
 
     if (user_info_and_rem.consumed) {
@@ -4300,7 +4309,7 @@ pg_url_parse_authority(PgString s) {
 
   // Host, mandatory.
   PgStringPairConsume host_and_rem =
-      pg_string_consume_until_byte_incl(remaining, ':');
+      pg_string_consume_until_rune_incl(remaining, ':');
   {
     remaining = host_and_rem.right;
     res.res.host = host_and_rem.left;
@@ -4351,7 +4360,7 @@ pg_url_parse_after_authority(PgString s, PgAllocator *allocator) {
   PgString remaining = s;
 
   PgStringPairConsumeAny path_components_and_rem =
-      pg_string_consume_until_any_byte_excl(remaining, PG_S("?#"));
+      pg_string_consume_until_any_rune_excl(remaining, PG_S("?#"));
   remaining = path_components_and_rem.right;
 
   // Path, optional.
@@ -4399,7 +4408,7 @@ pg_url_parse(PgString s, PgAllocator *allocator) {
   // Scheme, mandatory.
   {
     PgStringPairConsume scheme_and_rem =
-        pg_string_consume_until_byte_incl(remaining, ':');
+        pg_string_consume_until_rune_incl(remaining, ':');
     remaining = scheme_and_rem.right;
 
     if (!scheme_and_rem.consumed) {
@@ -4428,7 +4437,7 @@ pg_url_parse(PgString s, PgAllocator *allocator) {
 
   // Authority, mandatory.
   PgStringPairConsumeAny authority_and_rem =
-      pg_string_consume_until_any_byte_excl(remaining, PG_S("/?#"));
+      pg_string_consume_until_any_rune_excl(remaining, PG_S("/?#"));
   remaining = authority_and_rem.right;
   {
     if (PG_SLICE_IS_EMPTY(authority_and_rem.left)) {
@@ -5957,7 +5966,7 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
           res.err = PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME;
           return res;
         }
-        i64 idx = pg_string_indexof_any_byte(PG_SLICE_RANGE_START(s, pos),
+        i64 idx = pg_string_indexof_any_rune(PG_SLICE_RANGE_START(s, pos),
                                              attribute_separator);
         if (-1 == idx) {
           res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;

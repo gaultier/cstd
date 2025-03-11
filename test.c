@@ -648,31 +648,31 @@ static void test_url_encode() {
 
 static void test_string_indexof_any_byte() {
   {
-    i64 idx = pg_string_indexof_any_byte(PG_S(""), PG_S(""));
+    i64 idx = pg_string_indexof_any_rune(PG_S(""), PG_S(""));
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_byte(PG_S(""), PG_S(":"));
+    i64 idx = pg_string_indexof_any_rune(PG_S(""), PG_S(":"));
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_byte(PG_S("?"), PG_S(":"));
+    i64 idx = pg_string_indexof_any_rune(PG_S("?"), PG_S(":"));
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_byte(PG_S("abc"), PG_S(":?"));
+    i64 idx = pg_string_indexof_any_rune(PG_S("abc"), PG_S(":?"));
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_byte(PG_S("x"), PG_S("yz"));
+    i64 idx = pg_string_indexof_any_rune(PG_S("x"), PG_S("yz"));
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_byte(PG_S(":"), PG_S(":"));
+    i64 idx = pg_string_indexof_any_rune(PG_S(":"), PG_S(":"));
     PG_ASSERT(0 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_byte(PG_S("abc"), PG_S("cd"));
+    i64 idx = pg_string_indexof_any_rune(PG_S("abc"), PG_S("cd"));
     PG_ASSERT(2 == idx);
   }
 }
