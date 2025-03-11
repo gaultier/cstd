@@ -5742,6 +5742,35 @@ typedef enum {
 static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
                                            PgHtmlTokenDyn *tokens,
                                            PgAllocator *allocator) {
+  PgStringCut cut =
+      pg_string_cut_string(PG_SLICE_RANGE_START(s, *pos), PG_S("/>"));
+  if (!cut.ok) {
+    cut = pg_string_cut_rune(PG_SLICE_RANGE_START(s, *pos), '>');
+  }
+  if (!cut.ok) {
+    return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
+  }
+  PgString work = cut.left;
+
+  PgUtf8Iterator it = pg_make_utf8_iterator(work);
+  for (;;) {
+    PgRuneResult res = pg_utf8_iterator_next(&it);
+    if (res.err || 0 == res.res) {
+      return 0;
+    }
+    PgRune c = res.res;
+
+    if (0x09 == c || 0x0A == c || 0x0C == c || 0x0D == c || 0x20 == c ||
+        0x2F == c) {
+      continue;
+    }
+
+    // Self-closing.
+    if ('/' == c && it.idx == cut.left.len) {
+      return 0;
+    }
+  }
+
   while (*pos < s.len) {
     u8 c = PG_SLICE_AT(s, *pos);
 
