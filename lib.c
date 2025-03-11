@@ -564,12 +564,21 @@ pg_string_indexof_byte(PgString haystack, u8 needle) {
     return -1;
   }
 
-  const u8 *res = memchr(haystack.data, needle, haystack.len);
-  if (res == nullptr) {
-    return -1;
-  }
+  PgUtf8Iterator it = pg_make_utf8_iterator(haystack);
 
-  return res - haystack.data;
+  u64 idx = 0;
+  for (;;) {
+    idx = it.idx;
+    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    if (res_rune.err || !res_rune.res) {
+      return -1;
+    }
+
+    if (needle == res_rune.res) {
+      return (i64)idx;
+    }
+  }
+  PG_ASSERT(0);
 }
 
 typedef struct {
