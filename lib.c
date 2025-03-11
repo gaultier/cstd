@@ -6008,6 +6008,7 @@ typedef enum {
 
 typedef struct {
   PgHtmlTokenKind kind;
+  u32 start, end;
   union {
     PgKeyValue attribute;
     PgString tag;
@@ -6090,6 +6091,8 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
 
     PgHtmlToken token = {
         .kind = PG_HTML_TOKEN_KIND_ATTRIBUTE,
+        .start = (u32)(kv.key.data - s.data),
+        .end = (u32)(kv.value.data + kv.value.len - s.data),
         .attribute = kv,
     };
     *PG_DYN_PUSH(tokens, allocator) = token;
@@ -6152,6 +6155,8 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
         PG_ASSERT(tag.len <= s.len);
         {
           PgHtmlToken token = {
+              .start = (u32)(tag.data - s.data),
+              .end = (u32)(tag.data + tag.len - s.data),
               .kind = kind,
               .tag = tag,
           };
@@ -6173,6 +6178,8 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
 
         if (!pg_string_is_empty(text)) {
           PgHtmlToken token = {
+              .start = (u32)(text.data - s.data),
+              .end = (u32)(text.data + text.len - s.data),
               .kind = PG_HTML_TOKEN_KIND_TEXT,
               .text = text,
           };

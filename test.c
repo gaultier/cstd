@@ -1886,14 +1886,20 @@ static void test_html_tokenize() {
 
     PgHtmlToken token0 = PG_SLICE_AT(tokens, 0);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == token0.kind);
+    PG_ASSERT(1 == token0.start);
+    PG_ASSERT(5 == token0.end);
     PG_ASSERT(pg_string_eq(PG_S("html"), token0.tag));
 
     PgHtmlToken token1 = PG_SLICE_AT(tokens, 1);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == token1.kind);
+    PG_ASSERT(6 == token1.start);
+    PG_ASSERT(9 == token1.end);
     PG_ASSERT(pg_string_eq(PG_S("foo"), token1.text));
 
     PgHtmlToken token2 = PG_SLICE_AT(tokens, 2);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token2.kind);
+    PG_ASSERT(11 == token2.start);
+    PG_ASSERT(15 == token2.end);
     PG_ASSERT(pg_string_eq(PG_S("html"), token2.tag));
   }
 }
