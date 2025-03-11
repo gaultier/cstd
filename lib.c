@@ -269,36 +269,41 @@ typedef struct {
   u64 count;
 } PgHeap;
 
-[[maybe_unused]] [[nodiscard]] static bool pg_character_is_hex_digit(u8 c) {
+typedef u32 PgRune;
+PG_RESULT(PgRune) PgRuneResult;
+
+[[maybe_unused]] [[nodiscard]] static bool pg_character_is_hex_digit(PgRune c) {
   return ('0' <= c && c <= '9') || ('A' <= c && c <= 'F') ||
          ('a' <= c && c <= 'f');
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_character_is_alphabetical(u8 c) {
+[[maybe_unused]] [[nodiscard]] static bool
+pg_character_is_alphabetical(PgRune c) {
   return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_character_is_numeric(u8 c) {
+[[maybe_unused]] [[nodiscard]] static bool pg_character_is_numeric(PgRune c) {
   return ('0' <= c && c <= '9');
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_character_is_alphanumeric(u8 c) {
+[[maybe_unused]] [[nodiscard]] static bool
+pg_character_is_alphanumeric(PgRune c) {
   return pg_character_is_numeric(c) || pg_character_is_alphabetical(c);
 }
 
-[[maybe_unused]] [[nodiscard]] static u8 pg_character_from_hex(u8 c) {
+[[maybe_unused]] [[nodiscard]] static u8 pg_character_from_hex(PgRune c) {
   PG_ASSERT(pg_character_is_hex_digit(c));
 
   if ('0' <= c && c <= '9') {
-    return c - '0';
+    return (u8)c - '0';
   }
 
   if ('A' <= c && c <= 'F') {
-    return 10 + c - 'A';
+    return 10 + (u8)c - 'A';
   }
 
   if ('a' <= c && c <= 'f') {
-    return 10 + c - 'a';
+    return 10 + (u8)c - 'a';
   }
 
   PG_ASSERT(false);
@@ -331,9 +336,6 @@ typedef struct {
   PgString s;
   u64 idx;
 } PgUtf8Iterator;
-
-typedef u32 PgRune;
-PG_RESULT(PgRune) PgRuneResult;
 
 [[maybe_unused]] [[nodiscard]] static PgUtf8Iterator
 pg_make_utf8_iterator(PgString s) {
@@ -420,12 +422,16 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
 
 [[maybe_unused]] [[nodiscard]] static bool
 pg_string_is_alphabetical(PgString s) {
-  for (u64 i = 0; i < s.len; i++) {
-    u8 c = PG_SLICE_AT(s, i);
-    if (!pg_character_is_alphabetical(c)) {
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+  PgRuneResult res_rune = {0};
+
+  for (res_rune = pg_utf8_iterator_next(&it); !res_rune.err && res_rune.res;
+       res_rune = pg_utf8_iterator_next(&it)) {
+    if (!pg_character_is_alphabetical(res_rune.res)) {
       return false;
     }
   }
+  PG_ASSERT(0 == res_rune.err);
   return true;
 }
 
