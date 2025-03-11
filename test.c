@@ -2075,7 +2075,7 @@ static void test_html_tokenize_no_attributes() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgString s = PG_S("<html>foo</html>");
+  PgString s = PG_S("<html>🍌foo</html>");
   PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
   PG_ASSERT(0 == res.err);
 
@@ -2094,15 +2094,15 @@ static void test_html_tokenize_no_attributes() {
     PgHtmlToken token = PG_SLICE_AT(tokens, 1);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == token.kind);
     PG_ASSERT(6 == token.start);
-    PG_ASSERT(9 == token.end);
-    PG_ASSERT(pg_string_eq(PG_S("foo"), token.text));
+    PG_ASSERT(13 == token.end);
+    PG_ASSERT(pg_string_eq(PG_S("🍌foo"), token.text));
   }
 
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 2);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind);
-    PG_ASSERT(11 == token.start);
-    PG_ASSERT(15 == token.end);
+    PG_ASSERT(15 == token.start);
+    PG_ASSERT(19 == token.end);
     PG_ASSERT(pg_string_eq(PG_S("html"), token.tag));
   }
 }
@@ -2329,8 +2329,8 @@ int main() {
   test_process_capture();
   test_process_stdin();
   test_html_tokenize_no_attributes();
-#if 0
   test_html_tokenize_with_key_no_value();
+#if 0
   test_html_tokenize_with_attributes();
   test_html_tokenize_nested();
 #endif
