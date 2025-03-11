@@ -315,8 +315,107 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
 
+#define PG_SLICE_RANGE(s, start, end)                                          \
+  ((typeof((s))){                                                              \
+      .data = (s).len == PG_CLAMP(0, start, (s).len)                           \
+                  ? nullptr                                                    \
+                  : PG_C_ARRAY_AT_PTR((s).data, (s).len,                       \
+                                      PG_CLAMP(0, start, (s).len)),            \
+      .len =                                                                   \
+          PG_SUB_SAT(PG_CLAMP(0, end, (s).len), PG_CLAMP(0, start, (s).len)),  \
+  })
+
+#define PG_SLICE_RANGE_START(s, start) PG_SLICE_RANGE(s, start, (s).len)
+
+typedef struct {
+  PgString s;
+  u64 idx;
+} PgUtf8Iterator;
+
+typedef u32 PgRune;
+PG_RESULT(PgRune) PgRuneResult;
+
+[[maybe_unused]] [[nodiscard]] static PgUtf8Iterator
+pg_make_utf8_iterator(PgString s) {
+  PgUtf8Iterator it = {0};
+  it.s = s;
+
+  return it;
+}
+
 [[maybe_unused]] [[nodiscard]] static bool pg_string_is_empty(PgString s) {
   return PG_SLICE_IS_EMPTY(s);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgRuneResult
+pg_utf8_iterator_next(PgUtf8Iterator *it) {
+  PgRuneResult res = {0};
+
+  PgString s = PG_SLICE_RANGE_START(it->s, it->idx);
+  if (pg_string_is_empty(s)) {
+    return res;
+  }
+
+  u8 c0 = PG_SLICE_AT(s, 0);
+  // One byte.
+  if (0b0000'0000 == (c0 & 0b1000'0000)) {
+    res.res = c0 & 0x7F;
+    it->idx += 1;
+    return res;
+  }
+
+  // 2 bytes.
+  if (0b1100'0000 == (c0 & 0b1110'0000)) {
+    u8 c1 = PG_SLICE_AT(s, 1);
+    res.res = (((PgRune)c0 & 0b0001'1111) << 6) | ((PgRune)c1 & 0b0011'1111);
+    it->idx += 2;
+    return res;
+  }
+
+  // 3 bytes.
+  if (0b1110'0000 == (c0 & 0b1111'0000)) {
+    u8 c1 = PG_SLICE_AT(s, 1);
+    u8 c2 = PG_SLICE_AT(s, 2);
+    res.res = (((PgRune)c0 & 0b0000'1111) << 12) |
+              (((PgRune)c1 & 0b0011'1111) << 6) | ((PgRune)c2 & 0b0011'1111);
+    it->idx += 3;
+    return res;
+  }
+
+  // 4 bytes.
+  if (0b1111'0000 == (c0 & 0b1111'1000)) {
+    u8 c1 = PG_SLICE_AT(s, 1);
+    u8 c2 = PG_SLICE_AT(s, 2);
+    u8 c3 = PG_SLICE_AT(s, 3);
+    res.res = (((PgRune)c0 & 0b0000'0111) << 18) |
+              (((PgRune)c1 & 0b0011'1111) << 12) |
+              (((PgRune)c2 & 0b0011'1111) << 6) | ((PgRune)c3 & 0b0011'1111);
+    it->idx += 4;
+    return res;
+  }
+
+  res.err = PG_ERR_INVALID_VALUE;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result pg_utf8_count(PgString s) {
+  PgU64Result res = {0};
+
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+  u64 len = 0;
+  for (;; len++) {
+    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    if (res_rune.err) {
+      res.err = res_rune.err;
+      return res;
+    }
+    if (!res_rune.res) {
+      break;
+    }
+  }
+
+  res.res = len;
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -402,18 +501,6 @@ pg_string_indexof_byte(PgString haystack, u8 needle) {
 
   return res - haystack.data;
 }
-
-#define PG_SLICE_RANGE(s, start, end)                                          \
-  ((typeof((s))){                                                              \
-      .data = (s).len == PG_CLAMP(0, start, (s).len)                           \
-                  ? nullptr                                                    \
-                  : PG_C_ARRAY_AT_PTR((s).data, (s).len,                       \
-                                      PG_CLAMP(0, start, (s).len)),            \
-      .len =                                                                   \
-          PG_SUB_SAT(PG_CLAMP(0, end, (s).len), PG_CLAMP(0, start, (s).len)),  \
-  })
-
-#define PG_SLICE_RANGE_START(s, start) PG_SLICE_RANGE(s, start, (s).len)
 
 typedef struct {
   PgString left, right;
@@ -2452,93 +2539,6 @@ pg_string_concat(PgString left, PgString right, PgAllocator *allocator) {
   memcpy(res.data, left.data, left.len);
   memcpy(res.data + left.len, right.data, right.len);
 
-  return res;
-}
-
-typedef struct {
-  PgString s;
-  u64 idx;
-} PgUtf8Iterator;
-
-typedef u32 PgRune;
-PG_RESULT(PgRune) PgRuneResult;
-
-[[maybe_unused]] [[nodiscard]] static PgUtf8Iterator
-pg_make_utf8_iterator(PgString s) {
-  PgUtf8Iterator it = {0};
-  it.s = s;
-
-  return it;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgRuneResult
-pg_utf8_iterator_next(PgUtf8Iterator *it) {
-  PgRuneResult res = {0};
-
-  PgString s = PG_SLICE_RANGE_START(it->s, it->idx);
-  if (pg_string_is_empty(s)) {
-    return res;
-  }
-
-  u8 c0 = PG_SLICE_AT(s, 0);
-  // One byte.
-  if (0b0000'0000 == (c0 & 0b1000'0000)) {
-    res.res = c0 & 0x7F;
-    it->idx += 1;
-    return res;
-  }
-
-  // 2 bytes.
-  if (0b1100'0000 == (c0 & 0b1110'0000)) {
-    u8 c1 = PG_SLICE_AT(s, 1);
-    res.res = (((PgRune)c0 & 0b0001'1111) << 6) | ((PgRune)c1 & 0b0011'1111);
-    it->idx += 2;
-    return res;
-  }
-
-  // 3 bytes.
-  if (0b1110'0000 == (c0 & 0b1111'0000)) {
-    u8 c1 = PG_SLICE_AT(s, 1);
-    u8 c2 = PG_SLICE_AT(s, 2);
-    res.res = (((PgRune)c0 & 0b0000'1111) << 12) |
-              (((PgRune)c1 & 0b0011'1111) << 6) | ((PgRune)c2 & 0b0011'1111);
-    it->idx += 3;
-    return res;
-  }
-
-  // 4 bytes.
-  if (0b1111'0000 == (c0 & 0b1111'1000)) {
-    u8 c1 = PG_SLICE_AT(s, 1);
-    u8 c2 = PG_SLICE_AT(s, 2);
-    u8 c3 = PG_SLICE_AT(s, 3);
-    res.res = (((PgRune)c0 & 0b0000'0111) << 18) |
-              (((PgRune)c1 & 0b0011'1111) << 12) |
-              (((PgRune)c2 & 0b0011'1111) << 6) | ((PgRune)c3 & 0b0011'1111);
-    it->idx += 4;
-    return res;
-  }
-
-  res.err = PG_ERR_INVALID_VALUE;
-  return res;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgU64Result pg_utf8_count(PgString s) {
-  PgU64Result res = {0};
-
-  PgUtf8Iterator it = pg_make_utf8_iterator(s);
-  u64 len = 0;
-  for (;; len++) {
-    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
-    if (res_rune.err) {
-      res.err = res_rune.err;
-      return res;
-    }
-    if (!res_rune.res) {
-      break;
-    }
-  }
-
-  res.res = len;
   return res;
 }
 
