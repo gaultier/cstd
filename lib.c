@@ -2489,7 +2489,7 @@ pg_string_utf8_next(PgStringUtf8Iterator *it) {
   }
 
   // 2 bytes.
-  if (0b1100'000 == (c0 & 0b1110'0000)) {
+  if (0b1100'0000 == (c0 & 0b1110'0000)) {
     u8 c1 = PG_SLICE_AT(s, 1);
     res.res = (((PgRune)c0 & 0b0001'1111) << 6) | ((PgRune)c1 & 0b0011'1111);
     it->idx += 2;
@@ -2511,9 +2511,9 @@ pg_string_utf8_next(PgStringUtf8Iterator *it) {
     u8 c1 = PG_SLICE_AT(s, 1);
     u8 c2 = PG_SLICE_AT(s, 2);
     u8 c3 = PG_SLICE_AT(s, 3);
-    res.res = (((PgRune)c3 & 0b0000'0111) << 18) |
-              (((PgRune)c2 & 0b0000'1111) << 12) |
-              (((PgRune)c1 & 0b0011'1111) << 6) | ((PgRune)c2 & 0b0011'1111);
+    res.res = (((PgRune)c0 & 0b0000'0111) << 18) |
+              (((PgRune)c1 & 0b0011'1111) << 12) |
+              (((PgRune)c2 & 0b0011'1111) << 6) | ((PgRune)c3 & 0b0011'1111);
     it->idx += 4;
     return res;
   }
