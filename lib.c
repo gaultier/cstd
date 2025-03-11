@@ -6100,8 +6100,8 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
 pg_html_tokenize(PgString s, PgAllocator *allocator) {
   PgHtmlTokenDynResult res = {0};
 
-  PgString comment_start = PG_S("<!--");
-  PgString comment_end = PG_S("-->");
+  /* PgString comment_start = PG_S("<!--"); */
+  /* PgString comment_end = PG_S("-->"); */
   u8 tag_start = '<';
   u8 slash = '/';
   PgString attribute_separator = PG_S("\x09"
@@ -6113,49 +6113,66 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
 
   u64 pos = 0;
   while (pos < s.len) {
-    PgString remaining = PG_SLICE_RANGE_START(s, pos);
-
     // Comment.
     {
-      PgStringOk consume = pg_string_consume_string(remaining, comment_start);
-      if (consume.ok) {
-        PgStringCut cut = pg_string_cut_string(consume.res, comment_end);
-        if (!cut.ok) {
-          res.err = PG_HTML_PARSE_ERROR_INCORRECTLY_CLOSED_COMMENT;
-          return res;
-        }
-        pos += cut.left.len + comment_end.len;
-        continue;
-      }
+      PG_ASSERT(0 && "todo");
     }
 
     // TODO: `<meta`.
     {
     }
 
+    // Tag.
     {
-      PgStringOk consume_tag_start =
-          pg_string_consume_byte(remaining, tag_start);
-      if (consume_tag_start.ok) {
-        remaining = consume_tag_start.res;
-        PgStringOk consume_slash = pg_string_consume_byte(remaining, slash);
-        remaining = consume_slash.ok ? consume_slash.res : remaining;
+      if (tag_start == pg_string_first(PG_SLICE_RANGE_START(s, pos))) {
+        pos += 1;
+        PgString tag = PG_SLICE_RANGE_START(s, pos);
+        PgHtmlTokenKind kind = PG_HTML_TOKEN_KIND_TAG_OPENING;
 
-        if (!pg_character_is_alphabetical(pg_string_first(s))) {
+        if (slash == pg_string_first(PG_SLICE_RANGE_START(s, pos))) {
+          pos += 1;
+          kind = PG_HTML_TOKEN_KIND_TAG_CLOSING;
+        }
+
+        if (!pg_character_is_alphabetical(
+                pg_string_first(PG_SLICE_RANGE_START(s, pos)))) {
           res.err = PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME;
           return res;
         }
-        i64 idx = pg_string_indexof_any_byte(remaining, attribute_separator);
+        i64 idx = pg_string_indexof_any_byte(PG_SLICE_RANGE_START(s, pos),
+                                             attribute_separator);
         if (-1 == idx) {
           res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
           return res;
         }
-
-        pos += (u64)pos;
+        pos += (u64)idx;
+        tag.len = (u64)((s.data + pos) - tag.data);
+        {
+          PgHtmlToken token = {
+              .kind = kind,
+              .tag = tag,
+          };
+          *PG_DYN_PUSH(&res.res, allocator) = token;
+        }
 
         res.err = pg_html_tokenize_attributes(s, &pos, &res.res, allocator);
         if (res.err) {
           return res;
+        }
+
+        PgString text = PG_SLICE_RANGE_START(s, pos);
+        // TODO: comment.
+        while (pos < s.len && PG_SLICE_AT(s, pos) != tag_start) {
+          pos += 1;
+        }
+        text.len = (u64)(s.data + pos - text.data);
+
+        {
+          PgHtmlToken token = {
+              .kind = PG_HTML_TOKEN_KIND_TEXT,
+              .text = text,
+          };
+          *PG_DYN_PUSH(&res.res, allocator) = token;
         }
       }
     }
