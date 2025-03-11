@@ -692,6 +692,10 @@ pg_string_starts_with(PgString haystack, PgString needle) {
   return pg_string_eq(needle, start);
 }
 
+[[maybe_unused]] [[nodiscard]] static u8 pg_string_first(PgString s) {
+  return pg_string_is_empty(s) ? 0 : PG_SLICE_AT(s, 0);
+}
+
 [[maybe_unused]] [[nodiscard]] static PgStringOk
 pg_string_consume_byte(PgString haystack, u8 needle) {
   PgStringOk res = {0};
@@ -5989,6 +5993,173 @@ pg_uuid_to_string(PgUuid uuid, PgAllocator *allocator) {
   res.data[i++] = pg_u8_to_character_hex(uuid.value[14] & 0xF);
   res.data[i++] = pg_u8_to_character_hex(uuid.value[15] >> 4);
   res.data[i++] = pg_u8_to_character_hex(uuid.value[15] & 0xF);
+
+  return res;
+}
+
+typedef enum {
+  PG_HTML_TOKEN_KIND_TEXT,
+  PG_HTML_TOKEN_KIND_TAG_OPENING,
+  PG_HTML_TOKEN_KIND_TAG_CLOSING,
+  PG_HTML_TOKEN_KIND_ATTRIBUTE,
+  PG_HTML_TOKEN_KIND_COMMENT,
+  PG_HTML_TOKEN_KIND_DOCTYPE,
+} PgHtmlTokenKind;
+
+typedef struct {
+  PgHtmlTokenKind kind;
+  union {
+    PgKeyValue attribute;
+    PgString tag;
+    PgString text;
+  };
+} PgHtmlToken;
+PG_DYN(PgHtmlToken) PgHtmlTokenDyn;
+PG_RESULT(PgHtmlTokenDyn) PgHtmlTokenDynResult;
+
+typedef enum {
+  PG_HTML_PARSE_ERROR_NONE = 0,
+  PG_HTML_PARSE_ERROR_INCORRECTLY_CLOSED_COMMENT = 0x600,
+  PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME = 0x601,
+  PG_HTML_PARSE_ERROR_EOF_IN_TAG = 0x602,
+  PG_HTML_PARSE_ERROR_UNEXPECTED_CHARACTER_IN_ATTRIBUTE_NAME = 0x603,
+
+} PgHtmlParseError;
+
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
+                                           PgHtmlTokenDyn *tokens,
+                                           PgAllocator *allocator) {
+  while (*pos < s.len) {
+    u8 c = PG_SLICE_AT(s, *pos);
+
+    if (0x09 == c || 0x0A == c || 0x0C == c || 0x0D == c || 0x20 == c ||
+        0x2F == c) {
+      *pos += 1;
+      continue;
+    }
+
+    if ('>' == c) {
+      *pos += 1;
+      return 0;
+    }
+
+    // Self-closing.
+    if (pg_string_starts_with(s, PG_S("/>"))) {
+      *pos += 2;
+      return 0;
+    }
+
+    if (!pg_character_is_alphabetical(PG_SLICE_AT(s, *pos))) {
+      return PG_HTML_PARSE_ERROR_UNEXPECTED_CHARACTER_IN_ATTRIBUTE_NAME;
+    }
+
+    PgKeyValue kv = {0};
+    kv.key.data = s.data + *pos;
+
+    while (*pos < s.len && pg_character_is_alphabetical(PG_SLICE_AT(s, *pos))) {
+      *pos += 1;
+    }
+    kv.key.len = (u64)((u8 *)(s.data + *pos) - kv.key.data);
+    // TODO: tolower(kv.key).
+
+    u8 quote = pg_string_first(s);
+    if ('"' == quote || '\'' == quote) {
+      *pos += 1;
+    }
+
+    c = PG_SLICE_AT(s, *pos);
+    if ('=' == c) {
+      c += 1;
+    }
+    kv.value.data = s.data + *pos;
+
+    while (*pos < s.len && pg_character_is_alphabetical(PG_SLICE_AT(s, *pos))) {
+      *pos += 1;
+    }
+    if (quote) {
+      if (pg_string_first(s) != quote) {
+        return PG_HTML_PARSE_ERROR_UNEXPECTED_CHARACTER_IN_ATTRIBUTE_NAME;
+      } else {
+        *pos += 1;
+      }
+    }
+    kv.value.len = (u64)((u8 *)(s.data + *pos) - kv.value.data);
+
+    PgHtmlToken token = {
+        .kind = PG_HTML_TOKEN_KIND_ATTRIBUTE,
+        .attribute = kv,
+    };
+    *PG_DYN_PUSH(tokens, allocator) = token;
+  }
+
+  return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgHtmlTokenDynResult
+pg_html_tokenize(PgString s, PgAllocator *allocator) {
+  PgHtmlTokenDynResult res = {0};
+
+  PgString comment_start = PG_S("<!--");
+  PgString comment_end = PG_S("-->");
+  u8 tag_start = '<';
+  u8 slash = '/';
+  PgString attribute_separator = PG_S("\x09"
+                                      "\x0A"
+                                      "\x0C"
+                                      "\x0D"
+                                      "\x20"
+                                      "\x3E");
+
+  u64 pos = 0;
+  while (pos < s.len) {
+    PgString remaining = PG_SLICE_RANGE_START(s, pos);
+
+    // Comment.
+    {
+      PgStringOk consume = pg_string_consume_string(remaining, comment_start);
+      if (consume.ok) {
+        PgStringCut cut = pg_string_cut_string(consume.res, comment_end);
+        if (!cut.ok) {
+          res.err = PG_HTML_PARSE_ERROR_INCORRECTLY_CLOSED_COMMENT;
+          return res;
+        }
+        pos += cut.left.len + comment_end.len;
+        continue;
+      }
+    }
+
+    // TODO: `<meta`.
+    {
+    }
+
+    {
+      PgStringOk consume_tag_start =
+          pg_string_consume_byte(remaining, tag_start);
+      if (consume_tag_start.ok) {
+        remaining = consume_tag_start.res;
+        PgStringOk consume_slash = pg_string_consume_byte(remaining, slash);
+        remaining = consume_slash.ok ? consume_slash.res : remaining;
+
+        if (!pg_character_is_alphabetical(pg_string_first(s))) {
+          res.err = PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME;
+          return res;
+        }
+        i64 idx = pg_string_indexof_any_byte(remaining, attribute_separator);
+        if (-1 == idx) {
+          res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
+          return res;
+        }
+
+        pos += (u64)pos;
+
+        res.err = pg_html_tokenize_attributes(s, &pos, &res.res, allocator);
+        if (res.err) {
+          return res;
+        }
+      }
+    }
+  }
 
   return res;
 }
