@@ -1870,6 +1870,21 @@ static void test_process_stdin() {
   PG_ASSERT(pg_string_is_empty(status.stderr_captured));
 }
 
+static void test_html_tokenize() {
+  {
+    PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+    PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+    PgString s = PG_S("<html>foo</html>");
+    PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
+    PG_ASSERT(0 == res.err);
+
+    PgHtmlTokenDyn tokens = res.res;
+    PG_ASSERT(3 == tokens.len);
+  }
+}
+
 int main() {
   test_slice_range();
   test_string_indexof_string();
@@ -1912,4 +1927,5 @@ int main() {
   test_process_no_capture();
   test_process_capture();
   test_process_stdin();
+  test_html_tokenize();
 }

@@ -6060,7 +6060,8 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
     while (*pos < s.len && pg_character_is_alphabetical(PG_SLICE_AT(s, *pos))) {
       *pos += 1;
     }
-    kv.key.len = (u64)((u8 *)(s.data + *pos) - kv.key.data);
+    kv.key.len = (u64)(s.data + *pos - kv.key.data);
+    PG_ASSERT(kv.key.len <= s.len);
     // TODO: tolower(kv.key).
 
     u8 quote = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
@@ -6084,7 +6085,8 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
         *pos += 1;
       }
     }
-    kv.value.len = (u64)((u8 *)(s.data + *pos) - kv.value.data);
+    kv.value.len = (u64)(s.data + *pos - kv.value.data);
+    PG_ASSERT(kv.value.len <= s.len);
 
     PgHtmlToken token = {
         .kind = PG_HTML_TOKEN_KIND_ATTRIBUTE,
@@ -6113,9 +6115,8 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
 
   u64 pos = 0;
   while (pos < s.len) {
-    // Comment.
+    // TODO: Comment.
     {
-      PG_ASSERT(0 && "todo");
     }
 
     // TODO: `<meta`.
@@ -6147,6 +6148,7 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
         }
         pos += (u64)idx;
         tag.len = (u64)((s.data + pos) - tag.data);
+        PG_ASSERT(tag.len <= s.len);
         {
           PgHtmlToken token = {
               .kind = kind,
@@ -6160,14 +6162,15 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
           return res;
         }
 
-        PgString text = PG_SLICE_RANGE_START(s, pos);
+        PgString text = {.data = s.data};
         // TODO: comment.
         while (pos < s.len && PG_SLICE_AT(s, pos) != tag_start) {
           pos += 1;
         }
         text.len = (u64)(s.data + pos - text.data);
+        PG_ASSERT(text.len <= s.len);
 
-        {
+        if (!pg_string_is_empty(text)) {
           PgHtmlToken token = {
               .kind = PG_HTML_TOKEN_KIND_TEXT,
               .text = text,
