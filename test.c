@@ -18,6 +18,16 @@ static void test_string_last() {
   }
 }
 
+static void test_string_first() {
+  // Empty
+  {
+    PG_ASSERT(0 == pg_string_first(PG_S("")));
+  }
+  {
+    PG_ASSERT(0x805e /* 聞 */ == pg_string_first(PG_S("聞デジタル")));
+  }
+}
+
 static void test_string_indexof_rune() {
   // Empty.
   {
@@ -2315,6 +2325,7 @@ static void test_html_tokenize_nested() {
 int main() {
   test_rune_bytes_count();
   test_string_last();
+  test_string_first();
   test_string_indexof_rune();
   test_string_last_indexof_rune();
   test_slice_range();
