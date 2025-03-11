@@ -109,6 +109,25 @@ static void test_string_trim() {
   }
 }
 
+static void test_string_cut() {
+  {
+    PgStringCut cut = pg_string_cut_string(PG_S("🍌🍌foo🍌"), PG_S("🍌"));
+    PG_ASSERT(cut.ok);
+    PG_ASSERT(0 == cut.left.len);
+    PG_ASSERT(pg_string_eq(PG_S("🍌foo🍌"), cut.right));
+  }
+  {
+    PgStringCut cut = pg_string_cut_string(PG_S("🍌🍌foo🍌"), PG_S("fo"));
+    PG_ASSERT(cut.ok);
+    PG_ASSERT(pg_string_eq(PG_S("🍌🍌"), cut.left));
+    PG_ASSERT(pg_string_eq(PG_S("o🍌"), cut.right));
+  }
+  {
+    PgStringCut cut = pg_string_cut_string(PG_S("🍌🍌foo🍌"), PG_S("✨"));
+    PG_ASSERT(!cut.ok);
+  }
+}
+
 static void test_string_split_byte() {
   PgString s = PG_S("hello..world...foobar");
   PgSplitIterator it = pg_string_split_string(s, PG_S("."));
@@ -2302,6 +2321,7 @@ int main() {
   test_utf8_iterator();
   test_string_indexof_string();
   test_string_trim();
+  test_string_cut();
   test_string_split_byte();
   test_string_split_string();
   test_dyn_ensure_cap();
