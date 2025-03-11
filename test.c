@@ -448,15 +448,15 @@ static void test_utf8_iterator() {
 
 static void test_string_consume() {
   {
-    PgStringOk res = pg_string_consume_byte(PG_S(""), '{');
+    PgStringOk res = pg_string_consume_rune(PG_S(""), '{');
     PG_ASSERT(!res.ok);
   }
   {
-    PgStringOk res = pg_string_consume_byte(PG_S("[1,2]"), '{');
+    PgStringOk res = pg_string_consume_rune(PG_S("[1,2]"), '{');
     PG_ASSERT(!res.ok);
   }
   {
-    PgStringOk res = pg_string_consume_byte(PG_S("[1,2]"), '[');
+    PgStringOk res = pg_string_consume_rune(PG_S("[1,2]"), '[');
     PG_ASSERT(res.ok);
     PG_ASSERT(pg_string_eq(PG_S("1,2]"), res.res));
   }

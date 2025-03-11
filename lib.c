@@ -861,18 +861,19 @@ pg_string_starts_with(PgString haystack, PgString needle) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringOk
-pg_string_consume_byte(PgString haystack, u8 needle) {
+pg_string_consume_rune(PgString haystack, PgRune needle) {
   PgStringOk res = {0};
 
-  if (haystack.len == 0) {
-    return res;
-  }
-  if (haystack.data[0] != needle) {
+  PgUtf8Iterator it = pg_make_utf8_iterator(haystack);
+  PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+
+  if (needle != res_rune.res) {
     return res;
   }
 
+  res.res.data = haystack.data + it.idx;
+  res.res.len = haystack.len - it.idx;
   res.ok = true;
-  res.res = PG_SLICE_RANGE_START(haystack, 1UL); // Remaining.
   return res;
 }
 
@@ -882,7 +883,7 @@ pg_string_consume_string(PgString haystack, PgString needle) {
   res.res = haystack;
 
   for (u64 i = 0; i < needle.len; i++) {
-    res = pg_string_consume_byte(res.res, PG_SLICE_AT(needle, i));
+    res = pg_string_consume_rune(res.res, PG_SLICE_AT(needle, i));
     if (!res.ok) {
       return res;
     }
@@ -3875,7 +3876,7 @@ pg_http_parse_response_status_line(PgString status_line) {
   }
 
   {
-    PgStringOk consume = pg_string_consume_byte(remaining, '.');
+    PgStringOk consume = pg_string_consume_rune(remaining, '.');
     if (!consume.ok) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -3898,7 +3899,7 @@ pg_http_parse_response_status_line(PgString status_line) {
   }
 
   {
-    PgStringOk consume = pg_string_consume_byte(remaining, ' ');
+    PgStringOk consume = pg_string_consume_rune(remaining, ' ');
     if (!consume.ok) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -4200,7 +4201,7 @@ pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
 
   PgString remaining = s;
   {
-    PgStringOk res_consume_question = pg_string_consume_byte(s, '?');
+    PgStringOk res_consume_question = pg_string_consume_rune(s, '?');
     if (!res_consume_question.ok) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -4491,7 +4492,7 @@ pg_http_parse_request_status_line(PgString status_line,
   }
 
   {
-    PgStringOk consume = pg_string_consume_byte(remaining, ' ');
+    PgStringOk consume = pg_string_consume_rune(remaining, ' ');
     if (!consume.ok) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -4540,7 +4541,7 @@ pg_http_parse_request_status_line(PgString status_line,
   }
 
   {
-    PgStringOk consume = pg_string_consume_byte(remaining, '.');
+    PgStringOk consume = pg_string_consume_rune(remaining, '.');
     if (!consume.ok) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
