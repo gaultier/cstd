@@ -2002,33 +2002,33 @@ static void test_html_tokenize_nested() {
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 3);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind);
-    /* PG_ASSERT(1 == token.start); */
-    /* PG_ASSERT(5 == token.end); */
+    PG_ASSERT(22 == token.start);
+    PG_ASSERT(26 == token.end);
     PG_ASSERT(pg_string_eq(PG_S("span"), token.tag));
   }
 
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 4);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == token.kind);
-    /* PG_ASSERT(29 == token.start); */
-    /* PG_ASSERT(35 == token.end); */
+    PG_ASSERT(27 == token.start);
+    PG_ASSERT(30 == token.end);
     PG_ASSERT(pg_string_eq(PG_S("bar"), pg_string_trim_space(token.text)));
   }
 
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 5);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind);
-    /* PG_ASSERT(1 == token.start); */
-    /* PG_ASSERT(5 == token.end); */
+    PG_ASSERT(32 == token.start);
+    PG_ASSERT(36 == token.end);
     PG_ASSERT(pg_string_eq(PG_S("span"), token.tag));
   }
 
   {
-    PgHtmlToken token4 = PG_SLICE_AT(tokens, 6);
-    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token4.kind);
-    /* PG_ASSERT(37 == token4.start); */
-    /* PG_ASSERT(41 == token4.end); */
-    PG_ASSERT(pg_string_eq(PG_S("html"), token4.tag));
+    PgHtmlToken token = PG_SLICE_AT(tokens, 6);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind);
+    PG_ASSERT(40 == token.start);
+    PG_ASSERT(44 == token.end);
+    PG_ASSERT(pg_string_eq(PG_S("html"), token.tag));
   }
 }
 
