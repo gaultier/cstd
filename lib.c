@@ -471,7 +471,7 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
       res.err = res_rune.err;
       return res;
     }
-    if (!res_rune.res) {
+    if (0 == res_rune.res) {
       break;
     }
   }

@@ -8,6 +8,10 @@ static void test_rune_bytes_count() {
   PG_ASSERT(4 == pg_utf8_rune_bytes_count(0x1f34c /* 🍌 */));
 }
 
+static void test_utf8_count() {
+  PG_ASSERT(2 == pg_utf8_count(PG_S("🚀🛸")).res);
+}
+
 static void test_string_last() {
   // Empty
   {
@@ -165,8 +169,8 @@ static void test_string_split_byte() {
 }
 
 static void test_string_split_string() {
-  PgString s = PG_S("hello, world,little, thing !");
-  PgSplitIterator it = pg_string_split_string(s, PG_S(", "));
+  PgString s = PG_S("hello🚀🛸world🚀little🚀🛸thing !");
+  PgSplitIterator it = pg_string_split_string(s, PG_S("🚀🛸"));
 
   {
     PgStringOk elem = pg_string_split_next(&it);
@@ -177,7 +181,7 @@ static void test_string_split_string() {
   {
     PgStringOk elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
-    PG_ASSERT(pg_string_eq(elem.res, PG_S("world,little")));
+    PG_ASSERT(pg_string_eq(elem.res, PG_S("world🚀little")));
   }
 
   {
@@ -2275,6 +2279,7 @@ static void test_html_tokenize_nested() {
 
 int main() {
   test_rune_bytes_count();
+  test_utf8_count();
   test_string_last();
   test_string_first();
   test_string_indexof_rune();
