@@ -6084,7 +6084,7 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
 
     kv.value.data = s.data + *pos;
 
-    while (*pos < s.len && pg_character_is_alphabetical(PG_SLICE_AT(s, *pos))) {
+    while (*pos < s.len && quote != PG_SLICE_AT(s, *pos)) {
       *pos += 1;
     }
     kv.value.len = (u64)(s.data + *pos - kv.value.data);
