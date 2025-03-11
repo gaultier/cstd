@@ -532,20 +532,18 @@ pg_string_is_alphabetical(PgString s) {
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_right(PgString s,
                                                                     PgRune c) {
-  PgString res = s;
-
   while (!pg_string_is_empty(s)) {
     PgRune last = pg_string_last(s);
     if (last == c) {
       u64 rune_bytes_count = pg_utf8_rune_bytes_count(last);
-      PG_ASSERT(res.len > rune_bytes_count);
-      res.len -= rune_bytes_count;
+      PG_ASSERT(s.len >= rune_bytes_count);
+      s.len -= rune_bytes_count;
     } else {
       break;
     }
   }
 
-  return res;
+  return s;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim(PgString s,
@@ -634,7 +632,7 @@ pg_string_cut_rune(PgString s, PgRune needle) {
   while (!pg_string_is_empty(haystack)) {
     PgRune last = pg_string_last(haystack);
     u64 rune_bytes_count = pg_utf8_rune_bytes_count(last);
-    PG_ASSERT(haystack.len > rune_bytes_count);
+    PG_ASSERT(haystack.len >= rune_bytes_count);
     haystack.len -= rune_bytes_count;
 
     if (last == needle) {
