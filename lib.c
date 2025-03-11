@@ -476,18 +476,24 @@ pg_string_is_alphabetical(PgString s) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_left(PgString s,
-                                                                   u8 c) {
+                                                                   PgRune c) {
   PgString res = s;
 
-  for (u64 s_i = 0; s_i < s.len; s_i++) {
-    PG_ASSERT(s.data != nullptr);
-    if (PG_C_ARRAY_AT(s.data, s.len, s_i) != c) {
-      return res;
-    }
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+  PgRuneResult res_rune = {0};
 
-    res.data += 1;
-    res.len -= 1;
+  u64 bytes_idx = 0;
+  for (res_rune = pg_utf8_iterator_next(&it); !res_rune.err && res_rune.res;
+       res_rune = pg_utf8_iterator_next(&it)) {
+    if (res_rune.res != c) {
+      break;
+    }
+    bytes_idx = it.idx;
   }
+
+  res.data += bytes_idx;
+  res.len -= bytes_idx;
+
   return res;
 }
 
