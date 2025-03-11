@@ -611,14 +611,32 @@ pg_string_cut_rune(PgString s, PgRune needle) {
   PG_ASSERT(0);
 }
 
-[[nodiscard]] static i64 pg_string_last_indexof_byte(PgString haystack,
-                                                     u8 needle) {
-  for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
-    u8 c = PG_SLICE_AT(haystack, i);
-    if (needle == c) {
-      return i;
+[[nodiscard]] static i64 pg_string_last_indexof_rune(PgString haystack,
+                                                     PgRune needle) {
+  PgRuneResult res_rune = {0};
+
+  for (;;) {
+    PgRune last = 0;
+    u64 rune_bytes_count = 0;
+
+    PgUtf8Iterator it = pg_make_utf8_iterator(haystack);
+    u64 bytes_idx_before = 0;
+    for (;;) {
+      bytes_idx_before = it.idx;
+      res_rune = pg_utf8_iterator_next(&it);
+      if (res_rune.err || !res_rune.res) {
+        break;
+      }
+      last = res_rune.res;
+    }
+    if (last == needle) {
+      PG_ASSERT(haystack.len > rune_bytes_count);
+      return (i64)bytes_idx_before;
+    } else {
+      break;
     }
   }
+
   return -1;
 }
 
@@ -2601,7 +2619,7 @@ pg_arena_make_from_virtual_mem(u64 size) {
 #endif
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_path_base_name(PgString s) {
-  i64 idx = pg_string_last_indexof_byte(s, PG_PATH_SEPARATOR);
+  i64 idx = pg_string_last_indexof_rune(s, PG_PATH_SEPARATOR);
   if (-1 == idx) {
     return s;
   } else {
@@ -2611,7 +2629,7 @@ pg_arena_make_from_virtual_mem(u64 size) {
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_path_stem(PgString s) {
   PgString base_name = pg_path_base_name(s);
-  i64 idx = pg_string_last_indexof_byte(base_name, '.');
+  i64 idx = pg_string_last_indexof_rune(base_name, '.');
   if (-1 == idx) {
     return base_name;
   }
