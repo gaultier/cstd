@@ -5754,55 +5754,49 @@ static PgHtmlTokenResult pg_html_tokenize_attribute_key_value(PgString s,
     PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
     if (pg_character_is_space(first)) {
       *pos += 1;
-    } else {
-      break;
+      continue;
     }
-  }
-  PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-  if ('/' == first) {
+
+    if ('/' == first) {
+      *pos += 1;
+      if ('>' != pg_string_first(PG_SLICE_RANGE_START(s, *pos))) {
+        res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
+        return res;
+      }
+      *pos += 1;
+      return res;
+    }
+
+    if ('=' == first) {
+      // TODO
+    }
+
+    res.res.kind = PG_HTML_TOKEN_KIND_ATTRIBUTE;
+    res.res.start = (u32)*pos;
+    res.res.attribute.key.data = s.data + *pos;
+
+    if ('=' != pg_string_first(PG_SLICE_RANGE_START(s, *pos))) {
+      return res;
+    }
+
     *pos += 1;
-    if ('>' != pg_string_first(PG_SLICE_RANGE_START(s, *pos))) {
+
+    PgRune quote = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    if (!quote) {
       res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
       return res;
     }
-    *pos += 1;
+
+    idx = pg_string_indexof_rune(PG_SLICE_RANGE_START(s, *pos), quote);
+    if (-1 == idx) {
+      res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
+      return res;
+    }
+
+    res.res.attribute.value = PG_SLICE_RANGE(s, *pos, *pos + (u64)idx);
+
     return res;
   }
-
-  i64 idx = pg_string_indexof_any_rune(PG_S("\x09\x0A\x0C\x0D\x20\x2F"));
-  if (-1 == idx) {
-    res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
-    return res;
-  }
-  *pos += 1;
-
-  res.res.kind = PG_HTML_TOKEN_KIND_ATTRIBUTE;
-  res.res.start = (u32)*pos;
-  res.res.attribute.key = PG_SLICE_RANGE(s, *pos, *pos + (u64)idx);
-
-  *pos += (u64)idx;
-
-  if ('=' != pg_string_first(PG_SLICE_RANGE_START(s, *pos))) {
-    return res;
-  }
-
-  *pos += 1;
-
-  PgRune quote = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-  if (!quote) {
-    res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
-    return res;
-  }
-
-  idx = pg_string_indexof_rune(PG_SLICE_RANGE_START(s, *pos), quote);
-  if (-1 == idx) {
-    res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
-    return res;
-  }
-
-  res.res.attribute.value = PG_SLICE_RANGE(s, *pos, *pos + (u64)idx);
-
-  return res;
 }
 
 [[maybe_unused]] [[nodiscard]]
