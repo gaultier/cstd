@@ -289,6 +289,21 @@ static void test_utf8_iterator() {
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res.err);
   }
+  // EOF
+  {
+    PgString s = PG_S("\x1🀅");
+    s.len -= 1; // Early EOF.
+
+    PgU64Result res_count = pg_utf8_count(s);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
+
+    PgUtf8Iterator it = pg_make_utf8_iterator(s);
+    PgRuneResult res = {0};
+    res = pg_utf8_iterator_next(&it);
+    PG_ASSERT(0 == res.err);
+    res = pg_utf8_iterator_next(&it);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == res.err);
+  }
 }
 
 static void test_string_consume() {
