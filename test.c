@@ -456,9 +456,9 @@ static void test_string_consume() {
     PG_ASSERT(!res.ok);
   }
   {
-    PgStringOk res = pg_string_consume_rune(PG_S("[1,2]"), '[');
+    PgStringOk res = pg_string_consume_rune(PG_S("🍌[1,2]"), 0x1f34c /* 🍌 */);
     PG_ASSERT(res.ok);
-    PG_ASSERT(pg_string_eq(PG_S("1,2]"), res.res));
+    PG_ASSERT(pg_string_eq(PG_S("[1,2]"), res.res));
   }
 }
 
