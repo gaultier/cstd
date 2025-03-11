@@ -1994,8 +1994,8 @@ static void test_html_tokenize_with_key_no_value() {
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 2);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == token.kind);
-    /* PG_ASSERT(29 == token.start); */
-    /* PG_ASSERT(35 == token.end); */
+    PG_ASSERT(13 == token.start);
+    PG_ASSERT(16 == token.end);
     PG_ASSERT(pg_string_eq(PG_S("foo"), pg_string_trim_space(token.text)));
   }
 
