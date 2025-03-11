@@ -1,5 +1,13 @@
 #include "lib.c"
 
+static void test_rune_bytes_count() {
+  PG_ASSERT(0 == pg_utf8_rune_bytes_count(0));
+  PG_ASSERT(1 == pg_utf8_rune_bytes_count('A'));
+  PG_ASSERT(3 == pg_utf8_rune_bytes_count(0x30eb /* ル */));
+  PG_ASSERT(3 == pg_utf8_rune_bytes_count(0x805e /* 聞 */));
+  PG_ASSERT(4 == pg_utf8_rune_bytes_count(0x1f34c /* 🍌 */));
+}
+
 static void test_string_last() {
   // Empty
   {
@@ -2280,6 +2288,7 @@ static void test_html_tokenize_nested() {
 }
 
 int main() {
+  test_rune_bytes_count();
   test_string_last();
   test_string_indexof_rune();
   test_string_last_indexof_rune();
