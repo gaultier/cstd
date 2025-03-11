@@ -529,6 +529,11 @@ pg_string_is_alphabetical(PgString s) {
   }
   PG_ASSERT(0);
 }
+[[maybe_unused]] [[nodiscard]] static PgRune pg_string_first(PgString s) {
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+  PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+  return res_rune.res;
+}
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_right(PgString s,
                                                                     PgRune c) {
@@ -854,10 +859,6 @@ pg_string_starts_with(PgString haystack, PgString needle) {
   PgString start = PG_SLICE_RANGE(haystack, 0, needle.len);
 
   return pg_string_eq(needle, start);
-}
-
-[[maybe_unused]] [[nodiscard]] static u8 pg_string_first(PgString s) {
-  return pg_string_is_empty(s) ? 0 : PG_SLICE_AT(s, 0);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringOk
