@@ -699,6 +699,10 @@ pg_string_cut_string(PgString s, PgString needle) {
   return res;
 }
 
+// ---
+// TODO unicode.
+// ---
+
 [[maybe_unused]] [[nodiscard]] static PgStringOk
 pg_string_split_next(PgSplitIterator *it) {
   if (PG_SLICE_IS_EMPTY(it->s)) {
