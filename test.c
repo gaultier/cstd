@@ -1954,11 +1954,57 @@ static void test_html_tokenize_with_attributes() {
   }
 
   {
-    PgHtmlToken token4 = PG_SLICE_AT(tokens, 4);
-    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token4.kind);
-    PG_ASSERT(37 == token4.start);
-    PG_ASSERT(41 == token4.end);
-    PG_ASSERT(pg_string_eq(PG_S("html"), token4.tag));
+    PgHtmlToken token = PG_SLICE_AT(tokens, 4);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind);
+    PG_ASSERT(37 == token.start);
+    PG_ASSERT(41 == token.end);
+    PG_ASSERT(pg_string_eq(PG_S("html"), token.tag));
+  }
+}
+
+static void test_html_tokenize_with_key_no_value() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgString s = PG_S("<html hidden>foo</html>");
+  PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
+  PG_ASSERT(0 == res.err);
+
+  PgHtmlTokenDyn tokens = res.res;
+  PG_ASSERT(4 == tokens.len);
+
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 0);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind);
+    PG_ASSERT(1 == token.start);
+    PG_ASSERT(5 == token.end);
+    PG_ASSERT(pg_string_eq(PG_S("html"), token.tag));
+  }
+
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 1);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_ATTRIBUTE == token.kind);
+    PG_ASSERT(6 == token.start);
+    PG_ASSERT(12 == token.end);
+    PG_ASSERT(pg_string_eq(PG_S("hidden"), token.attribute.key));
+    PG_ASSERT(pg_string_eq(PG_S(""), token.attribute.value));
+  }
+
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 2);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == token.kind);
+    /* PG_ASSERT(29 == token.start); */
+    /* PG_ASSERT(35 == token.end); */
+    PG_ASSERT(pg_string_eq(PG_S("foo"), pg_string_trim_space(token.text)));
+  }
+
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 3);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind);
+    /* PG_ASSERT(37 == token.start); */
+    /* PG_ASSERT(41 == token.end); */
+    PG_ASSERT(pg_string_eq(PG_S("html"), token.tag));
   }
 }
 
@@ -2075,6 +2121,7 @@ int main() {
   test_process_capture();
   test_process_stdin();
   test_html_tokenize_no_attributes();
+  test_html_tokenize_with_key_no_value();
   test_html_tokenize_with_attributes();
   test_html_tokenize_nested();
 }

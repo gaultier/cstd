@@ -6069,7 +6069,7 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
       PgHtmlToken token = {
           .kind = PG_HTML_TOKEN_KIND_ATTRIBUTE,
           .start = (u32)(kv.key.data - s.data),
-          .end = (u32)(kv.value.data + kv.value.len - s.data),
+          .end = (u32)(kv.key.data + kv.key.len - s.data),
           .attribute = kv,
       };
       *PG_DYN_PUSH(tokens, allocator) = token;
