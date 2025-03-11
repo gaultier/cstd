@@ -368,6 +368,11 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
 
   // 2 bytes.
   if (0b1100'0000 == (c0 & 0b1110'0000)) {
+    if (s.len < 2) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+
     u8 c1 = PG_SLICE_AT(s, 1);
     res.res = (((PgRune)c0 & 0b0001'1111) << 6) | ((PgRune)c1 & 0b0011'1111);
     it->idx += 2;
@@ -376,6 +381,11 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
 
   // 3 bytes.
   if (0b1110'0000 == (c0 & 0b1111'0000)) {
+    if (s.len < 3) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+
     u8 c1 = PG_SLICE_AT(s, 1);
     u8 c2 = PG_SLICE_AT(s, 2);
     res.res = (((PgRune)c0 & 0b0000'1111) << 12) |
@@ -386,6 +396,11 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
 
   // 4 bytes.
   if (0b1111'0000 == (c0 & 0b1111'1000)) {
+    if (s.len < 4) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+
     u8 c1 = PG_SLICE_AT(s, 1);
     u8 c2 = PG_SLICE_AT(s, 2);
     u8 c3 = PG_SLICE_AT(s, 3);
