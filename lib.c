@@ -671,50 +671,15 @@ pg_string_cut_rune(PgString s, PgRune needle) {
 
 [[maybe_unused]] [[nodiscard]] static i64
 pg_string_indexof_string(PgString haystack, PgString needle) {
-  if (haystack.data == nullptr) {
+  if (0 == needle.len || needle.len > haystack.len) {
     return -1;
   }
 
-  if (haystack.len == 0) {
-    return -1;
-  }
-
-  if (needle.data == nullptr) {
-    return -1;
-  }
-
-  if (needle.len == 0) {
-    return -1;
-  }
-
-  if (needle.len > haystack.len) {
-    return -1;
-  }
-
-  if (needle.len == haystack.len) {
-    return pg_string_eq(haystack, needle) ? 0 : -1;
-  }
-
-  PG_ASSERT(nullptr != haystack.data);
-  PG_ASSERT(nullptr != needle.data);
-  u64 j = 0;
-  u8 needle_first = PG_SLICE_AT(needle, 0);
-
-  for (u64 _i = 0; _i < haystack.len - needle.len; _i++) {
-    PgString remaining = PG_SLICE_RANGE_START(haystack, j);
-    i64 idx = pg_string_indexof_rune(remaining, needle_first);
-    if (-1 == idx) {
-      return -1;
+  for (u64 i = 0; i < haystack.len; i++) {
+    if (pg_string_eq(PG_SLICE_RANGE(haystack, i, i + needle.len), needle)) {
+      return (i64)i;
     }
-
-    PgString found_maybe =
-        PG_SLICE_RANGE(remaining, (u64)idx, (u64)idx + needle.len);
-    if (pg_string_eq(needle, found_maybe)) {
-      return (i64)j + idx;
-    }
-    j += (u64)idx + needle.len;
   }
-
   return -1;
 }
 
