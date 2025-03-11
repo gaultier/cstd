@@ -6045,7 +6045,7 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
     }
 
     // Self-closing.
-    if (pg_string_starts_with(s, PG_S("/>"))) {
+    if (pg_string_starts_with(PG_SLICE_RANGE_START(s, *pos), PG_S("/>"))) {
       *pos += 2;
       return 0;
     }
@@ -6063,7 +6063,7 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
     kv.key.len = (u64)((u8 *)(s.data + *pos) - kv.key.data);
     // TODO: tolower(kv.key).
 
-    u8 quote = pg_string_first(s);
+    u8 quote = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
     if ('"' == quote || '\'' == quote) {
       *pos += 1;
     }
@@ -6078,7 +6078,7 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
       *pos += 1;
     }
     if (quote) {
-      if (pg_string_first(s) != quote) {
+      if (pg_string_first(PG_SLICE_RANGE_START(s, *pos)) != quote) {
         return PG_HTML_PARSE_ERROR_UNEXPECTED_CHARACTER_IN_ATTRIBUTE_NAME;
       } else {
         *pos += 1;
