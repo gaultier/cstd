@@ -483,14 +483,14 @@ static void test_string_parse_u64() {
     PG_ASSERT(0 == num_res.remaining.len);
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("a"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("🍌"));
     PG_ASSERT(!num_res.present);
-    PG_ASSERT(pg_string_eq(PG_S("a"), num_res.remaining));
+    PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("a123b"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("🍌123🍌"));
     PG_ASSERT(!num_res.present);
-    PG_ASSERT(pg_string_eq(PG_S("a123b"), num_res.remaining));
+    PG_ASSERT(pg_string_eq(PG_S("🍌123🍌"), num_res.remaining));
   }
   {
     PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0123"));
@@ -504,15 +504,15 @@ static void test_string_parse_u64() {
     PG_ASSERT(0 == num_res.n);
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0a"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0🍌"));
     PG_ASSERT(num_res.present);
-    PG_ASSERT(pg_string_eq(PG_S("a"), num_res.remaining));
+    PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
     PG_ASSERT(0 == num_res.n);
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("123a"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("123🍌"));
     PG_ASSERT(num_res.present);
-    PG_ASSERT(pg_string_eq(PG_S("a"), num_res.remaining));
+    PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
     PG_ASSERT(123 == num_res.n);
   }
 }
