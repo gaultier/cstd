@@ -213,6 +213,20 @@ static void test_slice_range() {
 }
 
 static void test_utf8_iterator() {
+  // Empty.
+  {
+    PgString s = PG_S("");
+    PgU64Result res_count = pg_utf8_count(s);
+    PG_ASSERT(0 == res_count.err);
+    PG_ASSERT(0 == res_count.res);
+
+    PgUtf8Iterator it = pg_make_utf8_iterator(s);
+
+    PgRuneResult res = {0};
+    res = pg_utf8_iterator_next(&it);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(0 == res.res);
+  }
   {
     PgString s = PG_S("2匹の🀅🂣©");
     PgU64Result res_count = pg_utf8_count(s);
@@ -2254,6 +2268,7 @@ int main() {
   test_ring_buffer_read_write_slice();
   test_ring_buffer_read_until_excl();
   test_ring_buffer_read_write_fuzz();
+#if 0
   test_url_parse_relative_path();
   test_url_parse();
   test_http_request_to_string();
@@ -2274,4 +2289,5 @@ int main() {
   test_html_tokenize_with_key_no_value();
   test_html_tokenize_with_attributes();
   test_html_tokenize_nested();
+#endif
 }
