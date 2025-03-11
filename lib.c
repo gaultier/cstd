@@ -445,16 +445,16 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
     return 0;
   }
 
-  if (0b0000'0000 == (c & 0b1000'0000)) {
+  if (c < 0x0080) {
     return 1;
   }
-  if (0b1100'0000 == (c & 0b1110'0000)) {
+  if (c < 0x0800) {
     return 2;
   }
-  if (0b1110'0000 == (c & 0b1111'0000)) {
+  if (c < 0x10000) {
     return 3;
   }
-  if (0b1111'0000 == (c & 0b1111'1000)) {
+  if (0x10000 <= c && c <= 0x10FFFF) {
     return 4;
   }
   PG_ASSERT(0);
