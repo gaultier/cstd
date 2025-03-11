@@ -374,7 +374,13 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
     }
 
     u8 c1 = PG_SLICE_AT(s, 1);
-    res.res = (((PgRune)c0 & 0b0001'1111) << 6) | ((PgRune)c1 & 0b0011'1111);
+    PgRune rune0 = (PgRune)c0 & 0b0001'1111;
+    PgRune rune1 = ((PgRune)c1 & 0b0011'1111);
+    res.res = (rune0 << 6) | rune1;
+    if (res.res < 0x80) { // Overlong.
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
     it->idx += 2;
     return res;
   }
@@ -388,8 +394,15 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
 
     u8 c1 = PG_SLICE_AT(s, 1);
     u8 c2 = PG_SLICE_AT(s, 2);
-    res.res = (((PgRune)c0 & 0b0000'1111) << 12) |
-              (((PgRune)c1 & 0b0011'1111) << 6) | ((PgRune)c2 & 0b0011'1111);
+    PgRune rune0 = ((PgRune)c0 & 0b0000'1111);
+    PgRune rune1 = ((PgRune)c1 & 0b0011'1111);
+    PgRune rune2 = ((PgRune)c2 & 0b0011'1111);
+
+    res.res = (rune0 << 12) | (rune1 << 6) | rune2;
+    if (res.res < 0x0800) { // Overlong.
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
     it->idx += 3;
     return res;
   }
@@ -404,9 +417,15 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
     u8 c1 = PG_SLICE_AT(s, 1);
     u8 c2 = PG_SLICE_AT(s, 2);
     u8 c3 = PG_SLICE_AT(s, 3);
-    res.res = (((PgRune)c0 & 0b0000'0111) << 18) |
-              (((PgRune)c1 & 0b0011'1111) << 12) |
-              (((PgRune)c2 & 0b0011'1111) << 6) | ((PgRune)c3 & 0b0011'1111);
+    PgRune rune0 = (PgRune)c0 & 0b0000'0111;
+    PgRune rune1 = (PgRune)c1 & 0b0011'1111;
+    PgRune rune2 = (PgRune)c2 & 0b0011'1111;
+    PgRune rune3 = ((PgRune)c3 & 0b0011'1111);
+    res.res = (rune0 << 18) | (rune1 << 12) | (rune2 << 6) | rune3;
+    if (res.res < 0x01'00'00) { // Overlong.
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
 
     if (res.res >= 0x10FFFF) {
       res.err = PG_ERR_INVALID_VALUE;
