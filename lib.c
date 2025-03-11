@@ -498,17 +498,35 @@ pg_string_is_alphabetical(PgString s) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_right(PgString s,
-                                                                    u8 c) {
+                                                                    PgRune c) {
   PgString res = s;
 
-  for (i64 s_i = (i64)s.len - 1; s_i >= 0; s_i--) {
-    PG_ASSERT(s.data != nullptr);
-    if (PG_C_ARRAY_AT(s.data, s.len, s_i) != c) {
-      return res;
-    }
+  PgRuneResult res_rune = {0};
 
-    res.len -= 1;
+  for (;;) {
+    PgRune last = 0;
+    u64 rune_bytes_count = 0;
+
+    PgUtf8Iterator it = pg_make_utf8_iterator(res);
+    for (;;) {
+      u64 bytes_idx_before = it.idx;
+      res_rune = pg_utf8_iterator_next(&it);
+      if (res_rune.err || !res_rune.res) {
+        break;
+      }
+      last = res_rune.res;
+
+      u64 bytes_idx_after = it.idx;
+      rune_bytes_count = bytes_idx_after - bytes_idx_before;
+    }
+    if (last == c) {
+      PG_ASSERT(res.len > rune_bytes_count);
+      res.len -= rune_bytes_count;
+    } else {
+      break;
+    }
   }
+
   return res;
 }
 
