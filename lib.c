@@ -6065,20 +6065,31 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
     PG_ASSERT(kv.key.len <= s.len);
     // TODO: tolower(kv.key).
 
+    if ('=' != pg_string_first(PG_SLICE_RANGE_START(s, *pos))) {
+      PgHtmlToken token = {
+          .kind = PG_HTML_TOKEN_KIND_ATTRIBUTE,
+          .start = (u32)(kv.key.data - s.data),
+          .end = (u32)(kv.value.data + kv.value.len - s.data),
+          .attribute = kv,
+      };
+      *PG_DYN_PUSH(tokens, allocator) = token;
+      continue;
+    }
+    *pos += 1;
+
     u8 quote = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
     if ('"' == quote || '\'' == quote) {
       *pos += 1;
     }
 
-    c = PG_SLICE_AT(s, *pos);
-    if ('=' == c) {
-      c += 1;
-    }
     kv.value.data = s.data + *pos;
 
     while (*pos < s.len && pg_character_is_alphabetical(PG_SLICE_AT(s, *pos))) {
       *pos += 1;
     }
+    kv.value.len = (u64)(s.data + *pos - kv.value.data);
+    PG_ASSERT(kv.value.len <= s.len);
+
     if (quote) {
       if (pg_string_first(PG_SLICE_RANGE_START(s, *pos)) != quote) {
         return PG_HTML_PARSE_ERROR_UNEXPECTED_CHARACTER_IN_ATTRIBUTE_NAME;
@@ -6086,8 +6097,6 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
         *pos += 1;
       }
     }
-    kv.value.len = (u64)(s.data + *pos - kv.value.data);
-    PG_ASSERT(kv.value.len <= s.len);
 
     PgHtmlToken token = {
         .kind = PG_HTML_TOKEN_KIND_ATTRIBUTE,
