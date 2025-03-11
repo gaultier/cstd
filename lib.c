@@ -6245,7 +6245,7 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
     }
     *pos += 1;
 
-    u8 quote = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    PgRune quote = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
     if ('"' == quote || '\'' == quote) {
       *pos += 1;
     }
