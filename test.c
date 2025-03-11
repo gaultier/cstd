@@ -2312,7 +2312,6 @@ int main() {
   test_ring_buffer_read_write_slice();
   test_ring_buffer_read_until_excl();
   test_ring_buffer_read_write_fuzz();
-#if 0
   test_url_parse_relative_path();
   test_url_parse();
   test_http_request_to_string();
@@ -2322,7 +2321,6 @@ int main() {
   test_http_read_response();
   // test_http_request_response();
   test_log();
-#endif
   test_div_ceil();
   test_path_base_name();
   test_heap_insert_dequeue();

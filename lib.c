@@ -497,6 +497,10 @@ pg_string_is_alphabetical(PgString s) {
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_left(PgString s,
                                                                    PgRune c) {
+  if (pg_string_is_empty(s)) {
+    return s;
+  }
+
   PgString res = s;
 
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -4564,21 +4568,20 @@ pg_http_parse_request_status_line(PgString status_line,
 pg_http_parse_header(PgString s) {
   PgKeyValueResult res = {0};
 
-  i64 idx = pg_string_indexof_rune(s, ':');
-  if (-1 == idx) {
+  PgStringCut cut = pg_string_cut_rune(s, ':');
+  if (!cut.ok) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  res.res.key = PG_SLICE_RANGE(s, 0, (u64)idx);
-  if (PG_SLICE_IS_EMPTY(res.res.key)) {
+  res.res.key = pg_string_trim_space(cut.left);
+  if (pg_string_is_empty(res.res.key)) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  res.res.value =
-      pg_string_trim_left(PG_SLICE_RANGE_START(s, (u64)idx + 1), ' ');
-  if (PG_SLICE_IS_EMPTY(res.res.value)) {
+  res.res.value = pg_string_trim_space(cut.right);
+  if (pg_string_is_empty(res.res.value)) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
