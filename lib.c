@@ -360,7 +360,7 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
 
   u8 c0 = PG_SLICE_AT(s, 0);
   // One byte.
-  if (0b0000'0000 == (c0 & 0b1000'0000)) {
+  if (0b0000'0000 == (c0 & 0b1000'0000) && c0 != 0) {
     res.res = c0 & 0x7F;
     it->idx += 1;
     return res;
