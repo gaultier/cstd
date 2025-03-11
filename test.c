@@ -2324,9 +2324,7 @@ int main() {
   test_log();
 #endif
   test_div_ceil();
-#if 0
   test_path_base_name();
-#endif
   test_heap_insert_dequeue();
   test_heap_remove_in_the_middle();
 #if 0
