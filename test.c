@@ -1912,7 +1912,7 @@ static void test_html_tokenize_with_attributes() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgString s = PG_S("<html id=\"bar\" class=\"baz\">foo</html>");
+  PgString s = PG_S("<html id=\"bar\" class=\"baz\"  >foo</html>");
   PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
   PG_ASSERT(0 == res.err);
 
@@ -1936,14 +1936,15 @@ static void test_html_tokenize_with_attributes() {
     PG_ASSERT(pg_string_eq(PG_S("bar"), token.attribute.value));
   }
 
-#if 0
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 2);
-    PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == token.kind);
-    PG_ASSERT(6 == token.start);
-    PG_ASSERT(9 == token.end);
-    PG_ASSERT(pg_string_eq(PG_S("foo"), token.text));
+    PG_ASSERT(PG_HTML_TOKEN_KIND_ATTRIBUTE == token.kind);
+    PG_ASSERT(15 == token.start);
+    PG_ASSERT(25 == token.end);
+    PG_ASSERT(pg_string_eq(PG_S("class"), token.attribute.key));
+    PG_ASSERT(pg_string_eq(PG_S("baz"), token.attribute.value));
   }
+#if 0
 
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 3);
