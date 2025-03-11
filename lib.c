@@ -675,7 +675,7 @@ pg_string_indexof_string(PgString haystack, PgString needle) {
     return -1;
   }
 
-  for (u64 i = 0; i < haystack.len; i++) {
+  for (u64 i = 0; i <= haystack.len - needle.len; i++) {
     if (pg_string_eq(PG_SLICE_RANGE(haystack, i, i + needle.len), needle)) {
       return (i64)i;
     }

@@ -59,14 +59,14 @@ static void test_string_indexof_string() {
 
   // Not found.
   {
-    PG_ASSERT(-1 ==
-              pg_string_indexof_string(PG_S("hello world"), PG_S("foobar")));
+    PG_ASSERT(-1 == pg_string_indexof_string(PG_S("hello 🍌 world"),
+                                             PG_S("foobar 🍌")));
   }
 
   // Found, one occurence.
   {
-    PG_ASSERT(6 ==
-              pg_string_indexof_string(PG_S("hello world"), PG_S("world")));
+    PG_ASSERT(11 ==
+              pg_string_indexof_string(PG_S("hello 🍌 world"), PG_S("world")));
   }
 
   // Found, one occurence.
