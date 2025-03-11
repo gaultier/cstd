@@ -407,6 +407,12 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
     res.res = (((PgRune)c0 & 0b0000'0111) << 18) |
               (((PgRune)c1 & 0b0011'1111) << 12) |
               (((PgRune)c2 & 0b0011'1111) << 6) | ((PgRune)c3 & 0b0011'1111);
+
+    if (res.res >= 0x10FFFF) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+
     it->idx += 4;
     return res;
   }
