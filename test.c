@@ -1,5 +1,15 @@
 #include "lib.c"
 
+static void test_string_last() {
+  // Empty
+  {
+    PG_ASSERT(0 == pg_string_last(PG_S("")));
+  }
+  {
+    PG_ASSERT(0x805e /* 聞 */ == pg_string_last(PG_S("朝日新聞デジタル聞")));
+  }
+}
+
 static void test_string_indexof_rune() {
   // Empty.
   {
@@ -8,9 +18,23 @@ static void test_string_indexof_rune() {
 
   // Unicode
   {
-    PgString haystack = PG_S("朝日新聞デジタル");
+    PgString haystack = PG_S("朝日新聞デジタル聞");
     PG_ASSERT(9 == pg_string_indexof_rune(haystack, 0x805e /* 聞 */));
     PG_ASSERT(-1 == pg_string_indexof_rune(haystack, 0x1f34c /* 🍌 */));
+  }
+}
+
+static void test_string_last_indexof_rune() {
+  // Empty.
+  {
+    PG_ASSERT(-1 == pg_string_last_indexof_rune(PG_S(""), 0x805e /* 聞 */));
+  }
+
+  // Unicode
+  {
+    PgString haystack = PG_S("朝日新聞デジタ聞ル");
+    PG_ASSERT(21 == pg_string_last_indexof_rune(haystack, 0x805e /* 聞 */));
+    PG_ASSERT(-1 == pg_string_last_indexof_rune(haystack, 0x1f34c /* 🍌 */));
   }
 }
 
@@ -2256,9 +2280,11 @@ static void test_html_tokenize_nested() {
 }
 
 int main() {
+  test_string_last();
+  test_string_indexof_rune();
+  test_string_last_indexof_rune();
   test_slice_range();
   test_utf8_iterator();
-  test_string_indexof_rune();
   test_string_indexof_string();
   test_string_trim();
   test_string_split_byte();

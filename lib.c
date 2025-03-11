@@ -440,6 +440,26 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static u64 pg_utf8_rune_bytes_count(PgRune c) {
+  if (0 == c) {
+    return 0;
+  }
+
+  if (0b0000'0000 == (c & 0b1000'0000)) {
+    return 1;
+  }
+  if (0b1100'0000 == (c & 0b1110'0000)) {
+    return 2;
+  }
+  if (0b1110'0000 == (c & 0b1111'0000)) {
+    return 3;
+  }
+  if (0b1111'0000 == (c & 0b1111'1000)) {
+    return 4;
+  }
+  PG_ASSERT(0);
+}
+
 [[maybe_unused]] [[nodiscard]] static PgU64Result pg_utf8_count(PgString s) {
   PgU64Result res = {0};
 
@@ -497,29 +517,27 @@ pg_string_is_alphabetical(PgString s) {
   return res;
 }
 
+[[nodiscard]] static PgRune pg_string_last(PgString s) {
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+  PgRune res = 0;
+  for (;;) {
+    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    if (res_rune.err || 0 == res_rune.res) {
+      return res;
+    }
+    res = res_rune.res;
+  }
+  PG_ASSERT(0);
+}
+
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_right(PgString s,
                                                                     PgRune c) {
   PgString res = s;
 
-  PgRuneResult res_rune = {0};
-
-  for (;;) {
-    PgRune last = 0;
-    u64 rune_bytes_count = 0;
-
-    PgUtf8Iterator it = pg_make_utf8_iterator(res);
-    for (;;) {
-      u64 bytes_idx_before = it.idx;
-      res_rune = pg_utf8_iterator_next(&it);
-      if (res_rune.err || !res_rune.res) {
-        break;
-      }
-      last = res_rune.res;
-
-      u64 bytes_idx_after = it.idx;
-      rune_bytes_count = bytes_idx_after - bytes_idx_before;
-    }
+  while (!pg_string_is_empty(s)) {
+    PgRune last = pg_string_last(s);
     if (last == c) {
+      u64 rune_bytes_count = pg_utf8_rune_bytes_count(last);
       PG_ASSERT(res.len > rune_bytes_count);
       res.len -= rune_bytes_count;
     } else {
@@ -613,30 +631,16 @@ pg_string_cut_rune(PgString s, PgRune needle) {
 
 [[nodiscard]] static i64 pg_string_last_indexof_rune(PgString haystack,
                                                      PgRune needle) {
-  PgRuneResult res_rune = {0};
+  while (!pg_string_is_empty(haystack)) {
+    PgRune last = pg_string_last(haystack);
+    u64 rune_bytes_count = pg_utf8_rune_bytes_count(last);
+    PG_ASSERT(haystack.len > rune_bytes_count);
+    haystack.len -= rune_bytes_count;
 
-  for (;;) {
-    PgRune last = 0;
-    u64 rune_bytes_count = 0;
-
-    PgUtf8Iterator it = pg_make_utf8_iterator(haystack);
-    u64 bytes_idx_before = 0;
-    for (;;) {
-      bytes_idx_before = it.idx;
-      res_rune = pg_utf8_iterator_next(&it);
-      if (res_rune.err || !res_rune.res) {
-        break;
-      }
-      last = res_rune.res;
-    }
     if (last == needle) {
-      PG_ASSERT(haystack.len > rune_bytes_count);
-      return (i64)bytes_idx_before;
-    } else {
-      break;
+      return (i64)haystack.len;
     }
   }
-
   return -1;
 }
 
