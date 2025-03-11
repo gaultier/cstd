@@ -6133,6 +6133,7 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
         if (slash == pg_string_first(PG_SLICE_RANGE_START(s, pos))) {
           pos += 1;
           kind = PG_HTML_TOKEN_KIND_TAG_CLOSING;
+          tag.data += 1;
         }
 
         if (!pg_character_is_alphabetical(
@@ -6162,7 +6163,7 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
           return res;
         }
 
-        PgString text = {.data = s.data};
+        PgString text = {.data = s.data + pos};
         // TODO: comment.
         while (pos < s.len && PG_SLICE_AT(s, pos) != tag_start) {
           pos += 1;

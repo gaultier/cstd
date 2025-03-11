@@ -1871,6 +1871,7 @@ static void test_process_stdin() {
 }
 
 static void test_html_tokenize() {
+  // Simple, no attributes.
   {
     PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -1882,6 +1883,18 @@ static void test_html_tokenize() {
 
     PgHtmlTokenDyn tokens = res.res;
     PG_ASSERT(3 == tokens.len);
+
+    PgHtmlToken token0 = PG_SLICE_AT(tokens, 0);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == token0.kind);
+    PG_ASSERT(pg_string_eq(PG_S("html"), token0.tag));
+
+    PgHtmlToken token1 = PG_SLICE_AT(tokens, 1);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == token1.kind);
+    PG_ASSERT(pg_string_eq(PG_S("foo"), token1.text));
+
+    PgHtmlToken token2 = PG_SLICE_AT(tokens, 2);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token2.kind);
+    PG_ASSERT(pg_string_eq(PG_S("html"), token2.tag));
   }
 }
 
