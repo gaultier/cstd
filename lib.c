@@ -2522,6 +2522,26 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static PgU64Result pg_utf8_count(PgString s) {
+  PgU64Result res = {0};
+
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+  u64 len = 0;
+  for (;; len++) {
+    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    if (res_rune.err) {
+      res.err = res_rune.err;
+      return res;
+    }
+    if (!res_rune.res) {
+      break;
+    }
+  }
+
+  res.res = len;
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgReader
 pg_reader_make_from_file(PgFileDescriptor file);
 
