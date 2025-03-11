@@ -6016,6 +6016,7 @@ typedef struct {
   };
 } PgHtmlToken;
 PG_DYN(PgHtmlToken) PgHtmlTokenDyn;
+PG_SLICE(PgHtmlToken) PgHtmlTokenSlice;
 PG_RESULT(PgHtmlTokenDyn) PgHtmlTokenDynResult;
 
 typedef enum {
