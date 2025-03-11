@@ -656,11 +656,11 @@ static void test_string_indexof_any_byte() {
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_rune(PG_S("?"), PG_S(":"));
+    i64 idx = pg_string_indexof_any_rune(PG_S("?"), PG_S("🚀🛸"));
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_rune(PG_S("abc"), PG_S(":?"));
+    i64 idx = pg_string_indexof_any_rune(PG_S("abc"), PG_S("🚀🛸"));
     PG_ASSERT(-1 == idx);
   }
   {
@@ -668,12 +668,13 @@ static void test_string_indexof_any_byte() {
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_rune(PG_S(":"), PG_S(":"));
+    i64 idx = pg_string_indexof_any_rune(PG_S("🛸"), PG_S("🚀🛸"));
     PG_ASSERT(0 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_rune(PG_S("abc"), PG_S("cd"));
-    PG_ASSERT(2 == idx);
+    i64 idx = pg_string_indexof_any_rune(PG_S("朝日新聞デジタ聞ル🚀🛸A"),
+                                         PG_S("🚀🛸"));
+    PG_ASSERT(27 == idx);
   }
 }
 

@@ -838,15 +838,17 @@ pg_string_consume_until_any_rune_excl(PgString haystack, PgString needles) {
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
-pg_string_indexof_any_rune(PgString haystack, PgString needle) {
-  for (i64 i = 0; i < (i64)haystack.len; i++) {
-    u8 c_h = PG_SLICE_AT(haystack, i);
+pg_string_indexof_any_rune(PgString haystack, PgString needles) {
+  PgUtf8Iterator it = pg_make_utf8_iterator(needles);
+  PgRuneResult res_rune = {0};
+  for (res_rune = pg_utf8_iterator_next(&it);
+       0 == res_rune.err && 0 != res_rune.res;
+       res_rune = pg_utf8_iterator_next(&it)) {
+    PgRune needle = res_rune.res;
 
-    for (i64 j = 0; j < (i64)needle.len; j++) {
-      u8 c_n = PG_SLICE_AT(needle, j);
-      if (c_h == c_n) {
-        return i;
-      }
+    i64 idx = pg_string_indexof_rune(haystack, needle);
+    if (-1 != idx) {
+      return idx;
     }
   }
   return -1;
