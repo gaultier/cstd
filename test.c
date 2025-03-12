@@ -2379,6 +2379,35 @@ static void test_html_parse() {
   PG_ASSERT(pg_string_eq(node_img->token_start.tag, PG_S("img")));
 }
 
+static void test_html_parse_title_with_html_content() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgString s = PG_S("<h2>Hello <code>world</code></h2>");
+  PgHtmlNodePtrResult res_parse = pg_html_parse(s, allocator);
+  PG_ASSERT(0 == res_parse.err);
+
+  PgHtmlNode *root = res_parse.res;
+  PG_ASSERT(root->first_child);
+  PG_ASSERT(!root->next_sibling);
+
+  PgHtmlNode *node_h2 = root->first_child;
+  PG_ASSERT(node_h2->parent == root);
+  PG_ASSERT(!node_h2->next_sibling);
+  PG_ASSERT(node_h2->first_child);
+  PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_h2->token_start.kind);
+  PG_ASSERT(pg_string_eq(node_h2->token_start.tag, PG_S("h2")));
+  PG_ASSERT(pg_string_eq(node_h2->token_end.tag, PG_S("h2")));
+
+  PgHtmlNode *node_h2_text = node_h2->first_child;
+  PG_ASSERT(node_h2_text->parent == node_h2);
+  PG_ASSERT(node_h2_text->next_sibling);
+  PG_ASSERT(!node_h2_text->first_child);
+  PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == node_h2_text->token_start.kind);
+  PG_ASSERT(pg_string_eq(node_h2_text->token_start.text, PG_S("Hello ")));
+}
+
 int main() {
   test_rune_bytes_count();
   test_utf8_count();
@@ -2430,4 +2459,5 @@ int main() {
   test_html_tokenize_with_attributes();
   test_html_tokenize_nested();
   test_html_parse();
+  test_html_parse_title_with_html_content();
 }
