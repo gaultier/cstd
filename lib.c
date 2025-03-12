@@ -5818,26 +5818,112 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
     }
 
     if (pg_character_is_space(first)) { // Skip.
-      *pos += 1;
+      *pos += pg_utf8_rune_bytes_count(first);
       continue;
     }
 
     if ('"' == first || '\'' == first) { // Quotes.
       inside_quotes = !inside_quotes;
-      *pos += 1;
+      *pos += pg_utf8_rune_bytes_count(first);
       continue;
     }
 
     if (!inside_quotes && ('>' == first)) { // End of tag.
-      *pos += 1;
+      *pos += pg_utf8_rune_bytes_count(first);
       return 0;
     }
 
     // Other characters, skip.
-    *pos += 1;
+    *pos += pg_utf8_rune_bytes_count(first);
   }
 
   PG_ASSERT(0);
+}
+
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
+                                    PgHtmlTokenDyn *tokens,
+                                    PgAllocator *allocator) {
+  PG_ASSERT('<' == pg_string_first(PG_SLICE_RANGE_START(s, *pos)));
+  *pos += pg_utf8_rune_bytes_count('<');
+
+  PgString tag = PG_SLICE_RANGE_START(s, *pos);
+  PgHtmlTokenKind kind = PG_HTML_TOKEN_KIND_TAG_OPENING;
+
+  PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  if ('/' == first) {
+    *pos += pg_utf8_rune_bytes_count(first);
+    kind = PG_HTML_TOKEN_KIND_TAG_CLOSING;
+    tag.data += pg_utf8_rune_bytes_count(first);
+  }
+
+  first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  if (!pg_character_is_alphabetical(first)) {
+    return PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME;
+  }
+  *pos += pg_utf8_rune_bytes_count(first);
+
+  for (;;) {
+    first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+
+    if (0 == first) { // Early EOF.
+      return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
+    }
+
+    if ('>' == first) {
+      *pos += pg_utf8_rune_bytes_count(first);
+      return 0;
+    }
+
+    if (pg_character_is_space(first)) {
+      tag.len = (u64)((s.data + *pos) - tag.data);
+      PG_ASSERT(tag.len <= s.len);
+
+      PgHtmlToken token = {
+          .start = (u32)(tag.data - s.data),
+          .end = (u32)(tag.data + tag.len - s.data),
+          .kind = kind,
+          .tag = tag,
+      };
+      *PG_DYN_PUSH(tokens, allocator) = token;
+
+      *pos += pg_utf8_rune_bytes_count(first);
+
+      PgError err = pg_html_tokenize_attributes(s, pos, tokens, allocator);
+      return err;
+    }
+
+    // Skip other characters in tag name.
+    *pos += pg_utf8_rune_bytes_count(first);
+  }
+}
+
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_html_tokenize_data(PgString s, u64 *pos,
+                                     PgHtmlTokenDyn *tokens,
+                                     PgAllocator *allocator) {
+  u32 start = (u32)*pos;
+
+  for (;;) {
+    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    // TODO: Check about null byte.
+    if (0 == first) {
+      return 0;
+    }
+    if ('<' == first) { // End of data, start of tag.
+      PgHtmlToken token = {
+          .start = start,
+          .end = (u32)(*pos),
+          .kind = PG_HTML_TOKEN_KIND_TEXT,
+          .text = PG_SLICE_RANGE(s, start, *pos),
+      };
+      *PG_DYN_PUSH(tokens, allocator) = token;
+      return 0;
+    }
+    // TODO: Ampersand.
+
+    *pos += pg_utf8_rune_bytes_count(first);
+  }
 }
 
 [[maybe_unused]] [[nodiscard]] static PgHtmlTokenDynResult
@@ -5847,91 +5933,28 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
   /* PgString comment_start = PG_S("<!--"); */
   /* PgString comment_end = PG_S("-->"); */
   PgRune tag_start = '<';
-  PgRune slash = '/';
-  PgString attribute_separator = PG_S("\x09"
-                                      "\x0A"
-                                      "\x0C"
-                                      "\x0D"
-                                      "\x20"
-                                      "\x3E");
-
   u64 pos = 0;
-  while (pos < s.len) {
-    // TODO: Comment.
-    {
+  for (;;) {
+    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, pos));
+    if (0 == first) { // EOF.
+      return res;
     }
 
+    // TODO: Doctype.
+    // TODO: Comment.
     // TODO: `<meta`.
-    {
-    }
 
     // Tag.
-    {
-      if (tag_start == pg_string_first(PG_SLICE_RANGE_START(s, pos))) {
-        pos += 1;
-        PgString tag = PG_SLICE_RANGE_START(s, pos);
-        PgHtmlTokenKind kind = PG_HTML_TOKEN_KIND_TAG_OPENING;
-
-        if (slash == pg_string_first(PG_SLICE_RANGE_START(s, pos))) {
-          pos += 1;
-          kind = PG_HTML_TOKEN_KIND_TAG_CLOSING;
-          tag.data += 1;
-        }
-
-        if (!pg_character_is_alphabetical(
-                pg_string_first(PG_SLICE_RANGE_START(s, pos)))) {
-          res.err = PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME;
-          return res;
-        }
-        i64 idx = pg_string_indexof_any_rune(PG_SLICE_RANGE_START(s, pos),
-                                             attribute_separator);
-        if (-1 == idx) {
-          res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
-          return res;
-        }
-        pos += (u64)idx;
-        tag.len = (u64)((s.data + pos) - tag.data);
-        PG_ASSERT(tag.len <= s.len);
-        {
-          PgHtmlToken token = {
-              .start = (u32)(tag.data - s.data),
-              .end = (u32)(tag.data + tag.len - s.data),
-              .kind = kind,
-              .tag = tag,
-          };
-          *PG_DYN_PUSH(&res.res, allocator) = token;
-        }
-
-        res.err = pg_html_tokenize_attributes(s, &pos, &res.res, allocator);
-        if (res.err) {
-          return res;
-        }
-
-        // TODO: comment.
-
-        PgStringCut cut =
-            pg_string_cut_rune(PG_SLICE_RANGE_START(s, pos), tag_start);
-        if (cut.ok) {
-          pos += cut.left.len;
-
-          PgString text = pg_string_trim_space(cut.left);
-          if (!pg_string_is_empty(text)) {
-            PgHtmlToken token = {
-                .start = (u32)(text.data - s.data),
-                .end = (u32)(text.data + text.len - s.data),
-                .kind = PG_HTML_TOKEN_KIND_TEXT,
-                .text = text,
-            };
-            *PG_DYN_PUSH(&res.res, allocator) = token;
-          }
-        } else {
-          return res;
-        }
+    if (tag_start == first) {
+      res.err = pg_html_tokenize_tag(s, &pos, &res.res, allocator);
+      if (res.err) {
+        return res;
       }
+
+      pg_html_tokenize_data(s, &pos, &res.res, allocator);
     }
   }
-
-  return res;
+  PG_ASSERT(0);
 }
 
 #endif
