@@ -2421,6 +2421,8 @@ static void test_html_parse_title_with_html_content() {
   PG_ASSERT(!node_code_text->first_child);
   PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == node_code_text->token_start.kind);
   PG_ASSERT(pg_string_eq(node_code_text->token_start.text, PG_S("world")));
+
+  PG_ASSERT(node_code_text->token_end.end < node_h2->token_end.start);
 }
 
 int main() {
