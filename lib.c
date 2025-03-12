@@ -5827,7 +5827,8 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
   (void)tokens;
   (void)allocator;
 
-  bool inside_quotes = false;
+  PgRune quote = 0;
+
   for (;;) {
     PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
 
@@ -5840,13 +5841,18 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
       continue;
     }
 
-    if ('"' == first || '\'' == first) { // Quotes.
-      inside_quotes = !inside_quotes;
+    if (('"' == first || '\'' == first) && 0 == quote) { // Entering quotes.
+      quote = first;
+      *pos += pg_utf8_rune_bytes_count(first);
+      continue;
+    }
+    if (quote && first == quote) { // Exiting quotes.
+      quote = 0;
       *pos += pg_utf8_rune_bytes_count(first);
       continue;
     }
 
-    if (!inside_quotes && ('>' == first)) { // End of tag.
+    if (0 == quote && ('>' == first)) { // End of tag.
       return 0;
     }
 

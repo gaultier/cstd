@@ -2289,17 +2289,18 @@ static void test_html_parse() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgString s = PG_S("<html>"
-                    "  <head>"
-                    "    <title>This is a title</title>"
-                    "  </head>"
-                    "  <body>"
-                    "    <div>"
-                    "        <p>Hello world!</p>"
-                    "    </div>"
-                    "    <img />"
-                    "  </body>"
-                    "</html>");
+  PgString s = PG_S(
+      "<html>"
+      "  <head>"
+      "    <title>This is a title</title>"
+      "  </head>"
+      "  <body>"
+      "    <div>"
+      "        <p>Hello world!</p>"
+      "    </div>"
+      "    <img src=\"git_web_ui_link.png\" alt=\"Link in Github's web UI\" />"
+      "  </body>"
+      "</html>");
   PgHtmlNodePtrResult res_parse = pg_html_parse(s, allocator);
   PG_ASSERT(0 == res_parse.err);
 
