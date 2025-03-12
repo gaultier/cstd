@@ -5850,7 +5850,7 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
       .start = (u32)*pos,
       .end = 0, // Backpatched,
       .kind = PG_HTML_TOKEN_KIND_TAG_OPENING,
-      .tag = PG_SLICE_RANGE_START(s, *pos),
+      .tag = {.data = s.data + *pos}, // Length backpatched.
   };
 
   PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
@@ -5874,23 +5874,28 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
       return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
     }
 
+    // End of tag name.
     if ('>' == first || pg_character_is_space(first)) {
-      token.tag.len = (u64)((s.data + *pos) - token.tag.data);
+      if (0 == token.tag.len) {
+        token.tag.len = (u64)((s.data + *pos) - token.tag.data);
+      }
       PG_ASSERT(token.tag.len <= s.len);
-      token.end = (u32)*pos;
+      if (0 == token.end) {
+        token.end = (u32)*pos;
+      }
+    }
+
+    if ('>' == first) {
       token.tag = pg_string_trim_space(token.tag);
       token.tag = pg_string_trim_right(token.tag, '/');
 
       *PG_DYN_PUSH(tokens, allocator) = token;
-
       *pos += pg_utf8_rune_bytes_count(first);
-    }
-
-    if ('>' == first) {
       return 0;
     }
 
     if (pg_character_is_space(first)) {
+      *pos += pg_utf8_rune_bytes_count(first);
       PgError err = pg_html_tokenize_attributes(s, pos, tokens, allocator);
       if (err) {
         return err;
@@ -5947,7 +5952,6 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
 
     // TODO: Doctype.
     // TODO: Comment.
-    // TODO: `<meta`.
 
     // Tag.
     if (tag_start == first) {
