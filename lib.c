@@ -277,8 +277,7 @@ PG_RESULT(PgRune) PgRuneResult;
          ('a' <= c && c <= 'f');
 }
 
-[[maybe_unused]] [[nodiscard]] static bool
-pg_rune_is_alphabetical(PgRune c) {
+[[maybe_unused]] [[nodiscard]] static bool pg_rune_is_alphabetical(PgRune c) {
   return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
 }
 
@@ -290,9 +289,22 @@ pg_rune_is_alphabetical(PgRune c) {
   return ('0' <= c && c <= '9');
 }
 
-[[maybe_unused]] [[nodiscard]] static bool
-pg_rune_is_alphanumeric(PgRune c) {
+[[maybe_unused]] [[nodiscard]] static bool pg_rune_is_alphanumeric(PgRune c) {
   return pg_rune_is_numeric(c) || pg_rune_is_alphabetical(c);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgRune pg_rune_ascii_lower(PgRune c) {
+  if ('A' <= c && c <= 'Z') {
+    return c + ('a' - 'A');
+  }
+  return c;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgRune pg_rune_ascii_upper(PgRune c) {
+  if ('a' <= c && c <= 'z') {
+    return c - ('a' - 'A');
+  }
+  return c;
 }
 
 [[maybe_unused]] [[nodiscard]] static u8 pg_rune_from_hex(PgRune c) {
@@ -1962,15 +1974,9 @@ pg_string_builder_append_u64(Pgu8Dyn *sb, u64 n, PgAllocator *allocator) {
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
 }
 
-[[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_character_hex(u8 n) {
+[[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_hex_rune(u8 n) {
   PG_ASSERT(n < 16);
   const u8 lut[] = "0123456789abcdef";
-  return lut[n];
-}
-
-[[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_character_hex_upper(u8 n) {
-  PG_ASSERT(n < 16);
-  const u8 lut[] = "0123456789ABCDEF";
   return lut[n];
 }
 
@@ -1981,11 +1987,11 @@ static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n) {
   u8 c2 = n >> 4; // i.e. `/ 16`
 
   PgError err = 0;
-  err = pg_writer_write_u8(w, pg_u8_to_character_hex_upper(c2));
+  err = pg_writer_write_u8(w, (u8)pg_rune_ascii_upper(pg_u8_to_hex_rune(c2)));
   if (err) {
     return err;
   }
-  err = pg_writer_write_u8(w, pg_u8_to_character_hex_upper(c1));
+  err = pg_writer_write_u8(w, (u8)pg_rune_ascii_upper(pg_u8_to_hex_rune(c1)));
   if (err) {
     return err;
   }
@@ -4338,8 +4344,7 @@ pg_url_is_scheme_valid(PgString scheme) {
 
   for (u64 i = 0; i < scheme.len; i++) {
     u8 c = PG_SLICE_AT(scheme, i);
-    if (!(pg_rune_is_alphanumeric(c) || c == '+' || c == '-' ||
-          c == '.')) {
+    if (!(pg_rune_is_alphanumeric(c) || c == '+' || c == '-' || c == '.')) {
       return false;
     }
   }
@@ -5034,8 +5039,8 @@ pg_json_escape_string(PgString entry, PgAllocator *allocator) {
     u8 c1 = c % 16;
     u8 c2 = c / 16;
     PG_DYN_APPEND_SLICE(sb, PG_S("\\x"), allocator);
-    *PG_DYN_PUSH(sb, allocator) = pg_u8_to_character_hex(c2);
-    *PG_DYN_PUSH(sb, allocator) = pg_u8_to_character_hex(c1);
+    *PG_DYN_PUSH(sb, allocator) = pg_u8_to_hex_rune(c2);
+    *PG_DYN_PUSH(sb, allocator) = pg_u8_to_hex_rune(c1);
   }
 }
 
@@ -5671,42 +5676,42 @@ pg_uuid_to_string(PgUuid uuid, PgAllocator *allocator) {
   PgString res = pg_string_make(PG_UUID_STRING_LENGTH, allocator);
   u64 i = 0;
 
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[0] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[0] & 0xF);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[1] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[1] & 0xF);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[2] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[2] & 0xF);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[3] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[3] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[0] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[0] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[1] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[1] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[2] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[2] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[3] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[3] & 0xF);
   res.data[i++] = '-';
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[4] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[4] & 0xF);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[5] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[5] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[4] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[4] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[5] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[5] & 0xF);
   res.data[i++] = '-';
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[6] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[6] & 0xF);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[7] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[7] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[6] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[6] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[7] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[7] & 0xF);
   res.data[i++] = '-';
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[8] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[8] & 0xF);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[9] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[9] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[8] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[8] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[9] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[9] & 0xF);
   res.data[i++] = '-';
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[10] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[10] & 0xF);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[11] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[11] & 0xF);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[12] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[12] & 0xF);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[13] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[13] & 0xF);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[14] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[14] & 0xF);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[15] >> 4);
-  res.data[i++] = pg_u8_to_character_hex(uuid.value[15] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[10] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[10] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[11] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[11] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[12] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[12] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[13] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[13] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[14] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[14] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[15] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[15] & 0xF);
 
   return res;
 }
