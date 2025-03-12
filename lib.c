@@ -5984,11 +5984,11 @@ struct PgHtmlNode {
   PgHtmlToken token_start, token_end;
   PgHtmlNode *parent, *next_sibling, *first_child;
 };
-PG_RESULT(PgHtmlNode) PgHtmlNodeResult;
+PG_RESULT(PgHtmlNode *) PgHtmlNodePtrResult;
 
-[[maybe_unused]] [[nodiscard]] static PgHtmlNodeResult
+[[maybe_unused]] [[nodiscard]] static PgHtmlNodePtrResult
 pg_html_parse(PgString s, PgAllocator *allocator) {
-  PgHtmlNodeResult res = {0};
+  PgHtmlNodePtrResult res = {0};
 
   PgHtmlTokenDynResult res_tokens = pg_html_tokenize(s, allocator);
   if (res_tokens.err) {
@@ -6066,7 +6066,7 @@ pg_html_parse(PgString s, PgAllocator *allocator) {
 
   PG_ASSERT(!root->next_sibling);
   PG_ASSERT(!root->parent);
-  res.res = *root;
+  res.res = root;
   return res;
 }
 

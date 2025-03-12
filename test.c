@@ -2299,10 +2299,10 @@ static void test_html_parse() {
                     "    </div>"
                     "  </body>"
                     "</html>");
-  PgHtmlNodeResult res_parse = pg_html_parse(s, allocator);
+  PgHtmlNodePtrResult res_parse = pg_html_parse(s, allocator);
   PG_ASSERT(0 == res_parse.err);
 
-  PgHtmlNode *root = &res_parse.res;
+  PgHtmlNode *root = res_parse.res;
   PG_ASSERT(root->first_child);
   PG_ASSERT(!root->next_sibling);
 
