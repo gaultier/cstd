@@ -2313,6 +2313,22 @@ static void test_html_parse() {
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_html->token_start.kind);
   PG_ASSERT(pg_string_eq(node_html->token_start.tag, PG_S("html")));
   PG_ASSERT(pg_string_eq(node_html->token_end.tag, PG_S("html")));
+
+  PgHtmlNode *node_head = node_html->first_child;
+  PG_ASSERT(node_head->parent == node_html);
+  PG_ASSERT(node_head->next_sibling);
+  PG_ASSERT(node_head->first_child);
+  PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_head->token_start.kind);
+  PG_ASSERT(pg_string_eq(node_head->token_start.tag, PG_S("head")));
+  PG_ASSERT(pg_string_eq(node_head->token_end.tag, PG_S("head")));
+
+  PgHtmlNode *node_title = node_head->first_child;
+  PG_ASSERT(node_title->parent == node_head);
+  PG_ASSERT(!node_title->next_sibling);
+  PG_ASSERT(node_title->first_child);
+  PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_title->token_start.kind);
+  PG_ASSERT(pg_string_eq(node_title->token_start.tag, PG_S("title")));
+  PG_ASSERT(pg_string_eq(node_title->token_end.tag, PG_S("title")));
 }
 
 int main() {
