@@ -5745,6 +5745,7 @@ typedef enum {
 
 } PgHtmlParseError;
 
+#if 0
 [[maybe_unused]] [[nodiscard]]
 static PgHtmlTokenResult pg_html_tokenize_attribute_key_value(PgString s,
                                                               u64 *pos) {
@@ -5798,33 +5799,42 @@ static PgHtmlTokenResult pg_html_tokenize_attribute_key_value(PgString s,
     return res;
   }
 }
+#endif
 
+// FIXME
 [[maybe_unused]] [[nodiscard]]
 static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
                                            PgHtmlTokenDyn *tokens,
                                            PgAllocator *allocator) {
+  (void)tokens;
+  (void)allocator;
+
+  bool inside_quotes = false;
   for (;;) {
     PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-    if (pg_character_is_space(first)) {
+
+    if (0 == first) { // Early EOF.
+      return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
+    }
+
+    if (pg_character_is_space(first)) { // Skip.
       *pos += 1;
       continue;
     }
 
-    if ('=' == first) {
-      return PG_HTML_PARSE_ERROR_UNEXPECTED_EQUALS_SIGN_BEFORE_ATTRIBUTE_NAME;
+    if ('"' == first || '\'' == first) { // Quotes.
+      inside_quotes = !inside_quotes;
+      *pos += 1;
+      continue;
     }
 
-    if (pg_string_starts_with(PG_SLICE_RANGE_START(s, *pos), PG_S("/>")) ||
-        '>' == first) {
+    if (!inside_quotes && ('>' == first)) { // End of tag.
+      *pos += 1;
       return 0;
     }
 
-    PgHtmlTokenResult res = pg_html_tokenize_attribute_key_value(s, pos);
-    if (res.err) {
-      return res.err;
-    }
-
-    *PG_DYN_PUSH(tokens, allocator) = res.res;
+    // Other characters, skip.
+    *pos += 1;
   }
 
   PG_ASSERT(0);
