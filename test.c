@@ -2308,10 +2308,6 @@ int main() {
   test_ipv4_address_to_string();
   test_url_encode();
   test_string_indexof_any_byte();
-#if 0
-  test_log_entry_quote_value();
-  test_make_log_line();
-#endif
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
   test_ring_buffer_write_slice();
