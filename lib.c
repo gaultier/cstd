@@ -5892,7 +5892,10 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
 
     if (pg_character_is_space(first)) {
       PgError err = pg_html_tokenize_attributes(s, pos, tokens, allocator);
-      return err;
+      if (err) {
+        return err;
+      }
+      continue;
     }
 
     // Skip other characters in tag name.
