@@ -5979,4 +5979,93 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
   PG_ASSERT(0);
 }
 
+typedef struct PgHtmlNode PgHtmlNode;
+struct PgHtmlNode {
+  PgHtmlToken token_start, token_end;
+  PgHtmlNode *parent, *next_sibling, *first_child;
+};
+PG_RESULT(PgHtmlNode) PgHtmlNodeResult;
+
+[[maybe_unused]] [[nodiscard]] static PgHtmlNodeResult
+pg_html_parse(PgString s, PgAllocator *allocator) {
+  PgHtmlNodeResult res = {0};
+
+  PgHtmlTokenDynResult res_tokens = pg_html_tokenize(s, allocator);
+  if (res_tokens.err) {
+    res.err = res_tokens.err;
+    return res;
+  }
+  PgHtmlTokenSlice tokens = PG_DYN_SLICE(PgHtmlTokenSlice, res_tokens.res);
+
+  PgHtmlNode *root =
+      pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
+  PgHtmlNode *parent = root;
+
+  for (u64 i = 0; i < tokens.len; i++) {
+    PgHtmlToken token = PG_SLICE_AT(tokens, i);
+
+    switch (token.kind) {
+    case PG_HTML_TOKEN_KIND_TEXT: {
+      PG_ASSERT(parent);
+      PgHtmlNode *node =
+          pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
+
+      node->token_start = node->token_end = token;
+      node->parent = parent;
+      if (!node->parent->first_child) {
+        node->parent->first_child = node;
+      } else {
+        PgHtmlNode *it = node->parent->first_child;
+        PG_ASSERT(it);
+        while (it->next_sibling) {
+          it = it->next_sibling;
+        }
+        PG_ASSERT(it);
+        it->next_sibling = node;
+      }
+    } break;
+    case PG_HTML_TOKEN_KIND_TAG_OPENING: {
+      PG_ASSERT(parent);
+      PgHtmlNode *node =
+          pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
+
+      node->token_start = token;
+      node->parent = parent;
+      if (!node->parent->first_child) {
+        node->parent->first_child = node;
+      } else {
+        PgHtmlNode *it = node->parent->first_child;
+        PG_ASSERT(it);
+        while (it->next_sibling) {
+          it = it->next_sibling;
+        }
+        PG_ASSERT(it);
+        it->next_sibling = node;
+      }
+      parent = node;
+    } break;
+    case PG_HTML_TOKEN_KIND_TAG_CLOSING: {
+      PG_ASSERT(parent);
+      PgHtmlNode *node = parent;
+
+      PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node->token_start.kind &&
+                pg_string_eq(node->token_start.tag, token.tag));
+      node->token_end = token;
+
+      parent = node->parent;
+    } break;
+    case PG_HTML_TOKEN_KIND_NONE:
+    case PG_HTML_TOKEN_KIND_ATTRIBUTE:
+    case PG_HTML_TOKEN_KIND_COMMENT:
+    case PG_HTML_TOKEN_KIND_DOCTYPE:
+      PG_ASSERT(0 && "todo");
+    default:
+      PG_ASSERT(0);
+    }
+  }
+
+  res.res = *root;
+  return res;
+}
+
 #endif
