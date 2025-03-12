@@ -5927,7 +5927,9 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
           .kind = PG_HTML_TOKEN_KIND_TEXT,
           .text = PG_SLICE_RANGE(s, start, *pos),
       };
-      *PG_DYN_PUSH(tokens, allocator) = token;
+      if (!pg_string_is_empty(pg_string_trim_space(token.text))) {
+        *PG_DYN_PUSH(tokens, allocator) = token;
+      }
       return 0;
     }
     // TODO: Ampersand.
