@@ -5806,6 +5806,19 @@ static PgHtmlTokenResult pg_html_tokenize_attribute_key_value(PgString s,
 }
 #endif
 
+[[nodiscard]] static bool pg_html_tag_is_self_closing(PgString tag) {
+  if (pg_string_eq(tag, PG_S("area")) || pg_string_eq(tag, PG_S("base")) ||
+      pg_string_eq(tag, PG_S("br")) || pg_string_eq(tag, PG_S("col")) ||
+      pg_string_eq(tag, PG_S("embed")) || pg_string_eq(tag, PG_S("hr")) ||
+      pg_string_eq(tag, PG_S("img")) || pg_string_eq(tag, PG_S("input")) ||
+      pg_string_eq(tag, PG_S("link")) || pg_string_eq(tag, PG_S("meta")) ||
+      pg_string_eq(tag, PG_S("param")) || pg_string_eq(tag, PG_S("source")) ||
+      pg_string_eq(tag, PG_S("track")) || pg_string_eq(tag, PG_S("wbr"))) {
+    return true;
+  }
+  return false;
+}
+
 // FIXME
 [[maybe_unused]] [[nodiscard]]
 static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
@@ -6042,12 +6055,13 @@ pg_html_parse(PgString s, PgAllocator *allocator) {
         PG_ASSERT(it);
         it->next_sibling = node;
       }
-      parent = node;
+      if (!pg_html_tag_is_self_closing(token.tag)) {
+        parent = node;
+      }
     } break;
     case PG_HTML_TOKEN_KIND_TAG_CLOSING: {
       PG_ASSERT(parent);
       PgHtmlNode *node = parent;
-
       PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node->token_start.kind &&
                 pg_string_eq(node->token_start.tag, token.tag));
       node->token_end = token;

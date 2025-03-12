@@ -2349,7 +2349,7 @@ static void test_html_parse() {
 
   PgHtmlNode *node_div = node_body->first_child;
   PG_ASSERT(node_div->parent == node_body);
-  PG_ASSERT(!node_div->next_sibling);
+  PG_ASSERT(node_div->next_sibling);
   PG_ASSERT(node_div->first_child);
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_div->token_start.kind);
   PG_ASSERT(pg_string_eq(node_div->token_start.tag, PG_S("div")));
@@ -2369,6 +2369,13 @@ static void test_html_parse() {
   PG_ASSERT(!node_p_text->first_child);
   PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == node_p_text->token_start.kind);
   PG_ASSERT(pg_string_eq(node_p_text->token_start.text, PG_S("Hello world!")));
+
+  PgHtmlNode *node_img = node_div->next_sibling;
+  PG_ASSERT(node_img->parent == node_body);
+  PG_ASSERT(!node_img->next_sibling);
+  PG_ASSERT(!node_img->first_child);
+  PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_img->token_start.kind);
+  PG_ASSERT(pg_string_eq(node_img->token_start.tag, PG_S("img")));
 }
 
 int main() {
