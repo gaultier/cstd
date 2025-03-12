@@ -2297,6 +2297,7 @@ static void test_html_parse() {
                     "    <div>"
                     "        <p>Hello world!</p>"
                     "    </div>"
+                    "    <img />"
                     "  </body>"
                     "</html>");
   PgHtmlNodePtrResult res_parse = pg_html_parse(s, allocator);
