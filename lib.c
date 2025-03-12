@@ -5829,7 +5829,6 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
     }
 
     if (!inside_quotes && ('>' == first)) { // End of tag.
-      *pos += pg_utf8_rune_bytes_count(first);
       return 0;
     }
 
@@ -5875,7 +5874,7 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
       return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
     }
 
-    if ('>' == first) {
+    if ('>' == first || pg_character_is_space(first)) {
       token.tag.len = (u64)((s.data + *pos) - token.tag.data);
       PG_ASSERT(token.tag.len <= s.len);
       token.end = (u32)*pos;
@@ -5885,12 +5884,13 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
       *PG_DYN_PUSH(tokens, allocator) = token;
 
       *pos += pg_utf8_rune_bytes_count(first);
+    }
+
+    if ('>' == first) {
       return 0;
     }
 
     if (pg_character_is_space(first)) {
-      *pos += pg_utf8_rune_bytes_count(first);
-
       PgError err = pg_html_tokenize_attributes(s, pos, tokens, allocator);
       return err;
     }
