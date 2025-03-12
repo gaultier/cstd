@@ -2345,6 +2345,14 @@ static void test_html_parse() {
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_body->token_start.kind);
   PG_ASSERT(pg_string_eq(node_body->token_start.tag, PG_S("body")));
   PG_ASSERT(pg_string_eq(node_body->token_end.tag, PG_S("body")));
+
+  PgHtmlNode *node_div = node_body->first_child;
+  PG_ASSERT(node_div->parent == node_body);
+  PG_ASSERT(!node_div->next_sibling);
+  PG_ASSERT(node_div->first_child);
+  PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_div->token_start.kind);
+  PG_ASSERT(pg_string_eq(node_div->token_start.tag, PG_S("div")));
+  PG_ASSERT(pg_string_eq(node_div->token_end.tag, PG_S("div")));
 }
 
 int main() {
