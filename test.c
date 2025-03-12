@@ -2308,6 +2308,8 @@ static void test_html_parse() {
 
   PgHtmlNode *node_html = root->first_child;
   PG_ASSERT(node_html->parent == root);
+  PG_ASSERT(!node_html->next_sibling);
+  PG_ASSERT(node_html->first_child);
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_html->token_start.kind);
   PG_ASSERT(pg_string_eq(node_html->token_start.tag, PG_S("html")));
   PG_ASSERT(pg_string_eq(node_html->token_end.tag, PG_S("html")));
