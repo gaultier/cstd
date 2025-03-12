@@ -2353,6 +2353,21 @@ static void test_html_parse() {
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_div->token_start.kind);
   PG_ASSERT(pg_string_eq(node_div->token_start.tag, PG_S("div")));
   PG_ASSERT(pg_string_eq(node_div->token_end.tag, PG_S("div")));
+
+  PgHtmlNode *node_p = node_div->first_child;
+  PG_ASSERT(node_p->parent == node_div);
+  PG_ASSERT(!node_p->next_sibling);
+  PG_ASSERT(node_p->first_child);
+  PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_p->token_start.kind);
+  PG_ASSERT(pg_string_eq(node_p->token_start.tag, PG_S("p")));
+  PG_ASSERT(pg_string_eq(node_p->token_end.tag, PG_S("p")));
+
+  PgHtmlNode *node_p_text = node_p->first_child;
+  PG_ASSERT(node_p_text->parent == node_p);
+  PG_ASSERT(!node_p_text->next_sibling);
+  PG_ASSERT(!node_p_text->first_child);
+  PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == node_p_text->token_start.kind);
+  PG_ASSERT(pg_string_eq(node_p_text->token_start.text, PG_S("Hello world!")));
 }
 
 int main() {
