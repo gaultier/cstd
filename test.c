@@ -2284,6 +2284,29 @@ static void test_html_tokenize_nested() {
   }
 }
 
+static void test_html_parse() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgString s = PG_S("<html>"
+                    "  <head>"
+                    "    <title>This is a title</title>"
+                    "  </head>"
+                    "  <body>"
+                    "    <div>"
+                    "        <p>Hello world!</p>"
+                    "    </div>"
+                    "  </body>"
+                    "</html>");
+  PgHtmlNodeResult res_parse = pg_html_parse(s, allocator);
+  PG_ASSERT(0 == res_parse.err);
+
+  PgHtmlNode *root = &res_parse.res;
+  PG_ASSERT(root->first_child);
+  PG_ASSERT(!root->next_sibling);
+}
+
 int main() {
   test_rune_bytes_count();
   test_utf8_count();
@@ -2334,4 +2357,5 @@ int main() {
   test_html_tokenize_with_key_no_value();
   test_html_tokenize_with_attributes();
   test_html_tokenize_nested();
+  test_html_parse();
 }

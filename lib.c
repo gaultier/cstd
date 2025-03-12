@@ -6064,6 +6064,8 @@ pg_html_parse(PgString s, PgAllocator *allocator) {
     }
   }
 
+  PG_ASSERT(!root->next_sibling);
+  PG_ASSERT(!root->parent);
   res.res = *root;
   return res;
 }
