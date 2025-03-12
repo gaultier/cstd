@@ -5919,6 +5919,9 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
                                      PgAllocator *allocator) {
   u32 start = (u32)*pos;
 
+  PG_ASSERT(tokens->len > 0);
+  PG_ASSERT(PG_SLICE_LAST(*tokens).end <= start);
+
   for (;;) {
     PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
     // TODO: Check about null byte.
