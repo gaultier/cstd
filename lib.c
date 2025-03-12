@@ -5847,14 +5847,19 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
   PG_ASSERT('<' == pg_string_first(PG_SLICE_RANGE_START(s, *pos)));
   *pos += pg_utf8_rune_bytes_count('<');
 
-  PgString tag = PG_SLICE_RANGE_START(s, *pos);
-  PgHtmlTokenKind kind = PG_HTML_TOKEN_KIND_TAG_OPENING;
+  PgHtmlToken token = {
+      .start = (u32)*pos,
+      .end = 0, // Backpatched,
+      .kind = PG_HTML_TOKEN_KIND_TAG_OPENING,
+      .tag = PG_SLICE_RANGE_START(s, *pos),
+  };
 
   PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
   if ('/' == first) {
     *pos += pg_utf8_rune_bytes_count(first);
-    kind = PG_HTML_TOKEN_KIND_TAG_CLOSING;
-    tag.data += pg_utf8_rune_bytes_count(first);
+    token.start = (u32)*pos;
+    token.kind = PG_HTML_TOKEN_KIND_TAG_CLOSING;
+    token.tag.data += pg_utf8_rune_bytes_count(first);
   }
 
   first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
@@ -5871,22 +5876,19 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
     }
 
     if ('>' == first) {
+      token.tag.len = (u64)((s.data + *pos) - token.tag.data);
+      PG_ASSERT(token.tag.len <= s.len);
+      token.end = (u32)*pos;
+      token.tag = pg_string_trim_space(token.tag);
+      token.tag = pg_string_trim_right(token.tag, '/');
+
+      *PG_DYN_PUSH(tokens, allocator) = token;
+
       *pos += pg_utf8_rune_bytes_count(first);
       return 0;
     }
 
     if (pg_character_is_space(first)) {
-      tag.len = (u64)((s.data + *pos) - tag.data);
-      PG_ASSERT(tag.len <= s.len);
-
-      PgHtmlToken token = {
-          .start = (u32)(tag.data - s.data),
-          .end = (u32)(tag.data + tag.len - s.data),
-          .kind = kind,
-          .tag = tag,
-      };
-      *PG_DYN_PUSH(tokens, allocator) = token;
-
       *pos += pg_utf8_rune_bytes_count(first);
 
       PgError err = pg_html_tokenize_attributes(s, pos, tokens, allocator);
@@ -5951,7 +5953,10 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
         return res;
       }
 
-      pg_html_tokenize_data(s, &pos, &res.res, allocator);
+      res.err = pg_html_tokenize_data(s, &pos, &res.res, allocator);
+      if (res.err) {
+        return res;
+      }
     }
   }
   PG_ASSERT(0);
