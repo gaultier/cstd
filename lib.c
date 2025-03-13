@@ -5752,6 +5752,7 @@ typedef struct {
     PgString tag;
     PgString doctype;
     PgString text;
+    PgString comment;
   };
 } PgHtmlToken;
 PG_RESULT(PgHtmlToken) PgHtmlTokenResult;
@@ -5769,6 +5770,7 @@ typedef enum {
   PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE = 0x605,
   PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME = 0x606,
   PG_HTML_PARSE_ERROR_MISSING_DOCTYPE_NAME = 0x607,
+  PG_HTML_PARSE_ERROR_EOF_IN_COMMENT = 0x608,
 
 } PgHtmlParseError;
 
@@ -5886,6 +5888,34 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
 }
 
 [[nodiscard]]
+static PgError pg_html_tokenize_comment(PgString s, u64 *pos,
+                                        PgHtmlTokenDyn *tokens,
+                                        PgAllocator *allocator) {
+  u32 start = (u32)*pos;
+
+  for (;;) {
+    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    if (0 == first) {
+      return PG_HTML_PARSE_ERROR_EOF_IN_COMMENT;
+    }
+
+    // FIXME: More complicated than that in the spec.
+    if (pg_string_starts_with(PG_SLICE_RANGE_START(s, *pos), PG_S("-->"))) {
+      PgHtmlToken token = {
+          .kind = PG_HTML_TOKEN_KIND_COMMENT,
+          .comment = PG_SLICE_RANGE(s, start, *pos),
+          .start = start,
+          .end = (u32)*pos,
+      };
+      *PG_DYN_PUSH(tokens, allocator) = token;
+
+      *pos += PG_S("-->").len;
+      return 0;
+    }
+  }
+}
+
+[[nodiscard]]
 static PgError pg_html_tokenize_doctype_name(PgString s, u64 *pos,
                                              PgHtmlTokenDyn *tokens,
                                              PgAllocator *allocator) {
@@ -5958,8 +5988,9 @@ static PgError pg_html_tokenize_markup(PgString s, u64 *pos,
                                        PgHtmlTokenDyn *tokens,
                                        PgAllocator *allocator) {
   if (pg_string_starts_with(PG_SLICE_RANGE_START(s, *pos), PG_S("--"))) {
-    // TODO: comment.
-    PG_ASSERT(0 && "todo");
+    *pos += pg_utf8_rune_bytes_count('-');
+    *pos += pg_utf8_rune_bytes_count('-');
+    return pg_html_tokenize_comment(s, pos, tokens, allocator);
   }
 
   if (PG_SLICE_RANGE_START(s, *pos).len >= PG_S("DOCTYPE").len &&
