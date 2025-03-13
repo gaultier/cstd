@@ -5998,6 +5998,25 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
   PG_ASSERT(0);
 }
 
+typedef struct PgLinkedListNode PgLinkedListNode;
+struct PgLinkedListNode {
+  PgLinkedListNode *next;
+};
+
+[[maybe_unused]] static void pg_linked_list_append(PgLinkedListNode **head,
+                                                   PgLinkedListNode *elem) {
+  if (!(*head)) {
+    *head = elem;
+    return;
+  }
+
+  PgLinkedListNode *it = *head;
+  for (; it->next; it = it->next) {
+  }
+  PG_ASSERT(it);
+  it->next = elem;
+}
+
 typedef struct PgHtmlNode PgHtmlNode;
 struct PgHtmlNode {
   PgHtmlToken token_start, token_end;

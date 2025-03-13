@@ -2070,6 +2070,30 @@ static void test_process_stdin() {
   PG_ASSERT(pg_string_is_empty(status.stderr_captured));
 }
 
+static void test_linked_list() {
+  // Empty.
+  {
+    PgLinkedListNode *head_ptr = nullptr;
+    PgLinkedListNode elem = {0};
+    pg_linked_list_append(&head_ptr, &elem);
+
+    PG_ASSERT(head_ptr == &elem);
+  }
+  // Non empty.
+  {
+    PgLinkedListNode *head_ptr = nullptr;
+    PgLinkedListNode elem1 = {0};
+    PgLinkedListNode elem2 = {0};
+
+    pg_linked_list_append(&head_ptr, &elem1);
+    PG_ASSERT(head_ptr == &elem1);
+
+    pg_linked_list_append(&head_ptr, &elem2);
+    PG_ASSERT(head_ptr == &elem1);
+    PG_ASSERT(elem1.next == &elem2);
+  }
+}
+
 static void test_html_tokenize_no_attributes() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -2471,6 +2495,7 @@ int main() {
   test_process_no_capture();
   test_process_capture();
   test_process_stdin();
+  test_linked_list();
   test_html_tokenize_no_attributes();
   test_html_tokenize_with_key_no_value();
   test_html_tokenize_with_attributes();
