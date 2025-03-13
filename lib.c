@@ -6233,6 +6233,8 @@ pg_html_parse(PgString s, PgAllocator *allocator) {
     PG_ASSERT(parent);
 
     if (PG_HTML_TOKEN_KIND_TEXT == token.kind ||
+        PG_HTML_TOKEN_KIND_COMMENT == token.kind ||
+        PG_HTML_TOKEN_KIND_DOCTYPE == token.kind ||
         (PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind &&
          pg_html_tag_is_self_closing(token.tag))) {
       PgHtmlNode *node =

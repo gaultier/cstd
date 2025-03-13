@@ -2372,8 +2372,6 @@ static void test_html_tokenize_with_comment() {
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 1);
     PG_ASSERT(PG_HTML_TOKEN_KIND_COMMENT == token.kind);
-    /* PG_ASSERT(10 == token.start); */
-    /* PG_ASSERT(14 == token.end); */
     PG_ASSERT(pg_string_eq(PG_S("hello world"), token.comment));
   }
 
