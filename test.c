@@ -2320,7 +2320,6 @@ static void test_html_tokenize_nested() {
   }
 }
 
-#if 0
 static void test_html_parse() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -2342,19 +2341,19 @@ static void test_html_parse() {
   PG_ASSERT(0 == res_parse.err);
 
   PgHtmlNode *root = res_parse.res;
-  PG_ASSERT(pg_linked_list_is_empty(root->first_child.next));
-  PG_ASSERT(!pg_linked_list_is_empty(root->next_sibling.next));
+  PG_ASSERT(!pg_linked_list_is_empty(&root->first_child));
+  PG_ASSERT(pg_linked_list_is_empty(&root->next_sibling));
 
   PgHtmlNode *node_html = pg_html_node_get_first_child(root);
-  PG_ASSERT(node_html->parent.next == &root->parent);
-  PG_ASSERT(!pg_linked_list_is_empty(&node_html->next_sibling));
+  PG_ASSERT(pg_html_node_get_parent(node_html) == root);
+  PG_ASSERT(pg_linked_list_is_empty(&node_html->next_sibling));
   PG_ASSERT(!pg_linked_list_is_empty(&node_html->first_child));
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_html->token_start.kind);
   PG_ASSERT(pg_string_eq(node_html->token_start.tag, PG_S("html")));
   PG_ASSERT(pg_string_eq(node_html->token_end.tag, PG_S("html")));
 
   PgHtmlNode *node_head = pg_html_node_get_first_child(node_html);
-  PG_ASSERT(node_head->parent.next == &node_html->parent);
+  PG_ASSERT(pg_html_node_get_parent(node_head) == node_html);
   PG_ASSERT(!pg_linked_list_is_empty(&node_head->next_sibling));
   PG_ASSERT(!pg_linked_list_is_empty(&node_head->first_child));
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_head->token_start.kind);
@@ -2362,7 +2361,7 @@ static void test_html_parse() {
   PG_ASSERT(pg_string_eq(node_head->token_end.tag, PG_S("head")));
 
   PgHtmlNode *node_title = pg_html_node_get_first_child(node_head);
-  PG_ASSERT(node_title->parent.next == &node_head);
+  PG_ASSERT(pg_html_node_get_parent(node_title) == node_head);
   PG_ASSERT(pg_linked_list_is_empty(&node_title->next_sibling));
   PG_ASSERT(!pg_linked_list_is_empty(&node_title->first_child));
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_title->token_start.kind);
@@ -2370,52 +2369,51 @@ static void test_html_parse() {
   PG_ASSERT(pg_string_eq(node_title->token_end.tag, PG_S("title")));
 
   PgHtmlNode *node_title_text = pg_html_node_get_first_child(node_title);
-  PG_ASSERT(node_title_text->parent.next == &node_title->parent);
+  PG_ASSERT(pg_html_node_get_parent(node_title_text) == node_title);
   PG_ASSERT(pg_linked_list_is_empty(&node_title_text->next_sibling));
   PG_ASSERT(pg_linked_list_is_empty(&node_title_text->first_child));
   PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == node_title_text->token_start.kind);
   PG_ASSERT(
       pg_string_eq(node_title_text->token_start.text, PG_S("This is a title")));
 
-  PgHtmlNode *node_body = pg_html_node_get_first_child(node_head);
-  PG_ASSERT(node_body->parent.next == &node_html->parent);
-  PG_ASSERT(!node_body->next_sibling);
-  PG_ASSERT(node_body->first_child);
+  PgHtmlNode *node_body = pg_html_node_get_next_sibling(node_head);
+  PG_ASSERT(pg_html_node_get_parent(node_body) == node_html);
+  PG_ASSERT(pg_linked_list_is_empty(&node_body->next_sibling));
+  PG_ASSERT(!pg_linked_list_is_empty(&node_body->first_child));
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_body->token_start.kind);
   PG_ASSERT(pg_string_eq(node_body->token_start.tag, PG_S("body")));
   PG_ASSERT(pg_string_eq(node_body->token_end.tag, PG_S("body")));
 
-  PgHtmlNode *node_div = node_body->first_child;
-  PG_ASSERT(node_div->parent == node_body);
-  PG_ASSERT(node_div->next_sibling);
-  PG_ASSERT(node_div->first_child);
+  PgHtmlNode *node_div = pg_html_node_get_first_child(node_body);
+  PG_ASSERT(pg_html_node_get_parent(node_div) == node_body);
+  PG_ASSERT(!pg_linked_list_is_empty(&node_div->next_sibling));
+  PG_ASSERT(!pg_linked_list_is_empty(&node_div->first_child));
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_div->token_start.kind);
   PG_ASSERT(pg_string_eq(node_div->token_start.tag, PG_S("div")));
   PG_ASSERT(pg_string_eq(node_div->token_end.tag, PG_S("div")));
 
-  PgHtmlNode *node_p = node_div->first_child;
-  PG_ASSERT(node_p->parent == node_div);
-  PG_ASSERT(!node_p->next_sibling);
-  PG_ASSERT(node_p->first_child);
+  PgHtmlNode *node_p = pg_html_node_get_first_child(node_div);
+  PG_ASSERT(pg_html_node_get_parent(node_p) == node_div);
+  PG_ASSERT(pg_linked_list_is_empty(&node_p->next_sibling));
+  PG_ASSERT(!pg_linked_list_is_empty(&node_p->first_child));
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_p->token_start.kind);
   PG_ASSERT(pg_string_eq(node_p->token_start.tag, PG_S("p")));
   PG_ASSERT(pg_string_eq(node_p->token_end.tag, PG_S("p")));
 
-  PgHtmlNode *node_p_text = node_p->first_child;
-  PG_ASSERT(node_p_text->parent == node_p);
-  PG_ASSERT(!node_p_text->next_sibling);
-  PG_ASSERT(!node_p_text->first_child);
+  PgHtmlNode *node_p_text = pg_html_node_get_first_child(node_p);
+  PG_ASSERT(pg_html_node_get_parent(node_p_text) == node_p);
+  PG_ASSERT(pg_linked_list_is_empty(&node_p_text->next_sibling));
+  PG_ASSERT(pg_linked_list_is_empty(&node_p_text->first_child));
   PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == node_p_text->token_start.kind);
   PG_ASSERT(pg_string_eq(node_p_text->token_start.text, PG_S("Hello world!")));
 
-  PgHtmlNode *node_img = node_div->next_sibling;
-  PG_ASSERT(node_img->parent == node_body);
-  PG_ASSERT(!node_img->next_sibling);
-  PG_ASSERT(!node_img->first_child);
+  PgHtmlNode *node_img = pg_html_node_get_next_sibling(node_div);
+  PG_ASSERT(pg_html_node_get_parent(node_img) == node_body);
+  PG_ASSERT(pg_linked_list_is_empty(&node_img->next_sibling));
+  PG_ASSERT(pg_linked_list_is_empty(&node_img->first_child));
   PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == node_img->token_start.kind);
   PG_ASSERT(pg_string_eq(node_img->token_start.tag, PG_S("img")));
 }
-#endif
 
 static void test_html_parse_title_with_html_content() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
@@ -2514,6 +2512,6 @@ int main() {
   test_html_tokenize_with_key_no_value();
   test_html_tokenize_with_attributes();
   test_html_tokenize_nested();
-  /* test_html_parse(); */
+  test_html_parse();
   test_html_parse_title_with_html_content();
 }
