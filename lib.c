@@ -277,8 +277,19 @@ PG_RESULT(PgRune) PgRuneResult;
          ('a' <= c && c <= 'f');
 }
 
+[[maybe_unused]] [[nodiscard]] static bool
+pg_rune_is_alphabetical_uppercase(PgRune c) {
+  return ('A' <= c && c <= 'Z');
+}
+
+[[maybe_unused]] [[nodiscard]] static bool
+pg_rune_is_alphabetical_lowercase(PgRune c) {
+  return ('a' <= c && c <= 'z');
+}
+
 [[maybe_unused]] [[nodiscard]] static bool pg_rune_is_alphabetical(PgRune c) {
-  return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
+  return pg_rune_is_alphabetical_uppercase(c) ||
+         pg_rune_is_alphabetical_lowercase(c);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool pg_rune_is_space(PgRune c) {
@@ -5735,8 +5746,11 @@ typedef struct {
   PgHtmlTokenKind kind;
   u32 start, end;
   union {
+#if 0
     PgKeyValue attribute;
+#endif
     PgString tag;
+    PgString doctype;
     PgString text;
   };
 } PgHtmlToken;
@@ -5752,6 +5766,9 @@ typedef enum {
   PG_HTML_PARSE_ERROR_EOF_IN_TAG = 0x602,
   PG_HTML_PARSE_ERROR_UNEXPECTED_CHARACTER_IN_ATTRIBUTE_NAME = 0x603,
   PG_HTML_PARSE_ERROR_UNEXPECTED_EQUALS_SIGN_BEFORE_ATTRIBUTE_NAME = 0x604,
+  PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE = 0x605,
+  PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME = 0x606,
+  PG_HTML_PARSE_ERROR_MISSING_DOCTYPE_NAME = 0x607,
 
 } PgHtmlParseError;
 
@@ -5868,12 +5885,109 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
   PG_ASSERT(0);
 }
 
-[[maybe_unused]] [[nodiscard]]
+[[nodiscard]]
+static PgError pg_html_tokenize_doctype_name(PgString s, u64 *pos,
+                                             PgHtmlTokenDyn *tokens,
+                                             PgAllocator *allocator) {
+
+  PgHtmlToken token = {
+      .kind = PG_HTML_TOKEN_KIND_DOCTYPE,
+      .doctype = {.data = s.data + *pos},
+      .start = (u32)*pos,
+  };
+
+  for (;;) {
+    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+
+    if (0 == first) {
+      return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
+    }
+
+    if (pg_rune_is_space(first)) {
+      *pos += pg_utf8_rune_bytes_count(first);
+      return 0;
+    }
+
+    if ('>' == first) {
+      token.end = (u32)*pos;
+      token.doctype.len = token.end - token.start;
+      PG_ASSERT(!pg_string_is_empty(token.doctype));
+      *PG_DYN_PUSH(tokens, allocator) = token;
+
+      *pos += pg_utf8_rune_bytes_count(first);
+      return 0;
+    }
+
+    *pos += pg_utf8_rune_bytes_count(first);
+  }
+}
+
+[[nodiscard]]
+static PgError pg_html_tokenize_doctype(PgString s, u64 *pos,
+                                        PgHtmlTokenDyn *tokens,
+                                        PgAllocator *allocator) {
+  *pos += PG_S("DOCTYPE").len;
+
+  PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  if (!pg_rune_is_space(first)) {
+    return PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME;
+  }
+  *pos += pg_utf8_rune_bytes_count(first);
+
+  for (;;) {
+    first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    if (0 == first) {
+      return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
+    }
+
+    if (pg_rune_is_space(first)) {
+      *pos += pg_utf8_rune_bytes_count(first);
+      continue;
+    }
+
+    if ('>' == first) {
+      return PG_HTML_PARSE_ERROR_MISSING_DOCTYPE_NAME;
+    }
+
+    return pg_html_tokenize_doctype_name(s, pos, tokens, allocator);
+  }
+}
+
+[[nodiscard]]
+static PgError pg_html_tokenize_markup(PgString s, u64 *pos,
+                                       PgHtmlTokenDyn *tokens,
+                                       PgAllocator *allocator) {
+  if (pg_string_starts_with(PG_SLICE_RANGE_START(s, *pos), PG_S("--"))) {
+    // TODO: comment.
+    PG_ASSERT(0 && "todo");
+  }
+
+  if (PG_SLICE_RANGE_START(s, *pos).len >= PG_S("DOCTYPE").len &&
+      (('D' == PG_SLICE_AT(s, *pos + 0) || 'd' == PG_SLICE_AT(s, *pos + 0)) ||
+       ('O' == PG_SLICE_AT(s, *pos + 0) || 'o' == PG_SLICE_AT(s, *pos + 1)) ||
+       ('C' == PG_SLICE_AT(s, *pos + 0) || 'c' == PG_SLICE_AT(s, *pos + 2)) ||
+       ('T' == PG_SLICE_AT(s, *pos + 0) || 't' == PG_SLICE_AT(s, *pos + 3)) ||
+       ('Y' == PG_SLICE_AT(s, *pos + 0) || 'y' == PG_SLICE_AT(s, *pos + 4)) ||
+       ('P' == PG_SLICE_AT(s, *pos + 0) || 'p' == PG_SLICE_AT(s, *pos + 5)) ||
+       ('E' == PG_SLICE_AT(s, *pos + 0) || 'e' == PG_SLICE_AT(s, *pos + 6)))) {
+    return pg_html_tokenize_doctype(s, pos, tokens, allocator);
+  }
+  PG_ASSERT(0);
+
+  return 0;
+}
+
+[[nodiscard]]
 static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
                                     PgHtmlTokenDyn *tokens,
                                     PgAllocator *allocator) {
   PG_ASSERT('<' == pg_string_first(PG_SLICE_RANGE_START(s, *pos)));
   *pos += pg_utf8_rune_bytes_count('<');
+
+  if ('!' == pg_string_first(PG_SLICE_RANGE_START(s, *pos))) {
+    *pos += pg_utf8_rune_bytes_count('!');
+    return pg_html_tokenize_markup(s, pos, tokens, allocator);
+  }
 
   PgHtmlToken token = {
       .start = (u32)*pos,
