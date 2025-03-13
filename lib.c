@@ -5831,16 +5831,24 @@ static PgHtmlTokenResult pg_html_tokenize_attribute_key_value(PgString s,
 #endif
 
 [[nodiscard]] static bool pg_html_tag_is_self_closing(PgString tag) {
-  if (pg_string_eq(tag, PG_S("area")) || pg_string_eq(tag, PG_S("base")) ||
-      pg_string_eq(tag, PG_S("br")) || pg_string_eq(tag, PG_S("col")) ||
-      pg_string_eq(tag, PG_S("embed")) || pg_string_eq(tag, PG_S("hr")) ||
-      pg_string_eq(tag, PG_S("img")) || pg_string_eq(tag, PG_S("input")) ||
-      pg_string_eq(tag, PG_S("link")) || pg_string_eq(tag, PG_S("meta")) ||
-      pg_string_eq(tag, PG_S("param")) || pg_string_eq(tag, PG_S("source")) ||
-      pg_string_eq(tag, PG_S("track")) || pg_string_eq(tag, PG_S("wbr"))) {
-    return true;
-  }
-  return false;
+  return pg_string_eq(tag, PG_S("area")) || pg_string_eq(tag, PG_S("base")) ||
+         pg_string_eq(tag, PG_S("br")) || pg_string_eq(tag, PG_S("col")) ||
+         pg_string_eq(tag, PG_S("embed")) || pg_string_eq(tag, PG_S("hr")) ||
+         pg_string_eq(tag, PG_S("img")) || pg_string_eq(tag, PG_S("input")) ||
+         pg_string_eq(tag, PG_S("link")) || pg_string_eq(tag, PG_S("meta")) ||
+         pg_string_eq(tag, PG_S("param")) ||
+         pg_string_eq(tag, PG_S("source")) ||
+         pg_string_eq(tag, PG_S("track")) || pg_string_eq(tag, PG_S("wbr"));
+}
+
+[[nodiscard]] static bool pg_svg_tag_is_self_closing(PgString tag) {
+  return pg_string_eq(tag, PG_S("svg")) || pg_string_eq(tag, PG_S("path")) ||
+         pg_string_eq(tag, PG_S("line")) || pg_string_eq(tag, PG_S("circle")) ||
+         pg_string_eq(tag, PG_S("rect")) ||
+         pg_string_eq(tag, PG_S("polygon")) ||
+         pg_string_eq(tag, PG_S("polyline"));
+
+  // TODO: more.
 }
 
 // FIXME
@@ -6232,11 +6240,14 @@ pg_html_parse(PgString s, PgAllocator *allocator) {
     PgHtmlToken token = PG_SLICE_AT(tokens, i);
     PG_ASSERT(parent);
 
+    bool is_self_closing = ((PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind) ||
+                            PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind) &&
+                           (pg_html_tag_is_self_closing(token.tag) ||
+                            pg_svg_tag_is_self_closing(token.tag));
+
     if (PG_HTML_TOKEN_KIND_TEXT == token.kind ||
         PG_HTML_TOKEN_KIND_COMMENT == token.kind ||
-        PG_HTML_TOKEN_KIND_DOCTYPE == token.kind ||
-        (PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind &&
-         pg_html_tag_is_self_closing(token.tag))) {
+        PG_HTML_TOKEN_KIND_DOCTYPE == token.kind || is_self_closing) {
       PgHtmlNode *node =
           pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
       pg_linked_list_init(&node->parent);
@@ -6273,7 +6284,7 @@ pg_html_parse(PgString s, PgAllocator *allocator) {
                               &node->next_sibling);
       }
 
-      if (!pg_html_tag_is_self_closing(token.tag)) {
+      if (!is_self_closing) {
         parent = node;
       }
     } else if (PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind) {
