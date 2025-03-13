@@ -5842,11 +5842,10 @@ static PgHtmlTokenResult pg_html_tokenize_attribute_key_value(PgString s,
 }
 
 [[nodiscard]] static bool pg_svg_tag_is_self_closing(PgString tag) {
-  return pg_string_eq(tag, PG_S("svg")) || pg_string_eq(tag, PG_S("path")) ||
-         pg_string_eq(tag, PG_S("line")) || pg_string_eq(tag, PG_S("circle")) ||
-         pg_string_eq(tag, PG_S("rect")) ||
+  return pg_string_eq(tag, PG_S("path")) || pg_string_eq(tag, PG_S("line")) ||
+         pg_string_eq(tag, PG_S("circle")) || pg_string_eq(tag, PG_S("rect")) ||
          pg_string_eq(tag, PG_S("polygon")) ||
-         pg_string_eq(tag, PG_S("polyline"));
+         pg_string_eq(tag, PG_S("polyline")) || pg_string_eq(tag, PG_S("stop"));
 
   // TODO: more.
 }
