@@ -6008,19 +6008,23 @@ struct PgLinkedListNode {
   node->next = node;
 }
 
+static bool pg_linked_list_is_empty(PgLinkedListNode *node) {
+  PG_ASSERT(node);
+  return node->next == node;
+}
+
 [[maybe_unused]] static void pg_linked_list_append(PgLinkedListNode *head,
                                                    PgLinkedListNode *elem) {
   PG_ASSERT(head);
   PG_ASSERT(elem);
-  PG_ASSERT(elem->next == elem);
 
-  if (head->next == head) {
+  if (pg_linked_list_is_empty(head)) {
     head->next = elem;
     return;
   }
 
   PgLinkedListNode *it = head;
-  for (; it->next != it; it = it->next) {
+  for (; !pg_linked_list_is_empty(it); it = it->next) {
   }
   PG_ASSERT(it);
   it->next = elem;
@@ -6029,9 +6033,23 @@ struct PgLinkedListNode {
 typedef struct PgHtmlNode PgHtmlNode;
 struct PgHtmlNode {
   PgHtmlToken token_start, token_end;
-  PgHtmlNode *parent, *next_sibling, *first_child;
+  PgLinkedListNode parent, next_sibling, first_child;
 };
 PG_RESULT(PgHtmlNode *) PgHtmlNodePtrResult;
+
+[[nodiscard]] static PgHtmlNode *pg_html_node_get_parent(PgHtmlNode *node) {
+  return PG_CONTAINER_OF(node, PgHtmlNode, parent);
+}
+
+[[nodiscard]] static PgHtmlNode *
+pg_html_node_get_first_child(PgHtmlNode *node) {
+  return PG_CONTAINER_OF(node, PgHtmlNode, first_child);
+}
+
+[[nodiscard]] static PgHtmlNode *
+pg_html_node_get_next_sibling(PgHtmlNode *node) {
+  return PG_CONTAINER_OF(node, PgHtmlNode, next_sibling);
+}
 
 [[maybe_unused]] [[nodiscard]] static PgHtmlNodePtrResult
 pg_html_parse(PgString s, PgAllocator *allocator) {
@@ -6046,6 +6064,10 @@ pg_html_parse(PgString s, PgAllocator *allocator) {
 
   PgHtmlNode *root =
       pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
+  pg_linked_list_init(&root->parent);
+  pg_linked_list_init(&root->first_child);
+  pg_linked_list_init(&root->next_sibling);
+
   PgHtmlNode *parent = root;
 
   for (u64 i = 0; i < tokens.len; i++) {
@@ -6056,39 +6078,43 @@ pg_html_parse(PgString s, PgAllocator *allocator) {
       PG_ASSERT(parent);
       PgHtmlNode *node =
           pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
-
+      pg_linked_list_init(&node->parent);
+      pg_linked_list_init(&node->first_child);
+      pg_linked_list_init(&node->next_sibling);
       node->token_start = node->token_end = token;
-      node->parent = parent;
-      if (!node->parent->first_child) {
-        node->parent->first_child = node;
-      } else {
-        PgHtmlNode *it = node->parent->first_child;
-        PG_ASSERT(it);
-        while (it->next_sibling) {
-          it = it->next_sibling;
-        }
-        PG_ASSERT(it);
-        it->next_sibling = node;
-      }
+
+      pg_linked_list_append(&node->parent, &parent->parent);
+      PgLinkedListNode *first_child_of_parent =
+          &pg_html_node_get_first_child(parent)->first_child;
+      pg_linked_list_append(first_child_of_parent, &node->first_child);
+
+      PgLinkedListNode *next_sibling_of_first_child_of_parent =
+          &PG_CONTAINER_OF(first_child_of_parent, PgHtmlNode, first_child)
+               ->next_sibling;
+      pg_linked_list_append(next_sibling_of_first_child_of_parent,
+                            &node->next_sibling);
     } break;
     case PG_HTML_TOKEN_KIND_TAG_OPENING: {
       PG_ASSERT(parent);
       PgHtmlNode *node =
           pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
+      pg_linked_list_init(&node->parent);
+      pg_linked_list_init(&node->first_child);
+      pg_linked_list_init(&node->next_sibling);
+      node->token_start = node->token_end = token;
 
-      node->token_start = token;
-      node->parent = parent;
-      if (!node->parent->first_child) {
-        node->parent->first_child = node;
-      } else {
-        PgHtmlNode *it = node->parent->first_child;
-        PG_ASSERT(it);
-        while (it->next_sibling) {
-          it = it->next_sibling;
-        }
-        PG_ASSERT(it);
-        it->next_sibling = node;
-      }
+      pg_linked_list_append(&node->parent, &parent->parent);
+      PgLinkedListNode *parent_as_linked_list = &node->parent;
+      PgLinkedListNode *first_child_of_parent =
+          &pg_html_node_get_first_child(parent)->first_child;
+      pg_linked_list_append(first_child_of_parent, &node->first_child);
+
+      PgLinkedListNode *next_sibling_of_first_child_of_parent =
+          &PG_CONTAINER_OF(parent_as_linked_list, PgHtmlNode, first_child)
+               ->next_sibling;
+      pg_linked_list_append(next_sibling_of_first_child_of_parent,
+                            &node->next_sibling);
+
       if (!pg_html_tag_is_self_closing(token.tag)) {
         parent = node;
       }
@@ -6100,7 +6126,7 @@ pg_html_parse(PgString s, PgAllocator *allocator) {
                 pg_string_eq(node->token_start.tag, token.tag));
       node->token_end = token;
 
-      parent = node->parent;
+      parent = pg_html_node_get_parent(parent);
     } break;
     case PG_HTML_TOKEN_KIND_NONE:
     case PG_HTML_TOKEN_KIND_ATTRIBUTE:
@@ -6112,8 +6138,8 @@ pg_html_parse(PgString s, PgAllocator *allocator) {
     }
   }
 
-  PG_ASSERT(!root->next_sibling);
-  PG_ASSERT(!root->parent);
+  PG_ASSERT(pg_linked_list_is_empty(&root->next_sibling));
+  PG_ASSERT(pg_linked_list_is_empty(&root->parent));
   res.res = root;
   return res;
 }
@@ -6141,9 +6167,11 @@ pg_html_get_title_content(PgHtmlNode *node, PgString s) {
   if (!pg_html_is_title_opening(node)) {
     return PG_S("");
   }
-  PG_ASSERT(node->first_child);
-  PgString res = PG_SLICE_RANGE(s, node->first_child->token_start.start,
-                                node->token_end.start - 2);
+  PG_ASSERT(!pg_linked_list_is_empty(&node->first_child));
+  PgHtmlNode *child =
+      PG_CONTAINER_OF(node->first_child.next, PgHtmlNode, first_child);
+  PgString res =
+      PG_SLICE_RANGE(s, child->token_start.start, node->token_end.start - 2);
 
   PG_ASSERT(!pg_string_is_empty(res));
   return res;
