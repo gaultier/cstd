@@ -178,7 +178,7 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
     (s)->len -= 1;                                                             \
   } while (0)
 
-[[maybe_unused]] [[nodiscard]] static u64 pg_hash_fnv(PgString s) {
+[[maybe_unused]] [[nodiscard]] static u64 pg_hash_fnv(Pgu8Slice s) {
   u64 hash = 0x100;
   for (u64 i = 0; i < s.len; i++) {
     u8 c = PG_SLICE_AT(s, i);
@@ -667,8 +667,8 @@ pg_string_cut_rune(PgString s, PgRune needle) {
   return -1;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_string_eq(PgString a,
-                                                        PgString b) {
+[[maybe_unused]] [[nodiscard]] static bool pg_bytes_eq(Pgu8Slice a,
+                                                       Pgu8Slice b) {
   if (a.len == 0 && b.len == 0) {
     return true;
   }
@@ -692,6 +692,11 @@ pg_string_cut_rune(PgString s, PgRune needle) {
   PG_ASSERT(a.len == b.len);
 
   return memcmp(a.data, b.data, a.len) == 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool pg_string_eq(PgString a,
+                                                        PgString b) {
+  return pg_bytes_eq(a, b);
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
@@ -6173,6 +6178,29 @@ pg_html_get_title_content(PgHtmlNode *node, PgString s) {
 
   PG_ASSERT(!pg_string_is_empty(res));
   return res;
+}
+
+typedef struct PgHashTrie PgHashTrie;
+struct PgHashTrie {
+  Pgu8Slice key;
+  PgHashTrie *child[4];
+};
+
+[[maybe_unused]] [[nodiscard]] static PgHashTrie *
+pg_hash_trie_lookup(PgHashTrie **map, Pgu8Slice key, PgAllocator *allocator) {
+  for (u64 hash = pg_hash_fnv(key); *map; hash <<= 2) {
+    if (pg_bytes_eq(key, (*map)->key)) {
+      return *map;
+    }
+    map = &(*map)->child[hash >> 62];
+  }
+  if (!allocator) {
+    return nullptr;
+  }
+
+  *map = pg_alloc(allocator, sizeof(PgHashTrie), _Alignof(PgHashTrie), 1);
+  (*map)->key = key;
+  return *map;
 }
 
 #endif
