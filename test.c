@@ -2348,6 +2348,38 @@ static void test_html_tokenize_with_doctype() {
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 2);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind);
+    PG_ASSERT(pg_string_eq(PG_S("html"), token.doctype));
+  }
+}
+
+static void test_html_tokenize_with_comment() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgString s = PG_S("<html> <!-- hello world --> </html>");
+  PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
+  PG_ASSERT(0 == res.err);
+
+  PgHtmlTokenDyn tokens = res.res;
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 0);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind);
+    PG_ASSERT(1 == token.start);
+    PG_ASSERT(5 == token.end);
+    PG_ASSERT(pg_string_eq(PG_S("html"), token.tag));
+  }
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 1);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_COMMENT == token.kind);
+    /* PG_ASSERT(10 == token.start); */
+    /* PG_ASSERT(14 == token.end); */
+    PG_ASSERT(pg_string_eq(PG_S("hello world"), token.comment));
+  }
+
+  {
+    PgHtmlToken token = PG_SLICE_AT(tokens, 2);
+    PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind);
     PG_ASSERT(pg_string_eq(PG_S("html"), token.tag));
   }
 }
@@ -2573,6 +2605,7 @@ int main() {
   test_html_tokenize_with_attributes();
   test_html_tokenize_nested();
   test_html_tokenize_with_doctype();
+  test_html_tokenize_with_comment();
   test_html_parse();
   test_html_parse_title_with_html_content();
   test_hash_trie();

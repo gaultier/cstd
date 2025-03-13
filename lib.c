@@ -5903,7 +5903,7 @@ static PgError pg_html_tokenize_comment(PgString s, u64 *pos,
     if (pg_string_starts_with(PG_SLICE_RANGE_START(s, *pos), PG_S("-->"))) {
       PgHtmlToken token = {
           .kind = PG_HTML_TOKEN_KIND_COMMENT,
-          .comment = PG_SLICE_RANGE(s, start, *pos),
+          .comment = pg_string_trim_space(PG_SLICE_RANGE(s, start, *pos)),
           .start = start,
           .end = (u32)*pos,
       };
@@ -5912,6 +5912,8 @@ static PgError pg_html_tokenize_comment(PgString s, u64 *pos,
       *pos += PG_S("-->").len;
       return 0;
     }
+
+    *pos += pg_utf8_rune_bytes_count(first);
   }
 }
 
