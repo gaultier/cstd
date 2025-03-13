@@ -6051,6 +6051,7 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
   }
 }
 
+// TODO: Decode html entities e.g. `&amp;` ?
 [[maybe_unused]] [[nodiscard]]
 static PgError pg_html_tokenize_data(PgString s, u64 *pos,
                                      PgHtmlTokenDyn *tokens,
