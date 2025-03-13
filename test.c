@@ -2073,24 +2073,36 @@ static void test_process_stdin() {
 static void test_linked_list() {
   // Empty.
   {
-    PgLinkedListNode *head_ptr = nullptr;
-    PgLinkedListNode elem = {0};
-    pg_linked_list_append(&head_ptr, &elem);
+    PgLinkedListNode head = {0};
+    pg_linked_list_init(&head);
 
-    PG_ASSERT(head_ptr == &elem);
+    PgLinkedListNode elem = {0};
+    pg_linked_list_init(&elem);
+
+    pg_linked_list_append(&head, &elem);
+
+    PG_ASSERT(head.next == &elem);
+    PG_ASSERT(elem.next == &elem);
   }
   // Non empty.
   {
-    PgLinkedListNode *head_ptr = nullptr;
+    PgLinkedListNode head = {0};
+    pg_linked_list_init(&head);
+
     PgLinkedListNode elem1 = {0};
+    pg_linked_list_init(&elem1);
+
     PgLinkedListNode elem2 = {0};
+    pg_linked_list_init(&elem2);
 
-    pg_linked_list_append(&head_ptr, &elem1);
-    PG_ASSERT(head_ptr == &elem1);
+    pg_linked_list_append(&head, &elem1);
+    PG_ASSERT(head.next == &elem1);
+    PG_ASSERT(elem1.next == &elem1);
 
-    pg_linked_list_append(&head_ptr, &elem2);
-    PG_ASSERT(head_ptr == &elem1);
+    pg_linked_list_append(&head, &elem2);
+    PG_ASSERT(head.next == &elem1);
     PG_ASSERT(elem1.next == &elem2);
+    PG_ASSERT(elem2.next == &elem2);
   }
 }
 

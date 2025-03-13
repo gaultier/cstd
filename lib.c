@@ -6003,15 +6003,24 @@ struct PgLinkedListNode {
   PgLinkedListNode *next;
 };
 
-[[maybe_unused]] static void pg_linked_list_append(PgLinkedListNode **head,
+[[maybe_unused]] static void pg_linked_list_init(PgLinkedListNode *node) {
+  PG_ASSERT(node);
+  node->next = node;
+}
+
+[[maybe_unused]] static void pg_linked_list_append(PgLinkedListNode *head,
                                                    PgLinkedListNode *elem) {
-  if (!(*head)) {
-    *head = elem;
+  PG_ASSERT(head);
+  PG_ASSERT(elem);
+  PG_ASSERT(elem->next == elem);
+
+  if (head->next == head) {
+    head->next = elem;
     return;
   }
 
-  PgLinkedListNode *it = *head;
-  for (; it->next; it = it->next) {
+  PgLinkedListNode *it = head;
+  for (; it->next != it; it = it->next) {
   }
   PG_ASSERT(it);
   it->next = elem;
