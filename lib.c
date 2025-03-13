@@ -6050,7 +6050,7 @@ pg_html_node_get_first_child(PgHtmlNode *node) {
   return PG_CONTAINER_OF(linked_list_node, PgHtmlNode, first_child);
 }
 
-[[nodiscard]] static PgHtmlNode *
+[[maybe_unused]] [[nodiscard]] static PgHtmlNode *
 pg_html_node_get_next_sibling(PgHtmlNode *node) {
   PgLinkedListNode *linked_list_node = node->next_sibling.next;
   return PG_CONTAINER_OF(linked_list_node, PgHtmlNode, next_sibling);

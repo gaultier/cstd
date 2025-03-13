@@ -2445,7 +2445,7 @@ static void test_html_parse_title_with_html_content() {
   PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == node_h2_text->token_start.kind);
   PG_ASSERT(pg_string_eq(node_h2_text->token_start.text, PG_S("Hello ")));
 
-  PgHtmlNode *node_code = pg_html_node_get_first_child(node_h2_text);
+  PgHtmlNode *node_code = pg_html_node_get_next_sibling(node_h2_text);
   PG_ASSERT(node_code->parent.next == &node_h2->parent);
   PG_ASSERT(pg_linked_list_is_empty(&node_code->next_sibling));
   PG_ASSERT(!pg_linked_list_is_empty(&node_code->first_child));
