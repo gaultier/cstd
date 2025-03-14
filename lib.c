@@ -6308,7 +6308,7 @@ pg_html_parse(PgString s, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_html_is_title_opening(PgHtmlNode *node) {
+pg_html_node_is_title_opening(PgHtmlNode *node) {
   return (PG_HTML_TOKEN_KIND_TAG_OPENING == node->token_start.kind) &&
          (pg_string_eq(node->token_start.tag, PG_S("h1")) ||
           pg_string_eq(node->token_start.tag, PG_S("h2")) ||
@@ -6319,15 +6319,15 @@ pg_html_is_title_opening(PgHtmlNode *node) {
 }
 
 [[maybe_unused]] [[nodiscard]] static u8
-pg_html_get_title_level(PgHtmlNode *node) {
-  return pg_html_is_title_opening(node)
+pg_html_node_get_title_level(PgHtmlNode *node) {
+  return pg_html_node_is_title_opening(node)
              ? ((u8)pg_string_last(node->token_start.tag) - '0')
              : 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_html_get_title_content(PgHtmlNode *node) {
-  if (!pg_html_is_title_opening(node)) {
+pg_html_node_get_simple_title_content(PgHtmlNode *node) {
+  if (!pg_html_node_is_title_opening(node)) {
     return PG_S("");
   }
   PG_ASSERT(!pg_linked_list_is_empty(&node->first_child));
