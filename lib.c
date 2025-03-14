@@ -1955,6 +1955,33 @@ pg_writer_write_i64_as_string(PgWriter *w, i64 n) {
   *(PG_SLICE_AT_PTR(dst, 3)) = (u8)(n >> 0);
 }
 
+[[maybe_unused]] static void
+pg_string_builder_append_rune(Pgu8Dyn *sb, PgRune rune,
+                              PgAllocator *allocator) {
+  Pgu8Slice bytes = {.data = (u8 *)&rune,
+                     .len = pg_utf8_rune_bytes_count(rune)};
+  PG_DYN_APPEND_SLICE(sb, bytes, allocator);
+}
+
+[[maybe_unused]] static void pg_string_builder_append_string_escaped(
+    Pgu8Dyn *sb, PgString s, PgRune rune_to_escape, PgRune rune_escape,
+    PgAllocator *allocator) {
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+  for (;;) {
+    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    PG_ASSERT(0 == res_rune.err);
+    PgRune rune = res_rune.res;
+    if (0 == rune) {
+      break;
+    }
+
+    if (rune_to_escape == rune) {
+      pg_string_builder_append_rune(sb, rune_escape, allocator);
+    }
+    pg_string_builder_append_rune(sb, rune, allocator);
+  }
+}
+
 [[maybe_unused]] static void pg_byte_buffer_append_u32(Pgu8Dyn *dyn, u32 n,
                                                        PgAllocator *allocator) {
 
