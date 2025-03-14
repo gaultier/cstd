@@ -1963,6 +1963,25 @@ pg_string_builder_append_rune(Pgu8Dyn *sb, PgRune rune,
   PG_DYN_APPEND_SLICE(sb, bytes, allocator);
 }
 
+[[maybe_unused]] static void pg_string_builder_append_string_escaped_any(
+    Pgu8Dyn *sb, PgString s, PgString runes_to_escape, PgRune rune_escape,
+    PgAllocator *allocator) {
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+  for (;;) {
+    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    PG_ASSERT(0 == res_rune.err);
+    PgRune rune = res_rune.res;
+    if (0 == rune) {
+      break;
+    }
+
+    if (-1 != pg_string_indexof_rune(runes_to_escape, rune)) {
+      pg_string_builder_append_rune(sb, rune_escape, allocator);
+    }
+    pg_string_builder_append_rune(sb, rune, allocator);
+  }
+}
+
 [[maybe_unused]] static void pg_string_builder_append_string_escaped(
     Pgu8Dyn *sb, PgString s, PgRune rune_to_escape, PgRune rune_escape,
     PgAllocator *allocator) {
