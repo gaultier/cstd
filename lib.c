@@ -6326,15 +6326,15 @@ pg_html_get_title_level(PgHtmlNode *node) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_html_get_title_content(PgHtmlNode *node, PgString s) {
+pg_html_get_title_content(PgHtmlNode *node) {
   if (!pg_html_is_title_opening(node)) {
     return PG_S("");
   }
   PG_ASSERT(!pg_linked_list_is_empty(&node->first_child));
   PgHtmlNode *child =
       PG_CONTAINER_OF(node->first_child.next, PgHtmlNode, first_child);
-  PgString res =
-      PG_SLICE_RANGE(s, child->token_start.start, node->token_end.start - 2);
+  PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == child->token_start.kind);
+  PgString res = child->token_start.text;
 
   PG_ASSERT(!pg_string_is_empty(res));
   return res;
