@@ -2593,6 +2593,19 @@ static void test_string_builder_append_u64() {
   }
 }
 
+static void test_string_buillder_append_u64_hex() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  Pgu8Dyn sb = {0};
+  pg_string_builder_append_u64_hex(&sb, 0x1f34c /* 🍌 */, allocator);
+  PgString out = PG_DYN_SLICE(PgString, sb);
+  PgString expected = PG_S("1f34c");
+
+  PG_ASSERT(pg_string_eq(out, expected));
+}
+
 int main() {
   test_rune_bytes_count();
   test_utf8_count();
@@ -2651,4 +2664,5 @@ int main() {
   test_hash_trie();
   test_string_escape_js();
   test_string_builder_append_u64();
+  test_string_buillder_append_u64_hex();
 }

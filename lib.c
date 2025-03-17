@@ -386,6 +386,11 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
   }
 
   u8 c0 = PG_SLICE_AT(s, 0);
+  if (0 == c0) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
   // One byte.
   if (0b0000'0000 == (c0 & 0b1000'0000) && c0 != 0) {
     res.res = c0 & 0x7F;
@@ -1963,6 +1968,28 @@ pg_string_builder_append_rune(Pgu8Dyn *sb, PgRune rune,
   PG_DYN_APPEND_SLICE(sb, bytes, allocator);
 }
 
+[[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_hex_rune(u8 n) {
+  PG_ASSERT(n < 16);
+  const u8 lut[] = "0123456789abcdef";
+  return lut[n];
+}
+
+[[maybe_unused]] static void
+pg_string_builder_append_u64_hex(Pgu8Dyn *sb, PgRune rune,
+                                 PgAllocator *allocator) {
+  u8 tmp[64] = {0};
+  u64 tmp_cap = PG_STATIC_ARRAY_LEN(tmp);
+
+  u64 i = tmp_cap;
+  do {
+    PG_ASSERT(i > 0);
+    i -= 1;
+    *PG_C_ARRAY_AT_PTR(tmp, tmp_cap, i) = pg_u8_to_hex_rune(rune & 0xf);
+  } while (rune /= 16);
+  Pgu8Slice slice = {.data = tmp + i, .len = tmp_cap - i};
+  PG_DYN_APPEND_SLICE(sb, slice, allocator);
+}
+
 [[maybe_unused]] static void pg_string_builder_append_string_escaped_any(
     Pgu8Dyn *sb, PgString s, PgString runes_to_escape, PgRune rune_escape,
     PgAllocator *allocator) {
@@ -2045,7 +2072,15 @@ pg_string_builder_append_js_string_escaped(Pgu8Dyn *sb, PgString s,
       PG_DYN_APPEND_SLICE(sb, PG_S("\\v"), allocator);
       break;
     default:
-      pg_string_builder_append_rune(sb, rune, allocator);
+      if (rune <= 127) {
+        pg_string_builder_append_rune(sb, rune, allocator);
+      } else {
+        *PG_DYN_PUSH(sb, allocator) = '\\';
+        *PG_DYN_PUSH(sb, allocator) = 'u';
+        *PG_DYN_PUSH(sb, allocator) = '{';
+        pg_string_builder_append_u64_hex(sb, rune, allocator);
+        *PG_DYN_PUSH(sb, allocator) = '}';
+      }
     }
   }
 }
@@ -2083,12 +2118,6 @@ pg_u64_to_string(u64 n, PgAllocator *allocator) {
 pg_string_builder_append_u64(Pgu8Dyn *sb, u64 n, PgAllocator *allocator) {
   PgWriter w = pg_writer_make_from_string_builder(sb, allocator);
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
-}
-
-[[maybe_unused]] [[nodiscard]] static u8 pg_u8_to_hex_rune(u8 n) {
-  PG_ASSERT(n < 16);
-  const u8 lut[] = "0123456789abcdef";
-  return lut[n];
 }
 
 [[maybe_unused]] [[nodiscard]]
