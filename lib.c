@@ -2001,6 +2001,55 @@ pg_string_builder_append_rune(Pgu8Dyn *sb, PgRune rune,
   }
 }
 
+// Should `pg_string_builder` take `PgRune[]` as argument?
+// I.e. UTF32.
+[[maybe_unused]] static void
+pg_string_builder_append_js_string_escaped(Pgu8Dyn *sb, PgString s,
+                                           PgAllocator *allocator) {
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+
+  for (u64 i = 0; i < s.len; i++) {
+    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    PG_ASSERT(0 == res_rune.err);
+    PgRune rune = res_rune.res;
+    if (0 == rune) {
+      break;
+    }
+
+    switch (rune) {
+    case '\'':
+      PG_DYN_APPEND_SLICE(sb, PG_S("\\'"), allocator);
+      break;
+    case '"':
+      PG_DYN_APPEND_SLICE(sb, PG_S("\\\""), allocator);
+      break;
+    case '\\':
+      PG_DYN_APPEND_SLICE(sb, PG_S("\\\\"), allocator);
+      break;
+    case '\t':
+      PG_DYN_APPEND_SLICE(sb, PG_S("\\t"), allocator);
+      break;
+    case '\n':
+      PG_DYN_APPEND_SLICE(sb, PG_S("\\n"), allocator);
+      break;
+    case '\r':
+      PG_DYN_APPEND_SLICE(sb, PG_S("\\r"), allocator);
+      break;
+    case '\f':
+      PG_DYN_APPEND_SLICE(sb, PG_S("\\f"), allocator);
+      break;
+    case '\b':
+      PG_DYN_APPEND_SLICE(sb, PG_S("\\b"), allocator);
+      break;
+    case '\v':
+      PG_DYN_APPEND_SLICE(sb, PG_S("\\v"), allocator);
+      break;
+    default:
+      pg_string_builder_append_rune(sb, rune, allocator);
+    }
+  }
+}
+
 [[maybe_unused]] static void pg_byte_buffer_append_u32(Pgu8Dyn *dyn, u32 n,
                                                        PgAllocator *allocator) {
 
