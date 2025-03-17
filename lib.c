@@ -1909,11 +1909,11 @@ pg_writer_write_u64_as_string(PgWriter *w, u64 n) {
   u8 tmp[30] = {0};
   u64 idx = PG_STATIC_ARRAY_LEN(tmp);
 
-  while (n > 0) {
+  do {
     idx -= 1;
     PG_C_ARRAY_AT(tmp, PG_STATIC_ARRAY_LEN(tmp), idx) = '0' + (n % 10);
     n /= 10;
-  }
+  } while (n > 0);
 
   PG_ASSERT(idx <= PG_STATIC_ARRAY_LEN(tmp));
 
