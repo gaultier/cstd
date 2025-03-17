@@ -2557,11 +2557,11 @@ static void test_string_escape_js() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   {
-    PgString s = PG_S("hello\t,\n'world'\r\"\v\"");
+    PgString s = PG_S("hello\t,\n'world'\r\"\v\"🍌");
     Pgu8Dyn sb = {0};
     pg_string_builder_append_js_string_escaped(&sb, s, allocator);
     PgString out = PG_DYN_SLICE(PgString, sb);
-    PgString expected = PG_S("hello\\t,\\n\\'world\\'\\r\\\"\\v\\\"");
+    PgString expected = PG_S("hello\\t,\\n\\'world\\'\\r\\\"\\v\\\"\\u{1f34c}");
 
     PG_ASSERT(pg_string_eq(out, expected));
   }
