@@ -103,6 +103,7 @@ PG_RESULT(i32) PgI32Result;
 PG_RESULT(u64) PgU64Result;
 PG_RESULT(bool) PgBoolResult;
 PG_RESULT(void *) PgVoidPtrResult;
+PG_DYN(u32) Pgu32Dyn;
 PG_OK(u32) Pgu32Ok;
 PG_OK(u64) Pgu64Ok;
 
