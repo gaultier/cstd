@@ -1087,8 +1087,19 @@ pg_try_arena_realloc(PgArena *a, void *ptr, u64 elem_count_old, u64 size,
     return ptr;
   }
 
-  void *res = pg_try_arena_alloc(a, size, align, count);
+  const u64 padding = (-(u64)a->start & (align - 1));
+  PG_ASSERT(padding <= align);
+
+  void *res = a->start + padding;
+  PG_ASSERT(res != nullptr);
+  PG_ASSERT(res <= (void *)a->end);
+
   memmove(res, ptr, size * count);
+
+  a->start += padding + count * size;
+  PG_ASSERT(a->start <= a->end);
+  PG_ASSERT((u64)a->start % align == 0); // Aligned.
+
   return res;
 }
 
