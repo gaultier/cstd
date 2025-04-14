@@ -2142,8 +2142,38 @@ pg_u64_to_string(u64 n, PgAllocator *allocator) {
 
 [[maybe_unused]] static void
 pg_string_builder_append_u64(Pgu8Dyn *sb, u64 n, PgAllocator *allocator) {
-  PgWriter w = pg_writer_make_from_string_builder(sb, allocator);
-  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
+  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
+  PG_DYN_APPEND_SLICE(sb, s, allocator);
+}
+
+[[maybe_unused]] static void
+pg_string_builder_append_u64_within_capacity(Pgu8Dyn *sb, u64 n) {
+  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
+  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(sb, s);
+}
+
+[[maybe_unused]] static void
+pg_string_builder_append_u16(Pgu8Dyn *sb, u16 n, PgAllocator *allocator) {
+  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
+  PG_DYN_APPEND_SLICE(sb, s, allocator);
+}
+
+[[maybe_unused]] static void
+pg_string_builder_append_u16_within_capacity(Pgu8Dyn *sb, u16 n) {
+  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
+  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(sb, s);
+}
+
+[[maybe_unused]] static void
+pg_string_builder_append_u32(Pgu8Dyn *sb, u32 n, PgAllocator *allocator) {
+  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
+  PG_DYN_APPEND_SLICE(sb, s, allocator);
+}
+
+[[maybe_unused]] static void
+pg_string_builder_append_u32_within_capacity(Pgu8Dyn *sb, u32 n) {
+  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
+  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(sb, s);
 }
 
 [[maybe_unused]] [[nodiscard]]
@@ -2816,8 +2846,8 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
                                                     PgString buf, u64 offset);
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
-pg_file_open(PgString path, PgFileAccess access, bool create_if_not_exists,
-             PgAllocator *allocator);
+pg_file_open(PgString path, PgFileAccess access, u64 mode,
+             bool create_if_not_exists, PgAllocator *allocator);
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_file_close(PgFileDescriptor file);
@@ -2907,7 +2937,7 @@ pg_file_read_full_from_path(PgString path, PgAllocator *allocator) {
   PgStringResult res = {0};
 
   PgFileDescriptorResult res_file =
-      pg_file_open(path, PG_FILE_ACCESS_READ, false, allocator);
+      pg_file_open(path, PG_FILE_ACCESS_READ, 0600, false, allocator);
   if (res_file.err) {
     res.err = res_file.err;
     return res;
@@ -2931,12 +2961,13 @@ end:
   return res;
 }
 
-[[maybe_unused]] static PgError
-pg_file_write_full(PgString path, PgString content, PgAllocator *allocator) {
+[[maybe_unused]] static PgError pg_file_write_full(PgString path,
+                                                   PgString content, u64 mode,
+                                                   PgAllocator *allocator) {
   PgError err = 0;
 
   PgFileDescriptorResult res_file =
-      pg_file_open(path, PG_FILE_ACCESS_WRITE, true, allocator);
+      pg_file_open(path, PG_FILE_ACCESS_WRITE, mode, true, allocator);
   if (res_file.err) {
     err = res_file.err;
     return err;
@@ -3571,8 +3602,8 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
-pg_file_open(PgString path, PgFileAccess access, bool create_if_not_exists,
-             PgAllocator *allocator) {
+pg_file_open(PgString path, PgFileAccess access, u64 mode,
+             bool create_if_not_exists, PgAllocator *allocator) {
   PgFileDescriptorResult res = {0};
 
   int flags = 0;
@@ -3596,7 +3627,7 @@ pg_file_open(PgString path, PgFileAccess access, bool create_if_not_exists,
   }
 
   char *path_os = pg_string_to_cstr(path, allocator);
-  int fd = open(path_os, flags, 0600);
+  int fd = open(path_os, flags, mode ? mode : 0600);
   pg_free(allocator, path_os);
 
   if (-1 == fd) {
@@ -3828,8 +3859,8 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
 }
 
 [[nodiscard]] static PgFileDescriptorResult
-pg_file_open(PgString path, PgFileAccess access, bool create_if_not_exists,
-             PgAllocator *allocator) {
+pg_file_open(PgString path, PgFileAccess access, u64 mode,
+             bool create_if_not_exists, PgAllocator *allocator) {
   PgFileDescriptorResult res = {0};
 
   DWORD desired_access = 0;
