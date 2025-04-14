@@ -2115,6 +2115,20 @@ pg_byte_buffer_append_u32_be_within_capacity(Pgu8Dyn *dyn, u32 n) {
   PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(dyn, s);
 }
 
+[[maybe_unused]] static void pg_byte_buffer_append_u16(Pgu8Dyn *dyn, u16 n,
+                                                       PgAllocator *allocator) {
+
+  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
+  PG_DYN_APPEND_SLICE(dyn, s, allocator);
+}
+
+[[maybe_unused]] static void
+pg_byte_buffer_append_u16_within_capacity(Pgu8Dyn *dyn, u16 n) {
+
+  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
+  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(dyn, s);
+}
+
 [[maybe_unused]] static void pg_byte_buffer_append_u32(Pgu8Dyn *dyn, u32 n,
                                                        PgAllocator *allocator) {
 
@@ -2122,11 +2136,25 @@ pg_byte_buffer_append_u32_be_within_capacity(Pgu8Dyn *dyn, u32 n) {
   PG_DYN_APPEND_SLICE(dyn, s, allocator);
 }
 
+[[maybe_unused]] static void
+pg_byte_buffer_append_u32_within_capacity(Pgu8Dyn *dyn, u32 n) {
+
+  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
+  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(dyn, s);
+}
+
 [[maybe_unused]] static void pg_byte_buffer_append_u64(Pgu8Dyn *dyn, u64 n,
                                                        PgAllocator *allocator) {
 
   PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
   PG_DYN_APPEND_SLICE(dyn, s, allocator);
+}
+
+[[maybe_unused]] static void
+pg_byte_buffer_append_u64_within_capacity(Pgu8Dyn *dyn, u64 n) {
+
+  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
+  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(dyn, s);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
@@ -2142,38 +2170,8 @@ pg_u64_to_string(u64 n, PgAllocator *allocator) {
 
 [[maybe_unused]] static void
 pg_string_builder_append_u64(Pgu8Dyn *sb, u64 n, PgAllocator *allocator) {
-  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
-  PG_DYN_APPEND_SLICE(sb, s, allocator);
-}
-
-[[maybe_unused]] static void
-pg_string_builder_append_u64_within_capacity(Pgu8Dyn *sb, u64 n) {
-  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
-  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(sb, s);
-}
-
-[[maybe_unused]] static void
-pg_string_builder_append_u16(Pgu8Dyn *sb, u16 n, PgAllocator *allocator) {
-  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
-  PG_DYN_APPEND_SLICE(sb, s, allocator);
-}
-
-[[maybe_unused]] static void
-pg_string_builder_append_u16_within_capacity(Pgu8Dyn *sb, u16 n) {
-  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
-  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(sb, s);
-}
-
-[[maybe_unused]] static void
-pg_string_builder_append_u32(Pgu8Dyn *sb, u32 n, PgAllocator *allocator) {
-  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
-  PG_DYN_APPEND_SLICE(sb, s, allocator);
-}
-
-[[maybe_unused]] static void
-pg_string_builder_append_u32_within_capacity(Pgu8Dyn *sb, u32 n) {
-  PgString s = {.data = (u8 *)&n, .len = sizeof(n)};
-  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(sb, s);
+  PgWriter w = pg_writer_make_from_string_builder(sb, allocator);
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
 }
 
 [[maybe_unused]] [[nodiscard]]
