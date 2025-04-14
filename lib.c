@@ -169,6 +169,9 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 #define PG_SLICE_MAKE(T, l, arena)                                             \
   ((T##Slice){.data = pg_arena_new(arena, T, l), .len = l})
 
+#define PG_ROUNDUP(nbytes, pad)                                                \
+  (u64)((long)((nbytes) + ((pad) - 1)) & ~(long)((pad) - 1))
+
 #define PG_SLICE_SWAP_REMOVE(s, idx)                                           \
   do {                                                                         \
     if ((i64)(idx) >= (i64)((s)->len)) {                                       \
