@@ -182,6 +182,16 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
     (s)->len -= 1;                                                             \
   } while (0)
 
+#define PG_DYN_SWAP_REMOVE(s, idx)                                             \
+  do {                                                                         \
+    if ((i64)(idx) >= (i64)((s)->len)) {                                       \
+      __builtin_trap();                                                        \
+    }                                                                          \
+    *(PG_C_ARRAY_AT_PTR((s)->data, (s)->len, (idx))) =                         \
+        PG_C_ARRAY_AT((s)->data, (s)->len, (s)->len - 1);                      \
+    (s)->len -= 1;                                                             \
+  } while (0)
+
 [[maybe_unused]] [[nodiscard]] static u64 pg_hash_fnv(Pgu8Slice s) {
   u64 hash = 0x100;
   for (u64 i = 0; i < s.len; i++) {
