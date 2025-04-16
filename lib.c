@@ -1532,6 +1532,10 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define PG_SLICE_LAST(s) PG_C_ARRAY_AT((s).data, (s).len, (s).len - 1)
 
+#define PG_DYN_LAST_PTR(s) PG_C_ARRAY_AT_PTR((s)->data, (s)->len, (s)->len - 1)
+
+#define PG_DYN_LAST(s) PG_C_ARRAY_AT((s).data, (s).len, (s).len - 1)
+
 #define PG_DYN_APPEND_SLICE(dst, src, allocator)                               \
   do {                                                                         \
     PG_DYN_ENSURE_CAP(dst, (dst)->len + (src).len, (allocator));               \
