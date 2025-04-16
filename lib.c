@@ -1549,6 +1549,14 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
 
 #define PG_DYN_SLICE(T, dyn) ((T){.data = dyn.data, .len = dyn.len})
 
+#define PG_DYN_CLONE(dst, src, allocator)                                      \
+  do {                                                                         \
+    PG_DYN_ENSURE_CAP(dst, src.len, allocator);                                \
+    for (u64 __pg_i = 0; __pg_i < src.len; __pg_i++) {                         \
+      *PG_DYN_PUSH_WITHIN_CAPACITY(dst) = PG_SLICE_AT(src, __pg_i);            \
+    }                                                                          \
+  } while (0)
+
 typedef PgU64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
 typedef PgU64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
