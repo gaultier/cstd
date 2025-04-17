@@ -192,6 +192,15 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
     (s)->len -= 1;                                                             \
   } while (0)
 
+#define PG_DYN_REMOVE_AT(s, idx)                                               \
+  do {                                                                         \
+    PG_ASSERT((s)->len > 0);                                                   \
+    PG_ASSERT((idx) < (s)->len);                                               \
+    memmove(PG_SLICE_AT_PTR(s, idx), PG_SLICE_AT_PTR(s, (idx) + 1),            \
+            ((s)->len - (idx + 1)) * sizeof(PG_SLICE_AT(*(s), 0)));            \
+    (s)->len -= 1;                                                             \
+  } while (0)
+
 [[maybe_unused]] [[nodiscard]] static u64 pg_hash_fnv(Pgu8Slice s) {
   u64 hash = 0x100;
   for (u64 i = 0; i < s.len; i++) {
