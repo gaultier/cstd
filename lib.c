@@ -1561,7 +1561,7 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
     }                                                                          \
   } while (0)
 
-#define PG_DYN_SLICE(T, dyn) ((T){.data = dyn.data, .len = dyn.len})
+#define PG_DYN_SLICE(T, dyn) ((T){.data = (dyn).data, .len = (dyn).len})
 
 #define PG_DYN_CLONE(dst, src, allocator)                                      \
   do {                                                                         \
