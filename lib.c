@@ -149,7 +149,7 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 #define PG_ASSERT(x)                                                           \
   (x) ? (0)                                                                    \
       : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),                \
-         __builtin_trap(), 0)
+         fflush(stdout), __builtin_trap(), 0)
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_div_ceil(u64 a, u64 b) {
   PG_ASSERT(b > 0);
@@ -1510,10 +1510,10 @@ typedef enum {
 }
 
 #define PG_DYN_ENSURE_CAP(dyn, new_cap, allocator)                             \
-  ((new_cap > 0) && (dyn)->cap < (new_cap))                                                     \
+  ((new_cap > 0) && (dyn)->cap < (new_cap))                                    \
       ? PG_DYN_GROW(dyn, sizeof(*(dyn)->data), _Alignof((dyn)->data[0]),       \
                     new_cap, allocator),                                       \
-      PG_ASSERT((dyn)->cap >= (new_cap)), PG_ASSERT((dyn)->data), 0 : 0       \
+      PG_ASSERT((dyn)->cap >= (new_cap)), PG_ASSERT((dyn)->data), 0 : 0
 
 #define PG_DYN_SPACE(T, dyn)                                                   \
   ((T){.data = (dyn)->data + (dyn)->len, .len = (dyn)->cap - (dyn)->len})
