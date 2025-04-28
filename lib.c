@@ -1510,11 +1510,10 @@ typedef enum {
 }
 
 #define PG_DYN_ENSURE_CAP(dyn, new_cap, allocator)                             \
-  ((dyn)->cap < (new_cap))                                                     \
+  ((new_cap > 0) && (dyn)->cap < (new_cap))                                                     \
       ? PG_DYN_GROW(dyn, sizeof(*(dyn)->data), _Alignof((dyn)->data[0]),       \
                     new_cap, allocator),                                       \
-      PG_ASSERT((dyn)->cap >= (new_cap)), PG_ASSERT((dyn)->data), 0 : 0,       \
-      PG_ASSERT((dyn)->data), 0
+      PG_ASSERT((dyn)->cap >= (new_cap)), PG_ASSERT((dyn)->data), 0 : 0       \
 
 #define PG_DYN_SPACE(T, dyn)                                                   \
   ((T){.data = (dyn)->data + (dyn)->len, .len = (dyn)->cap - (dyn)->len})
