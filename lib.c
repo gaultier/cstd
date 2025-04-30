@@ -2656,6 +2656,64 @@ pg_bitfield_get_first_zero(PgString bitfield) {
   return res;
 }
 
+// Example: nodes=6
+// Matrix:
+//   0 1 2 3 4 5
+// 0 x . . . . .
+// 1   x . . . .
+// 2     x . . .
+// 3       x . .
+// 4         x .
+// 5           x
+typedef struct {
+  u64 nodes_count, bitfield_len;
+  PgString bitfield;
+} PgAdjacencyMatrix;
+
+[[maybe_unused]] [[nodiscard]] static PgAdjacencyMatrix
+pg_adjacency_matrix_make(u64 nodes_count, PgAllocator *allocator) {
+  PgAdjacencyMatrix res = {0};
+  if (0 == nodes_count) {
+    return res;
+  }
+
+  res.nodes_count = nodes_count;
+  res.bitfield_len = nodes_count * (nodes_count - 1) / 2;
+  res.bitfield = pg_string_make(res.bitfield_len, allocator);
+  return res;
+}
+
+[[nodiscard]] static u64
+pg_adjacency_matrix_row_column_to_bitfield_index(PgAdjacencyMatrix matrix,
+                                                 u64 row, u64 column) {
+  PG_ASSERT(column > 0);
+  PG_ASSERT(row < matrix.nodes_count - 1);
+  PG_ASSERT(row < column);
+
+  u64 idx = row * (row + 1) / 2 + column - 1;
+  PG_ASSERT(idx < matrix.bitfield_len);
+  return idx;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool
+pg_adjacency_matrix_has_edge(PgAdjacencyMatrix matrix, u64 row, u64 column) {
+  u64 idx =
+      pg_adjacency_matrix_row_column_to_bitfield_index(matrix, row, column);
+  return pg_bitfield_get(matrix.bitfield, idx);
+}
+
+[[maybe_unused]]
+static void pg_adjacency_matrix_add_edge(PgAdjacencyMatrix *matrix, u64 row,
+                                         u64 column) {
+  PG_ASSERT(row < matrix->nodes_count);
+  PG_ASSERT(column < matrix->nodes_count);
+
+  u64 idx =
+      pg_adjacency_matrix_row_column_to_bitfield_index(*matrix, row, column);
+
+  pg_bitfield_set(matrix->bitfield, idx, 1);
+}
+
 typedef enum {
   PG_CLOCK_KIND_MONOTONIC,
   PG_CLOCK_KIND_REALTIME,
