@@ -2730,8 +2730,8 @@ static void pg_adjacency_matrix_remove_node(PgAdjacencyMatrix *matrix, u64 node)
   u64 row = node;
   PG_ASSERT(row < matrix->nodes_count);
 
-  for (u64 col=0;col<matrix->nodes_count-1;col++){
-    pg_adjacency_matrix_remove_edge(matrix,node, col);
+  for (u64 col=row+1; col<matrix->nodes_count-1; col++){
+    pg_adjacency_matrix_remove_edge(matrix, row, col);
   }
 }
 
