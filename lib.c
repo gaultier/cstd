@@ -2714,6 +2714,18 @@ static void pg_adjacency_matrix_add_edge(PgAdjacencyMatrix *matrix, u64 row,
   pg_bitfield_set(matrix->bitfield, idx, 1);
 }
 
+[[maybe_unused]]
+static void pg_adjacency_matrix_remove_edge(PgAdjacencyMatrix *matrix, u64 row,
+                                         u64 column) {
+  PG_ASSERT(row < matrix->nodes_count);
+  PG_ASSERT(column < matrix->nodes_count);
+
+  u64 idx =
+      pg_adjacency_matrix_row_column_to_bitfield_index(*matrix, row, column);
+
+  pg_bitfield_set(matrix->bitfield, idx, 0);
+}
+
 typedef enum {
   PG_CLOCK_KIND_MONOTONIC,
   PG_CLOCK_KIND_REALTIME,
