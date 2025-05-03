@@ -2702,6 +2702,15 @@ pg_adjacency_matrix_has_edge(PgAdjacencyMatrix matrix, u64 row, u64 column) {
   return pg_bitfield_get(matrix.bitfield, idx);
 }
 
+[[maybe_unused]] [[nodiscard]] static PgAdjacencyMatrix
+pg_adjacency_matrix_clone(PgAdjacencyMatrix matrix, PgAllocator *allocator) {
+  PgAdjacencyMatrix res = {0};
+  res.nodes_count = matrix.nodes_count;
+  res.bitfield_len = matrix.bitfield_len;
+  res.bitfield = pg_string_clone(matrix.bitfield, allocator);
+  return res;
+}
+
 [[maybe_unused]]
 static void pg_adjacency_matrix_add_edge(PgAdjacencyMatrix *matrix, u64 row,
                                          u64 column) {
