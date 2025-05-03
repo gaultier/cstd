@@ -2754,6 +2754,21 @@ static bool pg_adjacency_matrix_is_empty(PgAdjacencyMatrix matrix) {
   return set == 0;
 }
 
+[[nodiscard]] [[maybe_unused]]
+static u64 pg_adjacency_matrix_count_neighbors(PgAdjacencyMatrix matrix,
+                                               u64 node) {
+  u64 row = node;
+  PG_ASSERT(row < matrix.nodes_count);
+
+  u64 res = 0;
+
+  // TODO: popcount?
+  for (u64 col = row + 1; col < matrix.nodes_count - 1; col++) {
+    res += pg_adjacency_matrix_has_edge(matrix, row, col);
+  }
+  return res;
+}
+
 typedef enum {
   PG_CLOCK_KIND_MONOTONIC,
   PG_CLOCK_KIND_REALTIME,
