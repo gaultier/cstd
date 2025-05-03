@@ -2715,7 +2715,7 @@ static void pg_adjacency_matrix_add_edge(PgAdjacencyMatrix *matrix, u64 row,
 }
 
 static void pg_adjacency_matrix_remove_edge(PgAdjacencyMatrix *matrix, u64 row,
-                                         u64 column) {
+                                            u64 column) {
   PG_ASSERT(row < matrix->nodes_count);
   PG_ASSERT(column < matrix->nodes_count);
 
@@ -2726,11 +2726,12 @@ static void pg_adjacency_matrix_remove_edge(PgAdjacencyMatrix *matrix, u64 row,
 }
 
 [[maybe_unused]]
-static void pg_adjacency_matrix_remove_node(PgAdjacencyMatrix *matrix, u64 node) {
+static void pg_adjacency_matrix_remove_node(PgAdjacencyMatrix *matrix,
+                                            u64 node) {
   u64 row = node;
   PG_ASSERT(row < matrix->nodes_count);
 
-  for (u64 col=row+1; col<matrix->nodes_count-1; col++){
+  for (u64 col = row + 1; col < matrix->nodes_count - 1; col++) {
     pg_adjacency_matrix_remove_edge(matrix, row, col);
   }
 }
@@ -2738,7 +2739,7 @@ static void pg_adjacency_matrix_remove_node(PgAdjacencyMatrix *matrix, u64 node)
 [[nodiscard]] [[maybe_unused]]
 static bool pg_adjacency_matrix_is_empty(PgAdjacencyMatrix matrix) {
   bool set = false;
-  for (u64 i=0; i< matrix.bitfield.len;i++){
+  for (u64 i = 0; i < matrix.bitfield.len; i++) {
     set |= PG_SLICE_AT(matrix.bitfield, i);
   }
   return set == 0;
