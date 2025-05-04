@@ -2768,7 +2768,7 @@ static u64 pg_adjacency_matrix_count_neighbors(PgAdjacencyMatrix matrix,
     res += pg_adjacency_matrix_has_edge(matrix, node, col);
   }
   // Count column.
-  for (u64 row = node + 1; row < matrix.nodes_count - 1; row++) {
+  for (u64 row = node + 1; row < matrix.nodes_count; row++) {
     res += pg_adjacency_matrix_has_edge(matrix, row, node);
   }
 
