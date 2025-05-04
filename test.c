@@ -680,7 +680,7 @@ static void test_string_indexof_any_byte() {
 
 static void test_u8x4_be_to_u32_and_back() {
   {
-    u32 n = 123'456'789;
+    u32 n = 123456789;
     u8 data[sizeof(n)] = {0};
     PgString s = {.data = data, .len = sizeof(n)};
     pg_u32_to_u8x4_be(n, &s);
@@ -2606,6 +2606,34 @@ static void test_string_buillder_append_u64_hex() {
   PG_ASSERT(pg_string_eq(out, expected));
 }
 
+static void test_adjacency_matrix() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgAdjacencyMatrix matrix = pg_adjacency_matrix_make(6, allocator);
+  PG_ASSERT(pg_adjacency_matrix_is_empty(matrix));
+
+  pg_adjacency_matrix_add_edge(&matrix, 2, 0);
+  PG_ASSERT(pg_adjacency_matrix_has_edge(matrix, 2, 0));
+  pg_adjacency_matrix_add_edge(&matrix, 3, 1);
+  PG_ASSERT(pg_adjacency_matrix_has_edge(matrix, 3, 1));
+  pg_adjacency_matrix_add_edge(&matrix, 3, 2);
+  PG_ASSERT(pg_adjacency_matrix_has_edge(matrix, 3, 2));
+  pg_adjacency_matrix_add_edge(&matrix, 5, 0);
+  PG_ASSERT(pg_adjacency_matrix_has_edge(matrix, 5, 0));
+  pg_adjacency_matrix_add_edge(&matrix, 5, 1);
+  PG_ASSERT(pg_adjacency_matrix_has_edge(matrix, 5, 1));
+  pg_adjacency_matrix_add_edge(&matrix, 5, 2);
+  PG_ASSERT(pg_adjacency_matrix_has_edge(matrix, 5, 2));
+  pg_adjacency_matrix_add_edge(&matrix, 5, 3);
+  PG_ASSERT(pg_adjacency_matrix_has_edge(matrix, 5, 3));
+  pg_adjacency_matrix_add_edge(&matrix, 5, 4);
+  PG_ASSERT(pg_adjacency_matrix_has_edge(matrix, 5, 4));
+
+  PG_ASSERT(!pg_adjacency_matrix_is_empty(matrix));
+}
+
 int main() {
   test_rune_bytes_count();
   test_utf8_count();
@@ -2665,4 +2693,5 @@ int main() {
   test_string_escape_js();
   test_string_builder_append_u64();
   test_string_buillder_append_u64_hex();
+  test_adjacency_matrix();
 }

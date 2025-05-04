@@ -2658,15 +2658,18 @@ pg_bitfield_get_first_zero(PgString bitfield) {
 
 // Example: nodes=6
 // Matrix:
-//   0 1 2 3 4 5
-// 0 x . . . . .
-// 1   x . . . .
-// 2     x . . .
-// 3       x . .
-// 4         x .
-// 5           x
+//   | 0 1 2 3 4 5
+// ---------------
+// 0 | x          
+// 1 | 0 x        
+// 2 | 1 0 x      
+// 3 | 0 1 1 x    
+// 4 | 0 0 0 0 x  
+// 5 | 1 1 1 1 1 x
+// => Bitfield: [0 1 0 0 1 1 0 0 0 0 1 1 1 1 1] .
 typedef struct {
   u64 nodes_count, bitfield_len;
+  // Stores the lower triangular half (without diagonal).
   PgString bitfield;
 } PgAdjacencyMatrix;
 
@@ -2685,20 +2688,20 @@ pg_adjacency_matrix_make(u64 nodes_count, PgAllocator *allocator) {
 
 [[nodiscard]] static u64
 pg_adjacency_matrix_row_column_to_bitfield_index(PgAdjacencyMatrix matrix,
-                                                 u64 row, u64 column) {
-  PG_ASSERT(column > 0);
-  PG_ASSERT(row < matrix.nodes_count - 1);
-  PG_ASSERT(row < column);
+                                                 u64 row, u64 col) {
+  PG_ASSERT(row > 0);
+  PG_ASSERT(col < matrix.nodes_count - 1);
+  PG_ASSERT(row >= col);
 
-  u64 idx = row * (row + 1) / 2 + column - 1;
+  u64 idx = (row * (row - 1)) / 2 + col ;
   PG_ASSERT(idx < matrix.bitfield_len);
   return idx;
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_adjacency_matrix_has_edge(PgAdjacencyMatrix matrix, u64 row, u64 column) {
+pg_adjacency_matrix_has_edge(PgAdjacencyMatrix matrix, u64 row, u64 col) {
   u64 idx =
-      pg_adjacency_matrix_row_column_to_bitfield_index(matrix, row, column);
+      pg_adjacency_matrix_row_column_to_bitfield_index(matrix, row, col);
   return pg_bitfield_get(matrix.bitfield, idx);
 }
 
@@ -2713,23 +2716,23 @@ pg_adjacency_matrix_clone(PgAdjacencyMatrix matrix, PgAllocator *allocator) {
 
 [[maybe_unused]]
 static void pg_adjacency_matrix_add_edge(PgAdjacencyMatrix *matrix, u64 row,
-                                         u64 column) {
+                                         u64 col) {
   PG_ASSERT(row < matrix->nodes_count);
-  PG_ASSERT(column < matrix->nodes_count);
+  PG_ASSERT(col < matrix->nodes_count);
 
   u64 idx =
-      pg_adjacency_matrix_row_column_to_bitfield_index(*matrix, row, column);
+      pg_adjacency_matrix_row_column_to_bitfield_index(*matrix, row, col);
 
   pg_bitfield_set(matrix->bitfield, idx, 1);
 }
 
 static void pg_adjacency_matrix_remove_edge(PgAdjacencyMatrix *matrix, u64 row,
-                                            u64 column) {
+                                            u64 col) {
   PG_ASSERT(row < matrix->nodes_count);
-  PG_ASSERT(column < matrix->nodes_count);
+  PG_ASSERT(col < matrix->nodes_count);
 
   u64 idx =
-      pg_adjacency_matrix_row_column_to_bitfield_index(*matrix, row, column);
+      pg_adjacency_matrix_row_column_to_bitfield_index(*matrix, row, col);
 
   pg_bitfield_set(matrix->bitfield, idx, 0);
 }
@@ -2740,7 +2743,7 @@ static void pg_adjacency_matrix_remove_node(PgAdjacencyMatrix *matrix,
   u64 row = node;
   PG_ASSERT(row < matrix->nodes_count);
 
-  for (u64 col = row + 1; col < matrix->nodes_count - 1; col++) {
+  for (u64 col = 0; col < row; col++) {
     pg_adjacency_matrix_remove_edge(matrix, row, col);
   }
 }
@@ -2763,7 +2766,7 @@ static u64 pg_adjacency_matrix_count_neighbors(PgAdjacencyMatrix matrix,
   u64 res = 0;
 
   // TODO: popcount?
-  for (u64 col = row + 1; col < matrix.nodes_count - 1; col++) {
+  for (u64 col = 0; col < row; col++) {
     res += pg_adjacency_matrix_has_edge(matrix, row, col);
   }
   return res;

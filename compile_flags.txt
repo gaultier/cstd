@@ -14,3 +14,4 @@
 -Wno-cast-qual
 -Wno-unknown-warning-option
 -Wno-used-but-marked-unused 
+-Wno-disabled-macro-expansion
