@@ -2754,6 +2754,55 @@ static bool pg_adjacency_matrix_is_empty(PgAdjacencyMatrix matrix) {
   return set == 0;
 }
 
+typedef struct {
+  PgAdjacencyMatrix matrix;
+  u64 node, row, col;
+} PgAdjacencyMatrixNeighborIterator;
+
+typedef struct {
+  u64 row, col;
+  bool present;
+} PgAdjacencyMatrixNeighbor;
+
+[[nodiscard]] [[maybe_unused]]
+static PgAdjacencyMatrixNeighborIterator
+pg_adjacency_matrix_make_neighbor_iterator(PgAdjacencyMatrix matrix, u64 node) {
+  PgAdjacencyMatrixNeighborIterator it = {0};
+  it.matrix = matrix;
+  it.node = node;
+  return it;
+}
+
+[[nodiscard]] [[maybe_unused]]
+static PgAdjacencyMatrixNeighbor pg_adjacency_matrix_neighbor_iterator_next(
+    PgAdjacencyMatrixNeighborIterator *it) {
+  PG_ASSERT(it);
+  PG_ASSERT(it->node < it->matrix.nodes_count);
+  PG_ASSERT(it->row < it->matrix.nodes_count);
+  PG_ASSERT(it->col < it->matrix.nodes_count);
+  PG_ASSERT(it->row > 0);
+
+  PgAdjacencyMatrixNeighbor res = {0};
+
+  // Scanning row.
+  if (it->col + 1 < it->node) {
+    it->col += 1;
+    res.col = it->col;
+    res.row = it->node;
+    res.present = true;
+    return res;
+  }
+
+  // Scanning column.
+  if (it->row < it->matrix.nodes_count) {
+    it->row += 1;
+    res.col = it->col;
+    res.row = it->node;
+    res.present = true;
+  }
+  return res;
+}
+
 [[nodiscard]] [[maybe_unused]]
 static u64 pg_adjacency_matrix_count_neighbors(PgAdjacencyMatrix matrix,
                                                u64 node) {
