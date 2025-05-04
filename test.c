@@ -2632,6 +2632,13 @@ static void test_adjacency_matrix() {
   PG_ASSERT(pg_adjacency_matrix_has_edge(matrix, 5, 4));
 
   PG_ASSERT(!pg_adjacency_matrix_is_empty(matrix));
+
+  PG_ASSERT(2 == pg_adjacency_matrix_count_neighbors(matrix, 0));
+  PG_ASSERT(2 == pg_adjacency_matrix_count_neighbors(matrix, 1));
+  PG_ASSERT(3 == pg_adjacency_matrix_count_neighbors(matrix, 2));
+  PG_ASSERT(3 == pg_adjacency_matrix_count_neighbors(matrix, 3));
+  PG_ASSERT(1 == pg_adjacency_matrix_count_neighbors(matrix, 4));
+  PG_ASSERT(5 == pg_adjacency_matrix_count_neighbors(matrix, 5));
 }
 
 int main() {
