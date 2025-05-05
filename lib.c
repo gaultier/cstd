@@ -2794,6 +2794,10 @@ static PgAdjacencyMatrixNeighbor pg_adjacency_matrix_neighbor_iterator_next(
       res.edge = pg_adjacency_matrix_has_edge(it->matrix, it->row, it->col);
       if (res.edge) {
         res.has_value = true;
+        res.col = it->col;
+        res.row = it->row;
+        PG_ASSERT(res.col != res.row);
+
         it->col += 1;
         return res;
       }
@@ -2802,7 +2806,7 @@ static PgAdjacencyMatrixNeighbor pg_adjacency_matrix_neighbor_iterator_next(
       it->row += 1;
       it->scan_mode_column = true;
     }
-  } 
+  }
 
   if (it->scan_mode_column) { // Scan column.
 
@@ -2810,6 +2814,10 @@ static PgAdjacencyMatrixNeighbor pg_adjacency_matrix_neighbor_iterator_next(
       res.edge = pg_adjacency_matrix_has_edge(it->matrix, it->row, it->col);
       if (res.edge) {
         res.has_value = true;
+        res.col = it->col;
+        res.row = it->row;
+        PG_ASSERT(res.col != res.row);
+
         it->row += 1;
         return res;
       }
