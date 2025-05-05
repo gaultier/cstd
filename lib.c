@@ -2756,12 +2756,14 @@ static bool pg_adjacency_matrix_is_empty(PgAdjacencyMatrix matrix) {
 
 typedef struct {
   PgAdjacencyMatrix matrix;
-  u64 node, row, col;
+  u64 row, col;
+  bool scan_mode_column;
 } PgAdjacencyMatrixNeighborIterator;
 
 typedef struct {
   u64 row, col;
-  bool present;
+  bool edge;
+  bool has_value;
 } PgAdjacencyMatrixNeighbor;
 
 [[nodiscard]] [[maybe_unused]]
@@ -2769,7 +2771,7 @@ static PgAdjacencyMatrixNeighborIterator
 pg_adjacency_matrix_make_neighbor_iterator(PgAdjacencyMatrix matrix, u64 node) {
   PgAdjacencyMatrixNeighborIterator it = {0};
   it.matrix = matrix;
-  it.node = node;
+  it.row = node;
   return it;
 }
 
@@ -2777,28 +2779,41 @@ pg_adjacency_matrix_make_neighbor_iterator(PgAdjacencyMatrix matrix, u64 node) {
 static PgAdjacencyMatrixNeighbor pg_adjacency_matrix_neighbor_iterator_next(
     PgAdjacencyMatrixNeighborIterator *it) {
   PG_ASSERT(it);
-  PG_ASSERT(it->node < it->matrix.nodes_count);
-  PG_ASSERT(it->row < it->matrix.nodes_count);
-  PG_ASSERT(it->col < it->matrix.nodes_count);
-  PG_ASSERT(it->row > 0);
+  PG_ASSERT(it->row <= it->matrix.nodes_count);
+  PG_ASSERT(it->col <= it->matrix.nodes_count);
 
   PgAdjacencyMatrixNeighbor res = {0};
-
-  // Scanning row.
-  if (it->col + 1 < it->node) {
-    it->col += 1;
-    res.col = it->col;
-    res.row = it->node;
-    res.present = true;
+  if (it->row >= it->matrix.nodes_count || it->col >= it->matrix.nodes_count ||
+      it->col > it->row) { // The end.
     return res;
   }
 
-  // Scanning column.
-  if (it->row < it->matrix.nodes_count) {
-    it->row += 1;
-    res.col = it->col;
-    res.row = it->node;
-    res.present = true;
+  if (!it->scan_mode_column) { // Scan row.
+
+    for (; it->col < it->row; it->col++) {
+      res.edge = pg_adjacency_matrix_has_edge(it->matrix, it->row, it->col);
+      if (res.edge) {
+        res.has_value = true;
+        it->col += 1;
+        return res;
+      }
+    }
+    if (it->col == it->row) { // Skip diagonal.
+      it->row += 1;
+      it->scan_mode_column = true;
+    }
+  } 
+
+  if (it->scan_mode_column) { // Scan column.
+
+    for (; it->row < it->matrix.nodes_count; it->row++) {
+      res.edge = pg_adjacency_matrix_has_edge(it->matrix, it->row, it->col);
+      if (res.edge) {
+        res.has_value = true;
+        it->row += 1;
+        return res;
+      }
+    }
   }
   return res;
 }
@@ -2809,19 +2824,15 @@ static u64 pg_adjacency_matrix_count_neighbors(PgAdjacencyMatrix matrix,
   PG_ASSERT(node < matrix.nodes_count);
 
   u64 res = 0;
+  PgAdjacencyMatrixNeighborIterator it =
+      pg_adjacency_matrix_make_neighbor_iterator(matrix, node);
 
-  // TODO: popcount?
-
-  // Count row.
-  for (u64 col = 0; col < node; col++) {
-    res += pg_adjacency_matrix_has_edge(matrix, node, col);
-  }
-  // Count column.
-  for (u64 row = node + 1; row < matrix.nodes_count; row++) {
-    res += pg_adjacency_matrix_has_edge(matrix, row, node);
-  }
-
-  PG_ASSERT(res + 1 <= matrix.nodes_count);
+  PgAdjacencyMatrixNeighbor neighbor = {0};
+  do {
+    neighbor = pg_adjacency_matrix_neighbor_iterator_next(&it);
+    res += neighbor.edge;
+    PG_ASSERT(res + 1 <= matrix.nodes_count);
+  } while (neighbor.has_value);
 
   return res;
 }
