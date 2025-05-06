@@ -2761,7 +2761,7 @@ typedef struct {
 } PgAdjacencyMatrixNeighborIterator;
 
 typedef struct {
-  u64 row, col;
+  u64 row, col, node;
   bool edge;
   bool has_value;
 } PgAdjacencyMatrixNeighbor;
@@ -2796,6 +2796,7 @@ static PgAdjacencyMatrixNeighbor pg_adjacency_matrix_neighbor_iterator_next(
         res.has_value = true;
         res.col = it->col;
         res.row = it->row;
+        res.node = it->col;
         PG_ASSERT(res.col != res.row);
 
         it->col += 1;
@@ -2816,6 +2817,7 @@ static PgAdjacencyMatrixNeighbor pg_adjacency_matrix_neighbor_iterator_next(
         res.has_value = true;
         res.col = it->col;
         res.row = it->row;
+        res.node = it->row;
         PG_ASSERT(res.col != res.row);
 
         it->row += 1;
