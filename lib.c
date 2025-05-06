@@ -2673,6 +2673,18 @@ typedef struct {
   PgString bitfield;
 } PgAdjacencyMatrix;
 
+typedef struct {
+  PgAdjacencyMatrix matrix;
+  u64 row, col;
+  bool scan_mode_column;
+} PgAdjacencyMatrixNeighborIterator;
+
+typedef struct {
+  u64 row, col, node;
+  bool edge;
+  bool has_value;
+} PgAdjacencyMatrixNeighbor;
+
 [[maybe_unused]] [[nodiscard]] static PgAdjacencyMatrix
 pg_adjacency_matrix_make(u64 nodes_count, PgAllocator *allocator) {
   PgAdjacencyMatrix res = {0};
@@ -2734,38 +2746,6 @@ static void pg_adjacency_matrix_remove_edge(PgAdjacencyMatrix *matrix, u64 row,
   pg_bitfield_set(matrix->bitfield, idx, 0);
 }
 
-[[maybe_unused]]
-static void pg_adjacency_matrix_remove_node(PgAdjacencyMatrix *matrix,
-                                            u64 node) {
-  u64 row = node;
-  PG_ASSERT(row < matrix->nodes_count);
-
-  for (u64 col = 0; col < row; col++) {
-    pg_adjacency_matrix_remove_edge(matrix, row, col);
-  }
-}
-
-[[nodiscard]] [[maybe_unused]]
-static bool pg_adjacency_matrix_is_empty(PgAdjacencyMatrix matrix) {
-  bool set = false;
-  for (u64 i = 0; i < matrix.bitfield.len; i++) {
-    set |= PG_SLICE_AT(matrix.bitfield, i);
-  }
-  return set == 0;
-}
-
-typedef struct {
-  PgAdjacencyMatrix matrix;
-  u64 row, col;
-  bool scan_mode_column;
-} PgAdjacencyMatrixNeighborIterator;
-
-typedef struct {
-  u64 row, col, node;
-  bool edge;
-  bool has_value;
-} PgAdjacencyMatrixNeighbor;
-
 [[nodiscard]] [[maybe_unused]]
 static PgAdjacencyMatrixNeighborIterator
 pg_adjacency_matrix_make_neighbor_iterator(PgAdjacencyMatrix matrix, u64 node) {
@@ -2826,6 +2806,35 @@ static PgAdjacencyMatrixNeighbor pg_adjacency_matrix_neighbor_iterator_next(
     }
   }
   return res;
+}
+
+[[maybe_unused]]
+static void pg_adjacency_matrix_remove_node(PgAdjacencyMatrix *matrix,
+                                            u64 node) {
+  u64 row = node;
+  PG_ASSERT(row < matrix->nodes_count);
+
+  PgAdjacencyMatrixNeighborIterator it =
+      pg_adjacency_matrix_make_neighbor_iterator(*matrix, node);
+
+  PgAdjacencyMatrixNeighbor neighbor = {0};
+  do {
+    neighbor = pg_adjacency_matrix_neighbor_iterator_next(&it);
+    if (!neighbor.has_value) {
+      break;
+    }
+
+    pg_adjacency_matrix_remove_edge(matrix, neighbor.row, neighbor.col);
+  } while (neighbor.has_value);
+}
+
+[[nodiscard]] [[maybe_unused]]
+static bool pg_adjacency_matrix_is_empty(PgAdjacencyMatrix matrix) {
+  bool set = false;
+  for (u64 i = 0; i < matrix.bitfield.len; i++) {
+    set |= PG_SLICE_AT(matrix.bitfield, i);
+  }
+  return set == 0;
 }
 
 [[nodiscard]] [[maybe_unused]]
