@@ -2845,6 +2845,33 @@ static u64 pg_adjacency_matrix_count_neighbors(PgAdjacencyMatrix matrix,
   return res;
 }
 
+[[maybe_unused]] static void
+pg_adjacency_matrix_print(PgAdjacencyMatrix matrix) {
+  printf("    | ");
+  for (u64 col = 0; col < matrix.nodes_count; col++) {
+    printf("%03lu ", col);
+  }
+  printf("\n");
+  for (u64 col = 0; col < matrix.nodes_count; col++) {
+    printf("-----");
+  }
+  printf("\n");
+
+  for (u64 row = 0; row < matrix.nodes_count; row++) {
+    printf("%03lu | ", row);
+    for (u64 col = 0; col < matrix.nodes_count; col++) {
+      if (col >= row) {
+        printf("  ");
+        continue;
+      }
+
+      bool edge = pg_adjacency_matrix_has_edge(matrix, row, col);
+      printf("%s ", edge ? "1  " : "0  ");
+    }
+    printf("\n");
+  }
+}
+
 typedef enum {
   PG_CLOCK_KIND_MONOTONIC,
   PG_CLOCK_KIND_REALTIME,
