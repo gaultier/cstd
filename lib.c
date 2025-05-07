@@ -112,6 +112,9 @@ PG_SLICE(u8) Pgu8Slice;
 PG_DYN(char *) PgCstrDyn;
 typedef Pgu8Slice PgString;
 
+PG_SLICE(void) PgAnySlice;
+PG_DYN(void) PgAnyDyn;
+
 #define PG_STATIC_ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
 #define PG_CLAMP(min, n, max) ((n) < (min) ? (min) : (n) > (max) ? (max) : n)
@@ -165,6 +168,8 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 #define PG_SLICE_AT(s, idx) (PG_C_ARRAY_AT((s).data, (s).len, idx))
 
 #define PG_SLICE_AT_PTR(s, idx) (PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx))
+
+#define PG_SLICE_AT_CAST(T, s, idx) (PG_C_ARRAY_AT((T *)(s).data, (s).len, idx))
 
 #define PG_SLICE_MAKE(T, l, arena)                                             \
   ((T##Slice){.data = pg_arena_new(arena, T, l), .len = l})
