@@ -630,6 +630,26 @@ pg_string_is_alphabetical(PgString s) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
+pg_string_trim_space_left(PgString s) {
+  PgString res = s;
+  res = pg_string_trim_left(res, ' ');
+  res = pg_string_trim_left(res, '\n');
+  res = pg_string_trim_left(res, '\t');
+  res = pg_string_trim_left(res, '\r');
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_string_trim_space_right(PgString s) {
+  PgString res = s;
+  res = pg_string_trim_right(res, ' ');
+  res = pg_string_trim_right(res, '\n');
+  res = pg_string_trim_right(res, '\t');
+  res = pg_string_trim_right(res, '\r');
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgString
 pg_string_trim_space(PgString s) {
   PgString res = s;
   res = pg_string_trim(res, ' ');
