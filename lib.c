@@ -150,9 +150,9 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 }
 
 #define PG_ASSERT(x)                                                           \
-  (x) ? (0)                                                                    \
-      : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),                \
-         fflush(stdout), __builtin_trap(), 0)
+  ((x) ? (0)                                                                   \
+       : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),               \
+          fflush(stdout), fflush(stderr), __builtin_trap(), 0))
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_div_ceil(u64 a, u64 b) {
   PG_ASSERT(b > 0);
@@ -1559,12 +1559,8 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
    ((s)->data + (s)->len++))
 
 #define PG_DYN_POP(s)                                                          \
-  do {                                                                         \
-    PG_ASSERT((s)->len > 0);                                                   \
-    PG_ASSERT((s)->data);                                                      \
-    memset(PG_SLICE_LAST_PTR(s), 0, sizeof((s)->data[(s)->len - 1]));          \
-    (s)->len -= 1;                                                             \
-  } while (0)
+  (0 == (s)->len || nullptr == (s)->data) ? (__builtin_trap(), (s)->data[0])   \
+                                          : ((s)->data[--(s)->len])
 
 #define PG_SLICE_LAST_PTR(s)                                                   \
   PG_C_ARRAY_AT_PTR((s)->data, (s)->len, (s)->len - 1)
