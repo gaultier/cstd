@@ -3089,7 +3089,25 @@ pg_arena_make_from_virtual_mem(u64 size) {
   }
 }
 
+[[maybe_unused]] [[nodiscard]] static PgString pg_path_dir_name(PgString s) {
+  i64 idx = pg_string_last_indexof_rune(s, PG_PATH_SEPARATOR);
+  if (-1 == idx) {
+    return s;
+  } else {
+    return PG_SLICE_RANGE(s, 0, (u64)idx);
+  }
+}
+
 [[maybe_unused]] [[nodiscard]] static PgString pg_path_stem(PgString s) {
+  i64 idx = pg_string_last_indexof_rune(s, '.');
+  if (-1 == idx) {
+    return s;
+  }
+
+  return PG_SLICE_RANGE(s, 0, (u64)idx);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgString pg_file_stem(PgString s) {
   PgString base_name = pg_path_base_name(s);
   i64 idx = pg_string_last_indexof_rune(base_name, '.');
   if (-1 == idx) {
