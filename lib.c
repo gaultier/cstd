@@ -3080,6 +3080,20 @@ pg_arena_make_from_virtual_mem(u64 size) {
 #define PG_PATH_SEPARATOR_S "\\"
 #endif
 
+// TODO: Trim separators in `a` and `b`?
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_path_join(PgString a, PgString b, PgAllocator *allocator) {
+  PgString sep = PG_S(PG_PATH_SEPARATOR_S);
+
+  Pgu8Dyn sb = pg_sb_make_with_cap(a.len + sep.len + b.len, allocator);
+
+  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(&sb, a);
+  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(&sb, sep);
+  PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(&sb, b);
+
+  return PG_DYN_SLICE(PgString, sb);
+}
+
 [[maybe_unused]] [[nodiscard]] static PgString pg_path_base_name(PgString s) {
   i64 idx = pg_string_last_indexof_rune(s, PG_PATH_SEPARATOR);
   if (-1 == idx) {
