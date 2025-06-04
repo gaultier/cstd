@@ -3504,33 +3504,33 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
     }
 
     if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdin_capture) {
-      PG_ASSERT(0 == close(stdin_pipe[PG_PIPE_WRITE]));
+      close(stdin_pipe[PG_PIPE_WRITE]);
       int ret_dup2 = dup2(stdin_pipe[PG_PIPE_READ], STDIN_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stdin_capture) {
-      PG_ASSERT(0 == close(STDIN_FILENO));
+      close(STDIN_FILENO);
     } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdin_capture) {
       int ret_dup2 = dup2(fd_ignore, STDIN_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     }
 
     if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdout_capture) {
-      PG_ASSERT(0 == close(stdout_pipe[PG_PIPE_READ]));
+      close(stdout_pipe[PG_PIPE_READ]);
       int ret_dup2 = dup2(stdout_pipe[PG_PIPE_WRITE], STDOUT_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stdout_capture) {
-      PG_ASSERT(0 == close(STDOUT_FILENO));
+      close(STDOUT_FILENO);
     } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdout_capture) {
       int ret_dup2 = dup2(fd_ignore, STDOUT_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     }
 
     if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stderr_capture) {
-      PG_ASSERT(0 == close(stderr_pipe[PG_PIPE_READ]));
+      close(stderr_pipe[PG_PIPE_READ]);
       int ret_dup2 = dup2(stderr_pipe[PG_PIPE_WRITE], STDERR_FILENO);
       PG_ASSERT(-1 != ret_dup2);
     } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stderr_capture) {
-      PG_ASSERT(0 == close(STDERR_FILENO));
+      close(STDERR_FILENO);
     } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stderr_capture) {
       int ret_dup2 = dup2(fd_ignore, STDERR_FILENO);
       PG_ASSERT(-1 != ret_dup2);
@@ -3553,24 +3553,24 @@ end:
   }
 
   if (stdin_pipe[PG_PIPE_READ]) {
-    PG_ASSERT(0 == close(stdin_pipe[PG_PIPE_READ]));
+    close(stdin_pipe[PG_PIPE_READ]);
   }
   if (stdout_pipe[PG_PIPE_WRITE]) {
-    PG_ASSERT(0 == close(stdout_pipe[PG_PIPE_WRITE]));
+    close(stdout_pipe[PG_PIPE_WRITE]);
   }
   if (stderr_pipe[PG_PIPE_WRITE]) {
-    PG_ASSERT(0 == close(stderr_pipe[PG_PIPE_WRITE]));
+    close(stderr_pipe[PG_PIPE_WRITE]);
   }
 
   if (res.err) {
     if (stdin_pipe[PG_PIPE_WRITE]) {
-      PG_ASSERT(0 == close(stdin_pipe[PG_PIPE_WRITE]));
+      close(stdin_pipe[PG_PIPE_WRITE]);
     }
     if (stdout_pipe[PG_PIPE_READ]) {
-      PG_ASSERT(0 == close(stdout_pipe[PG_PIPE_READ]));
+      close(stdout_pipe[PG_PIPE_READ]);
     }
     if (stderr_pipe[PG_PIPE_READ]) {
-      PG_ASSERT(0 == close(stderr_pipe[PG_PIPE_READ]));
+      close(stderr_pipe[PG_PIPE_READ]);
     }
   }
 
@@ -3631,7 +3631,7 @@ pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
       }
 
       if (pollfd.revents & (POLLERR | POLLNVAL)) {
-        PG_ASSERT(0 == close(pollfd.fd));
+        close(pollfd.fd);
         fd->fd = 0;
         continue;
       }
@@ -3648,7 +3648,7 @@ pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
         goto end;
       }
       if (0 == read_n) {
-        PG_ASSERT(0 == close(pollfd.fd));
+        close(pollfd.fd);
         fd->fd = 0;
         continue;
       }
@@ -3665,13 +3665,13 @@ end:
   }
 
   if (process.stdin_pipe.fd) {
-    PG_ASSERT(0 == close(process.stdin_pipe.fd));
+    close(process.stdin_pipe.fd);
   }
   if (process.stdout_pipe.fd) {
-    PG_ASSERT(0 == close(process.stdout_pipe.fd));
+    close(process.stdout_pipe.fd);
   }
   if (process.stderr_pipe.fd) {
-    PG_ASSERT(0 == close(process.stderr_pipe.fd));
+    close(process.stderr_pipe.fd);
   }
 
   res.res.stdout_captured = PG_DYN_SLICE(PgString, stdout_sb);
