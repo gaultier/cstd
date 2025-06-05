@@ -32,6 +32,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <threads.h>
 
 #define PG_PATH_MAX 4096
 
@@ -6859,6 +6860,103 @@ pg_hash_trie_lookup(PgHashTrie **map, Pgu8Slice key, PgAllocator *allocator) {
   *map = pg_alloc(allocator, sizeof(PgHashTrie), _Alignof(PgHashTrie), 1);
   (*map)->key = key;
   return *map;
+}
+
+PG_SLICE(thrd_t) PgThreadSlice;
+PG_DYN(thrd_t) PgThreadDyn;
+
+typedef struct PgThreadPoolTask PgThreadPoolTask;
+struct PgThreadPoolTask {
+  void *data;
+  PgThreadPoolTask *next;
+  thrd_start_t fn;
+};
+
+typedef struct {
+  PgThreadSlice threads;
+  // Linked list.
+  PgThreadPoolTask *tasks;
+  mtx_t tasks_mtx;
+  cnd_t tasks_cnd;
+} PgThreadPool;
+PG_RESULT(PgThreadPool) PgThreadPoolResult;
+
+// Caller is responsible for proper locking.
+[[maybe_unused]] [[nodiscard]]
+static PgThreadPoolTask *pg_thread_pool_dequeue_task(PgThreadPool *pool) {
+  PG_ASSERT(pool);
+  PG_ASSERT(pool->tasks);
+  PgThreadPoolTask *res = pool->tasks;
+  pool->tasks = pool->tasks->next;
+  return res;
+}
+
+[[nodiscard]] static int pg_pool_thread_start(void *data) {
+  for (;;) {
+    PG_ASSERT(data);
+    PgThreadPool *pool = data;
+
+    PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
+    PG_ASSERT(thrd_success == cnd_wait(&pool->tasks_cnd, &pool->tasks_mtx));
+    PgThreadPoolTask *task = pg_thread_pool_dequeue_task(pool);
+    PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+
+    PG_ASSERT(task);
+    PG_ASSERT(task->fn);
+
+    int ret = task->fn(task->data);
+    if (thrd_success != ret) {
+      return ret;
+    }
+  }
+}
+
+[[nodiscard]] [[maybe_unused]] static PgThreadPoolResult
+pg_thread_pool_make(u32 size, PgAllocator *allocator) {
+  PgThreadPoolResult res = {0};
+  res.res.threads.len = size;
+  res.res.threads.data =
+      pg_alloc(allocator, sizeof(thrd_t), _Alignof(thrd_t), size);
+
+  for (u32 i = 0; i < size; i++) {
+    thrd_t *thread = PG_SLICE_AT_PTR(&res.res.threads, i);
+    int ret = thrd_create(thread, pg_pool_thread_start, &res.res.tasks);
+    if (ret != thrd_success) {
+      res.err = PG_ERR_INVALID_VALUE; // FIXME: return exact error.
+      return res;
+    }
+  }
+
+  if (thrd_success != mtx_init(&res.res.tasks_mtx, mtx_plain)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  if (thrd_success != cnd_init(&res.res.tasks_cnd)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  return res;
+}
+
+[[maybe_unused]]
+static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
+                                        void *data, PgAllocator *allocator) {
+  PgThreadPoolTask *task = pg_alloc(allocator, sizeof(PgThreadPoolTask),
+                                    _Alignof(PgThreadPoolTask), 1);
+  task->data = data;
+  task->fn = fn;
+
+  PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
+  if (!pool->tasks) {
+    pool->tasks = task->next;
+  } else {
+    task->next = pool->tasks->next;
+    pool->tasks->next = task;
+  }
+  PG_ASSERT(thrd_success == cnd_signal(&pool->tasks_cnd));
+  PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
 }
 
 #endif
