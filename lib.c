@@ -6941,11 +6941,15 @@ static PgThreadPoolTask *pg_thread_pool_dequeue_task(PgThreadPool *pool) {
     PG_ASSERT(task);
     PG_ASSERT(task->fn);
 
-    printf("worked exec fn\n");
+    printf("worker exec fn\n");
     int ret = task->fn(task->data);
+    printf("worker execed fn\n");
     if (thrd_success != ret) {
+      printf("worker stopping because of fn err\n");
       return ret;
     }
+
+    printf("worker ready for next iteration\n");
   }
 }
 
