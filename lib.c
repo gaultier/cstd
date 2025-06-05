@@ -6911,21 +6911,30 @@ static PgThreadPoolTask *pg_thread_pool_dequeue_task(PgThreadPool *pool) {
 [[nodiscard]] static int pg_pool_worker_start_fn(void *data) {
   PG_ASSERT(data);
   PgThreadPool *pool = data;
+  printf("worker started\n");
 
   for (;;) {
+    printf("worker acquiring lock\n");
     PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
-    if (pool->done) {
-      PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
-      return thrd_success;
+    printf("worker acquired lock\n");
+    while (!pool->tasks) {
+      if (pool->done) {
+        printf("worker stopping\n");
+        PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+        return thrd_success;
+      }
+
+      PG_ASSERT(thrd_success == cnd_wait(&pool->tasks_cnd, &pool->tasks_mtx));
     }
 
-    PG_ASSERT(thrd_success == cnd_wait(&pool->tasks_cnd, &pool->tasks_mtx));
+    printf("worker stopped waiting\n");
     PgThreadPoolTask *task = pg_thread_pool_dequeue_task(pool);
     PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
 
     PG_ASSERT(task);
     PG_ASSERT(task->fn);
 
+    printf("worked exec fn\n");
     int ret = task->fn(task->data);
     if (thrd_success != ret) {
       return ret;
@@ -6952,7 +6961,7 @@ pg_thread_pool_make(u32 size, PgAllocator *allocator) {
 
   for (u32 i = 0; i < size; i++) {
     thrd_t *thread = PG_SLICE_AT_PTR(&res.res.workers, i);
-    int ret = thrd_create(thread, pg_pool_worker_start_fn, &res.res.tasks);
+    int ret = thrd_create(thread, pg_pool_worker_start_fn, &res.res);
     if (ret != thrd_success) {
       res.err = PG_ERR_INVALID_VALUE; // FIXME: return exact error.
       return res;
@@ -6974,22 +6983,27 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
   task->data = data;
   task->fn = fn;
 
+  printf("pool enqueue task acquiring lock\n");
   PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
+  printf("pool enqueue task acquired lock\n");
   if (!pool->tasks) {
-    pool->tasks = task->next;
+    pool->tasks = task;
   } else {
-    task->next = pool->tasks->next;
-    pool->tasks->next = task;
+    task->next = pool->tasks;
+    pool->tasks = task;
   }
   PG_ASSERT(thrd_success == cnd_signal(&pool->tasks_cnd));
   PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+  printf("pool enqueued task\n");
 }
 
 [[maybe_unused]] static void pg_thread_pool_wait(PgThreadPool *pool) {
+  printf("pool wait\n");
   PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
   pool->done = true;
   PG_ASSERT(thrd_success == cnd_broadcast(&pool->tasks_cnd));
   PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+  printf("pool wait broadcasted\n");
 
   for (u32 i = 0; i < pool->workers.len; i++) {
     thrd_join(PG_SLICE_AT(pool->workers, i), nullptr);
