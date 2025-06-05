@@ -6896,7 +6896,11 @@ typedef struct {
 
   bool done;
 } PgThreadPool;
-PG_RESULT(PgThreadPool) PgThreadPoolResult;
+
+typedef struct {
+  PgError err;
+  PgThreadPool *pool;
+} PgThreadPoolResult;
 
 // Caller is responsible for proper locking.
 [[maybe_unused]] [[nodiscard]]
@@ -6924,12 +6928,15 @@ static PgThreadPoolTask *pg_thread_pool_dequeue_task(PgThreadPool *pool) {
         return thrd_success;
       }
 
+      printf("worker waiting\n");
       PG_ASSERT(thrd_success == cnd_wait(&pool->tasks_cnd, &pool->tasks_mtx));
     }
+    printf("worker waited\n");
 
-    printf("worker stopped waiting\n");
     PgThreadPoolTask *task = pg_thread_pool_dequeue_task(pool);
+    printf("worker task dequeued\n");
     PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+    printf("worker released lock\n");
 
     PG_ASSERT(task);
     PG_ASSERT(task->fn);
@@ -6945,23 +6952,25 @@ static PgThreadPoolTask *pg_thread_pool_dequeue_task(PgThreadPool *pool) {
 [[nodiscard]] [[maybe_unused]] static PgThreadPoolResult
 pg_thread_pool_make(u32 size, PgAllocator *allocator) {
   PgThreadPoolResult res = {0};
-  res.res.workers.len = size;
-  res.res.workers.data =
+  res.pool = PG_NEW(PgThreadPool, allocator);
+
+  if (thrd_success != mtx_init(&res.pool->tasks_mtx, mtx_plain)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  if (thrd_success != cnd_init(&res.pool->tasks_cnd)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  res.pool->workers.len = size;
+  res.pool->workers.data =
       pg_alloc(allocator, sizeof(thrd_t), _Alignof(thrd_t), size);
 
-  if (thrd_success != mtx_init(&res.res.tasks_mtx, mtx_plain)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-
-  if (thrd_success != cnd_init(&res.res.tasks_cnd)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-
   for (u32 i = 0; i < size; i++) {
-    thrd_t *thread = PG_SLICE_AT_PTR(&res.res.workers, i);
-    int ret = thrd_create(thread, pg_pool_worker_start_fn, &res.res);
+    thrd_t *thread = PG_SLICE_AT_PTR(&res.pool->workers, i);
+    int ret = thrd_create(thread, pg_pool_worker_start_fn, res.pool);
     if (ret != thrd_success) {
       res.err = PG_ERR_INVALID_VALUE; // FIXME: return exact error.
       return res;
