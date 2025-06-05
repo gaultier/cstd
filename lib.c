@@ -1215,14 +1215,26 @@ typedef struct {
 static_assert(sizeof(PgHeapAllocator) == sizeof(PgAllocator));
 
 [[maybe_unused]] [[nodiscard]] static PgHeapAllocator pg_make_heap_allocator() {
-  return (PgHeapAllocator){.alloc_fn = pg_alloc_heap_libc,
-                           .realloc_fn = pg_realloc_heap_libc,
-                           .free_fn = pg_free_heap_libc};
+  return (PgHeapAllocator){
+      .alloc_fn = pg_alloc_heap_libc,
+      .realloc_fn = pg_realloc_heap_libc,
+      .free_fn = pg_free_heap_libc,
+  };
 }
 
 [[maybe_unused]] [[nodiscard]] static PgAllocator *
 pg_heap_allocator_as_allocator(PgHeapAllocator *allocator) {
   return (PgAllocator *)allocator;
+}
+
+[[maybe_unused]]
+static PgAllocator *pg_heap_allocator() {
+  static PgHeapAllocator pg_heap_allocator_ = {
+      .alloc_fn = pg_alloc_heap_libc,
+      .realloc_fn = pg_realloc_heap_libc,
+      .free_fn = pg_free_heap_libc,
+  };
+  return pg_heap_allocator_as_allocator(&pg_heap_allocator_);
 }
 
 typedef struct {
@@ -1344,6 +1356,8 @@ pg_tracing_allocator_as_allocator(PgTracingAllocator *allocator) {
   PG_ASSERT(allocator->alloc_fn);
   return allocator->alloc_fn(allocator, sizeof_type, alignof_type, elem_count);
 }
+
+#define PG_NEW(T, allocator) pg_alloc(allocator, sizeof(T), _Alignof(T), 1)
 
 [[maybe_unused]] [[nodiscard]] static void *
 pg_realloc(PgAllocator *allocator, void *ptr, u64 elem_count_old,
@@ -6873,11 +6887,14 @@ struct PgThreadPoolTask {
 };
 
 typedef struct {
-  PgThreadSlice threads;
+  PgThreadSlice workers;
+
   // Linked list.
   PgThreadPoolTask *tasks;
   mtx_t tasks_mtx;
   cnd_t tasks_cnd;
+
+  bool done;
 } PgThreadPool;
 PG_RESULT(PgThreadPool) PgThreadPoolResult;
 
@@ -6891,12 +6908,17 @@ static PgThreadPoolTask *pg_thread_pool_dequeue_task(PgThreadPool *pool) {
   return res;
 }
 
-[[nodiscard]] static int pg_pool_thread_start(void *data) {
-  for (;;) {
-    PG_ASSERT(data);
-    PgThreadPool *pool = data;
+[[nodiscard]] static int pg_pool_worker_start_fn(void *data) {
+  PG_ASSERT(data);
+  PgThreadPool *pool = data;
 
+  for (;;) {
     PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
+    if (pool->done) {
+      PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+      return thrd_success;
+    }
+
     PG_ASSERT(thrd_success == cnd_wait(&pool->tasks_cnd, &pool->tasks_mtx));
     PgThreadPoolTask *task = pg_thread_pool_dequeue_task(pool);
     PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
@@ -6914,18 +6936,9 @@ static PgThreadPoolTask *pg_thread_pool_dequeue_task(PgThreadPool *pool) {
 [[nodiscard]] [[maybe_unused]] static PgThreadPoolResult
 pg_thread_pool_make(u32 size, PgAllocator *allocator) {
   PgThreadPoolResult res = {0};
-  res.res.threads.len = size;
-  res.res.threads.data =
+  res.res.workers.len = size;
+  res.res.workers.data =
       pg_alloc(allocator, sizeof(thrd_t), _Alignof(thrd_t), size);
-
-  for (u32 i = 0; i < size; i++) {
-    thrd_t *thread = PG_SLICE_AT_PTR(&res.res.threads, i);
-    int ret = thrd_create(thread, pg_pool_thread_start, &res.res.tasks);
-    if (ret != thrd_success) {
-      res.err = PG_ERR_INVALID_VALUE; // FIXME: return exact error.
-      return res;
-    }
-  }
 
   if (thrd_success != mtx_init(&res.res.tasks_mtx, mtx_plain)) {
     res.err = PG_ERR_INVALID_VALUE;
@@ -6937,14 +6950,27 @@ pg_thread_pool_make(u32 size, PgAllocator *allocator) {
     return res;
   }
 
+  for (u32 i = 0; i < size; i++) {
+    thrd_t *thread = PG_SLICE_AT_PTR(&res.res.workers, i);
+    int ret = thrd_create(thread, pg_pool_worker_start_fn, &res.res.tasks);
+    if (ret != thrd_success) {
+      res.err = PG_ERR_INVALID_VALUE; // FIXME: return exact error.
+      return res;
+    }
+  }
+
   return res;
 }
 
 [[maybe_unused]]
 static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
                                         void *data, PgAllocator *allocator) {
-  PgThreadPoolTask *task = pg_alloc(allocator, sizeof(PgThreadPoolTask),
-                                    _Alignof(PgThreadPoolTask), 1);
+  PG_ASSERT(pool);
+  PG_ASSERT(fn);
+  PG_ASSERT(data);
+  PG_ASSERT(allocator);
+
+  PgThreadPoolTask *task = PG_NEW(PgThreadPoolTask, allocator);
   task->data = data;
   task->fn = fn;
 
@@ -6957,6 +6983,17 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
   }
   PG_ASSERT(thrd_success == cnd_signal(&pool->tasks_cnd));
   PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+}
+
+[[maybe_unused]] static void pg_thread_pool_wait(PgThreadPool *pool) {
+  PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
+  pool->done = true;
+  PG_ASSERT(thrd_success == cnd_broadcast(&pool->tasks_cnd));
+  PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+
+  for (u32 i = 0; i < pool->workers.len; i++) {
+    thrd_join(PG_SLICE_AT(pool->workers, i), nullptr);
+  }
 }
 
 #endif
