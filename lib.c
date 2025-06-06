@@ -7034,8 +7034,22 @@ typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_FILTER_ERR = 1 << 2,
 } PgAioEventFilter;
 
+typedef PgError (*PgAioFn)(PgFileDescriptor file, PgAioEventFilter filter,
+                           void *data);
+
+typedef struct PgAioTask PgAioTask;
+struct PgAioTask {
+  PgFileDescriptor file;
+  void *data;
+  PgAioFn fn;
+  bool tombstone;
+
+  PgAioTask *child[4];
+};
+
 typedef struct {
   u64 os_loop_handle;
+  PgAioTask *tasks;
 } PgAioEventLoop;
 
 PG_RESULT(PgAioEventLoop) PgAioEventLoopResult;
@@ -7043,15 +7057,40 @@ PG_RESULT(PgAioEventLoop) PgAioEventLoopResult;
 [[maybe_unused]] [[nodiscard]]
 static PgAioEventLoopResult pg_aio_event_loop_make();
 
-typedef PgError (*PgAioFn)(PgFileDescriptor file, PgAioEventFilter filter,
-                           void *data);
 [[maybe_unused]] [[nodiscard]]
 static PgError pg_aio_event_loop_register(PgAioEventLoop *loop,
-                                          PgAioEventFilter filter, int fd);
+                                          PgAioEventFilter filter,
+                                          PgFileDescriptor file, PgAioFn fn,
+                                          void *data, PgAllocator *allocator);
 
 [[maybe_unused]] [[nodiscard]]
-static PgU64Result pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms,
-                                          PgAioFn fn, void *data);
+static PgError pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms);
+
+[[nodiscard]] static PgAioTask *pg_aio_task_upsert(PgAioTask **htrie,
+                                                   PgFileDescriptor file,
+                                                   PgAllocator *allocator) {
+  Pgu8Slice to_hash = {.data = (u8 *)&file, .len = sizeof(file)};
+
+  for (u64 h = pg_hash_fnv(to_hash); *htrie; h <<= 2) {
+    bool match = file.ptr == (*htrie)->file.ptr;
+    if (match && allocator) {
+      (*htrie)->tombstone = false;
+      return *htrie;
+    }
+    if (match && !allocator && !(*htrie)->tombstone) {
+      return *htrie;
+    }
+    htrie = &(*htrie)->child[h >> 62];
+  }
+  if (!allocator) {
+    return nullptr;
+  }
+
+  *htrie = PG_NEW(PgAioTask, allocator);
+  (*htrie)->file = file;
+
+  return (*htrie);
+}
 
 // TODO: Other OSes than Linux.
 #ifdef PG_OS_LINUX
@@ -7073,9 +7112,13 @@ static PgU64Result pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms,
 
 [[nodiscard]]
 static PgError pg_aio_event_loop_register(PgAioEventLoop *loop,
-                                          PgAioEventFilter filter, int fd) {
+                                          PgAioEventFilter filter,
+                                          PgFileDescriptor file, PgAioFn fn,
+                                          void *data, PgAllocator *allocator) {
+  PG_ASSERT(fn);
+
   struct epoll_event event = {0};
-  event.data.fd = fd;
+  event.data.fd = file.fd;
   if (filter & PG_AIO_EVENT_FILTER_READ) {
     event.events |= EPOLLIN;
   }
@@ -7083,54 +7126,67 @@ static PgError pg_aio_event_loop_register(PgAioEventLoop *loop,
     event.events |= EPOLLOUT;
   }
 
-  if (-1 == epoll_ctl((i32)loop->os_loop_handle, EPOLL_CTL_ADD, fd, &event)) {
+  if (-1 == epoll_ctl((i32)loop->os_loop_handle, EPOLL_CTL_ADD, event.data.fd,
+                      &event)) {
     return (PgError)pg_os_get_last_error();
   }
+
+  PgAioTask *task = pg_aio_task_upsert(&loop->tasks, file, allocator);
+  PG_ASSERT(task);
+  PG_ASSERT(task->file.fd);
+  task->fn = fn;
+  task->data = data;
 
   return (PgError)0;
 }
 
 [[nodiscard]]
-static PgU64Result pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms,
-                                          PgAioFn fn, void *data) {
-  PG_ASSERT(fn);
+static PgError pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms) {
+  for (;;) {
+    struct epoll_event epoll_events[512] = {0};
 
-  PgU64Result res = {0};
-  struct epoll_event epoll_events[512] = {0};
+    int ret = epoll_wait((i32)loop->os_loop_handle, epoll_events,
+                         PG_STATIC_ARRAY_LEN(epoll_events), (i32)timeout_ms);
 
-  int ret = epoll_wait((i32)loop->os_loop_handle, epoll_events,
-                       PG_STATIC_ARRAY_LEN(epoll_events), (i32)timeout_ms);
+    if (-1 == ret) {
+      return (PgError)pg_os_get_last_error();
+    }
 
-  if (-1 == ret) {
-    res.err = (PgError)pg_os_get_last_error();
-    return res;
+    if (0 == ret) {
+      return (PgError){0};
+    }
+
+    for (u64 i = 0; i < (u64)ret; i++) {
+      struct epoll_event epoll_event =
+          PG_C_ARRAY_AT(epoll_events, PG_STATIC_ARRAY_LEN(epoll_events), i);
+
+      PgFileDescriptor file = {.fd = epoll_event.data.fd};
+      PgAioEventFilter filter = PG_AIO_EVENT_FILTER_NONE;
+      if (epoll_event.events & EPOLLERR) {
+        filter |= PG_AIO_EVENT_FILTER_ERR;
+      }
+      if (epoll_event.events & EPOLLIN) {
+        filter |= PG_AIO_EVENT_FILTER_READ;
+      }
+      if (epoll_event.events & EPOLLOUT) {
+        filter |= PG_AIO_EVENT_FILTER_WRITE;
+      }
+
+      PgAioTask *task = pg_aio_task_upsert(&loop->tasks, file, nullptr);
+      PG_ASSERT(task);
+      PG_ASSERT(task->file.fd);
+      PG_ASSERT(task->fn);
+
+      PgError err = task->fn(file, filter, task->data);
+      task->tombstone = true;
+      task->fn = nullptr;
+      task->data = nullptr;
+
+      if (err) {
+        return err;
+      }
+    }
   }
-
-  for (u64 i = 0; i < (u64)ret; i++) {
-    struct epoll_event epoll_event =
-        PG_C_ARRAY_AT(epoll_events, PG_STATIC_ARRAY_LEN(epoll_events), i);
-
-    PgFileDescriptor f = {.fd = epoll_event.data.fd};
-    PgAioEventFilter filter = PG_AIO_EVENT_FILTER_NONE;
-    if (epoll_event.events & EPOLLERR) {
-      filter |= PG_AIO_EVENT_FILTER_ERR;
-    }
-    if (epoll_event.events & EPOLLIN) {
-      filter |= PG_AIO_EVENT_FILTER_READ;
-    }
-    if (epoll_event.events & EPOLLOUT) {
-      filter |= PG_AIO_EVENT_FILTER_WRITE;
-    }
-
-    PgError err = fn(f, filter, data);
-    if (err) {
-      res.err = err;
-      return res;
-    }
-  }
-
-  res.res = (u64)ret;
-  return res;
 }
 #endif
 
