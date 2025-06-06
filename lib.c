@@ -18,6 +18,10 @@
 #define PG_OS_UNIX
 #endif
 
+#if defined(__linux__)
+#define PG_OS_LINUX
+#endif
+
 #if defined(__unix__)
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE 1
@@ -7022,5 +7026,112 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
     thrd_join(PG_SLICE_AT(pool->workers, i), nullptr);
   }
 }
+
+typedef enum [[clang::flag_enum]] {
+  PG_AIO_EVENT_FILTER_NONE,
+  PG_AIO_EVENT_FILTER_READ = 1 << 0,
+  PG_AIO_EVENT_FILTER_WRITE = 1 << 1,
+  PG_AIO_EVENT_FILTER_ERR = 1 << 2,
+} PgAioEventFilter;
+
+typedef struct {
+  u64 os_loop_handle;
+} PgAioEventLoop;
+
+PG_RESULT(PgAioEventLoop) PgAioEventLoopResult;
+
+[[maybe_unused]] [[nodiscard]]
+static PgAioEventLoopResult pg_aio_event_loop_make();
+
+typedef PgError (*PgAioFn)(PgFileDescriptor file, PgAioEventFilter filter,
+                           void *data);
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_aio_event_loop_register(PgAioEventLoop *loop,
+                                          PgAioEventFilter filter, int fd);
+
+[[maybe_unused]] [[nodiscard]]
+static PgU64Result pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms,
+                                          PgAioFn fn, void *data);
+
+// TODO: Other OSes than Linux.
+#ifdef PG_OS_LINUX
+#include <sys/epoll.h>
+
+[[nodiscard]] static PgAioEventLoopResult pg_aio_event_loop_make() {
+  PgAioEventLoopResult res = {0};
+
+  int fd = epoll_create(1 /* Ignored */);
+  if (-1 == fd) {
+    res.err = (PgError)pg_os_get_last_error();
+    return res;
+  }
+
+  res.res.os_loop_handle = (u64)fd;
+
+  return res;
+}
+
+[[nodiscard]]
+static PgError pg_aio_event_loop_register(PgAioEventLoop *loop,
+                                          PgAioEventFilter filter, int fd) {
+  struct epoll_event event = {0};
+  event.data.fd = fd;
+  if (filter & PG_AIO_EVENT_FILTER_READ) {
+    event.events |= EPOLLIN;
+  }
+  if (filter & PG_AIO_EVENT_FILTER_WRITE) {
+    event.events |= EPOLLOUT;
+  }
+
+  if (-1 == epoll_ctl((i32)loop->os_loop_handle, EPOLL_CTL_ADD, fd, &event)) {
+    return (PgError)pg_os_get_last_error();
+  }
+
+  return (PgError)0;
+}
+
+[[nodiscard]]
+static PgU64Result pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms,
+                                          PgAioFn fn, void *data) {
+  PG_ASSERT(fn);
+
+  PgU64Result res = {0};
+  struct epoll_event epoll_events[512] = {0};
+
+  int ret = epoll_wait((i32)loop->os_loop_handle, epoll_events,
+                       PG_STATIC_ARRAY_LEN(epoll_events), (i32)timeout_ms);
+
+  if (-1 == ret) {
+    res.err = (PgError)pg_os_get_last_error();
+    return res;
+  }
+
+  for (u64 i = 0; i < (u64)ret; i++) {
+    struct epoll_event epoll_event =
+        PG_C_ARRAY_AT(epoll_events, PG_STATIC_ARRAY_LEN(epoll_events), i);
+
+    PgFileDescriptor f = {.fd = epoll_event.data.fd};
+    PgAioEventFilter filter = PG_AIO_EVENT_FILTER_NONE;
+    if (epoll_event.events & EPOLLERR) {
+      filter |= PG_AIO_EVENT_FILTER_ERR;
+    }
+    if (epoll_event.events & EPOLLIN) {
+      filter |= PG_AIO_EVENT_FILTER_READ;
+    }
+    if (epoll_event.events & EPOLLOUT) {
+      filter |= PG_AIO_EVENT_FILTER_WRITE;
+    }
+
+    PgError err = fn(f, filter, data);
+    if (err) {
+      res.err = err;
+      return res;
+    }
+  }
+
+  res.res = (u64)ret;
+  return res;
+}
+#endif
 
 #endif
