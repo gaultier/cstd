@@ -7066,6 +7066,10 @@ static PgError pg_aio_event_loop_register(PgAioEventLoop *loop,
 [[maybe_unused]] [[nodiscard]]
 static PgError pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms);
 
+[[nodiscard]]
+static PgError pg_aio_event_loop_unregister(PgAioEventLoop *loop,
+                                            PgFileDescriptor file);
+
 [[nodiscard]] static PgAioTask *pg_aio_task_upsert(PgAioTask **htrie,
                                                    PgFileDescriptor file,
                                                    PgAllocator *allocator) {
@@ -7131,6 +7135,7 @@ static PgError pg_aio_event_loop_register(PgAioEventLoop *loop,
     return (PgError)pg_os_get_last_error();
   }
 
+  printf("[D001] aio loop upsert task %d\n", file.fd);
   PgAioTask *task = pg_aio_task_upsert(&loop->tasks, file, allocator);
   PG_ASSERT(task);
   PG_ASSERT(task->file.fd);
@@ -7172,22 +7177,47 @@ static PgError pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms) {
         filter |= PG_AIO_EVENT_FILTER_WRITE;
       }
 
+      printf("[D002] aio loop search task %d\n", file.fd);
       PgAioTask *task = pg_aio_task_upsert(&loop->tasks, file, nullptr);
+      printf("[D003] aio loop search result task %d %p\n", file.fd,
+             (void *)task);
       PG_ASSERT(task);
       PG_ASSERT(task->file.fd);
       PG_ASSERT(task->fn);
 
       PgError err = task->fn(file, filter, task->data);
-      task->tombstone = true;
-      task->fn = nullptr;
-      task->data = nullptr;
-
       if (err) {
         return err;
       }
     }
   }
 }
+
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_aio_event_loop_unregister(PgAioEventLoop *loop,
+                                            PgFileDescriptor file) {
+  printf("[D004] aio loop unregister task %d\n", file.fd);
+  PgAioTask *task = pg_aio_task_upsert(&loop->tasks, file, nullptr);
+  printf("[D005] aio loop unregister result task %d %p\n", file.fd,
+         (void *)task);
+
+  if (!task) {
+    return (PgError)PG_ERR_INVALID_VALUE;
+  }
+
+  task->tombstone = true;
+  task->fn = nullptr;
+  task->data = nullptr;
+
+  int ret =
+      epoll_ctl((i32)loop->os_loop_handle, EPOLL_CTL_DEL, file.fd, nullptr);
+  if (ret == -1) {
+    return (PgError)pg_os_get_last_error();
+  }
+
+  return (PgError){0};
+}
+
 #endif
 
 #endif
