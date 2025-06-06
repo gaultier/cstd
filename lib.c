@@ -7148,7 +7148,7 @@ static PgError pg_aio_event_loop_register(PgAioEventLoop *loop,
 [[nodiscard]]
 static PgError pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms) {
   for (;;) {
-    struct epoll_event epoll_events[512] = {0};
+    struct epoll_event epoll_events[2048] = {0};
 
     int ret = epoll_wait((i32)loop->os_loop_handle, epoll_events,
                          PG_STATIC_ARRAY_LEN(epoll_events), (i32)timeout_ms);
