@@ -7096,6 +7096,25 @@ static PgError pg_aio_event_loop_unregister(PgAioEventLoop *loop,
   return (*htrie);
 }
 
+[[maybe_unused]] static void pg_aio_print_tasks(FILE *out, PgAioTask *task,
+                                                u64 left_pad) {
+  if (!task) {
+    return;
+  }
+
+  for (u64 i = 0; i < left_pad; i++) {
+    fprintf(out, " ");
+  }
+
+  fprintf(out, "task: file=%lu tombstone=%d data=%p\n", (u64)(task->file.ptr),
+          task->tombstone, (void *)task->data);
+
+  pg_aio_print_tasks(out, task->child[0], left_pad + 2);
+  pg_aio_print_tasks(out, task->child[1], left_pad + 2);
+  pg_aio_print_tasks(out, task->child[2], left_pad + 2);
+  pg_aio_print_tasks(out, task->child[3], left_pad + 2);
+}
+
 // TODO: Other OSes than Linux.
 #ifdef PG_OS_LINUX
 #include <sys/epoll.h>
@@ -7177,6 +7196,11 @@ static PgError pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms) {
       }
 
       PgAioTask *task = pg_aio_task_upsert(&loop->tasks, file, nullptr);
+      if (!task) {
+        pg_aio_print_tasks(stderr, loop->tasks, 0);
+        fprintf(stderr, "file=%lu epoll_event.data.fd=%d\n", (u64)file.ptr,
+                epoll_event.data.fd);
+      }
       PG_ASSERT(task);
       PG_ASSERT(task->file.fd);
       PG_ASSERT(task->fn);
