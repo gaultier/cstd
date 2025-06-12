@@ -92,6 +92,7 @@ typedef ssize_t isize;
   }
 
 typedef u32 PgError;
+#define PG_ERR_EOF 4095
 #ifdef PG_OS_UNIX
 #include <errno.h>
 #define PG_ERR_INVALID_VALUE EINVAL
@@ -7033,10 +7034,10 @@ typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_ERR = 1 << 1,
 } PgAioEvent;
 
-typedef PgError (*PgAioReadFn)(PgFileDescriptor file, void *data);
-typedef PgError (*PgAioCloseFn)(PgFileDescriptor file, void *data);
-
 typedef struct PgAioTask PgAioTask;
+typedef void (*PgAioReadFn)(PgAioTask *task, PgError err, Pgu8Slice data);
+typedef void (*PgAioCloseFn)(PgAioTask *task, PgFileDescriptor file);
+
 typedef struct PgAioLoop PgAioLoop;
 struct PgAioTask {
   PgAioLoop *loop;
@@ -7070,7 +7071,7 @@ static void pg_aio_loop_close(PgAioTask *task, PgAioCloseFn fn);
 static PgError pg_aio_loop_wait(PgAioLoop *loop, u64 timeout_ms);
 
 [[nodiscard]]
-static PgError pg_aio_loop_unregister(PgAioLoop *loop, PgFileDescriptor file);
+static PgError pg_aio_loop_read_stop(PgAioTask *task);
 
 [[nodiscard]] static PgAioTask *pg_aio_task_upsert(PgAioTask **htrie,
                                                    PgFileDescriptor file,
@@ -7222,36 +7223,37 @@ static PgError pg_aio_loop_wait(PgAioLoop *loop, u64 timeout_ms) {
       }
 
       if ((filter & PG_AIO_EVENT_READ) && task->on_read) {
-        PgError err = task->on_read(file, task->data);
-        if (err) {
-          return err;
+        u8 read_buf[1 << 16] = {0};
+        Pgu8Slice read_slice = {
+            .data = read_buf,
+            .len = PG_STATIC_ARRAY_LEN(read_buf),
+        };
+        PgU64Result read_res = pg_file_read(file, read_slice);
+        PgError read_err = read_res.err;
+        if (0 == read_res.err && 0 == read_res.res) {
+          read_err = PG_ERR_EOF;
         }
+        read_slice.len = read_res.res;
+
+        task->on_read(task, read_err, read_slice);
       }
 
       if ((epoll_event.events & EPOLLHUP) && task->on_close) {
-        PgError err = task->on_close(file, task->data);
-        if (err) {
-          return err;
-        }
+        task->on_close(task, file);
       }
     }
   }
 }
 
 [[maybe_unused]] [[nodiscard]]
-static PgError pg_aio_loop_unregister(PgAioLoop *loop, PgFileDescriptor file) {
-  PgAioTask *task = pg_aio_task_upsert(&loop->tasks, file, nullptr);
-
-  if (!task) {
-    return (PgError)PG_ERR_INVALID_VALUE;
-  }
+static PgError pg_aio_loop_read_stop(PgAioTask *task) {
+  PG_ASSERT(task);
+  PG_ASSERT(task->loop);
 
   task->tombstone = true;
-  task->on_read = nullptr;
-  task->data = nullptr;
 
-  int ret =
-      epoll_ctl((i32)loop->os_loop_handle, EPOLL_CTL_DEL, file.fd, nullptr);
+  int ret = epoll_ctl((i32)task->loop->os_loop_handle, EPOLL_CTL_DEL,
+                      task->file.fd, nullptr);
   if (ret == -1) {
     return (PgError)pg_os_get_last_error();
   }
