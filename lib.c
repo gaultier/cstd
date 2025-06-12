@@ -521,7 +521,7 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   if (0x10000 <= c && c <= 0x10FFFF) {
     return 4;
   }
-  PG_ASSERT(0);
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgRuneResult
