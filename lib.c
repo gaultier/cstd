@@ -7029,46 +7029,48 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
 
 typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_FILTER_NONE,
-  PG_AIO_EVENT_FILTER_READ = 1 << 0,
-  PG_AIO_EVENT_FILTER_WRITE = 1 << 1,
-  PG_AIO_EVENT_FILTER_ERR = 1 << 2,
-} PgAioEventFilter;
+  PG_AIO_EVENT_READ = 1 << 0,
+  PG_AIO_EVENT_ERR = 1 << 1,
+} PgAioEvent;
 
-typedef PgError (*PgAioFn)(PgFileDescriptor file, PgAioEventFilter filter,
-                           void *data);
+typedef PgError (*PgAioReadFn)(PgFileDescriptor file, void *data);
+typedef PgError (*PgAioCloseFn)(PgFileDescriptor file, void *data);
 
 typedef struct PgAioTask PgAioTask;
+typedef struct PgAioLoop PgAioLoop;
 struct PgAioTask {
+  PgAioLoop *loop;
   PgFileDescriptor file;
   void *data;
-  PgAioFn fn;
+  PgAioReadFn on_read;
+  PgAioCloseFn on_close;
   bool tombstone;
 
   PgAioTask *child[4];
 };
+PG_RESULT(PgAioTask *) PgAioTaskPtrResult;
 
-typedef struct {
+struct PgAioLoop {
   u64 os_loop_handle;
   PgAioTask *tasks;
-} PgAioEventLoop;
+};
 
-PG_RESULT(PgAioEventLoop) PgAioEventLoopResult;
-
-[[maybe_unused]] [[nodiscard]]
-static PgAioEventLoopResult pg_aio_event_loop_make();
+PG_RESULT(PgAioLoop) PgAioLoopResult;
 
 [[maybe_unused]] [[nodiscard]]
-static PgError pg_aio_event_loop_register(PgAioEventLoop *loop,
-                                          PgAioEventFilter filter,
-                                          PgFileDescriptor file, PgAioFn fn,
-                                          void *data, PgAllocator *allocator);
+static PgAioLoopResult pg_aio_loop_make();
 
 [[maybe_unused]] [[nodiscard]]
-static PgError pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms);
+static PgError pg_aio_loop_read(PgAioTask *task, PgAioReadFn fn);
+
+[[maybe_unused]]
+static void pg_aio_loop_close(PgAioTask *task, PgAioCloseFn fn);
+
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_aio_loop_wait(PgAioLoop *loop, u64 timeout_ms);
 
 [[nodiscard]]
-static PgError pg_aio_event_loop_unregister(PgAioEventLoop *loop,
-                                            PgFileDescriptor file);
+static PgError pg_aio_loop_unregister(PgAioLoop *loop, PgFileDescriptor file);
 
 [[nodiscard]] static PgAioTask *pg_aio_task_upsert(PgAioTask **htrie,
                                                    PgFileDescriptor file,
@@ -7096,6 +7098,19 @@ static PgError pg_aio_event_loop_unregister(PgAioEventLoop *loop,
   return (*htrie);
 }
 
+[[maybe_unused]] [[nodiscard]]
+static PgAioTask *pg_aio_task_make_for_file(PgAioLoop *loop,
+                                            PgFileDescriptor file,
+                                            PgAllocator *allocator) {
+
+  PgAioTask *task = pg_aio_task_upsert(&loop->tasks, file, allocator);
+  PG_ASSERT(task);
+  PG_ASSERT(task->file.ptr == file.ptr);
+  task->loop = loop;
+
+  return task;
+}
+
 [[maybe_unused]] static void pg_aio_print_tasks(FILE *out, PgAioTask *task,
                                                 u64 left_pad) {
   if (!task) {
@@ -7119,8 +7134,8 @@ static PgError pg_aio_event_loop_unregister(PgAioEventLoop *loop,
 #ifdef PG_OS_LINUX
 #include <sys/epoll.h>
 
-[[nodiscard]] static PgAioEventLoopResult pg_aio_event_loop_make() {
-  PgAioEventLoopResult res = {0};
+[[nodiscard]] static PgAioLoopResult pg_aio_loop_make() {
+  PgAioLoopResult res = {0};
 
   int fd = epoll_create(1 /* Ignored */);
   if (-1 == fd) {
@@ -7134,37 +7149,36 @@ static PgError pg_aio_event_loop_unregister(PgAioEventLoop *loop,
 }
 
 [[nodiscard]]
-static PgError pg_aio_event_loop_register(PgAioEventLoop *loop,
-                                          PgAioEventFilter filter,
-                                          PgFileDescriptor file, PgAioFn fn,
-                                          void *data, PgAllocator *allocator) {
+static PgError pg_aio_loop_read(PgAioTask *task, PgAioReadFn fn) {
+  PG_ASSERT(task);
+  PG_ASSERT(task->loop);
   PG_ASSERT(fn);
 
   struct epoll_event event = {0};
-  event.data.fd = file.fd;
-  if (filter & PG_AIO_EVENT_FILTER_READ) {
-    event.events |= EPOLLIN;
-  }
-  if (filter & PG_AIO_EVENT_FILTER_WRITE) {
-    event.events |= EPOLLOUT;
-  }
+  event.data.fd = task->file.fd;
+  event.events |= EPOLLIN;
 
-  if (-1 == epoll_ctl((i32)loop->os_loop_handle, EPOLL_CTL_ADD, event.data.fd,
-                      &event)) {
+  if (-1 == epoll_ctl((i32)task->loop->os_loop_handle, EPOLL_CTL_ADD,
+                      event.data.fd, &event)) {
     return (PgError)pg_os_get_last_error();
   }
 
-  PgAioTask *task = pg_aio_task_upsert(&loop->tasks, file, allocator);
-  PG_ASSERT(task);
-  PG_ASSERT(task->file.fd);
-  task->fn = fn;
-  task->data = data;
+  task->on_read = fn;
 
-  return (PgError)0;
+  return (PgError){0};
+}
+
+[[maybe_unused]]
+static void pg_aio_loop_close(PgAioTask *task, PgAioCloseFn fn) {
+  PG_ASSERT(task);
+  PG_ASSERT(task->loop);
+  PG_ASSERT(fn);
+
+  task->on_close = fn;
 }
 
 [[nodiscard]]
-static PgError pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms) {
+static PgError pg_aio_loop_wait(PgAioLoop *loop, u64 timeout_ms) {
   for (;;) {
     struct epoll_event epoll_events[2048] = {0};
 
@@ -7184,16 +7198,6 @@ static PgError pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms) {
           PG_C_ARRAY_AT(epoll_events, PG_STATIC_ARRAY_LEN(epoll_events), i);
 
       PgFileDescriptor file = {.fd = epoll_event.data.fd};
-      PgAioEventFilter filter = PG_AIO_EVENT_FILTER_NONE;
-      if (epoll_event.events & EPOLLERR) {
-        filter |= PG_AIO_EVENT_FILTER_ERR;
-      }
-      if (epoll_event.events & EPOLLIN) {
-        filter |= PG_AIO_EVENT_FILTER_READ;
-      }
-      if (epoll_event.events & EPOLLOUT) {
-        filter |= PG_AIO_EVENT_FILTER_WRITE;
-      }
 
       PgAioTask *task = pg_aio_task_upsert(&loop->tasks, file, nullptr);
       if (!task) {
@@ -7203,19 +7207,39 @@ static PgError pg_aio_event_loop_wait(PgAioEventLoop *loop, u64 timeout_ms) {
       }
       PG_ASSERT(task);
       PG_ASSERT(task->file.fd);
-      PG_ASSERT(task->fn);
 
-      PgError err = task->fn(file, filter, task->data);
-      if (err) {
-        return err;
+      PgAioEvent filter = PG_AIO_EVENT_FILTER_NONE;
+      if (epoll_event.events & EPOLLERR) {
+        filter |= PG_AIO_EVENT_ERR;
+      }
+
+      if (epoll_event.events & EPOLLIN) {
+        filter |= PG_AIO_EVENT_READ;
+      }
+
+      if (epoll_event.events & EPOLLOUT) {
+        // TODO
+      }
+
+      if ((filter & PG_AIO_EVENT_READ) && task->on_read) {
+        PgError err = task->on_read(file, task->data);
+        if (err) {
+          return err;
+        }
+      }
+
+      if ((epoll_event.events & EPOLLHUP) && task->on_close) {
+        PgError err = task->on_close(file, task->data);
+        if (err) {
+          return err;
+        }
       }
     }
   }
 }
 
 [[maybe_unused]] [[nodiscard]]
-static PgError pg_aio_event_loop_unregister(PgAioEventLoop *loop,
-                                            PgFileDescriptor file) {
+static PgError pg_aio_loop_unregister(PgAioLoop *loop, PgFileDescriptor file) {
   PgAioTask *task = pg_aio_task_upsert(&loop->tasks, file, nullptr);
 
   if (!task) {
@@ -7223,7 +7247,7 @@ static PgError pg_aio_event_loop_unregister(PgAioEventLoop *loop,
   }
 
   task->tombstone = true;
-  task->fn = nullptr;
+  task->on_read = nullptr;
   task->data = nullptr;
 
   int ret =
