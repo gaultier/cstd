@@ -1828,7 +1828,7 @@ static void test_log() {
     logger.writer = pg_writer_make_from_string_builder(&sb, allocator);
 
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world",
-           pg_log_cs("foo", PG_S("bar")), pg_log_ci64("baz", -317));
+           pg_log_c_s("foo", PG_S("bar")), pg_log_c_i64("baz", -317));
 
     PgString out = PG_DYN_SLICE(PgString, sb);
     PG_ASSERT(pg_string_starts_with(out, PG_S("level=info ")));

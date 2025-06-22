@@ -5151,6 +5151,7 @@ typedef enum {
   PG_LOG_VALUE_U64,
   PG_LOG_VALUE_I64,
   PG_LOG_VALUE_IPV4_ADDRESS,
+  // TODO: IPV6_ADDRESS
 } PgLogValueKind;
 
 typedef enum {
@@ -5187,11 +5188,6 @@ typedef struct {
   PgLogValue value;
 } PgLogEntry;
 
-#if 0
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_log_make_log_line_json(PgLogLevel level, PgString msg, PgArena *arena,
-                          i32 args_count, ...);
-#endif
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
                             PgLogLevel level, PgString msg, i32 args_count,
@@ -5223,7 +5219,7 @@ pg_log_level_to_string(PgLogLevel level) {
   }
 }
 
-#define pg_log_cu8(k, v) pg_log_u8(PG_S(k), v)
+#define pg_log_c_u8(k, v) pg_log_u8(PG_S(k), v)
 
 [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u8(PgString k, u8 v) {
   return (PgLogEntry){
@@ -5233,7 +5229,7 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
-#define pg_log_cu16(k, v) pg_log_u16(PG_S(k), v)
+#define pg_log_c_u16(k, v) pg_log_u16(PG_S(k), v)
 
 [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u16(PgString k, u16 v) {
   return (PgLogEntry){
@@ -5243,7 +5239,7 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
-#define pg_log_cu32(k, v) pg_log_u32(PG_S(k), v)
+#define pg_log_c_u32(k, v) pg_log_u32(PG_S(k), v)
 
 [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u32(PgString k, u32 v) {
   return (PgLogEntry){
@@ -5253,7 +5249,7 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
-#define pg_log_cu64(k, v) pg_log_u64(PG_S(k), v)
+#define pg_log_c_u64(k, v) pg_log_u64(PG_S(k), v)
 
 [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u64(PgString k, u64 v) {
   return (PgLogEntry){
@@ -5263,7 +5259,7 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
-#define pg_log_ci32(k, v) pg_log_i32(PG_S(k), v)
+#define pg_log_c_i32(k, v) pg_log_i32(PG_S(k), v)
 
 [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_i32(PgString k, i32 v) {
   return (PgLogEntry){
@@ -5273,10 +5269,10 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
-#define pg_log_cerr(k, v) pg_log_i32(PG_S(k), (i32)v)
+#define pg_log_c_err(k, v) pg_log_i32(PG_S(k), (i32)v)
 #define pg_log_err(k, v) pg_log_i32(k, (i32)v)
 
-#define pg_log_ci64(k, v) pg_log_i64(PG_S(k), v)
+#define pg_log_c_i64(k, v) pg_log_i64(PG_S(k), v)
 
 [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_i64(PgString k, i64 v) {
   return (PgLogEntry){
@@ -5295,9 +5291,9 @@ pg_log_level_to_string(PgLogLevel level) {
   };
 }
 
-#define pg_log_cs(k, v) pg_log_s(PG_S(k), v)
+#define pg_log_c_s(k, v) pg_log_s(PG_S(k), v)
 
-#define pg_log_cipv4(k, v) pg_log_ipv4(PG_S(k), v)
+#define pg_log_c_ipv4(k, v) pg_log_ipv4(PG_S(k), v)
 
 [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_ipv4(PgString k,
                                                              PgIpv4Address v) {
@@ -5326,46 +5322,6 @@ pg_log_level_to_string(PgLogLevel level) {
     (logger)->writer.write_fn(&(logger)->writer, xxx_log_line.data,            \
                               xxx_log_line.len);                               \
   } while (0)
-
-#if 0
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_json_escape_string(PgString entry, PgAllocator *allocator) {
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 2 + entry.len * 2, allocator);
-  *PG_DYN_PUSH(&sb, allocator) = '"';
-
-  for (u64 i = 0; i < entry.len; i++) {
-    u8 c = PG_SLICE_AT(entry, i);
-    if ('"' == c) {
-      *PG_DYN_PUSH(&sb, allocator) = '\\';
-      *PG_DYN_PUSH(&sb, allocator) = '"';
-    } else if ('\\' == c) {
-      *PG_DYN_PUSH(&sb, allocator) = '\\';
-      *PG_DYN_PUSH(&sb, allocator) = '\\';
-    } else if ('\b' == c) {
-      *PG_DYN_PUSH(&sb, allocator) = '\\';
-      *PG_DYN_PUSH(&sb, allocator) = 'b';
-    } else if ('\f' == c) {
-      *PG_DYN_PUSH(&sb, allocator) = '\\';
-      *PG_DYN_PUSH(&sb, allocator) = 'f';
-    } else if ('\n' == c) {
-      *PG_DYN_PUSH(&sb, allocator) = '\\';
-      *PG_DYN_PUSH(&sb, allocator) = 'n';
-    } else if ('\r' == c) {
-      *PG_DYN_PUSH(&sb, allocator) = '\\';
-      *PG_DYN_PUSH(&sb, allocator) = 'r';
-    } else if ('\t' == c) {
-      *PG_DYN_PUSH(&sb, allocator) = '\\';
-      *PG_DYN_PUSH(&sb, allocator) = 't';
-    } else {
-      *PG_DYN_PUSH(&sb, allocator) = c;
-    }
-  }
-  *PG_DYN_PUSH(&sb, allocator) = '"';
-
-  return PG_DYN_SLICE(PgString, sb);
-}
-#endif
 
 [[maybe_unused]] static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c,
                                                  PgAllocator *allocator) {
