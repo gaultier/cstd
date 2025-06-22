@@ -2791,8 +2791,6 @@ pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
   return res;
 }
 
-[[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s);
-
 [[nodiscard]] [[maybe_unused]] static PgRng pg_rand_make() {
   PgRng rng = {0};
   // Rely on ASLR.
@@ -3249,6 +3247,8 @@ pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
 
+// TODO: Review in the context of multiple threads spawning and reaping
+// processes.
 [[nodiscard]] [[maybe_unused]]
 static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
                                         PgProcessSpawnOptions options,
@@ -3395,6 +3395,8 @@ end:
   return res;
 }
 
+// TODO: Review in the context of multiple threads spawning and reaping
+// processes.
 [[nodiscard]] [[maybe_unused]]
 static PgProcessCaptureStdResult
 pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
