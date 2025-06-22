@@ -4138,19 +4138,19 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
 
 typedef struct {
   PgString key, value;
-} PgKeyValue;
+} PgStringKeyValue;
 
-PG_RESULT(PgKeyValue) PgKeyValueResult;
-PG_DYN(PgKeyValue) PgKeyValueDyn;
-PG_SLICE(PgKeyValue) PgKeyValueSlice;
-PG_RESULT(PgKeyValueDyn) PgDynKeyValueResult;
+PG_RESULT(PgStringKeyValue) PgStringKeyValueResult;
+PG_DYN(PgStringKeyValue) PgStringKeyValueDyn;
+PG_SLICE(PgStringKeyValue) PgStringKeyValueSlice;
+PG_RESULT(PgStringKeyValueDyn) PgStringDynKeyValueResult;
 
 typedef struct {
   PgString scheme;
   PgString username, password;
   PgString host; // Including subdomains.
   PgStringDyn path_components;
-  PgKeyValueDyn query_parameters;
+  PgStringKeyValueDyn query_parameters;
   u16 port;
   // TODO: fragment.
 } PgUrl;
@@ -4159,7 +4159,7 @@ typedef struct {
   PgString id;
   PgUrl url; // Does not have a scheme, domain, port.
   PgHttpMethod method;
-  PgKeyValueDyn headers;
+  PgStringKeyValueDyn headers;
   u8 version_minor;
   u8 version_major;
 } PgHttpRequest;
@@ -4187,7 +4187,7 @@ typedef struct {
   u8 version_major;
   u8 version_minor;
   u16 status;
-  PgKeyValueDyn headers;
+  PgStringKeyValueDyn headers;
 } PgHttpResponse;
 
 [[maybe_unused]] [[nodiscard]] static PgHttpResponseStatusLineResult
@@ -4271,11 +4271,11 @@ pg_http_parse_response_status_line(PgString status_line) {
 }
 
 [[maybe_unused]]
-static void pg_http_push_header(PgKeyValueDyn *headers, PgString key,
+static void pg_http_push_header(PgStringKeyValueDyn *headers, PgString key,
                                 PgString value, PgArena *arena) {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(arena);
   *PG_DYN_PUSH(headers, (PgAllocator *)&arena_allocator) =
-      (PgKeyValue){.key = key, .value = value};
+      (PgStringKeyValue){.key = key, .value = value};
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
@@ -4364,7 +4364,7 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req) {
     }
 
     for (u64 i = 0; i < req.url.query_parameters.len; i++) {
-      PgKeyValue param = PG_SLICE_AT(req.url.query_parameters, i);
+      PgStringKeyValue param = PG_SLICE_AT(req.url.query_parameters, i);
       err = pg_writer_url_encode(w, param.key, param.value);
       if (err) {
         return err;
@@ -4429,7 +4429,7 @@ pg_http_response_write_status_line(PgWriter *w, PgHttpResponse res) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_http_write_header(PgWriter *w, PgKeyValue header) {
+pg_http_write_header(PgWriter *w, PgStringKeyValue header) {
   PgError err = 0;
 
   err = pg_writer_write_string_full(w, header.key);
@@ -4538,9 +4538,9 @@ pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgDynKeyValueResult
+[[maybe_unused]] [[nodiscard]] static PgStringDynKeyValueResult
 pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
-  PgDynKeyValueResult res = {0};
+  PgStringDynKeyValueResult res = {0};
 
   PgString remaining = s;
   {
@@ -4564,7 +4564,8 @@ pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
     PgString v = res_consume_eq.consumed ? res_consume_eq.right : PG_S("");
 
     if (!PG_SLICE_IS_EMPTY(k)) {
-      *PG_DYN_PUSH(&res.res, allocator) = (PgKeyValue){.key = k, .value = v};
+      *PG_DYN_PUSH(&res.res, allocator) =
+          (PgStringKeyValue){.key = k, .value = v};
     }
 
     if (!res_consume_and.consumed) {
@@ -4712,7 +4713,7 @@ pg_url_parse_after_authority(PgString s, PgAllocator *allocator) {
   // Query parameters, optional.
   if (path_components_and_rem.consumed &&
       path_components_and_rem.matched == '?') {
-    PgDynKeyValueResult res_query =
+    PgStringDynKeyValueResult res_query =
         pg_url_parse_query_parameters(path_components_and_rem.right, allocator);
     if (res_query.err) {
       res.err = res_query.err;
@@ -4914,9 +4915,9 @@ pg_http_parse_request_status_line(PgString status_line,
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgKeyValueResult
+[[maybe_unused]] [[nodiscard]] static PgStringKeyValueResult
 pg_http_parse_header(PgString s) {
-  PgKeyValueResult res = {0};
+  PgStringKeyValueResult res = {0};
 
   PgStringCut cut = pg_string_cut_rune(s, ':');
   if (!cut.ok) {
@@ -4985,7 +4986,7 @@ pg_http_read_response(PgRing *rg, u64 max_http_headers,
     if (!res_split.ok) {
       break;
     }
-    PgKeyValueResult res_kv = pg_http_parse_header(res_split.res);
+    PgStringKeyValueResult res_kv = pg_http_parse_header(res_split.res);
     if (res_kv.err) {
       res.err = res_kv.err;
       return res;
@@ -5036,7 +5037,7 @@ pg_http_read_request(PgRing *rg, u64 max_http_headers, PgAllocator *allocator) {
     if (!res_split.ok) {
       break;
     }
-    PgKeyValueResult res_kv = pg_http_parse_header(res_split.res);
+    PgStringKeyValueResult res_kv = pg_http_parse_header(res_split.res);
     if (res_kv.err) {
       res.err = res_kv.err;
       return res;
@@ -5063,7 +5064,7 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req) {
   }
 
   for (u64 i = 0; i < req.headers.len; i++) {
-    PgKeyValue header = PG_SLICE_AT(req.headers, i);
+    PgStringKeyValue header = PG_SLICE_AT(req.headers, i);
     err = pg_http_write_header(w, header);
     if (err) {
       return err;
@@ -5103,7 +5104,7 @@ pg_http_request_to_string(PgHttpRequest req, PgAllocator *allocator) {
   }
 
   for (u64 i = 0; i < res.headers.len; i++) {
-    PgKeyValue header = PG_SLICE_AT(res.headers, i);
+    PgStringKeyValue header = PG_SLICE_AT(res.headers, i);
     err = pg_http_write_header(w, header);
     if (err) {
       return err;
@@ -5118,11 +5119,12 @@ pg_http_request_to_string(PgHttpRequest req, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_http_headers_parse_content_length(PgKeyValueSlice headers, PgArena arena) {
+pg_http_headers_parse_content_length(PgStringKeyValueSlice headers,
+                                     PgArena arena) {
   PgU64Result res = {0};
 
   for (u64 i = 0; i < headers.len; i++) {
-    PgKeyValue h = PG_SLICE_AT(headers, i);
+    PgStringKeyValue h = PG_SLICE_AT(headers, i);
 
     if (!pg_string_ieq_ascii(PG_S("Content-Length"), h.key, arena)) {
       continue;

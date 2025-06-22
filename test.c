@@ -1108,7 +1108,7 @@ static void test_url_parse() {
     PG_ASSERT(0 == res.res.path_components.len);
     PG_ASSERT(1 == res.res.query_parameters.len);
 
-    PgKeyValue kv0 = PG_SLICE_AT(res.res.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(res.res.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("")));
   }
@@ -1134,7 +1134,7 @@ static void test_url_parse() {
     PG_ASSERT(0 == res.res.path_components.len);
     PG_ASSERT(1 == res.res.query_parameters.len);
 
-    PgKeyValue kv0 = PG_SLICE_AT(res.res.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(res.res.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
   }
@@ -1149,7 +1149,7 @@ static void test_url_parse() {
     PG_ASSERT(0 == res.res.path_components.len);
     PG_ASSERT(1 == res.res.query_parameters.len);
 
-    PgKeyValue kv0 = PG_SLICE_AT(res.res.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(res.res.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
   }
@@ -1165,11 +1165,11 @@ static void test_url_parse() {
     PG_ASSERT(0 == res.res.path_components.len);
     PG_ASSERT(2 == res.res.query_parameters.len);
 
-    PgKeyValue kv0 = PG_SLICE_AT(res.res.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(res.res.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
 
-    PgKeyValue kv1 = PG_SLICE_AT(res.res.query_parameters, 1);
+    PgStringKeyValue kv1 = PG_SLICE_AT(res.res.query_parameters, 1);
     PG_ASSERT(pg_string_eq(kv1.key, PG_S("hello")));
     PG_ASSERT(pg_string_eq(kv1.value, PG_S("world")));
   }
@@ -1185,15 +1185,15 @@ static void test_url_parse() {
     PG_ASSERT(0 == res.res.path_components.len);
     PG_ASSERT(3 == res.res.query_parameters.len);
 
-    PgKeyValue kv0 = PG_SLICE_AT(res.res.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(res.res.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
 
-    PgKeyValue kv1 = PG_SLICE_AT(res.res.query_parameters, 1);
+    PgStringKeyValue kv1 = PG_SLICE_AT(res.res.query_parameters, 1);
     PG_ASSERT(pg_string_eq(kv1.key, PG_S("hello")));
     PG_ASSERT(pg_string_eq(kv1.value, PG_S("world")));
 
-    PgKeyValue kv2 = PG_SLICE_AT(res.res.query_parameters, 2);
+    PgStringKeyValue kv2 = PG_SLICE_AT(res.res.query_parameters, 2);
     PG_ASSERT(pg_string_eq(kv2.key, PG_S("a")));
     PG_ASSERT(pg_string_eq(kv2.value, PG_S("")));
   }
@@ -1436,7 +1436,7 @@ static void test_http_parse_request_status_line() {
     PG_ASSERT(0 == res.res.version_minor);
     PG_ASSERT(0 == res.res.url.path_components.len);
     PG_ASSERT(1 == res.res.url.query_parameters.len);
-    PgKeyValue kv0 = PG_SLICE_AT(res.res.url.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(res.res.url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
   }
@@ -1461,7 +1461,7 @@ static void test_http_parse_request_status_line() {
     PG_ASSERT(1 == res.res.version_minor);
     PG_ASSERT(3 == res.res.url.path_components.len);
     PG_ASSERT(1 == res.res.url.query_parameters.len);
-    PgKeyValue kv0 = PG_SLICE_AT(res.res.url.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(res.res.url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("hey")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("")));
   }
@@ -1486,28 +1486,28 @@ static void test_http_parse_header() {
   }
   // Multiple colons.
   {
-    PgKeyValueResult res = pg_http_parse_header(PG_S("foo: bar : baz"));
+    PgStringKeyValueResult res = pg_http_parse_header(PG_S("foo: bar : baz"));
     PG_ASSERT(0 == res.err);
     PG_ASSERT(pg_string_eq(res.res.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(res.res.value, PG_S("bar : baz")));
   }
   // Valid, one space before the value.
   {
-    PgKeyValueResult res = pg_http_parse_header(PG_S("foo: bar"));
+    PgStringKeyValueResult res = pg_http_parse_header(PG_S("foo: bar"));
     PG_ASSERT(0 == res.err);
     PG_ASSERT(pg_string_eq(res.res.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(res.res.value, PG_S("bar")));
   }
   // Valid, no space before the value.
   {
-    PgKeyValueResult res = pg_http_parse_header(PG_S("foo:bar"));
+    PgStringKeyValueResult res = pg_http_parse_header(PG_S("foo:bar"));
     PG_ASSERT(0 == res.err);
     PG_ASSERT(pg_string_eq(res.res.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(res.res.value, PG_S("bar")));
   }
   // Valid, multiple spaces before the value.
   {
-    PgKeyValueResult res = pg_http_parse_header(PG_S("foo:   bar"));
+    PgStringKeyValueResult res = pg_http_parse_header(PG_S("foo:   bar"));
     PG_ASSERT(0 == res.err);
     PG_ASSERT(pg_string_eq(res.res.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(res.res.value, PG_S("bar")));
@@ -1580,11 +1580,11 @@ static void test_http_read_response() {
       PG_ASSERT(201 == res.res.status);
       PG_ASSERT(2 == res.res.headers.len);
 
-      PgKeyValue kv0 = PG_SLICE_AT(res.res.headers, 0);
+      PgStringKeyValue kv0 = PG_SLICE_AT(res.res.headers, 0);
       PG_ASSERT(pg_string_eq(kv0.key, PG_S("Host")));
       PG_ASSERT(pg_string_eq(kv0.value, PG_S("google.com")));
 
-      PgKeyValue kv1 = PG_SLICE_AT(res.res.headers, 1);
+      PgStringKeyValue kv1 = PG_SLICE_AT(res.res.headers, 1);
       PG_ASSERT(pg_string_eq(kv1.key, PG_S("Authorization")));
       PG_ASSERT(pg_string_eq(kv1.value, PG_S("Bearer foo")));
     }
