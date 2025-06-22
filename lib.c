@@ -743,10 +743,6 @@ pg_string_cut_string(PgString s, PgString needle) {
   return res;
 }
 
-// ---
-// TODO unicode.
-// ---
-
 [[maybe_unused]] [[nodiscard]] static PgStringOk
 pg_string_split_next(PgSplitIterator *it) {
   if (PG_SLICE_IS_EMPTY(it->s)) {
@@ -1178,117 +1174,6 @@ static PgAllocator *pg_heap_allocator() {
       .free_fn = pg_free_heap_libc,
   };
   return pg_heap_allocator_as_allocator(&pg_heap_allocator_);
-}
-
-typedef struct {
-  PgAllocFn alloc_fn;
-  PgReallocFn realloc_fn;
-  PgFreeFn free_fn;
-  // Pprof.
-  u64 alloc_objects_count, alloc_space, in_use_objects_count, in_use_space;
-  PgFileDescriptor heap_profile_file;
-} PgTracingAllocator;
-static_assert(sizeof(PgTracingAllocator) >= sizeof(PgAllocator));
-
-[[nodiscard]]
-static void *pg_alloc_tracing(PgAllocator *allocator, u64 sizeof_type,
-                              u64 alignof_type, u64 elem_count) {
-  PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
-  (void)tracing_allocator;
-
-  // TODO: Better tracing e.g. with pprof.
-  fprintf(stderr,
-          "allocation sizeof_type=%" PRIu64 " alignof_type=%" PRIu64
-          " elem_count=%" PRIu64 "\n",
-          sizeof_type, alignof_type, elem_count);
-
-  // TODO: Be aware of `align` here?
-  u64 space = sizeof_type * elem_count;
-
-  tracing_allocator->alloc_objects_count += elem_count;
-  tracing_allocator->alloc_space += space;
-  tracing_allocator->in_use_objects_count += elem_count;
-  tracing_allocator->in_use_space += space;
-
-  fprintf(
-      stderr,
-      "%" PRIu64 ": %" PRIu64 " [%" PRIu64 ": %" PRIu64 "] @ TODO call stack\n",
-      tracing_allocator->in_use_objects_count, tracing_allocator->in_use_space,
-      tracing_allocator->alloc_objects_count, tracing_allocator->alloc_space);
-
-  return calloc(sizeof_type, elem_count);
-}
-
-[[nodiscard]]
-static void *pg_realloc_tracing(PgAllocator *allocator, void *ptr,
-                                u64 elem_count_old, u64 sizeof_type,
-                                u64 alignof_type, u64 elem_count) {
-  PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
-  (void)tracing_allocator;
-  PG_ASSERT(elem_count_old <= elem_count);
-
-  // TODO: Better tracing e.g. with pprof.
-  fprintf(stderr,
-          "allocation sizeof_type=%" PRIu64 " alignof_type=%" PRIu64
-          " elem_count=%" PRIu64 "\n",
-          sizeof_type, alignof_type, elem_count);
-
-  // TODO: Be aware of `align` here?
-  u64 space = sizeof_type * (elem_count - elem_count_old);
-
-  tracing_allocator->alloc_objects_count += (elem_count - elem_count_old);
-  tracing_allocator->alloc_space += space;
-  tracing_allocator->in_use_objects_count += elem_count - elem_count_old;
-  tracing_allocator->in_use_space += space;
-
-  fprintf(
-      stderr,
-      "%" PRIu64 ": %" PRIu64 " [%" PRIu64 ": %" PRIu64 "] @ TODO call stack\n",
-      tracing_allocator->in_use_objects_count, tracing_allocator->in_use_space,
-      tracing_allocator->alloc_objects_count, tracing_allocator->alloc_space);
-
-  return realloc(ptr, space);
-}
-
-static void pg_free_tracing(PgAllocator *allocator, void *ptr) {
-  PgTracingAllocator *tracing_allocator = (PgTracingAllocator *)allocator;
-  (void)tracing_allocator;
-  // FIXME
-  u64 sizeof_type = 0;
-  u64 elem_count = 0;
-
-  fprintf(stderr,
-          "free ptr=%p sizeof_type=%" PRIu64 " elem_count=%" PRIu64 "\n", ptr,
-          sizeof_type, elem_count);
-
-  // TODO: Be aware of `align` here?
-  u64 space = sizeof_type * elem_count;
-
-  tracing_allocator->in_use_objects_count -= elem_count;
-  tracing_allocator->in_use_space -= space;
-
-  fprintf(
-      stderr,
-      "%" PRIu64 ": %" PRIu64 " [%" PRIu64 ": %" PRIu64 "] @ TODO call stack\n",
-      tracing_allocator->in_use_objects_count, tracing_allocator->in_use_space,
-      tracing_allocator->alloc_objects_count, tracing_allocator->alloc_space);
-
-  free(ptr);
-}
-
-[[maybe_unused]] [[nodiscard]] static PgTracingAllocator
-pg_make_tracing_allocator(PgFileDescriptor heap_profile_file) {
-  return (PgTracingAllocator){
-      .alloc_fn = pg_alloc_tracing,
-      .realloc_fn = pg_realloc_tracing,
-      .free_fn = pg_free_tracing,
-      .heap_profile_file = heap_profile_file,
-  };
-}
-
-[[maybe_unused]] [[nodiscard]] static PgAllocator *
-pg_tracing_allocator_as_allocator(PgTracingAllocator *allocator) {
-  return (PgAllocator *)allocator;
 }
 
 [[maybe_unused]] [[nodiscard]] static void *pg_alloc(PgAllocator *allocator,
