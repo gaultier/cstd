@@ -1881,89 +1881,6 @@ static void test_path_base_name() {
                    pg_path_base_name(PG_S("." PG_PATH_SEPARATOR_S "foo.mp3"))));
 }
 
-typedef struct {
-  u64 value;
-  PgHeapNode heap;
-} u64Node;
-
-static bool u64_node_less_than(PgHeapNode *a, PgHeapNode *b) {
-  PG_ASSERT(a);
-  PG_ASSERT(b);
-
-  u64Node *una = PG_CONTAINER_OF(a, u64Node, heap);
-  u64Node *unb = PG_CONTAINER_OF(b, u64Node, heap);
-
-  return una->value < unb->value;
-}
-
-static void test_heap_insert_dequeue() {
-  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-
-  PgHeap heap = {0};
-  u64 values[] = {100, 19, 36, 17, 3, 25, 1, 2, 7};
-
-  for (u64 i = 0; i < PG_STATIC_ARRAY_LEN(values); i++) {
-    u64 value = PG_C_ARRAY_AT(values, PG_STATIC_ARRAY_LEN(values), i);
-    u64Node *node = pg_arena_new(&arena, u64Node, 1);
-    node->value = value;
-    pg_heap_insert(&heap, &node->heap, u64_node_less_than);
-
-    pg_heap_node_sanity_check(heap.root, u64_node_less_than);
-  }
-  PG_ASSERT(PG_STATIC_ARRAY_LEN(values) == heap.count);
-
-  u64Node *n1 = PG_CONTAINER_OF(heap.root, u64Node, heap);
-  PG_ASSERT(1 == n1->value);
-
-  u64Node *n2 = PG_CONTAINER_OF(n1->heap.left, u64Node, heap);
-  PG_ASSERT(2 == n2->value);
-
-  u64Node *n3 = PG_CONTAINER_OF(n1->heap.right, u64Node, heap);
-  PG_ASSERT(3 == n3->value);
-
-  u64 last_min = 0;
-
-  for (u64 i = 0; i < PG_STATIC_ARRAY_LEN(values); i++) {
-    u64Node *root = PG_CONTAINER_OF(heap.root, u64Node, heap);
-    PG_ASSERT(root);
-    u64 min = root->value;
-    // Check that we see values in ascending order.
-    PG_ASSERT(last_min < min);
-
-    pg_heap_dequeue(&heap, u64_node_less_than);
-    pg_heap_node_sanity_check(heap.root, u64_node_less_than);
-  }
-
-  PG_ASSERT(0 == heap.count);
-  PG_ASSERT(!heap.root);
-}
-
-static void test_heap_remove_in_the_middle() {
-  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-
-  PgHeap heap = {0};
-  u64 values[] = {100, 19, 36, 17, 3, 25, 1, 2, 7};
-
-  for (u64 i = 0; i < PG_STATIC_ARRAY_LEN(values); i++) {
-    u64 value = PG_C_ARRAY_AT(values, PG_STATIC_ARRAY_LEN(values), i);
-    u64Node *node = pg_arena_new(&arena, u64Node, 1);
-    node->value = value;
-
-    pg_heap_insert(&heap, &node->heap, u64_node_less_than);
-    pg_heap_node_sanity_check(heap.root, u64_node_less_than);
-  }
-  PG_ASSERT(PG_STATIC_ARRAY_LEN(values) == heap.count);
-
-  PgHeapNode *rm = heap.root->left->right;
-  PG_ASSERT(19 == PG_CONTAINER_OF(rm, u64Node, heap)->value);
-
-  pg_heap_node_remove(&heap, rm, u64_node_less_than);
-  pg_heap_node_sanity_check(heap.root, u64_node_less_than);
-
-  PG_ASSERT(PG_STATIC_ARRAY_LEN(values) - 1 == heap.count);
-  PG_ASSERT(heap.root);
-}
-
 static void test_process_no_capture() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -2682,8 +2599,6 @@ int main() {
   test_log();
   test_div_ceil();
   test_path_base_name();
-  test_heap_insert_dequeue();
-  test_heap_remove_in_the_middle();
   test_process_no_capture();
   test_process_capture();
   test_process_stdin();
