@@ -1437,8 +1437,8 @@ pg_string_builder_make(u64 cap, PgAllocator *allocator) {
 }
 
 typedef struct {
-  void *ctx;
   ReadFn read_fn;
+  PgFileDescriptor ctx;
 } PgReader;
 
 typedef struct {
@@ -1695,7 +1695,7 @@ pg_reader_ring_read(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != buf);
 
   PgReader *r = self;
-  PgRing *ring = r->ctx;
+  PgRing *ring = r->ctx.ptr;
 
   PgString s = {.data = buf, .len = PG_MIN(buf_len, pg_ring_read_space(*ring))};
   PG_ASSERT(true == pg_ring_read_slice(ring, s));
@@ -1782,9 +1782,32 @@ pg_writer_write_string_full(PgWriter *w, PgString s, PgAllocator *allocator) {
 [[nodiscard]] [[maybe_unused]] static PgReader
 pg_reader_make_from_ring(PgRing *ring) {
   PgReader r = {0};
-  r.ctx = ring;
+  r.ctx.ptr = ring;
   r.read_fn = pg_reader_ring_read;
   return r;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgStringResult
+pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
+  PgStringResult res = {0};
+  u64 idx = 0;
+
+  do {
+    PG_ASSERT(idx < buf.len);
+
+    PgU64Result read_res = r->read_fn(r, buf.data + idx, buf.len - idx);
+
+    if (read_res.err) {
+      res.err = read_res.err;
+      return res;
+    }
+
+    if (0 == read_res.res) {
+      res.res.data = buf.data;
+      res.res.len = idx;
+      return res;
+    }
+  } while (1); // FIXME: Bounded;
 }
 
 [[nodiscard]] [[maybe_unused]] static PgU64Result
@@ -2832,6 +2855,9 @@ pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len, PgAllocator *);
 
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_reader_file_read(void *self, u8 *buf, size_t buf_len);
+
 [[nodiscard]] static u64 pg_os_get_page_size();
 
 typedef enum [[clang::flag_enum]] {
@@ -2987,7 +3013,13 @@ pg_string_concat(PgString left, PgString right, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgReader
-pg_reader_make_from_file(PgFileDescriptor file);
+pg_reader_make_from_file_descriptor(PgFileDescriptor file) {
+  PgReader r = {0};
+  r.ctx = file;
+  r.read_fn = pg_reader_file_read;
+
+  return r;
+}
 
 [[maybe_unused]] [[nodiscard]] static PgWriter
 pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
@@ -3637,8 +3669,36 @@ pg_writer_unix_file_write(void *self, u8 *buf, size_t buf_len) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_reader_unix_file_read(void *self, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != self);
+  PG_ASSERT(nullptr != buf);
+
+  PgReader *w = self;
+
+  PgFileDescriptor file = w->ctx;
+  isize n = 0;
+  do {
+    n = read(file.fd, buf, buf_len);
+  } while (-1 == n && EINTR == errno);
+
+  PgU64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len, PgAllocator *) {
   return pg_writer_unix_file_write(self, buf, buf_len);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_reader_file_read(void *self, u8 *buf, size_t buf_len) {
+  return pg_reader_unix_file_read(self, buf, buf_len);
 }
 
 [[maybe_unused]] [[nodiscard]] static clockid_t
@@ -3884,6 +3944,11 @@ pg_writer_win32_write(void *self, u8 *buf, size_t buf_len) {
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len, PgAllocator *) {
   return pg_writer_win32_write(self, buf, buf_len);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_reader_file_read(void *self, u8 *buf, size_t buf_len) {
+  return pg_reader_win32_read(self, buf, buf_len);
 }
 
 [[nodiscard]] static u64 pg_os_get_page_size() {
