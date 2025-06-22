@@ -1427,7 +1427,7 @@ typedef PgU64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
 typedef PgU64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
 
 [[maybe_unused]] [[nodiscard]] static Pgu8Dyn
-pg_sb_make(u64 cap, PgAllocator *allocator) {
+pg_string_builder_make(u64 cap, PgAllocator *allocator) {
   Pgu8Dyn res = {0};
   PG_DYN_ENSURE_CAP(&res, cap, allocator);
   PG_ASSERT(res.data);
@@ -2903,7 +2903,7 @@ pg_arena_make_from_virtual_mem(u64 size) {
 pg_path_join(PgString a, PgString b, PgAllocator *allocator) {
   PgString sep = PG_S(PG_PATH_SEPARATOR_S);
 
-  Pgu8Dyn sb = pg_sb_make(a.len + sep.len + b.len, allocator);
+  Pgu8Dyn sb = pg_string_builder_make(a.len + sep.len + b.len, allocator);
 
   PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(&sb, a);
   PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(&sb, sep);
@@ -3403,11 +3403,11 @@ pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
   Pgu8Dyn stderr_sb = {0};
 
   if (process.stdout_pipe.fd) {
-    stdout_sb = pg_sb_make(4096, allocator);
+    stdout_sb = pg_string_builder_make(4096, allocator);
   }
 
   if (process.stderr_pipe.fd) {
-    stderr_sb = pg_sb_make(4096, allocator);
+    stderr_sb = pg_string_builder_make(4096, allocator);
   }
 
   while (process.stdout_pipe.fd || process.stderr_pipe.fd) {
