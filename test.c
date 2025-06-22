@@ -599,9 +599,9 @@ static void test_dynu8_append_u8_hex_upper() {
 
   {
     Pgu8Dyn sb = {0};
-    PgWriter w = pg_writer_make_from_string_builder(&sb, allocator);
-    PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0xac));
-    PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0x89));
+    PgWriter w = pg_writer_make_from_string_builder(&sb);
+    PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0xac, allocator));
+    PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0x89, allocator));
 
     PgString s = PG_DYN_SLICE(PgString, sb);
     PG_ASSERT(pg_string_eq(s, PG_S("AC89")));
@@ -629,8 +629,9 @@ static void test_url_encode() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
   {
     Pgu8Dyn sb = {0};
-    PgWriter w = pg_writer_make_from_string_builder(&sb, allocator);
-    PG_ASSERT(0 == pg_writer_url_encode(&w, PG_S("日本語"), PG_S("123")));
+    PgWriter w = pg_writer_make_from_string_builder(&sb);
+    PG_ASSERT(0 ==
+              pg_writer_url_encode(&w, PG_S("日本語"), PG_S("123"), allocator));
     PgString encoded = PG_DYN_SLICE(PgString, sb);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=123")));
@@ -638,8 +639,9 @@ static void test_url_encode() {
 
   {
     Pgu8Dyn sb = {0};
-    PgWriter w = pg_writer_make_from_string_builder(&sb, allocator);
-    PG_ASSERT(0 == pg_writer_url_encode(&w, PG_S("日本語"), PG_S("foo")));
+    PgWriter w = pg_writer_make_from_string_builder(&sb);
+    PG_ASSERT(0 ==
+              pg_writer_url_encode(&w, PG_S("日本語"), PG_S("foo"), allocator));
     PgString encoded = PG_DYN_SLICE(PgString, sb);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=foo")));
@@ -1825,7 +1827,7 @@ static void test_log() {
     PG_DYN_ENSURE_CAP(&sb, 256, allocator);
 
     PgLogger logger = pg_log_make_logger_stdout_logfmt(PG_LOG_LEVEL_DEBUG);
-    logger.writer = pg_writer_make_from_string_builder(&sb, allocator);
+    logger.writer = pg_writer_make_from_string_builder(&sb);
 
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world",
            pg_log_c_s("foo", PG_S("bar")), pg_log_c_i64("baz", -317));
@@ -1838,7 +1840,7 @@ static void test_log() {
     Pgu8Dyn sb = {0};
     PG_DYN_ENSURE_CAP(&sb, 256, allocator);
     PgLogger logger = pg_log_make_logger_stdout_logfmt(PG_LOG_LEVEL_INFO);
-    logger.writer = pg_writer_make_from_string_builder(&sb, allocator);
+    logger.writer = pg_writer_make_from_string_builder(&sb);
 
     pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world",
            pg_log_s(PG_S("foo"), PG_S("bar")));
