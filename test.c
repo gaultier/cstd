@@ -2440,34 +2440,6 @@ static void test_html_parse_title_with_html_content() {
   PG_ASSERT(node_code_text->token_end.end < node_h2->token_end.start);
 }
 
-static void test_hash_trie() {
-  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
-
-  PgHashTrie *hash_trie = nullptr;
-
-  PgHashTrie *node_hello =
-      pg_hash_trie_lookup(&hash_trie, PG_S("hello"), allocator);
-  PG_ASSERT(node_hello);
-
-  PgHashTrie *node_world =
-      pg_hash_trie_lookup(&hash_trie, PG_S("world"), allocator);
-  PG_ASSERT(node_world);
-
-  // Non existing key.
-  {
-    PgHashTrie *it = pg_hash_trie_lookup(&hash_trie, PG_S("bar baz"), nullptr);
-    PG_ASSERT(!it);
-  }
-  // Find existing key.
-  {
-    PgHashTrie *it = pg_hash_trie_lookup(&hash_trie, PG_S("hello"), nullptr);
-    PG_ASSERT(it);
-    PG_ASSERT(pg_bytes_eq(it->key, PG_S("hello")));
-  }
-}
-
 static void test_string_escape_js() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -2611,7 +2583,6 @@ int main() {
   test_html_tokenize_with_comment();
   test_html_parse();
   test_html_parse_title_with_html_content();
-  test_hash_trie();
   test_string_escape_js();
   test_string_builder_append_u64();
   test_string_buillder_append_u64_hex();

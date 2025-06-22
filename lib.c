@@ -6149,29 +6149,6 @@ pg_html_node_get_simple_title_content(PgHtmlNode *node) {
   return res;
 }
 
-typedef struct PgHashTrie PgHashTrie;
-struct PgHashTrie {
-  Pgu8Slice key;
-  PgHashTrie *child[4];
-};
-
-[[maybe_unused]] [[nodiscard]] static PgHashTrie *
-pg_hash_trie_lookup(PgHashTrie **map, Pgu8Slice key, PgAllocator *allocator) {
-  for (u64 hash = pg_hash_fnv(key); *map; hash <<= 2) {
-    if (pg_bytes_eq(key, (*map)->key)) {
-      return *map;
-    }
-    map = &(*map)->child[hash >> 62];
-  }
-  if (!allocator) {
-    return nullptr;
-  }
-
-  *map = pg_alloc(allocator, sizeof(PgHashTrie), _Alignof(PgHashTrie), 1);
-  (*map)->key = key;
-  return *map;
-}
-
 PG_SLICE(thrd_t) PgThreadSlice;
 PG_DYN(thrd_t) PgThreadDyn;
 
@@ -6319,6 +6296,7 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
   }
 }
 
+#if 0
 typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_FILTER_NONE,
   PG_AIO_EVENT_READ = 1 << 0,
@@ -6552,6 +6530,7 @@ static PgError pg_aio_loop_read_stop(PgAioTask *task) {
   return (PgError){0};
 }
 
+#endif
 #endif
 
 #endif
