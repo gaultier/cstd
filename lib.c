@@ -1427,6 +1427,7 @@ typedef PgU64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
 typedef PgU64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len,
                                PgAllocator *allocator);
 typedef PgError (*FlushFn)(void *self);
+typedef PgError (*CloseFn)(void *self);
 
 [[maybe_unused]] [[nodiscard]] static Pgu8Dyn
 pg_string_builder_make(u64 cap, PgAllocator *allocator) {
@@ -1445,6 +1446,7 @@ typedef struct {
   PgFileDescriptor file;
   WriteFn write_fn;
   FlushFn flush_fn;
+  CloseFn close_fn;
   PgFileDescriptor ctx;
 } PgWriter;
 
@@ -1674,6 +1676,15 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
   return (PgError){0};
 }
 
+[[maybe_unused]] [[nodiscard]] static PgError pg_writer_close(PgWriter *w) {
+  PG_ASSERT(w);
+
+  if (w->close_fn) {
+    return w->close_fn(w);
+  }
+  return (PgError){0};
+}
+
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len,
                                PgAllocator *allocator) {
@@ -1789,10 +1800,10 @@ pg_reader_make_from_ring(PgRing *ring) {
 
 [[nodiscard]] [[maybe_unused]] static PgStringResult
 pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
-  PgStringResult res = {0};
-  u64 idx = 0;
+  PgStringResult res = {.res.data = buf.data};
 
   do {
+    u64 idx = res.res.len;
     PG_ASSERT(idx < buf.len);
 
     PgU64Result read_res = r->read_fn(r, buf.data + idx, buf.len - idx);
@@ -1802,9 +1813,9 @@ pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
       return res;
     }
 
+    res.res.len += read_res.res;
+
     if (0 == read_res.res) {
-      res.res.data = buf.data;
-      res.res.len = idx;
       return res;
     }
   } while (1); // FIXME: Bounded;
@@ -2855,6 +2866,10 @@ pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len, PgAllocator *);
 
+[[maybe_unused]] [[nodiscard]] static PgError pg_writer_file_flush(void *self);
+
+[[maybe_unused]] [[nodiscard]] static PgError pg_writer_file_close(void *self);
+
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_reader_file_read(void *self, u8 *buf, size_t buf_len);
 
@@ -3026,6 +3041,8 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
   PgWriter w = {
       .ctx = file,
       .write_fn = pg_writer_file_write,
+      .flush_fn = pg_writer_file_flush,
+      .close_fn = pg_writer_file_close,
   };
 
   return w;
@@ -3645,6 +3662,33 @@ static PgProcessExitResult pg_process_wait(PgProcess process,
   return 0;
 }
 
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_writer_unix_file_flush(void *self) {
+  PG_ASSERT(nullptr != self);
+
+  PgWriter *w = self;
+
+  PgFileDescriptor file = w->ctx;
+  (void)file;
+  // FIXME: Do a `write(2)` once all writes are buffered.
+
+  return (PgError){0};
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_writer_unix_file_close(void *self) {
+  PG_ASSERT(nullptr != self);
+
+  PgWriter *w = self;
+
+  PgFileDescriptor file = w->ctx;
+  if (-1 == close(file.fd)) {
+    return (PgError)pg_os_get_last_error();
+  }
+
+  return (PgError){0};
+}
+
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_unix_file_write(void *self, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != self);
@@ -3655,6 +3699,7 @@ pg_writer_unix_file_write(void *self, u8 *buf, size_t buf_len) {
   PgFileDescriptor file = w->ctx;
   isize n = 0;
   do {
+    // FIXME: Buffer the write. Only do a `write(2)` on `pg_writer_flush`.
     n = write(file.fd, buf, buf_len);
   } while (-1 == n && EINTR == errno);
 
@@ -3694,6 +3739,14 @@ pg_reader_unix_file_read(void *self, u8 *buf, size_t buf_len) {
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_file_write(void *self, u8 *buf, size_t buf_len, PgAllocator *) {
   return pg_writer_unix_file_write(self, buf, buf_len);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError pg_writer_file_flush(void *self) {
+  return pg_writer_unix_file_flush(self);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError pg_writer_file_close(void *self) {
+  return pg_writer_unix_file_close(self);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
