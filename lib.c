@@ -1718,6 +1718,11 @@ pg_writer_ring_write(void *self, u8 *buf, size_t buf_len, PgAllocator *) {
   return (PgU64Result){.res = s.len};
 }
 
+[[nodiscard]] [[maybe_unused]] static PgWriter pg_writer_make_noop() {
+  PgWriter w = {0};
+  return w;
+}
+
 [[nodiscard]] [[maybe_unused]] static PgWriter
 pg_writer_make_from_string_builder(Pgu8Dyn *sb) {
   PgWriter w = {0};
@@ -1736,7 +1741,9 @@ pg_writer_make_from_ring(PgRing *ring) {
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_writer_write_u8(PgWriter *w, u8 c, PgAllocator *allocator) {
-  PG_ASSERT(nullptr != w->write_fn);
+  if (!w->write_fn) {
+    return (PgError){0};
+  }
 
   PgU64Result res = w->write_fn(w, &c, 1, allocator);
   if (res.err) {
@@ -1748,7 +1755,9 @@ pg_writer_write_u8(PgWriter *w, u8 c, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_writer_write_string_full(PgWriter *w, PgString s, PgAllocator *allocator) {
-  PG_ASSERT(nullptr != w->write_fn);
+  if (!w->write_fn) {
+    return (PgError){0};
+  }
 
   PgString remaining = s;
   for (u64 _i = 0; _i < s.len; _i++) {
@@ -1781,6 +1790,10 @@ pg_reader_make_from_ring(PgRing *ring) {
 [[nodiscard]] [[maybe_unused]] static PgU64Result
 pg_writer_write_from_reader(PgWriter *w, PgReader *r, PgAllocator *allocator) {
   PgU64Result res = {0};
+
+  if (!w->write_fn) {
+    return res;
+  }
 
   // TODO: Get a hint from the reader?
   u8 tmp[4096] = {0};
@@ -5330,6 +5343,9 @@ pg_log_level_to_string(PgLogLevel level) {
 #define pg_log(logger, lvl, msg, ...)                                          \
   do {                                                                         \
     if (nullptr == (logger)) {                                                 \
+      break;                                                                   \
+    }                                                                          \
+    if (nullptr == (logger)->writer.write_fn) {                                \
       break;                                                                   \
     }                                                                          \
     PG_ASSERT(nullptr != (logger)->make_log_line);                             \
