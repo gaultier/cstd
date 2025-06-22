@@ -2867,7 +2867,14 @@ pg_writer_file_write(PgWriter *w, u8 *buf, size_t buf_len, PgAllocator *);
 
 [[maybe_unused]] [[nodiscard]] static PgError pg_writer_file_flush(PgWriter *w);
 
-[[maybe_unused]] [[nodiscard]] static PgError pg_writer_file_close(void *w);
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_file_close(PgFileDescriptor file);
+
+[[maybe_unused]] [[nodiscard]] static PgError pg_writer_file_close(void *w) {
+  PG_ASSERT(w);
+
+  return pg_file_close(((PgWriter *)w)->ctx);
+}
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_reader_file_read(PgReader *r, u8 *buf, size_t buf_len);
@@ -3667,18 +3674,6 @@ pg_writer_unix_file_flush(PgWriter *w) {
   return (PgError){0};
 }
 
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_writer_unix_file_close(PgWriter *w) {
-  PG_ASSERT(nullptr != w);
-
-  PgFileDescriptor file = w->ctx;
-  if (-1 == close(file.fd)) {
-    return (PgError)pg_os_get_last_error();
-  }
-
-  return (PgError){0};
-}
-
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_unix_file_write(PgWriter *w, u8 *buf, size_t buf_len) {
   PG_ASSERT(nullptr != w);
@@ -3729,10 +3724,6 @@ pg_writer_file_write(PgWriter *w, u8 *buf, size_t buf_len, PgAllocator *) {
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_writer_file_flush(PgWriter *w) {
   return pg_writer_unix_file_flush(w);
-}
-
-[[maybe_unused]] [[nodiscard]] static PgError pg_writer_file_close(void *w) {
-  return pg_writer_unix_file_close(w);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
