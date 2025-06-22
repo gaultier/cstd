@@ -245,40 +245,44 @@ PG_RESULT(PgRune) PgRuneResult;
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_rune_is_alphabetical_uppercase(PgRune c) {
+pg_rune_ascii_is_alphabetical_uppercase(PgRune c) {
   return ('A' <= c && c <= 'Z');
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_rune_is_alphabetical_lowercase(PgRune c) {
+pg_rune_ascii_is_alphabetical_lowercase(PgRune c) {
   return ('a' <= c && c <= 'z');
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_rune_is_alphabetical(PgRune c) {
-  return pg_rune_is_alphabetical_uppercase(c) ||
-         pg_rune_is_alphabetical_lowercase(c);
+[[maybe_unused]] [[nodiscard]] static bool
+pg_rune_ascii_is_alphabetical(PgRune c) {
+  return pg_rune_ascii_is_alphabetical_uppercase(c) ||
+         pg_rune_ascii_is_alphabetical_lowercase(c);
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_rune_is_space(PgRune c) {
+[[maybe_unused]] [[nodiscard]] static bool pg_rune_ascii_is_space(PgRune c) {
   return ' ' == c || '\t' == c || '\n' == c || '\f' == c;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_rune_is_numeric(PgRune c) {
+[[maybe_unused]] [[nodiscard]] static bool pg_rune_ascii_is_numeric(PgRune c) {
   return ('0' <= c && c <= '9');
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_rune_is_alphanumeric(PgRune c) {
-  return pg_rune_is_numeric(c) || pg_rune_is_alphabetical(c);
+[[maybe_unused]] [[nodiscard]] static bool
+pg_rune_ascii_is_alphanumeric(PgRune c) {
+  return pg_rune_ascii_is_numeric(c) || pg_rune_ascii_is_alphabetical(c);
 }
 
-[[maybe_unused]] [[nodiscard]] static PgRune pg_rune_ascii_lower(PgRune c) {
+[[maybe_unused]] [[nodiscard]] static PgRune
+pg_rune_ascii_to_lower_case(PgRune c) {
   if ('A' <= c && c <= 'Z') {
     return c + ('a' - 'A');
   }
   return c;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgRune pg_rune_ascii_upper(PgRune c) {
+[[maybe_unused]] [[nodiscard]] static PgRune
+pg_rune_ascii_to_upper_case(PgRune c) {
   if ('a' <= c && c <= 'z') {
     return c - ('a' - 'A');
   }
@@ -490,7 +494,7 @@ pg_string_is_alphabetical(PgString s) {
 
   for (res_rune = pg_utf8_iterator_next(&it); !res_rune.err && res_rune.res;
        res_rune = pg_utf8_iterator_next(&it)) {
-    if (!pg_rune_is_alphabetical(res_rune.res)) {
+    if (!pg_rune_ascii_is_alphabetical(res_rune.res)) {
       return false;
     }
   }
@@ -975,7 +979,7 @@ pg_string_parse_u64(PgString s) {
 
   // Forbid leading zero(es) if there is more than one digit.
   if (pg_string_starts_with(s, PG_S("0")) && s.len >= 2 &&
-      pg_rune_is_numeric(PG_SLICE_AT(s, 1))) {
+      pg_rune_ascii_is_numeric(PG_SLICE_AT(s, 1))) {
     return res;
   }
 
@@ -988,7 +992,7 @@ pg_string_parse_u64(PgString s) {
     }
 
     PgRune c = res_rune.res;
-    if (!pg_rune_is_numeric(c)) { // End of numbers sequence.
+    if (!pg_rune_ascii_is_numeric(c)) { // End of numbers sequence.
       break;
     }
 
@@ -2192,11 +2196,13 @@ static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n) {
   u8 c2 = n >> 4; // i.e. `/ 16`
 
   PgError err = 0;
-  err = pg_writer_write_u8(w, (u8)pg_rune_ascii_upper(pg_u8_to_hex_rune(c2)));
+  err = pg_writer_write_u8(
+      w, (u8)pg_rune_ascii_to_upper_case(pg_u8_to_hex_rune(c2)));
   if (err) {
     return err;
   }
-  err = pg_writer_write_u8(w, (u8)pg_rune_ascii_upper(pg_u8_to_hex_rune(c1)));
+  err = pg_writer_write_u8(
+      w, (u8)pg_rune_ascii_to_upper_case(pg_u8_to_hex_rune(c1)));
   if (err) {
     return err;
   }
@@ -4415,7 +4421,7 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value) {
 
   for (u64 i = 0; i < key.len; i++) {
     u8 c = PG_SLICE_AT(key, i);
-    if (pg_rune_is_alphanumeric(c)) {
+    if (pg_rune_ascii_is_alphanumeric(c)) {
       err = pg_writer_write_u8(w, c);
       if (err) {
         return err;
@@ -4440,7 +4446,7 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value) {
 
   for (u64 i = 0; i < value.len; i++) {
     u8 c = PG_SLICE_AT(value, i);
-    if (pg_rune_is_alphanumeric(c)) {
+    if (pg_rune_ascii_is_alphanumeric(c)) {
       err = pg_writer_write_u8(w, c);
       if (err) {
         return err;
@@ -4803,13 +4809,14 @@ pg_url_is_scheme_valid(PgString scheme) {
   }
 
   u8 first = PG_SLICE_AT(scheme, 0);
-  if (!pg_rune_is_alphabetical(first)) {
+  if (!pg_rune_ascii_is_alphabetical(first)) {
     return false;
   }
 
   for (u64 i = 0; i < scheme.len; i++) {
     u8 c = PG_SLICE_AT(scheme, i);
-    if (!(pg_rune_is_alphanumeric(c) || c == '+' || c == '-' || c == '.')) {
+    if (!(pg_rune_ascii_is_alphanumeric(c) || c == '+' || c == '-' ||
+          c == '.')) {
       return false;
     }
   }
@@ -5498,7 +5505,7 @@ pg_json_escape_string(PgString entry, PgAllocator *allocator) {
 [[maybe_unused]] static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c,
                                                  PgAllocator *allocator) {
   if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' || c == '.' ||
-      pg_rune_is_alphanumeric(c)) {
+      pg_rune_ascii_is_alphanumeric(c)) {
     *PG_DYN_PUSH(sb, allocator) = c;
   } else {
     u8 c1 = c % 16;
@@ -6009,7 +6016,7 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
       return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
     }
 
-    if (pg_rune_is_space(first)) { // Skip.
+    if (pg_rune_ascii_is_space(first)) { // Skip.
       *pos += pg_utf8_rune_bytes_count(first);
       continue;
     }
@@ -6084,7 +6091,7 @@ static PgError pg_html_tokenize_doctype_name(PgString s, u64 *pos,
       return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
     }
 
-    if (pg_rune_is_space(first)) {
+    if (pg_rune_ascii_is_space(first)) {
       *pos += pg_utf8_rune_bytes_count(first);
       return 0;
     }
@@ -6110,7 +6117,7 @@ static PgError pg_html_tokenize_doctype(PgString s, u64 *pos,
   *pos += PG_S("DOCTYPE").len;
 
   PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-  if (!pg_rune_is_space(first)) {
+  if (!pg_rune_ascii_is_space(first)) {
     return PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME;
   }
   *pos += pg_utf8_rune_bytes_count(first);
@@ -6121,7 +6128,7 @@ static PgError pg_html_tokenize_doctype(PgString s, u64 *pos,
       return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
     }
 
-    if (pg_rune_is_space(first)) {
+    if (pg_rune_ascii_is_space(first)) {
       *pos += pg_utf8_rune_bytes_count(first);
       continue;
     }
@@ -6187,7 +6194,7 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
   }
 
   first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-  if (!pg_rune_is_alphabetical(first)) {
+  if (!pg_rune_ascii_is_alphabetical(first)) {
     return PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME;
   }
   *pos += pg_utf8_rune_bytes_count(first);
@@ -6200,7 +6207,7 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
     }
 
     // End of tag name.
-    if ('>' == first || pg_rune_is_space(first)) {
+    if ('>' == first || pg_rune_ascii_is_space(first)) {
       if (0 == token.tag.len) {
         token.tag.len = (u64)((s.data + *pos) - token.tag.data);
       }
@@ -6219,7 +6226,7 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
       return 0;
     }
 
-    if (pg_rune_is_space(first)) {
+    if (pg_rune_ascii_is_space(first)) {
       *pos += pg_utf8_rune_bytes_count(first);
       PgError err = pg_html_tokenize_attributes(s, pos, tokens, allocator);
       if (err) {
