@@ -1,9 +1,8 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
 
-// TODO: Buffered I/O writer.
+// TODO: Buffered I/O reader/writer.
 // TODO: Document all functions.
-// TODO: Group all IO functions under the IO object.
 // TODO: IPv6.
 // TODO: *Pool allocator?*
 // TODO: Randomize arena guard pages.
@@ -12,8 +11,8 @@
 // TODO: Pprof memory profiling.
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: Get PIE offset for better call stack.
-// Low priority:
 // TODO: Test untested functions.
+// Low priority:
 // TODO: [Unix] CLI argument parser.
 
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__) ||        \
