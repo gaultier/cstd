@@ -1665,6 +1665,15 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
   return pg_ring_read_slice(rg, s);
 }
 
+[[maybe_unused]] [[nodiscard]] static PgError pg_writer_flush(PgWriter *w) {
+  PG_ASSERT(w);
+
+  if (w->flush_fn) {
+    return w->flush_fn(w);
+  }
+  return (PgError){0};
+}
+
 [[maybe_unused]] [[nodiscard]] static PgU64Result
 pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len,
                                PgAllocator *allocator) {
