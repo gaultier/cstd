@@ -1,6 +1,8 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
 
+// TODO: Document all functions.
+// TODO: Group all IO functions under the IO object.
 // TODO: IPv6.
 // TODO: *Pool allocator?*
 // TODO: Randomize arena guard pages.
@@ -91,6 +93,7 @@ typedef ssize_t isize;
     bool ok;                                                                   \
   }
 
+// TODO: Separate error type.
 typedef u32 PgError;
 #define PG_ERR_EOF 4095
 #ifdef PG_OS_UNIX
@@ -123,6 +126,7 @@ PG_DYN(void) PgAnyDyn;
 
 #define PG_STATIC_ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
+// Clamp a value in the range `[min, max]`.
 #define PG_CLAMP(min, n, max) ((n) < (min) ? (min) : (n) > (max) ? (max) : n)
 
 #define PG_SUB_SAT(a, b) ((a) > (b) ? ((a) - (b)) : 0)
@@ -193,17 +197,7 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
     (s)->len -= 1;                                                             \
   } while (0)
 
-#define PG_DYN_SWAP_REMOVE(s, idx)                                             \
-  do {                                                                         \
-    if ((i64)(idx) >= (i64)((s)->len)) {                                       \
-      __builtin_trap();                                                        \
-    }                                                                          \
-    *(PG_C_ARRAY_AT_PTR((s)->data, (s)->len, (idx))) =                         \
-        PG_C_ARRAY_AT((s)->data, (s)->len, (s)->len - 1);                      \
-    (s)->len -= 1;                                                             \
-  } while (0)
-
-#define PG_DYN_REMOVE_AT(s, idx)                                               \
+#define PG_SLICE_REMOVE_AT(s, idx)                                             \
   do {                                                                         \
     PG_ASSERT((s)->len > 0);                                                   \
     PG_ASSERT((idx) < (s)->len);                                               \
@@ -241,56 +235,6 @@ typedef enum {
 
 static const u64 PG_FILE_ACCESS_ALL =
     PG_FILE_ACCESS_READ | PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE;
-
-// Non-owning.
-typedef struct PgQueue {
-  struct PgQueue *prev, *next;
-} PgQueue;
-
-[[maybe_unused]]
-static void pg_queue_init(PgQueue *queue) {
-  PG_ASSERT(queue);
-  queue->next = queue;
-  queue->prev = queue;
-}
-
-[[nodiscard]] [[maybe_unused]]
-static bool pg_queue_is_empty(PgQueue *queue) {
-  bool is_empty = queue->next == queue;
-  if (is_empty) {
-    PG_ASSERT(queue->prev == queue);
-  }
-
-  return is_empty;
-}
-
-[[maybe_unused]]
-static void pg_queue_insert_tail(PgQueue *queue, PgQueue *elem) {
-  PG_ASSERT(queue);
-  PG_ASSERT(elem);
-  PG_ASSERT(queue->next);
-  PG_ASSERT(queue->prev);
-
-  elem->next = queue;
-  elem->prev = queue->prev;
-  queue->prev->next = elem;
-  queue->prev = elem;
-
-  PG_ASSERT(queue->next);
-  PG_ASSERT(queue->prev);
-  PG_ASSERT(elem->next);
-  PG_ASSERT(elem->prev);
-}
-
-[[maybe_unused]]
-static void pg_queue_remove(PgQueue *elem) {
-  PG_ASSERT(elem);
-  PG_ASSERT(elem->next);
-  PG_ASSERT(elem->prev);
-
-  elem->prev->next = elem->next;
-  elem->next->prev = elem->prev;
-}
 
 // Non-owning.
 typedef struct PgHeapNode {
