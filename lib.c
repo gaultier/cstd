@@ -1279,20 +1279,6 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_cstr_mut_from_string(char *str_c,
-                                                                   PgString s) {
-  PG_ASSERT(str_c);
-
-  if (s.len >= PG_PATH_MAX) {
-    return false;
-  }
-  memcpy(str_c, s.data, s.len);
-
-  PG_ASSERT(0 == PG_C_ARRAY_AT(str_c, s.len + 1, s.len));
-
-  return true;
-}
-
 [[maybe_unused]] [[nodiscard]] static PgString pg_cstr_to_string(char *s) {
   return (PgString){
       .data = (u8 *)s,
