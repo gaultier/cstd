@@ -5326,7 +5326,7 @@ pg_log_level_to_string(PgLogLevel level) {
 [[maybe_unused]] static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c,
                                                  PgAllocator *allocator) {
   if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' || c == '.' ||
-      pg_rune_ascii_is_alphanumeric(c)) {
+      c == '/' || pg_rune_ascii_is_alphanumeric(c)) {
     *PG_DYN_PUSH(sb, allocator) = c;
   } else {
     u8 c1 = c % 16;
