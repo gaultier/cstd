@@ -347,6 +347,8 @@ pg_make_utf8_iterator(PgString s) {
   return PG_SLICE_IS_EMPTY(s);
 }
 
+// TODO: If this becomes a performance bottleneck there are more optimized ways
+// to implement that.
 [[maybe_unused]] [[nodiscard]] static PgRuneResult
 pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   PgRuneResult res = {0};
@@ -467,7 +469,8 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgU64Result pg_utf8_count(PgString s) {
+[[maybe_unused]] [[nodiscard]] static PgU64Result
+pg_utf8_count_runes(PgString s) {
   PgU64Result res = {0};
 
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -488,7 +491,7 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
-pg_string_is_alphabetical(PgString s) {
+pg_string_is_ascii_alphabetical(PgString s) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
   PgRuneResult res_rune = {0};
 
