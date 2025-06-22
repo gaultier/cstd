@@ -1,6 +1,7 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
 
+// TODO: Buffered I/O writer.
 // TODO: Document all functions.
 // TODO: Group all IO functions under the IO object.
 // TODO: IPv6.
@@ -3663,11 +3664,6 @@ static PgProcessExitResult pg_process_wait(PgProcess process,
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_writer_unix_file_flush(PgWriter *w) {
   PG_ASSERT(nullptr != w);
-
-  PgFileDescriptor file = w->ctx;
-  (void)file;
-  // FIXME: Do a `write(2)` once all writes are buffered.
-
   return (PgError){0};
 }
 
@@ -3691,7 +3687,6 @@ pg_writer_unix_file_write(PgWriter *w, u8 *buf, size_t buf_len) {
   PgFileDescriptor file = w->ctx;
   isize n = 0;
   do {
-    // FIXME: Buffer the write. Only do a `write(2)` on `pg_writer_flush`.
     n = write(file.fd, buf, buf_len);
   } while (-1 == n && EINTR == errno);
 
