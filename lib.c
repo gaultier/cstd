@@ -3764,7 +3764,7 @@ static PgProcessExitResult pg_process_wait(PgProcess process,
   PgVoidPtrResult res = {0};
   res.res = mmap(nullptr, size, pg_virtual_mem_flags_to_os_flags(flags),
                  MAP_ANON | MAP_PRIVATE, -1, 0);
-  if (!res.res) {
+  if ((void *)-1 == res.res) {
     res.err = (PgError)pg_os_get_last_error();
   }
   return res;
