@@ -1424,7 +1424,9 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
   } while (0)
 
 typedef PgU64Result (*ReadFn)(void *self, u8 *buf, size_t buf_len);
-typedef PgU64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len);
+typedef PgU64Result (*WriteFn)(void *self, u8 *buf, size_t buf_len,
+                               PgAllocator *allocator);
+typedef PgError (*FlushFn)(void *self);
 
 [[maybe_unused]] [[nodiscard]] static Pgu8Dyn
 pg_string_builder_make(u64 cap, PgAllocator *allocator) {
@@ -1442,9 +1444,8 @@ typedef struct {
 typedef struct {
   PgFileDescriptor file;
   WriteFn write_fn;
+  FlushFn flush_fn;
   PgFileDescriptor ctx;
-  // Only useful for writing to a string builder (aka `Pgu8Dyn`).
-  PgAllocator *allocator; // TODO: Should it be instead in DYN_ structs?
 } PgWriter;
 
 typedef struct {
@@ -1665,7 +1666,8 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
+pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len,
+                               PgAllocator *allocator) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
 
@@ -1673,7 +1675,7 @@ pg_writer_string_builder_write(void *self, u8 *buf, size_t buf_len) {
   Pgu8Dyn *sb = w->ctx.ptr;
 
   PgString s = {.data = buf, .len = buf_len};
-  PG_DYN_APPEND_SLICE(sb, s, w->allocator);
+  PG_DYN_APPEND_SLICE(sb, s, allocator);
 
   return (PgU64Result){.res = buf_len};
 }
@@ -1693,7 +1695,7 @@ pg_reader_ring_read(void *self, u8 *buf, size_t buf_len) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgU64Result
-pg_writer_ring_write(void *self, u8 *buf, size_t buf_len) {
+pg_writer_ring_write(void *self, u8 *buf, size_t buf_len, PgAllocator *) {
   PG_ASSERT(nullptr != self);
   PG_ASSERT(nullptr != buf);
 
@@ -1708,10 +1710,9 @@ pg_writer_ring_write(void *self, u8 *buf, size_t buf_len) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgWriter
-pg_writer_make_from_string_builder(Pgu8Dyn *sb, PgAllocator *allocator) {
+pg_writer_make_from_string_builder(Pgu8Dyn *sb) {
   PgWriter w = {0};
   w.ctx.ptr = sb;
-  w.allocator = allocator;
   w.write_fn = pg_writer_string_builder_write;
   return w;
 }
@@ -1724,11 +1725,11 @@ pg_writer_make_from_ring(PgRing *ring) {
   return w;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgError pg_writer_write_u8(PgWriter *w,
-                                                                 u8 c) {
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_writer_write_u8(PgWriter *w, u8 c, PgAllocator *allocator) {
   PG_ASSERT(nullptr != w->write_fn);
 
-  PgU64Result res = w->write_fn(w, &c, 1);
+  PgU64Result res = w->write_fn(w, &c, 1, allocator);
   if (res.err) {
     return res.err;
   }
@@ -1737,7 +1738,7 @@ pg_writer_make_from_ring(PgRing *ring) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_writer_write_string_full(PgWriter *w, PgString s) {
+pg_writer_write_string_full(PgWriter *w, PgString s, PgAllocator *allocator) {
   PG_ASSERT(nullptr != w->write_fn);
 
   PgString remaining = s;
@@ -1746,7 +1747,7 @@ pg_writer_write_string_full(PgWriter *w, PgString s) {
       break;
     }
 
-    PgU64Result res = w->write_fn(w, remaining.data, remaining.len);
+    PgU64Result res = w->write_fn(w, remaining.data, remaining.len, allocator);
     if (res.err) {
       return res.err;
     }
@@ -1769,7 +1770,7 @@ pg_reader_make_from_ring(PgRing *ring) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgU64Result
-pg_writer_write_from_reader(PgWriter *w, PgReader *r) {
+pg_writer_write_from_reader(PgWriter *w, PgReader *r, PgAllocator *allocator) {
   PgU64Result res = {0};
 
   // TODO: Get a hint from the reader?
@@ -1782,7 +1783,7 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r) {
   }
   s.len = res.res;
 
-  res = w->write_fn(w, s.data, s.len);
+  res = w->write_fn(w, s.data, s.len, allocator);
   if (res.err) {
     return res;
   }
@@ -1798,7 +1799,7 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_writer_write_u64_as_string(PgWriter *w, u64 n) {
+pg_writer_write_u64_as_string(PgWriter *w, u64 n, PgAllocator *allocator) {
   u8 tmp[30] = {0};
   u64 idx = PG_STATIC_ARRAY_LEN(tmp);
 
@@ -1812,11 +1813,11 @@ pg_writer_write_u64_as_string(PgWriter *w, u64 n) {
 
   PgString s = {.data = tmp + idx, .len = PG_STATIC_ARRAY_LEN(tmp) - idx};
 
-  return pg_writer_write_string_full(w, s);
+  return pg_writer_write_string_full(w, s, allocator);
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_writer_write_i64_as_string(PgWriter *w, i64 n) {
+pg_writer_write_i64_as_string(PgWriter *w, i64 n, PgAllocator *allocator) {
   u8 tmp[30] = {0};
   u64 idx = PG_STATIC_ARRAY_LEN(tmp);
 
@@ -1836,7 +1837,7 @@ pg_writer_write_i64_as_string(PgWriter *w, i64 n) {
 
   PgString s = {.data = tmp + idx, .len = PG_STATIC_ARRAY_LEN(tmp) - idx};
 
-  return pg_writer_write_string_full(w, s);
+  return pg_writer_write_string_full(w, s, allocator);
 }
 
 [[maybe_unused]] static void pg_u32_to_u8x4_be(u32 n, PgString *dst) {
@@ -2037,17 +2038,17 @@ pg_byte_buffer_append_u64_within_capacity(Pgu8Dyn *dyn, u64 n) {
 pg_u64_to_string(u64 n, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, 25, allocator);
-  PgWriter w = pg_writer_make_from_string_builder(&sb, allocator);
+  PgWriter w = pg_writer_make_from_string_builder(&sb);
 
-  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n, allocator));
 
   return PG_DYN_SLICE(PgString, sb);
 }
 
 [[maybe_unused]] static void
 pg_string_builder_append_u64(Pgu8Dyn *sb, u64 n, PgAllocator *allocator) {
-  PgWriter w = pg_writer_make_from_string_builder(sb, allocator);
-  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n));
+  PgWriter w = pg_writer_make_from_string_builder(sb);
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n, allocator));
 }
 
 [[maybe_unused]] [[nodiscard]]
