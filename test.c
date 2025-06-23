@@ -301,7 +301,7 @@ static void test_utf8_iterator() {
   // Empty.
   {
     PgString s = PG_S("");
-    PgU64Result res_count = pg_utf8_count_runes(s);
+    Pgu64Result res_count = pg_utf8_count_runes(s);
     PG_ASSERT(0 == res_count.err);
     PG_ASSERT(0 == res_count.res);
 
@@ -314,7 +314,7 @@ static void test_utf8_iterator() {
   }
   {
     PgString s = PG_S("2匹の🀅🂣©");
-    PgU64Result res_count = pg_utf8_count_runes(s);
+    Pgu64Result res_count = pg_utf8_count_runes(s);
     PG_ASSERT(0 == res_count.err);
     PG_ASSERT(6 == res_count.res);
 
@@ -352,7 +352,7 @@ static void test_utf8_iterator() {
   // Null byte.
   {
     PgString s = PG_S("\x1\x0");
-    PgU64Result res_count = pg_utf8_count_runes(s);
+    Pgu64Result res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -365,7 +365,7 @@ static void test_utf8_iterator() {
   // Forbidden byte.
   {
     PgString s = PG_S("\x1\xc0");
-    PgU64Result res_count = pg_utf8_count_runes(s);
+    Pgu64Result res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -378,7 +378,7 @@ static void test_utf8_iterator() {
   // Forbidden byte.
   {
     PgString s = PG_S("\x1\xf5");
-    PgU64Result res_count = pg_utf8_count_runes(s);
+    Pgu64Result res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -391,7 +391,7 @@ static void test_utf8_iterator() {
   // Continuation byte but EOF.
   {
     PgString s = PG_S("\x1\x80");
-    PgU64Result res_count = pg_utf8_count_runes(s);
+    Pgu64Result res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -406,7 +406,7 @@ static void test_utf8_iterator() {
     PgString s = PG_S("\x1🀅");
     s.len -= 1; // Early EOF.
 
-    PgU64Result res_count = pg_utf8_count_runes(s);
+    Pgu64Result res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -420,7 +420,7 @@ static void test_utf8_iterator() {
   {
     PgString s = PG_S("\x1\xf4\x90\x90\x90");
 
-    PgU64Result res_count = pg_utf8_count_runes(s);
+    Pgu64Result res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -434,7 +434,7 @@ static void test_utf8_iterator() {
   {
     PgString s = PG_S("\x1\xc0\x80");
 
-    PgU64Result res_count = pg_utf8_count_runes(s);
+    Pgu64Result res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -448,7 +448,7 @@ static void test_utf8_iterator() {
   {
     PgString s = PG_S("\x2F\xC0\xAE\x2E\x2F");
 
-    PgU64Result res_count = pg_utf8_count_runes(s);
+    Pgu64Result res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -1967,7 +1967,7 @@ static void test_process_stdin() {
   PgProcess process = res_spawn.res;
 
   PgString msg = PG_S("hello world");
-  PgU64Result res_write = pg_file_write(process.stdin_pipe, msg);
+  Pgu64Result res_write = pg_file_write(process.stdin_pipe, msg);
   PG_ASSERT(0 == res_write.err);
   PG_ASSERT(msg.len == res_write.res);
 

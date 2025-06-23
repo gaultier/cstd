@@ -121,15 +121,15 @@ PG_RESULT(i64) Pgi64Result;
 PG_RESULT(bool) PgBoolResult;
 PG_RESULT(void *) PgVoidPtrResult;
 
-PG_OK(u8) Pgu8;
-PG_OK(u16) Pgu16;
-PG_OK(u32) Pgu32;
-PG_OK(u64) Pgu64;
+PG_OK(u8) Pgu8Ok;
+PG_OK(u16) Pgu16Ok;
+PG_OK(u32) Pgu32Ok;
+PG_OK(u64) Pgu64Ok;
 
-PG_OK(i8) Pgi8;
-PG_OK(i16) Pgi16;
-PG_OK(i32) Pgi32;
-PG_OK(i64) Pgi64;
+PG_OK(i8) Pgi8Ok;
+PG_OK(i16) Pgi16Ok;
+PG_OK(i32) Pgi32Ok;
+PG_OK(i64) Pgi64Ok;
 
 PG_DYN(u8) Pgu8Dyn;
 PG_DYN(u16) Pgu16Dyn;
@@ -4758,8 +4758,6 @@ pg_url_parse_user_info(PgString s) {
 
   return res;
 }
-
-PG_RESULT(u16) Pgu16Result;
 
 [[maybe_unused]] [[nodiscard]] static Pgu16Result
 pg_url_parse_port(PgString s) {
