@@ -2165,6 +2165,28 @@ static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n,
   return 0;
 }
 
+[[maybe_unused]] [[nodiscard]]
+static PgString pg_bytes_to_hex_string(Pgu8Slice bytes,
+                                       PgAllocator *allocator) {
+
+  Pgu8Dyn sb = pg_string_builder_make(bytes.len * 3, allocator);
+
+  for (u64 i = 0; i < bytes.len; i++) {
+    u8 n = PG_SLICE_AT(bytes, i);
+
+    u8 c1 = n & 15; // i.e. `% 16`.
+    u8 c2 = n >> 4; // i.e. `/ 16`
+
+    *PG_DYN_PUSH_WITHIN_CAPACITY(&sb) =
+        (u8)pg_rune_ascii_to_upper_case(pg_u8_to_hex_rune(c2));
+    *PG_DYN_PUSH_WITHIN_CAPACITY(&sb) =
+        (u8)pg_rune_ascii_to_upper_case(pg_u8_to_hex_rune(c1));
+    *PG_DYN_PUSH_WITHIN_CAPACITY(&sb) = ' ';
+  }
+
+  return PG_DYN_SLICE(PgString, sb);
+}
+
 [[maybe_unused]] [[nodiscard]] static u64
 pg_round_up_multiple_of(u64 n, u64 multiple) {
   PG_ASSERT(0 != multiple);
