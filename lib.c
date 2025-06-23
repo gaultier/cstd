@@ -2046,6 +2046,12 @@ pg_byte_buffer_append_u32_be_within_capacity(Pgu8Dyn *dyn, u32 n) {
   PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(dyn, s);
 }
 
+[[maybe_unused]] static void pg_byte_buffer_append_u8(Pgu8Dyn *dyn, u8 n,
+                                                      PgAllocator *allocator) {
+
+  *PG_DYN_PUSH(dyn, allocator) = n;
+}
+
 [[maybe_unused]] static void pg_byte_buffer_append_u16(Pgu8Dyn *dyn, u16 n,
                                                        PgAllocator *allocator) {
 
