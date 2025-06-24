@@ -40,6 +40,12 @@
 #include <stdlib.h>
 #include <threads.h>
 
+// Helpers for generating unique variable names
+#define PG_PRIVATE_NAME(n) PG_PRIVATE_CONCAT(n, PG_PRIVATE_UNIQUE_ID)
+#define PG_PRIVATE_CONCAT(a, b) PG_PRIVATE_CONCAT2(a, b)
+#define PG_PRIVATE_CONCAT2(a, b) a##b
+#define PG_PAD(n) uint8_t PG_PRIVATE_NAME(_padding)[n]
+
 #define PG_PATH_MAX 4096
 
 #define PG_MIN(a, b) (((a) < (b)) ? (a) : (b))
