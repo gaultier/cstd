@@ -2172,10 +2172,14 @@ static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n,
 }
 
 [[maybe_unused]] [[nodiscard]]
-static PgString pg_bytes_to_hex_string(Pgu8Slice bytes,
+static PgString pg_bytes_to_hex_string(Pgu8Slice bytes, PgRune sep,
                                        PgAllocator *allocator) {
 
   Pgu8Dyn sb = pg_string_builder_make(bytes.len * 3, allocator);
+  Pgu8Slice sep_slice = {
+      .data = (u8 *)&sep,
+      .len = pg_utf8_rune_bytes_count(sep),
+  };
 
   for (u64 i = 0; i < bytes.len; i++) {
     u8 n = PG_SLICE_AT(bytes, i);
@@ -2187,7 +2191,9 @@ static PgString pg_bytes_to_hex_string(Pgu8Slice bytes,
         (u8)pg_rune_ascii_to_upper_case(pg_u8_to_hex_rune(c2));
     *PG_DYN_PUSH_WITHIN_CAPACITY(&sb) =
         (u8)pg_rune_ascii_to_upper_case(pg_u8_to_hex_rune(c1));
-    *PG_DYN_PUSH_WITHIN_CAPACITY(&sb) = ' ';
+    if (!pg_string_is_empty(sep_slice)) {
+      PG_DYN_APPEND_SLICE(&sb, sep_slice, allocator);
+    }
   }
 
   return PG_DYN_SLICE(PgString, sb);
