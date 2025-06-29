@@ -208,9 +208,9 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 }
 
 #define PG_ASSERT(x)                                                           \
-  ((x) ? (0)                                                                   \
-       : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),               \
-          fflush(stdout), fflush(stderr), __builtin_trap(), 0))
+  (void)((x) ? (0)                                                             \
+             : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),         \
+                fflush(stdout), fflush(stderr), __builtin_trap(), 0))
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_div_ceil(u64 a, u64 b) {
   PG_ASSERT(b > 0);
@@ -1088,8 +1088,8 @@ pg_arena_mem_available(PgArena arena) {
   return res;
 }
 
-__attribute((malloc, alloc_size(2, 4), alloc_align(3)))
-[[maybe_unused]] [[nodiscard]] static void *
+[[maybe_unused]] [[nodiscard]]
+__attribute((malloc, alloc_size(2, 4), alloc_align(3))) static void *
 pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   PG_ASSERT(a->start != nullptr);
 
@@ -1113,8 +1113,8 @@ pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   return memset(res, 0, count * size);
 }
 
-__attribute((malloc, alloc_size(4, 6), alloc_align(5)))
-[[maybe_unused]] [[nodiscard]] static void *
+[[maybe_unused]] [[nodiscard]]
+__attribute((malloc, alloc_size(4, 6), alloc_align(5))) static void *
 pg_try_arena_realloc(PgArena *a, void *ptr, u64 elem_count_old, u64 size,
                      u64 align, u64 count) {
   PG_ASSERT((u64)a->start >= (u64)ptr);
@@ -1144,18 +1144,19 @@ pg_try_arena_realloc(PgArena *a, void *ptr, u64 elem_count_old, u64 size,
   return res;
 }
 
-__attribute((malloc, alloc_size(2, 4), alloc_align(3)))
-[[maybe_unused]] [[nodiscard]] static void *
+[[maybe_unused]] [[nodiscard]]
+__attribute((malloc, alloc_size(2, 4), alloc_align(3))) static void *
 pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   void *res = pg_try_arena_alloc(a, size, align, count);
   PG_ASSERT(res);
   return res;
 }
 
-#define pg_arena_new(a, t, n) (t *)pg_arena_alloc(a, sizeof(t), _Alignof(t), n)
+#define pg_arena_new(a, t, n)                                                  \
+  (t *)pg_arena_alloc(a, sizeof(t), _Alignof(typeof(t)), n)
 
 #define pg_try_arena_new(a, t, n)                                              \
-  ((t *)pg_try_arena_alloc((a), sizeof(t), _Alignof(t), (n)))
+  ((t *)pg_try_arena_alloc((a), sizeof(t), _Alignof(typeof(t)), (n)))
 
 typedef struct PgAllocator PgAllocator;
 
@@ -1419,8 +1420,8 @@ typedef enum {
 
 #define PG_DYN_ENSURE_CAP(dyn, new_cap, allocator)                             \
   ((new_cap > 0) && (dyn)->cap < (new_cap))                                    \
-      ? PG_DYN_GROW(dyn, sizeof(*(dyn)->data), _Alignof((dyn)->data[0]),       \
-                    new_cap, allocator),                                       \
+      ? PG_DYN_GROW(dyn, sizeof(*(dyn)->data),                                 \
+                    _Alignof(typeof((dyn)->data[0])), new_cap, allocator),     \
       PG_ASSERT((dyn)->cap >= (new_cap)), PG_ASSERT((dyn)->data), 0 : 0
 
 #define PG_DYN_SPACE(T, dyn)                                                   \

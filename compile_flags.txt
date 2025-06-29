@@ -1,6 +1,5 @@
 -std=c23
 -Weverything 
--Wno-gnu-alignof-expression 
 -Wno-strict-prototypes 
 -Wno-declaration-after-statement 
 -Wno-padded 
