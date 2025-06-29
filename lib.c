@@ -3044,6 +3044,33 @@ pg_arena_make_from_virtual_mem(u64 size) {
   return pg_virtual_mem_release(arena->os_start, arena->os_alloc_size);
 }
 
+typedef struct {
+  u64 start_incl, end_excl, idx;
+} Pgu64Range;
+PG_OK(Pgu64Range) Pgu64RangeOk;
+
+[[maybe_unused]] [[nodiscard]] static Pgu64RangeOk
+pg_u64_range_search(Pgu64Slice haystack, u64 needle) {
+  Pgu64RangeOk res = {0};
+
+  if (0 == haystack.len) {
+    return res;
+  }
+
+  for (u64 i = 1; i < haystack.len; i++) {
+    u64 elem = PG_SLICE_AT(haystack, i);
+    if (needle <= elem) {
+      res.ok = true;
+      res.res.idx = i - 1;
+      res.res.start_incl = PG_SLICE_AT(haystack, i - 1);
+      res.res.end_excl = elem;
+      return res;
+    }
+  }
+
+  return res;
+}
+
 #ifdef PG_OS_UNIX
 #define PG_PATH_SEPARATOR '/'
 #define PG_PATH_SEPARATOR_S "/"
@@ -3203,14 +3230,18 @@ end:
 
 [[maybe_unused]] static PgStringResult
 pg_file_read_full_from_descriptor_until_eof(PgFileDescriptor file,
+                                            u64 size_hint,
                                             PgAllocator *allocator) {
   PgStringResult res = {0};
 
   Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, size_hint, allocator);
 
   for (;;) {
     PG_DYN_ENSURE_CAP(&sb, 4096, allocator);
     PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
+    PG_ASSERT(space.len);
+
     Pgu64Result res_read = pg_file_read(file, space);
     if (res_read.err) {
       res.err = (PgError)pg_os_get_last_error();
