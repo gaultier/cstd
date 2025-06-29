@@ -1788,6 +1788,11 @@ pg_writer_make_from_string_builder(Pgu8Dyn *sb) {
   return w;
 }
 
+[[nodiscard]] [[maybe_unused]] static Pgu8Dyn *
+pg_writer_as_string_builder(PgWriter *w) {
+  return w->ctx.ptr;
+}
+
 [[nodiscard]] [[maybe_unused]] static PgWriter
 pg_writer_make_from_ring(PgRing *ring) {
   PgWriter w = {0};
