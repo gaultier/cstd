@@ -3064,7 +3064,7 @@ pg_u64_range_search(Pgu64Slice haystack, u64 needle) {
 
   for (u64 i = 1; i < haystack.len; i++) {
     u64 elem = PG_SLICE_AT(haystack, i);
-    if (needle <= elem) {
+    if (needle < elem) {
       res.ok = true;
       res.res.idx = i - 1;
       res.res.start_incl = PG_SLICE_AT(haystack, i - 1);
