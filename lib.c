@@ -3201,7 +3201,43 @@ end:
   return res;
 }
 
-[[maybe_unused]] static PgError
+[[maybe_unused]] static PgStringResult
+pg_file_read_full_from_descriptor_until_eof(PgFileDescriptor file,
+                                            PgAllocator *allocator) {
+  PgStringResult res = {0};
+
+  Pgu8Dyn sb = {0};
+
+  for (;;) {
+    PG_DYN_ENSURE_CAP(&sb, 4096, allocator);
+    PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
+    Pgu64Result res_read = pg_file_read(file, space);
+    if (res_read.err) {
+      res.err = (PgError)pg_os_get_last_error();
+      goto end;
+    }
+
+    u64 read_n = res_read.res;
+    if (0 == read_n) {
+      goto end;
+    }
+
+    PG_ASSERT((u64)read_n <= space.len);
+
+    sb.len += (u64)read_n;
+  }
+
+end:
+  if (res.err && sb.data) {
+    pg_free(allocator, sb.data);
+    return res;
+  }
+
+  res.res = PG_DYN_SLICE(PgString, sb);
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
 pg_file_write_full_with_descriptor(PgFileDescriptor file, PgString content) {
   PgError err = 0;
   PgString remaining = content;
@@ -3518,7 +3554,11 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
       PG_ASSERT(-1 != ret_dup2);
     }
 
-    execvp(path_c, args_c.data);
+    if (-1 == execvp(path_c, args_c.data)) {
+      // Not easy to give the error back to the caller here.
+      // Maybe with a separate pipe?
+      PG_ASSERT(0);
+    }
     PG_ASSERT(0 && "unreachable");
   }
 
