@@ -3069,6 +3069,9 @@ pg_u64_range_search(Pgu64Slice haystack, u64 needle) {
       res.res.idx = i - 1;
       res.res.start_incl = PG_SLICE_AT(haystack, i - 1);
       res.res.end_excl = elem;
+
+      PG_ASSERT(res.res.start_incl <= needle);
+      PG_ASSERT(needle < res.res.end_excl);
       return res;
     }
   }
