@@ -208,9 +208,9 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 }
 
 #define PG_ASSERT(x)                                                           \
-  (void)((x) ? (0)                                                             \
-             : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),         \
-                fflush(stdout), fflush(stderr), __builtin_trap(), 0))
+  ((x) ? (0)                                                                   \
+       : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),               \
+          fflush(stdout), fflush(stderr), __builtin_trap(), 0))
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_div_ceil(u64 a, u64 b) {
   PG_ASSERT(b > 0);
