@@ -6571,4 +6571,144 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
   }
 }
 
+static const u32 PgElfProgramHeaderTypeLoad = 1;
+static const u32 PgElfProgramHeaderFlagsExecutable = 1;
+static const u32 PgElfProgramHeaderFlagsReadable = 4;
+
+static const u32 PgElfSectionHeaderTypeProgBits = 1;
+static const u32 PgElfSectionHeaderTypeStrTab = 3;
+static const u64 PgElfSectionHeaderFlagAlloc = 2;
+static const u64 PgElfSectionHeaderFlagExecInstr = 4;
+
+typedef struct {
+  u32 type;
+  u32 flags;
+  u64 p_offset;
+  u64 p_vaddr;
+  u64 p_paddr;
+  u64 p_filesz;
+  u64 p_memsz;
+  u64 alignment;
+} PgElfProgramHeader;
+static_assert(56 == sizeof(PgElfProgramHeader));
+PG_DYN(PgElfProgramHeader) PgElfProgramHeaderDyn;
+
+typedef struct {
+  u32 name;
+  u32 type;
+  u64 flags;
+  u64 addr;
+  u64 offset;
+  u64 size;
+  u32 link;
+  u32 info;
+  u64 align;
+  u64 entsize;
+} PgElfSectionHeader;
+static_assert(64 == sizeof(PgElfSectionHeader));
+PG_DYN(PgElfSectionHeader) PgElfSectionHeaderDyn;
+
+typedef enum {
+  PG_ELF_KNOWN_SECTION_TEXT,
+  PG_ELF_KNOWN_SECTION_RODATA,
+  PG_ELF_KNOWN_SECTION_DATA,
+  PG_ELF_KNOWN_SECTION_STRTAB,
+  PG_ELF_KNOWN_SECTION_RELOC_TEXT,
+  PG_ELF_KNOWN_SECTION_SYMTAB,
+} PgElfKnownSection;
+
+typedef enum : u8 {
+  PG_ELF_ENDIAN_LITTLE = 1,
+} PgElfEndianness;
+
+typedef enum : u16 {
+  PG_ELF_TYPE_NONE,
+  PG_ELF_TYPE_RELOCATABLE_FILE,
+  PG_ELF_TYPE_EXECUTABLE_FILE,
+  PG_ELF_TYPE_SHARED_OBJECT_FILE,
+  PG_ELF_TYPE_CORE_FILE,
+} PgElfType;
+
+typedef enum : u8 {
+  PG_ELF_CLASS_NONE,
+  PG_ELF_CLASS_32_BITS,
+  PG_ELF_CLASS_64_BITS,
+} PgElfClass;
+
+typedef enum : u16 {
+  PG_ELF_ARCH_NONE = 0,
+  PG_ELF_ARCH_SPARC = 2,
+  PG_ELF_ARCH_386 = 3,
+  PG_ELF_ARCH_SPARC_32_PLUS = 18,
+  PG_ELF_ARCH_SPARC_V9 = 43,
+  PG_ELF_ARCH_AMD64 = 62,
+} PgElfArchitecture;
+
+typedef struct {
+  u8 magic[4];
+  PgElfClass class;
+  PgElfEndianness endianness;
+  u8 elf_header_version;
+  u8 abi_version;
+  PG_PAD(8);
+  PgElfType type;
+  PgElfArchitecture architecture;
+  u32 elf_version;
+  u64 entrypoint_address;
+  u64 program_header_offset;
+  u64 section_header_offset;
+  u32 cpu_flags;
+  u16 header_size;
+  u16 program_header_entry_size;
+  u16 program_header_entries_count;
+  u16 section_header_entry_size;
+  u16 section_header_entries_count;
+  // The section header table index of the entry that is associated with the
+  // section name string table.
+  u16 section_header_index;
+} PgElfHeader;
+static_assert(24 == offsetof(PgElfHeader, entrypoint_address));
+static_assert(52 == offsetof(PgElfHeader, header_size));
+static_assert(64 == sizeof(PgElfHeader));
+
+typedef struct {
+  PgElfHeader header;
+  PgElfProgramHeaderDyn program_headers;
+  PgElfSectionHeaderDyn section_headers;
+  // TODO: More.
+} PgElf;
+PG_RESULT(PgElf) PgElfResult;
+
+[[nodiscard]] [[maybe_unused]] static PgString
+pg_elf_section_name(PgElfKnownSection section) {
+  switch (section) {
+  case PG_ELF_KNOWN_SECTION_TEXT:
+    return PG_S(".text");
+  case PG_ELF_KNOWN_SECTION_RODATA:
+    return PG_S(".rodata");
+  case PG_ELF_KNOWN_SECTION_DATA:
+    return PG_S(".data");
+  case PG_ELF_KNOWN_SECTION_STRTAB:
+    return PG_S(".strtab");
+  case PG_ELF_KNOWN_SECTION_RELOC_TEXT:
+    return PG_S(".relatext");
+  case PG_ELF_KNOWN_SECTION_SYMTAB:
+    return PG_S(".symtab");
+  default:
+    PG_ASSERT(0);
+  }
+}
+
+[[maybe_unused]] [[nodiscard]] static PgElfResult pg_elf_parse(Pgu8Slice elf) {
+  PgElfResult res = {0};
+
+  if (elf.len < sizeof(PgElfHeader)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  memcpy(&res.res.header, elf.data, sizeof(res.res.header));
+
+  return res;
+}
+
 #endif
