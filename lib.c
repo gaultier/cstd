@@ -6756,7 +6756,7 @@ pg_elf_section_name(PgElfKnownSection section) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringDyn
-pg_elf_find_all_symbols(PgElf elf, PgAllocator *allocator) {
+pg_elf_collect_string_table(PgElf elf, PgAllocator *allocator) {
   PgStringDyn res = {0};
 
   PgElfSectionHeaderOk string_table_opt =
