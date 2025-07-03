@@ -6575,10 +6575,23 @@ static const u32 PgElfProgramHeaderTypeLoad = 1;
 static const u32 PgElfProgramHeaderFlagsExecutable = 1;
 static const u32 PgElfProgramHeaderFlagsReadable = 4;
 
-static const u32 PgElfSectionHeaderTypeProgBits = 1;
-static const u32 PgElfSectionHeaderTypeStrTab = 3;
 static const u64 PgElfSectionHeaderFlagAlloc = 2;
 static const u64 PgElfSectionHeaderFlagExecInstr = 4;
+
+typedef enum {
+  PG_ELF_SECTION_HEADER_KIND_NULL = 0,
+  PG_ELF_SECTION_HEADER_KIND_PROGBITS = 1,
+  PG_ELF_SECTION_HEADER_KIND_SYMTAB = 2,
+  PG_ELF_SECTION_HEADER_KIND_STRTAB = 3,
+  PG_ELF_SECTION_HEADER_KIND_RELA = 4,
+  PG_ELF_SECTION_HEADER_KIND_HASH = 5,
+  PG_ELF_SECTION_HEADER_KIND_DYNAMIC = 6,
+  PG_ELF_SECTION_HEADER_KIND_NOTE = 7,
+  PG_ELF_SECTION_HEADER_KIND_NOBITS = 8,
+  PG_ELF_SECTION_HEADER_KIND_REL = 9,
+  PG_ELF_SECTION_HEADER_KIND_SHLIB = 10,
+  PG_ELF_SECTION_HEADER_KIND_DYNSYM = 11,
+} PgElfSectionHeaderKind;
 
 typedef struct {
   u32 type;
@@ -6595,7 +6608,7 @@ PG_DYN(PgElfProgramHeader) PgElfProgramHeaderDyn;
 
 typedef struct {
   u32 name;
-  u32 type;
+  PgElfSectionHeaderKind type;
   u64 flags;
   u64 addr;
   u64 offset;
@@ -6607,6 +6620,7 @@ typedef struct {
 } PgElfSectionHeader;
 static_assert(64 == sizeof(PgElfSectionHeader));
 PG_DYN(PgElfSectionHeader) PgElfSectionHeaderDyn;
+PG_SLICE(PgElfSectionHeader) PgElfSectionHeaderSlice;
 
 typedef enum {
   PG_ELF_KNOWN_SECTION_TEXT,
@@ -6699,14 +6713,44 @@ pg_elf_section_name(PgElfKnownSection section) {
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PgElfResult pg_elf_parse(Pgu8Slice elf) {
+[[maybe_unused]] [[nodiscard]] static PgElfResult
+pg_elf_parse(Pgu8Slice elf_bytes) {
   PgElfResult res = {0};
 
-  if (elf.len < sizeof(PgElfHeader)) {
+  if (elf_bytes.len < sizeof(PgElfHeader)) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
-  memcpy(&res.res.header, elf.data, sizeof(res.res.header));
+  memcpy(&res.res.header, elf_bytes.data, sizeof(res.res.header));
+
+  // Section headers.
+  {
+    PgElfHeader h = res.res.header;
+    u64 section_headers_size = 0;
+    if (__builtin_mul_overflow(h.section_header_entries_count,
+                               h.section_header_entry_size,
+                               &section_headers_size)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+
+    u64 section_headers_end = 0;
+    if (__builtin_add_overflow(h.section_header_offset, section_headers_size,
+                               &section_headers_end)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    PG_ASSERT(h.section_header_offset <= section_headers_end);
+
+    Pgu8Slice section_headers_bytes =
+        PG_SLICE_RANGE(elf_bytes, h.section_header_offset, section_headers_end);
+    PgElfSectionHeaderSlice section_headers = {
+        .data = (void *)section_headers_bytes.data,
+        .len = h.section_header_entries_count,
+    };
+
+    PG_ASSERT(section_headers.data);
+  }
 
   return res;
 }
