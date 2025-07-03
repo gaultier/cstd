@@ -38,7 +38,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#if 0
 #include <threads.h>
+#endif
 
 // Check that __COUNTER__ is defined and that __COUNTER__ increases by 1
 // every time it is expanded. X + 1 == X + 0 is used in case X is defined to be
@@ -2851,7 +2853,7 @@ static u64 pg_adjacency_matrix_count_neighbors(PgAdjacencyMatrix matrix,
 pg_adjacency_matrix_print(PgAdjacencyMatrix matrix) {
   printf("    | ");
   for (u64 col = 0; col < matrix.nodes_count; col++) {
-    printf("%03lu ", col);
+    printf("%03" PRIu64, col);
   }
   printf("\n");
   for (u64 col = 0; col < matrix.nodes_count; col++) {
@@ -2860,7 +2862,7 @@ pg_adjacency_matrix_print(PgAdjacencyMatrix matrix) {
   printf("\n");
 
   for (u64 row = 0; row < matrix.nodes_count; row++) {
-    printf("%03lu | ", row);
+    printf("%03" PRIu64 " | ", row);
     for (u64 col = 0; col < matrix.nodes_count; col++) {
       if (col >= row) {
         printf("  ");
@@ -3451,6 +3453,10 @@ pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
   // TODO: sendfile on freebsd.
   PG_ASSERT(0 && "todo");
 
+  (void)copied;
+  (void)dst;
+  (void)src;
+  #if 0
   for (u64 _i = 0; _i < res_size.res; _i++) {
     u8 tmp[4096] = {0};
     ssize_t ret_read = pread(src.fd, tmp, PG_STATIC_ARRAY_LEN(tmp), offset);
@@ -3479,6 +3485,7 @@ pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
     copied += ret_read;
     offset += ret_read;
   }
+  #endif
 #endif
 
   return 0;
@@ -6442,6 +6449,7 @@ pg_html_node_get_simple_title_content(PgHtmlNode *node) {
   return res;
 }
 
+#if 0
 PG_SLICE(thrd_t) PgThreadSlice;
 PG_DYN(thrd_t) PgThreadDyn;
 
@@ -6570,6 +6578,7 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
     thrd_join(PG_SLICE_AT(pool->workers, i), nullptr);
   }
 }
+#endif
 
 static const u32 PgElfProgramHeaderTypeLoad = 1;
 static const u32 PgElfProgramHeaderFlagsExecutable = 1;
