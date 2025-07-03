@@ -3280,7 +3280,7 @@ end:
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_file_write_full_with_descriptor(PgFileDescriptor file, PgString content) {
+pg_file_write_full_with_descriptor(PgFileDescriptor file, Pgu8Slice content) {
   PgError err = 0;
   PgString remaining = content;
   for (u64 lim = 0; lim < content.len; lim++) {
@@ -3407,8 +3407,41 @@ static PgProcessExitResult pg_process_wait(PgProcess process,
                                            PgAllocator *allocator);
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
-                              Pgu64Ok offset, u64 len);
+pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst, PgFileDescriptor src, u64 offset) {
+  // NOTE: on FreeBSD, we could use `copy_file_range` (and Linux too, actually), or `splice`.
+
+  for (;;) {
+    u8 read_buf[4096] = {0};
+    Pgu8Slice read_slice = {.data=read_buf, .len=PG_STATIC_ARRAY_LEN(read_buf)};
+
+    Pgu64Result res_read = pg_file_read(src, read_slice);
+    if (res_read.err) {
+      return res_read.err;
+    }
+    if (0 == res_read.res) {
+      return (PgError)0;
+    }
+
+    if (offset > res_read.res){ 
+      // Keep reading and do not write yet.
+
+      offset -= res_read.res;
+      continue; 
+    } 
+
+    PG_ASSERT(offset <= res_read.res);
+
+    Pgu8Slice write_slice = {.data=read_slice.data + offset, .len=res_read.res - offset};
+    PgError err  = pg_file_write_full_with_descriptor(dst, write_slice);
+    if (err){
+      return err;
+    }
+
+    if (offset >0){offset=0;}
+  }
+
+  return 0;
+}
 
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
@@ -3423,76 +3456,16 @@ pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
 #include <time.h>
 #include <unistd.h>
 
-#ifdef __linux__
-#include <sys/sendfile.h>
-#endif
-
-[[nodiscard]] [[maybe_unused]] static PgError
-pg_file_copy_with_descriptors(PgFileDescriptor dst, PgFileDescriptor src,
-                              Pgu64Ok offset_opt, u64 len) {
-  PG_ASSERT(offset_opt.res < len);
-
-  u64 copied = 0;
-
-#ifdef __linux__
-  off_t *offset_ptr = offset_opt.ok ? (off_t *)&offset_opt.res : nullptr;
-
-  while (copied < len) {
-    u64 sendfile_len = len - copied;
-    ssize_t ret = sendfile(dst.fd, src.fd, offset_ptr, sendfile_len);
-    if (-1 == ret) {
-      return (PgError)errno;
-    }
-    if (0 == ret) {
-      return (copied == len) ? 0 : PG_ERR_IO;
-    }
-    copied += (u64)ret;
-    offset_ptr = offset_ptr ? offset_ptr : (off_t *)&offset_opt.res;
-  }
-#else
-  // TODO: sendfile on freebsd.
-  PG_ASSERT(0 && "todo");
-
-  (void)copied;
-  (void)dst;
-  (void)src;
-  #if 0
-  for (u64 _i = 0; _i < res_size.res; _i++) {
-    u8 tmp[4096] = {0};
-    ssize_t ret_read = pread(src.fd, tmp, PG_STATIC_ARRAY_LEN(tmp), offset);
-    if (-1 == ret_read) {
-      res.err = (PgError)errno;
-      return res;
-    }
-    if (0 == ret_read) {
-      return res;
-    }
-
-    u64 j = 0;
-    for (; j < ret_read;) {
-      ssize_t ret_write = pwrite(dst.fd, tmp + j, ret_read - j, offset + j);
-      if (-1 == ret_write) {
-        res.err = (PgError)errno;
-        return res;
-      }
-      if (0 == ret_write) {
-        return res;
-      }
-      j += ret_write;
-    }
-    PG_ASSERT(j == ret_read);
-
-    copied += ret_read;
-    offset += ret_read;
-  }
-  #endif
-#endif
-
-  return 0;
-}
-
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
+
+[[nodiscard]][[maybe_unused]] static PgError pg_file_rewind_start(PgFileDescriptor f){
+  off_t ret = lseek(f.fd, 0, SEEK_SET);
+  if (-1==ret){
+   return (PgError)errno;
+  }
+  return 0;
+}
 
 // TODO: Review in the context of multiple threads spawning and reaping
 // processes.
