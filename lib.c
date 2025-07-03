@@ -6761,6 +6761,7 @@ pg_elf_parse(Pgu8Slice elf_bytes) {
     // TODO:
     // - Find string table section
     // - Find text section
+    // - Find symbol table section
     // - Validate that special sections 1) are present 2) have the right name
   }
 
