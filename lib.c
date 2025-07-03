@@ -758,6 +758,35 @@ pg_string_cut_rune(PgString s, PgRune needle) {
   return memcmp(a.data, b.data, a.len) == 0;
 }
 
+typedef struct {
+  Pgu8Slice left, right;
+  bool ok;
+} PgBytesCut;
+
+[[maybe_unused]] [[nodiscard]] static PgBytesCut pg_bytes_cut_byte(Pgu8Slice s,
+                                                                   u8 needle) {
+  PgBytesCut res = {0};
+
+  if (PG_SLICE_IS_EMPTY(s)) {
+    return res;
+  }
+
+  PG_ASSERT(s.data);
+  u8 *ret = memchr(s.data, needle, s.len);
+
+  if (!ret) {
+    return res;
+  }
+
+  res.ok = true;
+  res.left.data = s.data;
+  res.left.len = (u64)(ret - s.data);
+  res.right.data = ret + 1;
+  res.right.len = s.len - res.left.len - 1;
+
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static bool pg_string_eq(PgString a,
                                                         PgString b) {
   return pg_bytes_eq(a, b);
@@ -3407,12 +3436,15 @@ static PgProcessExitResult pg_process_wait(PgProcess process,
                                            PgAllocator *allocator);
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst, PgFileDescriptor src, u64 offset) {
-  // NOTE: on FreeBSD, we could use `copy_file_range` (and Linux too, actually), or `splice`.
+pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
+                                        PgFileDescriptor src, u64 offset) {
+  // NOTE: on FreeBSD, we could use `copy_file_range` (and Linux too, actually),
+  // or `splice`.
 
   for (;;) {
     u8 read_buf[4096] = {0};
-    Pgu8Slice read_slice = {.data=read_buf, .len=PG_STATIC_ARRAY_LEN(read_buf)};
+    Pgu8Slice read_slice = {.data = read_buf,
+                            .len = PG_STATIC_ARRAY_LEN(read_buf)};
 
     Pgu64Result res_read = pg_file_read(src, read_slice);
     if (res_read.err) {
@@ -3422,22 +3454,25 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst, PgFileDescriptor s
       return (PgError)0;
     }
 
-    if (offset > res_read.res){ 
+    if (offset > res_read.res) {
       // Keep reading and do not write yet.
 
       offset -= res_read.res;
-      continue; 
-    } 
+      continue;
+    }
 
     PG_ASSERT(offset <= res_read.res);
 
-    Pgu8Slice write_slice = {.data=read_slice.data + offset, .len=res_read.res - offset};
-    PgError err  = pg_file_write_full_with_descriptor(dst, write_slice);
-    if (err){
+    Pgu8Slice write_slice = {.data = read_slice.data + offset,
+                             .len = res_read.res - offset};
+    PgError err = pg_file_write_full_with_descriptor(dst, write_slice);
+    if (err) {
       return err;
     }
 
-    if (offset >0){offset=0;}
+    if (offset > 0) {
+      offset = 0;
+    }
   }
 
   return 0;
@@ -3459,10 +3494,11 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst, PgFileDescriptor s
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
 
-[[nodiscard]][[maybe_unused]] static PgError pg_file_rewind_start(PgFileDescriptor f){
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_rewind_start(PgFileDescriptor f) {
   off_t ret = lseek(f.fd, 0, SEEK_SET);
-  if (-1==ret){
-   return (PgError)errno;
+  if (-1 == ret) {
+    return (PgError)errno;
   }
   return 0;
 }
@@ -6557,9 +6593,6 @@ static const u32 PgElfProgramHeaderTypeLoad = 1;
 static const u32 PgElfProgramHeaderFlagsExecutable = 1;
 static const u32 PgElfProgramHeaderFlagsReadable = 4;
 
-static const u64 PgElfSectionHeaderFlagAlloc = 2;
-static const u64 PgElfSectionHeaderFlagExecInstr = 4;
-
 typedef enum : u32 {
   PG_ELF_SECTION_HEADER_KIND_NULL = 0,
   PG_ELF_SECTION_HEADER_KIND_PROGBITS = 1,
@@ -6597,7 +6630,7 @@ PG_DYN(PgElfProgramHeader) PgElfProgramHeaderDyn;
 
 typedef struct {
   u32 name;
-  PgElfSectionHeaderKind type;
+  PgElfSectionHeaderKind kind;
   u64 flags;
   u64 addr;
   u64 offset;
@@ -6610,6 +6643,7 @@ typedef struct {
 static_assert(64 == sizeof(PgElfSectionHeader));
 PG_DYN(PgElfSectionHeader) PgElfSectionHeaderDyn;
 PG_SLICE(PgElfSectionHeader) PgElfSectionHeaderSlice;
+PG_OK(PgElfSectionHeader) PgElfSectionHeaderOk;
 
 typedef enum {
   PG_ELF_KNOWN_SECTION_TEXT,
@@ -6675,12 +6709,31 @@ static_assert(52 == offsetof(PgElfHeader, header_size));
 static_assert(64 == sizeof(PgElfHeader));
 
 typedef struct {
+  Pgu8Slice bytes;
+
   PgElfHeader header;
   PgElfProgramHeaderDyn program_headers;
   PgElfSectionHeaderDyn section_headers;
   // TODO: More.
 } PgElf;
 PG_RESULT(PgElf) PgElfResult;
+
+[[nodiscard]] static PgElfSectionHeaderOk
+pg_elf_find_first_section_header_by_kind(PgElf elf,
+                                         PgElfSectionHeaderKind kind) {
+  PgElfSectionHeaderOk res = {0};
+
+  for (u64 i = 0; i < elf.section_headers.len; i++) {
+    PgElfSectionHeader section = PG_SLICE_AT(elf.section_headers, i);
+
+    if (kind == section.kind) {
+      res.res = section;
+      res.ok = true;
+      return res;
+    }
+  }
+  return res;
+}
 
 [[nodiscard]] [[maybe_unused]] static PgString
 pg_elf_section_name(PgElfKnownSection section) {
@@ -6702,9 +6755,45 @@ pg_elf_section_name(PgElfKnownSection section) {
   }
 }
 
+[[maybe_unused]] [[nodiscard]] static PgStringDyn
+pg_elf_find_all_symbols(PgElf elf, PgAllocator *allocator) {
+  PgStringDyn res = {0};
+
+  PgElfSectionHeaderOk string_table_opt =
+      pg_elf_find_first_section_header_by_kind(
+          elf, PG_ELF_SECTION_HEADER_KIND_STRTAB);
+
+  if (!string_table_opt.ok) {
+    return res;
+  }
+
+  PgElfSectionHeader string_table = string_table_opt.res;
+  PG_DYN_ENSURE_CAP(&res, string_table.size, allocator);
+
+  u64 end = 0;
+  if (__builtin_add_overflow(string_table.offset, string_table.size, &end)) {
+    return res;
+  }
+
+  Pgu8Slice section_bytes = PG_SLICE_RANGE(elf.bytes, string_table.offset, end);
+
+  for (;;) {
+    PgBytesCut cut = pg_bytes_cut_byte(section_bytes, 0);
+    if (!cut.ok) {
+      break;
+    }
+
+    *PG_DYN_PUSH_WITHIN_CAPACITY(&res) = cut.left;
+    section_bytes = cut.right;
+  }
+
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgElfResult
 pg_elf_parse(Pgu8Slice elf_bytes) {
   PgElfResult res = {0};
+  res.res.bytes = elf_bytes;
 
   if (elf_bytes.len < sizeof(PgElfHeader)) {
     res.err = PG_ERR_INVALID_VALUE;
@@ -6733,18 +6822,11 @@ pg_elf_parse(Pgu8Slice elf_bytes) {
 
     Pgu8Slice section_headers_bytes =
         PG_SLICE_RANGE(elf_bytes, h.section_header_offset, section_headers_end);
-    PgElfSectionHeaderSlice section_headers = {
+    res.res.section_headers = (PgElfSectionHeaderDyn){
         .data = (void *)section_headers_bytes.data,
         .len = h.section_header_entries_count,
+        .cap = h.section_header_entries_count,
     };
-
-    PG_ASSERT(section_headers.data);
-
-    // TODO:
-    // - Find string table sectionS
-    // - Find text section
-    // - Find symbol table section
-    // - Validate that special sections 1) are present 2) have the right name
   }
 
   return res;
