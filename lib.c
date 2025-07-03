@@ -6575,6 +6575,9 @@ static const u32 PgElfProgramHeaderTypeLoad = 1;
 static const u32 PgElfProgramHeaderFlagsExecutable = 1;
 static const u32 PgElfProgramHeaderFlagsReadable = 4;
 
+static const u64 PgElfSectionHeaderFlagAlloc = 2;
+static const u64 PgElfSectionHeaderFlagExecInstr = 4;
+
 typedef enum : u32 {
   PG_ELF_SECTION_HEADER_KIND_NULL = 0,
   PG_ELF_SECTION_HEADER_KIND_PROGBITS = 1,
@@ -6590,7 +6593,7 @@ typedef enum : u32 {
   PG_ELF_SECTION_HEADER_KIND_DYNSYM = 11,
 } PgElfSectionHeaderKind;
 
-typedef enum : u32 {
+typedef enum : u64 {
   PG_ELF_SECTION_HEADER_FLAG_WRITE = 1 << 0,
   PG_ELF_SECTION_HEADER_FLAG_ALLOC = 1 << 1,
   PG_ELF_SECTION_HEADER_FLAG_EXECINSTR = 1 << 2,
@@ -6754,6 +6757,11 @@ pg_elf_parse(Pgu8Slice elf_bytes) {
     };
 
     PG_ASSERT(section_headers.data);
+
+    // TODO:
+    // - Find string table section
+    // - Find text section
+    // - Validate that special sections 1) are present 2) have the right name
   }
 
   return res;
