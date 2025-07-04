@@ -6610,13 +6610,32 @@ typedef enum : u32 {
 
 typedef struct {
   u32 name;
-  u32 value;
-  u32 size;
   u8 info;
   u8 other;
   u16 section_header_table_index;
+  u64 value;
+  u64 size;
 } PgElfSymbolTableEntry;
+static_assert(24 == sizeof(PgElfSymbolTableEntry));
 PG_DYN(PgElfSymbolTableEntry) PgElfSymbolTableEntryDyn;
+
+typedef enum : u8 {
+  PG_ELF_SYMBOL_BIND_LOCAL = 0,
+  PG_ELF_SYMBOL_BIND_GLOBAL = 1,
+  PG_ELF_SYMBOL_BIND_WEAK = 2,
+  PG_ELF_SYMBOL_BIND_LOPROC = 13,
+  PG_ELF_SYMBOL_BIND_HIPROC = 15,
+} PgElfSymbolBind;
+
+typedef enum : u8 {
+  PG_ELF_SYMBOL_TYPE_NONE = 0,
+  PG_ELF_SYMBOL_TYPE_OBJECT = 1,
+  PG_ELF_SYMBOL_TYPE_FUNC = 2,
+  PG_ELF_SYMBOL_TYPE_SECTION = 3,
+  PG_ELF_SYMBOL_TYPE_FILE = 4,
+  PG_ELF_SYMBOL_TYPE_LOPROC = 13,
+  PG_ELF_SYMBOL_TYPE_HIPROC = 15,
+} PgElfSymbolType;
 
 typedef enum : u64 {
   PG_ELF_SECTION_HEADER_FLAG_WRITE = 1 << 0,
@@ -6801,7 +6820,7 @@ pg_elf_collect_string_table(PgElf elf, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgElfSymbolTableEntryDyn
-pg_elf_collect_symbols(PgElf elf, PgAllocator *allocator) {
+pg_elf_collect_symbol_table(PgElf elf, PgAllocator *allocator) {
   PgElfSymbolTableEntryDyn res = {0};
 
   PgElfSectionHeaderOk section_header_opt =
@@ -6813,11 +6832,15 @@ pg_elf_collect_symbols(PgElf elf, PgAllocator *allocator) {
   }
 
   PgElfSectionHeader section_header = section_header_opt.res;
-  PG_DYN_ENSURE_CAP(&res, section_header.size, allocator);
-
   if (!section_header.size) {
     return res;
   }
+
+  if (section_header.size % sizeof(PgElfSymbolTableEntry) != 0) {
+    return res;
+  }
+
+  PG_DYN_ENSURE_CAP(&res, section_header.size, allocator);
 
   u64 end = 0;
   if (__builtin_add_overflow(section_header.offset, section_header.size,
@@ -6831,7 +6854,7 @@ pg_elf_collect_symbols(PgElf elf, PgAllocator *allocator) {
   PG_ASSERT(res.cap >= section_bytes.len);
   PG_ASSERT(res.data);
   memcpy(res.data, section_bytes.data, section_bytes.len);
-  res.len = section_bytes.len / section_header.size;
+  res.len = section_bytes.len / sizeof(PgElfSymbolTableEntry);
 
   return res;
 }
