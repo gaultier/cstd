@@ -6608,6 +6608,16 @@ typedef enum : u32 {
   PG_ELF_SECTION_HEADER_KIND_DYNSYM = 11,
 } PgElfSectionHeaderKind;
 
+typedef struct {
+  u32 name;
+  u32 value;
+  u32 size;
+  u8 info;
+  u8 other;
+  u16 section_header_table_index;
+} PgElfSymbolTableEntry;
+PG_DYN(PgElfSymbolTableEntry) PgElfSymbolTableEntryDyn;
+
 typedef enum : u64 {
   PG_ELF_SECTION_HEADER_FLAG_WRITE = 1 << 0,
   PG_ELF_SECTION_HEADER_FLAG_ALLOC = 1 << 1,
@@ -6786,6 +6796,42 @@ pg_elf_collect_string_table(PgElf elf, PgAllocator *allocator) {
     *PG_DYN_PUSH_WITHIN_CAPACITY(&res) = cut.left;
     section_bytes = cut.right;
   }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgElfSymbolTableEntryDyn
+pg_elf_collect_symbols(PgElf elf, PgAllocator *allocator) {
+  PgElfSymbolTableEntryDyn res = {0};
+
+  PgElfSectionHeaderOk section_header_opt =
+      pg_elf_find_first_section_header_by_kind(
+          elf, PG_ELF_SECTION_HEADER_KIND_SYMTAB);
+
+  if (!section_header_opt.ok) {
+    return res;
+  }
+
+  PgElfSectionHeader section_header = section_header_opt.res;
+  PG_DYN_ENSURE_CAP(&res, section_header.size, allocator);
+
+  if (!section_header.size) {
+    return res;
+  }
+
+  u64 end = 0;
+  if (__builtin_add_overflow(section_header.offset, section_header.size,
+                             &end)) {
+    return res;
+  }
+
+  Pgu8Slice section_bytes =
+      PG_SLICE_RANGE(elf.bytes, section_header.offset, end);
+
+  PG_ASSERT(res.cap >= section_bytes.len);
+  PG_ASSERT(res.data);
+  memcpy(res.data, section_bytes.data, section_bytes.len);
+  res.len = section_bytes.len / section_header.size;
 
   return res;
 }
