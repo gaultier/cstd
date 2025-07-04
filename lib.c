@@ -6765,7 +6765,7 @@ pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
   return sym.info >> 4;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu8SliceResult
+[[nodiscard]] static Pgu8SliceResult
 pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
   Pgu8SliceResult res = {0};
 
@@ -6792,8 +6792,8 @@ pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgStringResult
-pg_elf_get_string_at(PgElf elf, u32 offset) {
+[[nodiscard]] static PgStringResult pg_elf_get_string_at(PgElf elf,
+                                                         u32 offset) {
   PgStringResult res = {0};
 
   if (offset >= elf.strtab.len) {
