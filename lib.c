@@ -174,6 +174,9 @@ typedef Pgu8Slice PgString;
 PG_SLICE(void) PgAnySlice;
 PG_DYN(void) PgAnyDyn;
 
+PG_OK(Pgu8Slice) Pgu8SliceOk;
+PG_RESULT(Pgu8Slice) Pgu8SliceResult;
+
 #define PG_STATIC_ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
 // Clamp a value in the range `[min, max]`.
@@ -6743,124 +6746,76 @@ typedef struct {
   PgElfHeader header;
   PgElfProgramHeaderDyn program_headers;
   PgElfSectionHeaderDyn section_headers;
-  // TODO: More.
+
+  // Useful section header data.
+  PgElfSymbolTableEntryDyn symtab;
+  Pgu8Slice strtab;
+  Pgu8Slice program_text;
+  u32 program_text_idx;
 } PgElf;
 PG_RESULT(PgElf) PgElfResult;
 
-[[nodiscard]] static PgElfSectionHeaderOk
-pg_elf_find_first_section_header_by_kind(PgElf elf,
-                                         PgElfSectionHeaderKind kind) {
-  PgElfSectionHeaderOk res = {0};
-
-  for (u64 i = 0; i < elf.section_headers.len; i++) {
-    PgElfSectionHeader section = PG_SLICE_AT(elf.section_headers, i);
-
-    if (kind == section.kind) {
-      res.res = section;
-      res.ok = true;
-      return res;
-    }
-  }
-  return res;
+[[nodiscard]] [[maybe_unused]] static PgElfSymbolType
+pg_elf_symbol_get_type(PgElfSymbolTableEntry sym) {
+  return sym.info & 0xf;
 }
 
-[[nodiscard]] [[maybe_unused]] static PgString
-pg_elf_section_name(PgElfKnownSection section) {
-  switch (section) {
-  case PG_ELF_KNOWN_SECTION_TEXT:
-    return PG_S(".text");
-  case PG_ELF_KNOWN_SECTION_RODATA:
-    return PG_S(".rodata");
-  case PG_ELF_KNOWN_SECTION_DATA:
-    return PG_S(".data");
-  case PG_ELF_KNOWN_SECTION_STRTAB:
-    return PG_S(".strtab");
-  case PG_ELF_KNOWN_SECTION_RELOC_TEXT:
-    return PG_S(".relatext");
-  case PG_ELF_KNOWN_SECTION_SYMTAB:
-    return PG_S(".symtab");
-  default:
-    PG_ASSERT(0);
-  }
+[[nodiscard]] [[maybe_unused]] static PgElfSymbolBind
+pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
+  return sym.info >> 4;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgStringDyn
-pg_elf_collect_string_table(PgElf elf, PgAllocator *allocator) {
-  PgStringDyn res = {0};
+[[maybe_unused]] [[nodiscard]] static Pgu8SliceResult
+pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
+  Pgu8SliceResult res = {0};
 
-  PgElfSectionHeaderOk string_table_opt =
-      pg_elf_find_first_section_header_by_kind(
-          elf, PG_ELF_SECTION_HEADER_KIND_STRTAB);
-
-  if (!string_table_opt.ok) {
+  if (section_idx >= elf.section_headers.len) {
+    res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  PgElfSectionHeader string_table = string_table_opt.res;
-  PG_DYN_ENSURE_CAP(&res, string_table.size, allocator);
+  PgElfSectionHeader section = PG_SLICE_AT(elf.section_headers, section_idx);
 
   u64 end = 0;
-  if (__builtin_add_overflow(string_table.offset, string_table.size, &end)) {
+  if (__builtin_add_overflow(section.offset, section.size, &end)) {
+    res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  Pgu8Slice section_bytes = PG_SLICE_RANGE(elf.bytes, string_table.offset, end);
-
-  for (;;) {
-    PgBytesCut cut = pg_bytes_cut_byte(section_bytes, 0);
-    if (!cut.ok) {
-      break;
-    }
-
-    *PG_DYN_PUSH_WITHIN_CAPACITY(&res) = cut.left;
-    section_bytes = cut.right;
+  if (end >= elf.bytes.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
   }
+
+  res.res = PG_SLICE_RANGE(elf.bytes, section.offset, end);
 
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgElfSymbolTableEntryDyn
-pg_elf_collect_symbol_table(PgElf elf, PgAllocator *allocator) {
-  PgElfSymbolTableEntryDyn res = {0};
+[[maybe_unused]] [[nodiscard]] static PgStringResult
+pg_elf_get_string_at(PgElf elf, u32 offset) {
+  PgStringResult res = {0};
 
-  PgElfSectionHeaderOk section_header_opt =
-      pg_elf_find_first_section_header_by_kind(
-          elf, PG_ELF_SECTION_HEADER_KIND_SYMTAB);
-
-  if (!section_header_opt.ok) {
+  if (offset >= elf.strtab.len) {
+    res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  PgElfSectionHeader section_header = section_header_opt.res;
-  if (!section_header.size) {
+  Pgu8Slice at = PG_SLICE_RANGE_START(elf.strtab, offset);
+
+  PgBytesCut cut = pg_bytes_cut_byte(at, 0);
+  if (!cut.ok) {
+    res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  if (section_header.size % sizeof(PgElfSymbolTableEntry) != 0) {
-    return res;
-  }
-
-  PG_DYN_ENSURE_CAP(&res, section_header.size, allocator);
-
-  u64 end = 0;
-  if (__builtin_add_overflow(section_header.offset, section_header.size,
-                             &end)) {
-    return res;
-  }
-
-  Pgu8Slice section_bytes =
-      PG_SLICE_RANGE(elf.bytes, section_header.offset, end);
-
-  PG_ASSERT(res.cap >= section_bytes.len);
-  PG_ASSERT(res.data);
-  memcpy(res.data, section_bytes.data, section_bytes.len);
-  res.len = section_bytes.len / sizeof(PgElfSymbolTableEntry);
+  res.res = cut.left;
 
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgElfResult
-pg_elf_parse(Pgu8Slice elf_bytes) {
+pg_elf_parse(Pgu8Slice elf_bytes, PgAllocator *allocator) {
   PgElfResult res = {0};
   res.res.bytes = elf_bytes;
 
@@ -6896,8 +6851,109 @@ pg_elf_parse(Pgu8Slice elf_bytes) {
         .len = h.section_header_entries_count,
         .cap = h.section_header_entries_count,
     };
+    for (u32 i = 0; i < res.res.section_headers.len; i++) {
+      PgElfSectionHeader section = PG_SLICE_AT(res.res.section_headers, i);
+
+      switch (section.kind) {
+      case PG_ELF_SECTION_HEADER_KIND_SYMTAB: {
+        Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(res.res, i);
+        if (res_bytes.err) {
+          res.err = res_bytes.err;
+          return res;
+        }
+
+        Pgu8Slice bytes = res_bytes.res;
+
+        if (PG_SLICE_IS_EMPTY(bytes)) {
+          res.err = res_bytes.err;
+          return res;
+        }
+
+        PG_DYN_ENSURE_CAP(&res.res.symtab, section.size, allocator);
+        memcpy(res.res.symtab.data, bytes.data, bytes.len);
+        res.res.symtab.len = bytes.len / sizeof(PgElfSymbolTableEntry);
+      } break;
+      case PG_ELF_SECTION_HEADER_KIND_STRTAB: {
+        Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(res.res, i);
+        if (res_bytes.err) {
+          res.err = res_bytes.err;
+          return res;
+        }
+
+        if (PG_SLICE_IS_EMPTY(res_bytes.res)) {
+          res.err = res_bytes.err;
+          return res;
+        }
+
+        res.res.strtab = res_bytes.res;
+      } break;
+      default: {
+      }
+      }
+    }
+
+    // Second pass to find the `.text` section since section header might be in
+    // any order.
+    for (u32 i = 0; i < res.res.section_headers.len; i++) {
+      PgElfSectionHeader section = PG_SLICE_AT(res.res.section_headers, i);
+
+      if (PG_ELF_SECTION_HEADER_KIND_PROGBITS != section.kind) {
+        continue;
+      }
+
+      PgStringResult res_str = pg_elf_get_string_at(res.res, section.name);
+      if (res_str.err) {
+        res.err = res_str.err;
+        return res;
+      }
+
+      if (!pg_string_eq(res_str.res, PG_S(".text"))) {
+        continue;
+      }
+
+      // Found.
+
+      Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(res.res, i);
+      if (res_bytes.err) {
+        res.err = res_bytes.err;
+        return res;
+      }
+
+      res.res.program_text = res_bytes.res;
+      res.res.program_text_idx = i;
+      break;
+    }
+
+    if (PG_SLICE_IS_EMPTY(res.res.program_text)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
   }
 
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu8SliceResult
+pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
+  Pgu8SliceResult res = {0};
+
+  if (elf.program_text_idx != sym.section_header_table_index) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  if (sym.value >= elf.program_text.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  u64 end = 0;
+  if (__builtin_add_overflow(sym.value, sym.size, &end)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  res.res = PG_SLICE_RANGE(elf.program_text, sym.value, end);
   return res;
 }
 
