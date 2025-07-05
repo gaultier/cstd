@@ -24,6 +24,10 @@
 #define PG_OS_LINUX
 #endif
 
+#if defined(__FreeBSD__) || defined(__APPLE__) // TODO: More BSDs.
+#define PG_OS_BSD
+#endif
+
 #if defined(__unix__)
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE 1
@@ -3438,6 +3442,11 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 static PgProcessExitResult pg_process_wait(PgProcess process,
                                            PgAllocator *allocator);
 
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src);
+
+// This works from any kind of file descriptor to any kind of file descriptor.
+// But this may be slower than OS-specific syscalls.
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
                                         PgFileDescriptor src, u64 offset) {
@@ -6956,5 +6965,40 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
   res.res = PG_SLICE_RANGE(elf.program_text, sym.value, end);
   return res;
 }
+
+#ifdef PG_OS_LINUX
+#include <sys/sendfile.h>
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
+  Pgu64Result res_size = pg_file_size(src);
+  if (res_size.err) {
+    return res_size.err;
+  }
+
+  i64 offset = 0;
+  u64 size = res_size.res;
+
+  for (u64 _i = 0; _i < size; _i++) {
+    i64 ret = sendfile(dst.fd, src.fd, &offset, size);
+    if (-1 == ret) {
+      // TODO: Perhaps fallback to `read(2)` + `write(2)` in case of `EINVAL` or
+      // `ENOSYS`.
+      return (PgError)errno;
+    }
+
+    size -= (u64)ret;
+    offset += ret;
+
+    if (0 == size) {
+      break;
+    }
+  }
+  return 0;
+}
+
+#endif
+
+// TODO: sendfile on BSD.
 
 #endif
