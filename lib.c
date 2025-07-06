@@ -3744,6 +3744,21 @@ pg_net_tcp_bind_ipv4(PgFileDescriptor sock, PgIpv4Address addr) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
+pg_net_get_socket_error(PgFileDescriptor sock) {
+  int socket_error = -1;
+  socklen_t len = sizeof(socket_error);
+  int ret = 0;
+  do {
+    ret = getsockopt(sock.fd, SOL_SOCKET, SO_ERROR, &socket_error, &len);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+  return (PgError)socket_error;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
 pg_net_socket_enable_reuse(PgFileDescriptor sock) {
   int val = 1;
   int ret = 0;
