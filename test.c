@@ -598,12 +598,11 @@ static void test_dynu8_append_u8_hex_upper() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   {
-    Pgu8Dyn sb = {0};
-    PgWriter w = pg_writer_make_from_string_builder(&sb);
+    PgWriter w = pg_writer_make_string_builder(4, allocator);
     PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0xac, allocator));
     PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0x89, allocator));
 
-    PgString s = PG_DYN_SLICE(PgString, sb);
+    PgString s = PG_DYN_SLICE(PgString, w.u.bytes);
     PG_ASSERT(pg_string_eq(s, PG_S("AC89")));
   }
 }
@@ -628,21 +627,19 @@ static void test_url_encode() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
   {
-    Pgu8Dyn sb = {0};
-    PgWriter w = pg_writer_make_from_string_builder(&sb);
+    PgWriter w = pg_writer_make_string_builder(64, allocator);
     PG_ASSERT(0 ==
               pg_writer_url_encode(&w, PG_S("日本語"), PG_S("123"), allocator));
-    PgString encoded = PG_DYN_SLICE(PgString, sb);
+    PgString encoded = PG_DYN_SLICE(PgString, w.u.bytes);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=123")));
   }
 
   {
-    Pgu8Dyn sb = {0};
-    PgWriter w = pg_writer_make_from_string_builder(&sb);
+    PgWriter w = pg_writer_make_string_builder(64, allocator);
     PG_ASSERT(0 ==
               pg_writer_url_encode(&w, PG_S("日本語"), PG_S("foo"), allocator));
-    PgString encoded = PG_DYN_SLICE(PgString, sb);
+    PgString encoded = PG_DYN_SLICE(PgString, w.u.bytes);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=foo")));
   }
@@ -865,13 +862,13 @@ static void test_ring_buffer_read_write_fuzz() {
 
     bool can_write = pg_ring_can_write(rg);
     u64 n_write = pg_ring_try_write_bytes(&rg, from);
-    if (can_write) {
+    if (can_write && from.len > 0) {
       PG_ASSERT(n_write > 0);
     }
 
     bool can_read = pg_ring_can_read(rg);
     u64 n_read = pg_ring_try_read_bytes(&rg, to);
-    if (can_read) {
+    if (can_read && to.len > 0) {
       PG_ASSERT(n_read > 0);
     }
   }
@@ -1431,16 +1428,19 @@ static void test_http_parse_header() {
   }
 }
 
+#if 0
 static void test_http_read_request() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  // PgReader reader = pg_reader_make_from_
+  PgReader reader = {0}; // TODO
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
       pg_http_read_request(&buf_reader, allocator);
+  (void)res_req; // TODO
 }
+#endif
 
 #if 0
 static void test_http_read_response() {
@@ -1749,29 +1749,24 @@ static void test_log() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
   // Simple log.
   {
-    Pgu8Dyn sb = {0};
-    PG_DYN_ENSURE_CAP(&sb, 256, allocator);
-
     PgLogger logger = pg_log_make_logger_stdout_logfmt(PG_LOG_LEVEL_DEBUG);
-    logger.writer = pg_writer_make_from_string_builder(&sb);
+    logger.writer = pg_writer_make_string_builder(256, allocator);
 
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world",
            pg_log_c_s("foo", PG_S("bar")), pg_log_c_i64("baz", -317));
 
-    PgString out = PG_DYN_SLICE(PgString, sb);
+    PgString out = PG_DYN_SLICE(PgString, logger.writer.u.bytes);
     PG_ASSERT(pg_string_starts_with(out, PG_S("level=info ")));
   }
   // PgLog but the logger level is higher.
   {
-    Pgu8Dyn sb = {0};
-    PG_DYN_ENSURE_CAP(&sb, 256, allocator);
     PgLogger logger = pg_log_make_logger_stdout_logfmt(PG_LOG_LEVEL_INFO);
-    logger.writer = pg_writer_make_from_string_builder(&sb);
+    logger.writer = pg_writer_make_string_builder(256, allocator);
 
     pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world",
            pg_log_s(PG_S("foo"), PG_S("bar")));
 
-    PgString out = PG_DYN_SLICE(PgString, sb);
+    PgString out = PG_DYN_SLICE(PgString, logger.writer.u.bytes);
     PG_ASSERT(pg_string_is_empty(out));
   }
 }
@@ -2492,8 +2487,8 @@ int main() {
   test_http_parse_response_status_line();
   test_http_parse_request_status_line();
   test_http_parse_header();
-  test_http_read_request();
 #if 0
+  test_http_read_request();
   test_http_read_response();
   test_http_request_response();
 #endif

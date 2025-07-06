@@ -316,11 +316,18 @@ typedef struct {
 
 typedef struct PgWriter PgWriter;
 
+typedef enum {
+  PG_WRITER_KIND_NONE, // no-op.
+  PG_WRITER_KIND_FILE,
+  PG_WRITER_KIND_BYTES,
+} PgWriterKind;
+
 struct PgWriter {
-  WriteFn write_fn;
-  FlushFn flush_fn;
-  CloseFn close_fn;
-  PgFileDescriptor ctx;
+  PgWriterKind kind;
+  union {
+    PgFileDescriptor file;
+    Pgu8Dyn bytes;
+  } u;
 };
 
 // Ring buffer.
@@ -566,7 +573,7 @@ typedef PgString (*PgMakeLogLineFn)(u8 *mem, u64 mem_len, PgLogger *logger,
                                     PgLogLevel level, PgString msg,
                                     i32 args_count, ...);
 
-typedef struct PgLogger {
+struct PgLogger {
   PgLogLevel level;
   PgWriter writer;
   PgMakeLogLineFn make_log_line;
@@ -2280,62 +2287,51 @@ pg_ring_try_write_bytes(PgRing *rg, Pgu8Slice src) {
   return pg_ring_try_read_bytes(rg, s);
 }
 
-[[maybe_unused]] [[nodiscard]] static PgError pg_writer_flush(PgWriter *w) {
-  PG_ASSERT(w);
-
-  if (w->flush_fn) {
-    return w->flush_fn(w);
-  }
-  return (PgError){0};
-}
-
 [[maybe_unused]] [[nodiscard]] static PgError pg_writer_close(PgWriter *w) {
   PG_ASSERT(w);
 
-  if (w->close_fn) {
-    return w->close_fn(w);
+  switch (w->kind) {
+  case PG_WRITER_KIND_FILE:
+    return pg_file_close(w->u.file);
+  case PG_WRITER_KIND_NONE:
+  case PG_WRITER_KIND_BYTES:
+    return 0;
+  default:
+    PG_ASSERT(0);
   }
-  return (PgError){0};
-}
-
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_string_builder_write(PgWriter *w, Pgu8Slice src,
-                               PgAllocator *allocator) {
-  PG_ASSERT(nullptr != w);
-
-  Pgu8Dyn *sb = w->ctx.ptr;
-
-  PG_DYN_APPEND_SLICE(sb, src, allocator);
-
-  return (Pgu64Result){.res = src.len};
-}
-
-[[nodiscard]] [[maybe_unused]] static PgWriter pg_writer_make_noop() {
-  PgWriter w = {0};
-  return w;
 }
 
 [[nodiscard]] [[maybe_unused]] static PgWriter
-pg_writer_make_from_string_builder(Pgu8Dyn *sb) {
+pg_writer_make_string_builder(u64 cap, PgAllocator *allocator) {
   PgWriter w = {0};
-  w.ctx.ptr = sb;
-  w.write_fn = pg_writer_string_builder_write;
+  w.kind = PG_WRITER_KIND_BYTES;
+  PG_DYN_ENSURE_CAP(&w.u.bytes, cap, allocator);
   return w;
 }
 
-[[nodiscard]] [[maybe_unused]] static Pgu8Dyn *
-pg_writer_as_string_builder(PgWriter *w) {
-  return w->ctx.ptr;
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_writer_write(PgWriter *w, Pgu8Slice src, PgAllocator *allocator) {
+  Pgu64Result res = {0};
+
+  switch (w->kind) {
+  case PG_WRITER_KIND_NONE:
+    return res;
+  case PG_WRITER_KIND_FILE:
+    return pg_file_write(w->u.file, src);
+  case PG_WRITER_KIND_BYTES: {
+    PG_DYN_APPEND_SLICE(&w->u.bytes, src, allocator);
+    res.res = src.len;
+    return res;
+  }
+  default:
+    PG_ASSERT(0);
+  }
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_writer_write_u8(PgWriter *w, u8 c, PgAllocator *allocator) {
-  if (!w->write_fn) {
-    return (PgError){0};
-  }
-
   Pgu8Slice src = {.data = &c, .len = 1};
-  Pgu64Result res = w->write_fn(w, src, allocator);
+  Pgu64Result res = pg_writer_write(w, src, allocator);
   if (res.err) {
     return res.err;
   }
@@ -2345,17 +2341,13 @@ pg_writer_write_u8(PgWriter *w, u8 c, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_writer_write_string_full(PgWriter *w, PgString s, PgAllocator *allocator) {
-  if (!w->write_fn) {
-    return (PgError){0};
-  }
-
   PgString remaining = s;
   for (u64 _i = 0; _i < s.len; _i++) {
     if (pg_string_is_empty(remaining)) {
       break;
     }
 
-    Pgu64Result res = w->write_fn(w, remaining, allocator);
+    Pgu64Result res = pg_writer_write(w, remaining, allocator);
     if (res.err) {
       return res.err;
     }
@@ -2420,10 +2412,6 @@ pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
 pg_writer_write_from_reader(PgWriter *w, PgReader *r, PgAllocator *allocator) {
   Pgu64Result res = {0};
 
-  if (!w->write_fn) {
-    return res;
-  }
-
   // TODO: Get a hint from the reader?
   u8 tmp[4096] = {0};
   PgString dst = {.data = tmp, .len = PG_STATIC_ARRAY_LEN(tmp)};
@@ -2434,7 +2422,7 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r, PgAllocator *allocator) {
   }
   dst.len = res.res;
 
-  res = w->write_fn(w, dst, allocator);
+  res = pg_writer_write(w, dst, allocator);
   if (res.err) {
     return res;
   }
@@ -2693,19 +2681,18 @@ pg_byte_buffer_append_u64_within_capacity(Pgu8Dyn *dyn, u64 n) {
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_u64_to_string(u64 n, PgAllocator *allocator) {
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 25, allocator);
-  PgWriter w = pg_writer_make_from_string_builder(&sb);
+  PgWriter w = pg_writer_make_string_builder(25, allocator);
 
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n, allocator));
 
-  return PG_DYN_SLICE(PgString, sb);
+  return PG_DYN_SLICE(PgString, w.u.bytes);
 }
 
 [[maybe_unused]] static void
 pg_string_builder_append_u64(Pgu8Dyn *sb, u64 n, PgAllocator *allocator) {
-  PgWriter w = pg_writer_make_from_string_builder(sb);
+  PgWriter w = {.kind = PG_WRITER_KIND_BYTES, .u.bytes = *sb};
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n, allocator));
+  *sb = w.u.bytes;
 }
 
 [[maybe_unused]] [[nodiscard]]
@@ -3077,9 +3064,7 @@ static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_net_ipv4_address_to_string(PgIpv4Address address, PgAllocator *allocator) {
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 3 * 4 + 4 + 5, allocator);
-  PgWriter w = pg_writer_make_from_string_builder(&sb);
+  PgWriter w = pg_writer_make_string_builder(3 * 4 + 4 + 5, allocator);
 
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, (address.ip >> 24) & 0xFF,
                                                allocator));
@@ -3095,7 +3080,7 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgAllocator *allocator) {
   PG_ASSERT(0 == pg_writer_write_u8(&w, ':', allocator));
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, address.port, allocator));
 
-  return PG_DYN_SLICE(PgString, sb);
+  return PG_DYN_SLICE(PgString, w.u.bytes);
 }
 
 [[maybe_unused]] [[nodiscard]] static u32 pg_u8x4_be_to_u32(PgString s) {
@@ -3441,19 +3426,8 @@ pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
   return rng;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_file_write(PgWriter *w, Pgu8Slice src, PgAllocator *);
-
-[[maybe_unused]] [[nodiscard]] static PgError pg_writer_file_flush(PgWriter *w);
-
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_file_close(PgFileDescriptor file);
-
-[[maybe_unused]] [[nodiscard]] static PgError pg_writer_file_close(void *w) {
-  PG_ASSERT(w);
-
-  return pg_file_close(((PgWriter *)w)->ctx);
-}
 
 [[nodiscard]] static u64 pg_os_get_page_size();
 
@@ -3629,12 +3603,9 @@ pg_string_concat(PgString left, PgString right, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static PgWriter
 pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
-  PgWriter w = {
-      .ctx = file,
-      .write_fn = pg_writer_file_write,
-      .flush_fn = pg_writer_file_flush,
-      .close_fn = pg_writer_file_close,
-  };
+  PgWriter w = {0};
+  w.kind = PG_WRITER_KIND_FILE;
+  w.u.file = file;
 
   return w;
 }
@@ -4556,46 +4527,6 @@ static PgProcessExitResult pg_process_wait(PgProcess process,
     return (PgError)pg_os_get_last_error();
   }
   return 0;
-}
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_writer_unix_file_flush(PgWriter *w) {
-  PG_ASSERT(nullptr != w);
-  return (PgError){0};
-}
-
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_unix_file_write(PgWriter *w, Pgu8Slice src) {
-  PG_ASSERT(nullptr != w);
-
-  if (PG_SLICE_IS_EMPTY(src)) {
-    return (Pgu64Result){0};
-  }
-
-  PgFileDescriptor file = w->ctx;
-  isize n = 0;
-  do {
-    n = write(file.fd, src.data, src.len);
-  } while (-1 == n && EINTR == errno);
-
-  Pgu64Result res = {0};
-  if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.res = (u64)n;
-  }
-
-  return res;
-}
-
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_file_write(PgWriter *w, Pgu8Slice src, PgAllocator *) {
-  return pg_writer_unix_file_write(w, src);
-}
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_writer_file_flush(PgWriter *w) {
-  return pg_writer_unix_file_flush(w);
 }
 
 [[maybe_unused]] [[nodiscard]] static clockid_t
@@ -6096,18 +6027,15 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req, PgAllocator *allocator) {
 
 [[maybe_unused]] static PgString
 pg_http_request_to_string(PgHttpRequest req, PgAllocator *allocator) {
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb,
-                    // TODO: Tweak this number?
-                    128 + req.url.path_components.len * 64 +
-                        req.url.query_parameters.len * 64 +
-                        req.headers.len * 128,
-                    allocator);
-  PgWriter w = pg_writer_make_from_string_builder(&sb);
+  u64 cap =
+      // TODO: Tweak this number?
+      128 + req.url.path_components.len * 64 +
+      req.url.query_parameters.len * 64 + req.headers.len * 128;
+  PgWriter w = pg_writer_make_string_builder(cap, allocator);
 
   PG_ASSERT(0 == pg_http_write_request(&w, req, allocator));
 
-  return PG_DYN_SLICE(PgString, sb);
+  return PG_DYN_SLICE(PgString, w.u.bytes);
 }
 
 [[maybe_unused]] static PgError pg_http_write_response(PgWriter *w,
@@ -6287,9 +6215,6 @@ pg_log_level_to_string(PgLogLevel level) {
     if (nullptr == (logger)) {                                                 \
       break;                                                                   \
     }                                                                          \
-    if (nullptr == (logger)->writer.write_fn) {                                \
-      break;                                                                   \
-    }                                                                          \
     PG_ASSERT(nullptr != (logger)->make_log_line);                             \
     if ((logger)->level > (lvl)) {                                             \
       break;                                                                   \
@@ -6298,7 +6223,7 @@ pg_log_level_to_string(PgLogLevel level) {
     PgString xxx_log_line = (logger)->make_log_line(                           \
         mem, PG_STATIC_ARRAY_LEN(mem), logger, lvl, PG_S(msg),                 \
         PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);                          \
-    (logger)->writer.write_fn(&(logger)->writer, xxx_log_line, nullptr);       \
+    (void)pg_writer_write(&(logger)->writer, xxx_log_line, nullptr);           \
   } while (0)
 
 [[maybe_unused]] static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c,
@@ -6367,9 +6292,7 @@ pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
   u64 timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME).res;
 
   // FIXME: `try` alloc.
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 256, allocator);
-  PgWriter w = pg_writer_make_from_string_builder(&sb);
+  PgWriter w = pg_writer_make_string_builder(256, allocator);
 
   PG_ASSERT(0 == pg_writer_write_string_full(&w, PG_S("level="), allocator));
   PG_ASSERT(0 == pg_writer_write_string_full(&w, pg_log_level_to_string(level),
@@ -6423,7 +6346,7 @@ pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
 
   PG_ASSERT(0 == pg_writer_write_u8(&w, '\n', allocator));
 
-  return PG_DYN_SLICE(PgString, sb);
+  return PG_DYN_SLICE(PgString, w.u.bytes);
 }
 
 typedef int (*PgCmpFn)(const void *a, const void *b);
