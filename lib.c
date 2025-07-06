@@ -1411,6 +1411,25 @@ static Pgu64Ok pg_bytes_last_index_of_byte(Pgu8Slice haystack, u8 needle) {
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static bool
+pg_bytes_starts_with(Pgu8Slice haystack, Pgu8Slice needle) {
+  if (needle.len > haystack.len) {
+    return false;
+  }
+
+  return pg_bytes_eq(PG_SLICE_RANGE(haystack, 0, needle.len), needle);
+}
+
+[[maybe_unused]] [[nodiscard]] static bool
+pg_bytes_ends_with(Pgu8Slice haystack, Pgu8Slice needle) {
+  if (needle.len > haystack.len) {
+    return false;
+  }
+
+  return pg_bytes_eq(PG_SLICE_RANGE_START(haystack, haystack.len - needle.len),
+                     needle);
+}
+
 [[maybe_unused]] [[nodiscard]]
 static Pgu64Ok pg_bytes_index_of_bytes(Pgu8Slice haystack, Pgu8Slice needle) {
   Pgu64Ok res = {0};
@@ -1424,7 +1443,7 @@ static Pgu64Ok pg_bytes_index_of_bytes(Pgu8Slice haystack, Pgu8Slice needle) {
   }
 
   for (u64 i = 0; i < haystack.len; i++) {
-    if (pg_bytes_eq(needle, PG_SLICE_RANGE_START(haystack, (u64)i))) {
+    if (pg_bytes_starts_with(PG_SLICE_RANGE_START(haystack, (u64)i), needle)) {
       res.res = (u64)i;
       res.ok = true;
       return res;
@@ -1448,7 +1467,7 @@ static Pgu64Ok pg_bytes_last_index_of_bytes(Pgu8Slice haystack,
   }
 
   for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
-    if (pg_bytes_eq(needle, PG_SLICE_RANGE_START(haystack, (u64)i))) {
+    if (pg_bytes_ends_with(PG_SLICE_RANGE_START(haystack, (u64)i), needle)) {
       res.res = (u64)i;
       res.ok = true;
       return res;
@@ -2370,7 +2389,11 @@ pg_reader_read(PgReader *r, Pgu8Slice dst) {
     Pgu64Result res = {0};
 
     u64 n = PG_MIN(dst.len, r->u.bytes.len);
-    memcpy(dst.data, r->u.bytes.data, n);
+    if (n > 0) {
+      PG_ASSERT(dst.data);
+      PG_ASSERT(r->u.bytes.data);
+      memcpy(dst.data, r->u.bytes.data, n);
+    }
     res.res = n;
 
     r->u.bytes = PG_SLICE_RANGE_START(r->u.bytes, n);
@@ -5933,7 +5956,7 @@ pg_buf_reader_read_mem_until_bytes_excl(PgBufReader *r, Pgu8Slice dst,
 
   {
     PgRing ring = r->ring;
-    (void)pg_ring_try_write_bytes(&ring, dst);
+    (void)pg_ring_try_read_bytes(&ring, dst);
     PgBytesCut cut = pg_bytes_cut_bytes_excl(dst, needle);
     if (cut.ok) {
       r->ring = ring; // Commit.
