@@ -5533,6 +5533,7 @@ pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
       .level = level,
       .writer = pg_writer_make_from_file_descriptor(pg_os_stdout()),
       .make_log_line = pg_log_make_log_line_logfmt,
+      // TODO: Consider using `rtdsc` or such.
       .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res,
   };
 
