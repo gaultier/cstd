@@ -3552,6 +3552,7 @@ pg_net_get_socket_error(PgFileDescriptor socket);
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
 
+[[nodiscard]]
 static PgFileDescriptorResult pg_net_create_tcp_socket() {
   PgFileDescriptorResult res = {0};
 
@@ -3570,10 +3571,12 @@ static PgFileDescriptorResult pg_net_create_tcp_socket() {
   return res;
 }
 
+[[nodiscard]]
 static PgError pg_net_socket_close(PgFileDescriptor sock) {
   return pg_file_close(sock);
 }
 
+[[nodiscard]]
 static PgError pg_net_set_nodelay(PgFileDescriptor sock, bool enabled) {
   int opt = enabled;
   int ret = 0;
@@ -3588,6 +3591,7 @@ static PgError pg_net_set_nodelay(PgFileDescriptor sock, bool enabled) {
   return 0;
 }
 
+[[nodiscard]]
 static PgError pg_net_connect_ipv4(PgFileDescriptor sock,
                                    PgIpv4Address address) {
   struct sockaddr_in addr = {
@@ -5780,8 +5784,39 @@ pg_http_headers_parse_content_length(PgStringKeyValueSlice headers,
 }
 
 [[maybe_unused]]
-static void pg_http_server_start(u16 port) {
-  (void)port;
+static PgError pg_http_server_start(u16 port, u64 backlog) {
+  PgFileDescriptorResult res_create = pg_net_create_tcp_socket();
+  if (res_create.err) {
+    return res_create.err;
+  }
+  PgFileDescriptor server_socket = res_create.res;
+
+  PgIpv4Address address = {.port = port};
+  PgError err = pg_net_tcp_bind_ipv4(server_socket, address);
+  if (err) {
+    goto end;
+  }
+
+  err = pg_net_tcp_listen(server_socket, backlog);
+  if (err) {
+    goto end;
+  }
+
+  for (;;) {
+    PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(server_socket);
+    if (res_accept.err) {
+      // TODO: Some errors are retryable.
+      err = res_accept.err;
+      goto end;
+    }
+
+    (void)pg_net_socket_write(res_accept.socket, PG_S("hello"));
+    (void)pg_net_socket_close(res_accept.socket);
+  }
+
+end:
+  (void)pg_net_socket_close(server_socket);
+  return err;
 }
 
 typedef enum {
