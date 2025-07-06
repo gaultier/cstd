@@ -3491,6 +3491,7 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -3516,20 +3517,20 @@ static PgFileDescriptorResult pg_net_create_tcp_socket() {
     return res;
   }
 
-  res.res = sock_fd;
+  res.res.fd = sock_fd;
 
   return res;
 }
 
 static PgError pg_net_socket_close(PgFileDescriptor sock) {
-  return pg_file_close((PgFileDescriptor)sock);
+  return pg_file_close(sock);
 }
 
 static PgError pg_net_set_nodelay(PgFileDescriptor sock, bool enabled) {
   int opt = enabled;
   int ret = 0;
   do {
-    ret = setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
+    ret = setsockopt(sock.fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
