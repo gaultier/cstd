@@ -670,7 +670,7 @@ pg_string_split_string(PgString s, PgString sep) {
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
-pg_string_indexof_rune(PgString haystack, PgRune needle) {
+pg_string_index_of_rune(PgString haystack, PgRune needle) {
   if (PG_SLICE_IS_EMPTY(haystack)) {
     return -1;
   }
@@ -722,8 +722,8 @@ pg_string_cut_rune(PgString s, PgRune needle) {
   PG_ASSERT(0);
 }
 
-[[nodiscard]] static i64 pg_string_last_indexof_rune(PgString haystack,
-                                                     PgRune needle) {
+[[nodiscard]] static i64 pg_string_last_index_of_rune(PgString haystack,
+                                                      PgRune needle) {
   while (!pg_string_is_empty(haystack)) {
     PgRune last = pg_string_last(haystack);
     u64 rune_bytes_count = pg_utf8_rune_bytes_count(last);
@@ -799,7 +799,7 @@ typedef struct {
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
-pg_string_indexof_string(PgString haystack, PgString needle) {
+pg_string_index_of_string(PgString haystack, PgString needle) {
   if (0 == needle.len || needle.len > haystack.len) {
     return -1;
   }
@@ -816,7 +816,7 @@ pg_string_indexof_string(PgString haystack, PgString needle) {
 pg_string_cut_string(PgString s, PgString needle) {
   PgStringCut res = {0};
 
-  i64 idx = pg_string_indexof_string(s, needle);
+  i64 idx = pg_string_index_of_string(s, needle);
   if (-1 == idx) {
     return res;
   }
@@ -835,7 +835,7 @@ pg_string_split_next(PgSplitIterator *it) {
   }
 
   for (u64 _i = 0; _i < it->s.len; _i++) {
-    i64 idx = pg_string_indexof_string(it->s, it->sep);
+    i64 idx = pg_string_index_of_string(it->s, it->sep);
     if (-1 == idx) {
       // Last element.
       PgStringOk res = {.res = it->s, .ok = true};
@@ -865,7 +865,7 @@ typedef struct {
 pg_string_consume_until_rune_excl(PgString haystack, PgRune needle) {
   PgStringPairConsume res = {0};
 
-  i64 idx = pg_string_indexof_rune(haystack, needle);
+  i64 idx = pg_string_index_of_rune(haystack, needle);
   if (-1 == idx) {
     res.left = haystack;
     res.right = haystack;
@@ -884,7 +884,7 @@ pg_string_consume_until_rune_excl(PgString haystack, PgRune needle) {
 pg_string_consume_until_rune_incl(PgString haystack, PgRune needle) {
   PgStringPairConsume res = {0};
 
-  i64 idx = pg_string_indexof_rune(haystack, needle);
+  i64 idx = pg_string_index_of_rune(haystack, needle);
   if (-1 == idx) {
     res.left = haystack;
     res.right = haystack;
@@ -966,7 +966,7 @@ pg_string_indexof_any_rune(PgString haystack, PgString needles) {
        res_rune = pg_utf8_iterator_next(&it)) {
     PgRune needle = res_rune.res;
 
-    i64 idx = pg_string_indexof_rune(haystack, needle);
+    i64 idx = pg_string_index_of_rune(haystack, needle);
     if (-1 != idx) {
       return idx;
     }
@@ -976,7 +976,7 @@ pg_string_indexof_any_rune(PgString haystack, PgString needles) {
 
 [[maybe_unused]] [[nodiscard]] static bool pg_string_contains(PgString haystack,
                                                               PgString needle) {
-  return -1 != pg_string_indexof_string(haystack, needle);
+  return -1 != pg_string_index_of_string(haystack, needle);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -1711,7 +1711,7 @@ pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
     *rg = cpy_rg; // Reset.
     pg_free(allocator, dst.data);
 
-    idx = pg_string_indexof_string(dst, needle);
+    idx = pg_string_index_of_string(dst, needle);
     if (-1 == idx) {
       return res;
     }
@@ -1983,7 +1983,7 @@ pg_string_builder_append_u64_hex(Pgu8Dyn *sb, PgRune rune,
       break;
     }
 
-    if (-1 != pg_string_indexof_rune(runes_to_escape, rune)) {
+    if (-1 != pg_string_index_of_rune(runes_to_escape, rune)) {
       pg_string_builder_append_rune(sb, rune_escape, allocator);
     }
     pg_string_builder_append_rune(sb, rune, allocator);
@@ -2171,6 +2171,65 @@ static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n,
 }
 
 [[maybe_unused]] [[nodiscard]]
+static Pgu64Ok pg_bytes_index_of_byte(Pgu8Slice haystack, u8 needle) {
+  Pgu64Ok res = {0};
+
+  for (u64 i = 0; i < haystack.len; i++) {
+    u8 it = PG_SLICE_AT(haystack, i);
+    if (needle == it) {
+      res.res = i;
+      res.ok = true;
+      return res;
+    }
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]]
+static Pgu64Ok pg_bytes_last_index_of_byte(Pgu8Slice haystack, u8 needle) {
+  Pgu64Ok res = {0};
+
+  for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
+    u8 it = PG_SLICE_AT(haystack, i);
+    if (needle == it) {
+      res.res = (u64)i;
+      res.ok = true;
+      return res;
+    }
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]]
+static Pgu64Ok pg_bytes_last_index_of_bytes(Pgu8Slice haystack,
+                                            Pgu8Slice needle) {
+  Pgu64Ok res = {0};
+
+  if (PG_SLICE_IS_EMPTY(needle)) {
+    return res;
+  }
+
+  if (needle.len > haystack.len) {
+    return res;
+  }
+
+  u8 needle_first = PG_SLICE_AT(needle, 0);
+  Pgu8Slice searchable = haystack;
+
+  for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
+    if (pg_bytes_eq(needle, PG_SLICE_RANGE_START(haystack, (u64)i))) {
+      res.res = (u64)i;
+      res.ok = true;
+      return res;
+    }
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]]
 static PgString pg_bytes_to_hex_string(Pgu8Slice bytes, PgRune sep,
                                        PgAllocator *allocator) {
 
@@ -2216,7 +2275,7 @@ pg_round_up_multiple_of(u64 n, u64 multiple) {
 pg_string_indexof_unescaped_rune(PgString haystack, PgRune needle,
                                  PgRune escape) {
   while (!pg_string_is_empty(haystack)) {
-    i64 idx = pg_string_indexof_rune(haystack, needle);
+    i64 idx = pg_string_index_of_rune(haystack, needle);
     if (-1 == idx) {
       return -1;
     }
@@ -3084,7 +3143,7 @@ pg_path_join(PgString a, PgString b, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_path_base_name(PgString s) {
-  i64 idx = pg_string_last_indexof_rune(s, PG_PATH_SEPARATOR);
+  i64 idx = pg_string_last_index_of_rune(s, PG_PATH_SEPARATOR);
   if (-1 == idx) {
     return s;
   } else {
@@ -3093,7 +3152,7 @@ pg_path_join(PgString a, PgString b, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_path_dir_name(PgString s) {
-  i64 idx = pg_string_last_indexof_rune(s, PG_PATH_SEPARATOR);
+  i64 idx = pg_string_last_index_of_rune(s, PG_PATH_SEPARATOR);
   if (-1 == idx) {
     return s;
   } else {
@@ -3102,7 +3161,7 @@ pg_path_join(PgString a, PgString b, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_path_stem(PgString s) {
-  i64 idx = pg_string_last_indexof_rune(s, '.');
+  i64 idx = pg_string_last_index_of_rune(s, '.');
   if (-1 == idx) {
     return s;
   }
@@ -3112,7 +3171,7 @@ pg_path_join(PgString a, PgString b, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_file_stem(PgString s) {
   PgString base_name = pg_path_base_name(s);
-  i64 idx = pg_string_last_indexof_rune(base_name, '.');
+  i64 idx = pg_string_last_index_of_rune(base_name, '.');
   if (-1 == idx) {
     return base_name;
   }
@@ -5452,7 +5511,7 @@ pg_http_parse_request_status_line(PgString status_line,
     remaining = consume.res;
   }
 
-  i64 idx_space = pg_string_indexof_rune(remaining, ' ');
+  i64 idx_space = pg_string_index_of_rune(remaining, ' ');
   if (-1 == idx_space) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
@@ -5646,11 +5705,23 @@ pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_buf_reader_read_until_bytes_excl(PgBufReader *r, Pgu8Slice dst) {
-  Pgu64Result res = {0};
 
-  Pgu64Result ret = pg_buf_reader_read(r, dst);
-  (void)ret;
-  // TODO
+  Pgu8Slice writable = dst;
+  for (;;) {
+    if (PG_SLICE_IS_EMPTY(writable)) {
+      return (Pgu64Result){.err = PG_ERR_EOF};
+    }
+
+    if (pg_bytes_last_index_of_byte()) {
+    }
+
+    Pgu64Result res = pg_buf_reader_read(r, writable);
+    if (res.err) {
+      return res;
+    }
+
+    writable = PG_SLICE_RANGE_START(writable, res.res);
+  }
 
   return res;
 }
