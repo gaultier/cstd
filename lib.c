@@ -1558,19 +1558,17 @@ typedef struct {
   if (rg.idx_write == rg.idx_read) { // Empty.
     return true;
   } else if (rg.idx_write < rg.idx_read) {
-    return ((1 + rg.idx_write) != rg.idx_read);
+    return (1 /* Empty slot */ + rg.idx_write) < rg.idx_read;
   } else if (rg.idx_write > rg.idx_read) {
-    return true;
+    return (1 + rg.idx_write == rg.data.len) ? rg.idx_read != 0 : true;
   }
   PG_ASSERT(0);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool pg_ring_can_read(PgRing rg) {
   if (rg.idx_write == rg.idx_read) { // Empty.
-    return true;
-  } else if (rg.idx_read < rg.idx_write) {
-    return ((1 + rg.idx_read) != rg.idx_write);
-  } else if (rg.idx_read > rg.idx_write) {
+    return false;
+  } else {
     return true;
   }
   PG_ASSERT(0);
@@ -1589,6 +1587,11 @@ typedef struct {
 
   PG_SLICE_AT(rg->data, rg->idx_write) = byte;
   rg->idx_write = (1 + rg->idx_write) % rg->data.len;
+
+  PG_ASSERT(rg->idx_write < rg->data.len);
+  PG_ASSERT(!pg_ring_is_empty(*rg));
+  PG_ASSERT(pg_ring_can_read(*rg));
+
   return true;
 }
 
@@ -1603,9 +1606,26 @@ typedef struct {
   if (!pg_ring_can_read(*rg)) {
     return res;
   }
+  PG_ASSERT(!pg_ring_is_empty(*rg));
 
+  res.ok = true;
   res.res = PG_SLICE_AT(rg->data, rg->idx_read);
   rg->idx_read = (1 + rg->idx_read) % rg->data.len;
+
+  PG_ASSERT(rg->idx_read < rg->data.len);
+  PG_ASSERT(pg_ring_can_write(*rg));
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static u64 pg_ring_write_space(PgRing rg) {
+  u64 res = 0;
+  while (pg_ring_can_write(rg)) {
+    PG_ASSERT(pg_ring_try_write_byte(&rg, 0));
+    res += 1;
+  }
+
+  PG_ASSERT(res < rg.data.len);
 
   return res;
 }
@@ -1618,11 +1638,9 @@ pg_ring_try_write_bytes(PgRing *rg, Pgu8Slice src) {
   PG_ASSERT(rg->data.len > 0);
 
   for (u64 i = 0; i < src.len; i++) {
-    if (!pg_ring_can_write(*rg)) {
+    if (!pg_ring_try_write_byte(rg, PG_SLICE_AT(src, i))) {
       return i;
     }
-
-    PG_SLICE_AT(rg->data, rg->idx_write) = PG_SLICE_AT(src, i);
   }
 
   return src.len;
@@ -1635,11 +1653,11 @@ pg_ring_try_write_bytes(PgRing *rg, Pgu8Slice src) {
   PG_ASSERT(rg->data.len > 0);
 
   for (u64 i = 0; i < dst.len; i++) {
-    if (!pg_ring_can_read(*rg)) {
+    Pgu8Ok byte_opt = pg_ring_try_read_byte(rg);
+    if (!byte_opt.ok) {
       return i;
     }
-
-    PG_SLICE_AT(dst, i) = PG_SLICE_AT(rg->data, rg->idx_read);
+    PG_SLICE_AT(dst, i) = byte_opt.res;
   }
 
   return dst.len;
@@ -5523,6 +5541,7 @@ typedef struct {
   PgError err;
 } PgHttpRequestReadResult;
 
+#if 0
 [[maybe_unused]] [[nodiscard]] static PgHttpResponseReadResult
 pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
   PgHttpResponseReadResult res = {0};
@@ -5572,6 +5591,7 @@ pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
   res.done = true;
   return res;
 }
+#endif
 
 typedef struct {
   PgReader reader;
@@ -5613,7 +5633,8 @@ pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
     return res;
   }
 
-  pg_ring_try_write_bytes(&r->ring, PG_SLICE_RANGE(tmp_slice, 0, res_read.res));
+  Pgu8Slice read_data = PG_SLICE_RANGE(tmp_slice, 0, res_read.res);
+  PG_ASSERT(read_data.len == pg_ring_try_write_bytes(&r->ring, read_data));
 
   return res;
 }

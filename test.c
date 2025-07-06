@@ -771,160 +771,71 @@ static void test_bitfield() {
   }
 }
 
-static void test_ring_buffer_write_slice() {
+static void test_ring_buffer_read_write() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   // Write to empty ring buffer.
   {
-    PgRing rg = {.data = pg_string_make(12, allocator)};
-    PG_ASSERT(pg_ring_write_space(rg) == rg.data.len - 1);
-    PG_ASSERT(pg_ring_try_write_bytes(&rg, PG_S("hello")));
-    PG_ASSERT(5 == rg.idx_write);
-    PG_ASSERT(pg_ring_write_space(rg) == rg.data.len - 1 - 5);
+    PgRing rg = pg_ring_make(PG_S("hello world!").len - 1, allocator);
+    PG_ASSERT(!pg_ring_can_read(rg));
+    PG_ASSERT(pg_ring_can_write(rg));
+    PG_ASSERT(pg_ring_is_empty(rg));
 
-    PG_ASSERT(false == pg_ring_try_write_bytes(&rg, PG_S(" world!")));
-    PG_ASSERT(5 == rg.idx_write);
-    PG_ASSERT(pg_ring_write_space(rg) == rg.data.len - 1 - 5);
+    // Full write.
+    PG_ASSERT(5 == pg_ring_try_write_bytes(&rg, PG_S("hello")));
+    PG_ASSERT(pg_ring_can_read(rg));
+    PG_ASSERT(pg_ring_can_write(rg));
+    PG_ASSERT(!pg_ring_is_empty(rg));
 
-    PG_ASSERT(true == pg_ring_try_write_bytes(&rg, PG_S(" world")));
-    PG_ASSERT(11 == rg.idx_write);
-    PG_ASSERT(pg_ring_write_space(rg) == 0);
+    // Partial write.
+    PG_ASSERT(6 == pg_ring_try_write_bytes(&rg, PG_S(" world!")));
+    PG_ASSERT(pg_ring_can_read(rg));
+    PG_ASSERT(!pg_ring_can_write(rg));
+    PG_ASSERT(!pg_ring_is_empty(rg));
 
-    PG_ASSERT(0 == rg.idx_read);
-    PG_ASSERT(
-        pg_string_eq(PG_S("hello world"),
-                     (PgString){.data = rg.data.data, .len = rg.idx_write}));
+    // Read all.
+    {
+      u8 tmp[11] = {0};
+      Pgu8Slice tmp_slice = {.data = tmp, PG_STATIC_ARRAY_LEN(tmp)};
+      PG_ASSERT(tmp_slice.len == pg_ring_try_read_bytes(&rg, tmp_slice));
+      PG_ASSERT(pg_bytes_eq(PG_S("hello world"), tmp_slice));
+
+      PG_ASSERT(!pg_ring_can_read(rg));
+      PG_ASSERT(pg_ring_can_write(rg));
+      PG_ASSERT(pg_ring_is_empty(rg));
+    }
+  }
+  // Read from an empty ring buffer.
+  {
+    PgRing rg = pg_ring_make(12, allocator);
+    PG_ASSERT(!pg_ring_can_read(rg));
+    PG_ASSERT(pg_ring_can_write(rg));
+    PG_ASSERT(pg_ring_is_empty(rg));
+
+    PG_ASSERT(!pg_ring_try_read_byte(&rg).ok);
   }
   // Write to full ring buffer.
   {
-    PgRing rg = {
-        .data = pg_string_make(12, allocator),
-        .idx_write = 1,
-        .idx_read = 2,
-    };
-    PG_ASSERT(pg_ring_write_space(rg) == 0);
-    PG_ASSERT(false == pg_ring_try_write_bytes(&rg, PG_S("hello")));
-    PG_ASSERT(1 == rg.idx_write);
-    PG_ASSERT(pg_ring_write_space(rg) == 0);
+    PgRing rg = pg_ring_make(12, allocator);
+    PG_ASSERT(!pg_ring_can_read(rg));
+    PG_ASSERT(pg_ring_can_write(rg));
+    PG_ASSERT(pg_ring_is_empty(rg));
+
+    // Fill.
+    for (u64 i = 0; i < 11; i++) {
+      PG_ASSERT(pg_ring_try_write_byte(&rg, 0x99));
+      PG_ASSERT(pg_ring_can_read(rg));
+      PG_ASSERT(pg_ring_can_write(rg));
+      PG_ASSERT(!pg_ring_is_empty(rg));
+    }
+
+    PG_ASSERT(pg_ring_try_write_byte(&rg, 0x99));
+    PG_ASSERT(pg_ring_can_read(rg));
+    PG_ASSERT(!pg_ring_can_write(rg));
+    PG_ASSERT(!pg_ring_is_empty(rg));
   }
-  // Write to ring buffer, easy case.
-  {
-    PgRing rg = {
-        .data = pg_string_make(12, allocator),
-        .idx_read = 1,
-        .idx_write = 2,
-    };
-    PG_ASSERT(pg_ring_write_space(rg) == 10);
-    PG_ASSERT(pg_ring_try_write_bytes(&rg, PG_S("hello")));
-    PG_ASSERT(2 + 5 == rg.idx_write);
-    PG_ASSERT(pg_ring_write_space(rg) == 5);
-  }
-
-  // Write to ring buffer, hard case.
-  {
-    PgRing rg = {
-        .data = pg_string_make(12, allocator),
-        .idx_read = 2,
-        .idx_write = 3,
-    };
-    PG_ASSERT(pg_ring_write_space(rg) == 10);
-    PG_ASSERT(pg_ring_try_write_bytes(&rg, PG_S("hello worl")));
-    PG_ASSERT(1 == rg.idx_write);
-    PG_ASSERT(pg_ring_write_space(rg) == 0);
-    PG_ASSERT(pg_string_eq(rg.data, PG_S("l\x0\x0hello wor")));
-  }
-}
-
-static void test_ring_buffer_read_write_slice() {
-  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
-
-  // Read from an empty ring buffer.
-  {
-    PgRing rg = {.data = pg_string_make(12, allocator)};
-    PG_ASSERT(0 == pg_ring_read_space(rg));
-    PG_ASSERT(0 == pg_ring_try_read_bytes(&rg, (PgString){0}));
-
-    PgString dst = pg_string_clone(PG_S("xyz"), allocator);
-    PG_ASSERT(0 == pg_ring_try_read_bytes(&rg, dst));
-  }
-
-  // Write to empty ring buffer, then read part of it.
-  {
-    PgRing rg = {.data = pg_string_make(12, allocator)};
-    PG_ASSERT(pg_ring_try_write_bytes(&rg, PG_S("hello")));
-    PG_ASSERT(5 == rg.idx_write);
-    PG_ASSERT(5 == pg_ring_read_space(rg));
-
-    PgString dst = pg_string_clone(PG_S("xyz"), allocator);
-    PG_ASSERT(3 == pg_ring_try_read_bytes(&rg, dst));
-    PG_ASSERT(pg_string_eq(dst, PG_S("hel")));
-    PG_ASSERT(3 == rg.idx_read);
-    PG_ASSERT(2 == pg_ring_read_space(rg));
-
-    PG_ASSERT(true == pg_ring_try_write_bytes(&rg, PG_S(" world!")));
-    PG_ASSERT(0 == rg.idx_write);
-    PG_ASSERT(9 == pg_ring_read_space(rg));
-
-    PG_ASSERT(false == pg_ring_try_write_bytes(&rg, PG_S("abc")));
-    PG_ASSERT(9 == pg_ring_read_space(rg));
-    PG_ASSERT(true == pg_ring_try_write_bytes(&rg, PG_S("ab")));
-    PG_ASSERT(11 == pg_ring_read_space(rg));
-    PG_ASSERT(2 == rg.idx_write);
-
-    dst = pg_string_clone(PG_S("abcdefghijk"), allocator);
-    PG_ASSERT(11 == pg_ring_try_read_bytes(&rg, dst));
-    PG_ASSERT(pg_string_eq(dst, PG_S("lo world!ab")));
-    PG_ASSERT(2 == rg.idx_read);
-    PG_ASSERT(0 == pg_ring_read_space(rg));
-  }
-}
-
-static void test_ring_buffer_read_until_excl() {
-  PgArena arena = pg_arena_make_from_virtual_mem(8 * PG_KiB);
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
-
-  PgRing rg = {.data = pg_string_make(4 * PG_KiB, allocator)};
-  PG_ASSERT(pg_ring_try_write_bytes(
-      &rg, PG_S("The quick brown fox jumps over the lazy dog")));
-
-  {
-    u64 space_read = pg_ring_read_space(rg);
-    u64 space_write = pg_ring_write_space(rg);
-    PgStringOk s = pg_ring_read_until_excl(&rg, PG_S("\r\n"), allocator);
-    PG_ASSERT(!s.ok);
-    PG_ASSERT(PG_SLICE_IS_EMPTY(s.res));
-
-    // Unmodified.
-    PG_ASSERT(pg_ring_read_space(rg) == space_read);
-    PG_ASSERT(pg_ring_write_space(rg) == space_write);
-  }
-
-  {
-    PgStringOk s = pg_ring_read_until_excl(&rg, PG_S(" "), allocator);
-    PG_ASSERT(s.ok);
-    PG_ASSERT(pg_string_eq(s.res, PG_S("The")));
-  }
-  {
-    PgStringOk s = pg_ring_read_until_excl(&rg, PG_S(" "), allocator);
-    PG_ASSERT(s.ok);
-    PG_ASSERT(pg_string_eq(s.res, PG_S("quick")));
-  }
-  {
-    PgStringOk s = pg_ring_read_until_excl(&rg, PG_S("lazy "), allocator);
-    PG_ASSERT(s.ok);
-    PG_ASSERT(pg_string_eq(s.res, PG_S("brown fox jumps over the ")));
-  }
-  {
-    PgStringOk s = pg_ring_read_until_excl(&rg, PG_S("g"), allocator);
-    PG_ASSERT(s.ok);
-    PG_ASSERT(pg_string_eq(s.res, PG_S("do")));
-  }
-  PG_ASSERT(0 == pg_ring_read_space(rg));
 }
 
 static void test_ring_buffer_read_write_fuzz() {
@@ -952,13 +863,17 @@ static void test_ring_buffer_read_write_fuzz() {
     PgString to = pg_string_make(len, allocator_strings);
     pg_rand_string_mut(&rng, to);
 
-    bool ok_write = pg_ring_try_write_bytes(&rg, from);
-    (void)ok_write;
-    bool ok_read = pg_ring_try_read_bytes(&rg, to);
-    (void)ok_read;
+    bool can_write = pg_ring_can_write(rg);
+    u64 n_write = pg_ring_try_write_bytes(&rg, from);
+    if (can_write) {
+      PG_ASSERT(n_write > 0);
+    }
 
-    PG_ASSERT(pg_ring_write_space(rg) <= rg.data.len - 1);
-    PG_ASSERT(pg_ring_read_space(rg) <= rg.data.len - 1);
+    bool can_read = pg_ring_can_read(rg);
+    u64 n_read = pg_ring_try_read_bytes(&rg, to);
+    if (can_read) {
+      PG_ASSERT(n_read > 0);
+    }
   }
 }
 
@@ -2558,9 +2473,7 @@ int main() {
   test_string_index_of_any_byte();
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
-  test_ring_buffer_write_slice();
-  test_ring_buffer_read_write_slice();
-  test_ring_buffer_read_until_excl();
+  test_ring_buffer_read_write();
   test_ring_buffer_read_write_fuzz();
   test_url_parse_relative_path();
   test_url_parse();
