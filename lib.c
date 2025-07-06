@@ -7224,6 +7224,17 @@ pg_elf_parse(Pgu8Slice elf_bytes, PgAllocator *allocator) {
 
         res.res.strtab = res_bytes.res;
       } break;
+
+      case PG_ELF_SECTION_HEADER_KIND_NULL:
+      case PG_ELF_SECTION_HEADER_KIND_PROGBITS:
+      case PG_ELF_SECTION_HEADER_KIND_RELA:
+      case PG_ELF_SECTION_HEADER_KIND_HASH:
+      case PG_ELF_SECTION_HEADER_KIND_DYNAMIC:
+      case PG_ELF_SECTION_HEADER_KIND_NOTE:
+      case PG_ELF_SECTION_HEADER_KIND_NOBITS:
+      case PG_ELF_SECTION_HEADER_KIND_REL:
+      case PG_ELF_SECTION_HEADER_KIND_SHLIB:
+      case PG_ELF_SECTION_HEADER_KIND_DYNSYM:
       default: {
       }
       }
