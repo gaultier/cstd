@@ -5625,13 +5625,13 @@ pg_buf_reader_make(PgReader reader, u64 buf_size, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_buf_reader_read(PgBufReader *r, Pgu8Slice buf) {
+pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
   PG_ASSERT(r);
   PG_ASSERT(r->reader.read_fn);
 
   Pgu64Result res = {0};
 
-  u64 n_read = pg_ring_read_slice(&r->ring, buf);
+  u64 n_read = pg_ring_read_slice(&r->ring, dst);
   if (n_read > 0) {
     res.res = n_read;
     return res;
@@ -5639,14 +5639,25 @@ pg_buf_reader_read(PgBufReader *r, Pgu8Slice buf) {
 
   // Time to call the underlying reader.
 
-  r->reader.read_fn(&r->reader, buf);
+  r->reader.read_fn(&r->reader, dst);
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_buf_reader_read_until_bytes_excl(PgBufReader *r, Pgu8Slice dst) {
+  Pgu64Result res = {0};
+
+  Pgu64Result ret = pg_buf_reader_read(r, dst);
+  (void)ret;
+  // TODO
 
   return res;
 }
 
 #if 0
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
-pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
+pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
   PgHttpRequestReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
