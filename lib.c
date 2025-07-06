@@ -3672,6 +3672,124 @@ pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgAllocator *allocator) {
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_net_socket_write(PgFileDescriptor sock, PgString data) {
+
+  i64 n = 0;
+  do {
+    n = send(sock.fd, data.data, data.len, MSG_NOSIGNAL);
+  } while (-1 == n && EINTR == errno);
+
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_net_socket_read(PgFileDescriptor sock, PgString data) {
+
+  i64 n = 0;
+  do {
+    n = recv(sock.fd, data.data, data.len, 0);
+  } while (-1 == n && EINTR == errno);
+
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_tcp_listen(PgFileDescriptor sock, u64 backlog) {
+  PG_ASSERT(backlog <= INT32_MAX);
+
+  int ret = 0;
+  do {
+    ret = listen(sock.fd, (int)backlog);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_tcp_bind_ipv4(PgFileDescriptor sock, PgIpv4Address addr) {
+  struct sockaddr_in addrin = {0};
+  addrin.sin_family = AF_INET;
+  addrin.sin_port = htons(addr.port);
+  addrin.sin_addr.s_addr = htonl(addr.ip);
+
+  int ret = 0;
+  do {
+    ret = bind(sock.fd, (struct sockaddr *)&addrin, sizeof(addrin));
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_enable_reuse(PgFileDescriptor sock) {
+  int val = 1;
+  int ret = 0;
+  do {
+    ret = setsockopt(sock.fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  do {
+    ret = setsockopt(sock.fd, SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val));
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgIpv4AddressAcceptResult
+pg_net_tcp_accept(PgFileDescriptor sock) {
+  PgIpv4AddressAcceptResult res = {0};
+
+  struct sockaddr_in sockaddrin = {0};
+  socklen_t sockaddrin_len = sizeof(sockaddrin);
+  int sock_client = 0;
+  do {
+    sock_client =
+        accept(sock.fd, (struct sockaddr *)&sockaddrin, &sockaddrin_len);
+  } while (-1 == sock_client && EINTR == errno);
+
+  if (-1 == sock_client) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.socket.fd = sock_client;
+  res.address.port = ntohs(sockaddrin.sin_port);
+  res.address.ip = ntohl(sockaddrin.sin_addr.s_addr);
+
+  return res;
+}
+
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_rewind_start(PgFileDescriptor f) {
   off_t ret = lseek(f.fd, 0, SEEK_SET);
