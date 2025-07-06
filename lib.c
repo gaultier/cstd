@@ -958,7 +958,7 @@ pg_string_consume_until_any_rune_excl(PgString haystack, PgString needles) {
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
-pg_string_indexof_any_rune(PgString haystack, PgString needles) {
+pg_string_index_of_any_rune(PgString haystack, PgString needles) {
   PgUtf8Iterator it = pg_make_utf8_iterator(needles);
   PgRuneResult res_rune = {0};
   for (res_rune = pg_utf8_iterator_next(&it);
@@ -1537,6 +1537,10 @@ struct PgWriter {
   PgFileDescriptor ctx;
 };
 
+// Ring buffer.
+// Invariants:
+// - Empty: `idx_read == idx_write`.
+// - Otherwise: empty slot between `idx_read` and `idx_write`.
 typedef struct {
   u64 idx_read, idx_write;
   PgString data;
@@ -1546,202 +1550,105 @@ typedef struct {
   return (PgRing){.data = pg_string_make(cap + 1, allocator)};
 }
 
-[[maybe_unused]] [[nodiscard]] static u64 pg_ring_write_space(PgRing rg) {
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_is_empty(PgRing rg) {
+  return rg.idx_write == rg.idx_read;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_can_write(PgRing rg) {
   if (rg.idx_write == rg.idx_read) { // Empty.
-    return rg.data.len - 1;
-  } else if (rg.idx_write < rg.idx_read) { // Easy case.
-    u64 res = rg.idx_read - rg.idx_write - 1;
-    PG_ASSERT(res < rg.data.len);
-    return res;
-  } else if (rg.idx_write > rg.idx_read) { // Hard case.
-    u64 can_write1 = rg.data.len - rg.idx_write;
-    u64 can_write2 = rg.idx_read;
-    if (can_write1 >= 1 && rg.idx_read == 0) {
-      can_write1 -= 1; // Reserve empty slot.
-    } else if (can_write2 >= 1) {
-      PG_ASSERT(rg.idx_read > 0);
-      can_write2 -= 1;
-    }
-    PG_ASSERT(can_write1 <= rg.data.len - 1);
-    PG_ASSERT(can_write2 <= rg.data.len - 1);
-    return can_write1 + can_write2;
+    return true;
+  } else if (rg.idx_write < rg.idx_read) {
+    return ((1 + rg.idx_write) != rg.idx_read);
+  } else if (rg.idx_write > rg.idx_read) {
+    return true;
   }
   PG_ASSERT(0);
 }
 
-[[maybe_unused]] [[nodiscard]] static u64 pg_ring_read_space(PgRing rg) {
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_can_read(PgRing rg) {
   if (rg.idx_write == rg.idx_read) { // Empty.
-    return 0;
-  } else if (rg.idx_read < rg.idx_write) { // Easy case.
-    u64 res = rg.idx_write - rg.idx_read;
-    PG_ASSERT(res < rg.data.len);
-    return res;
-  } else if (rg.idx_read > rg.idx_write) { // Hard case.
-    u64 can_read1 = rg.data.len - rg.idx_read;
-    u64 can_read2 = rg.idx_write;
-    return can_read1 + can_read2;
+    return true;
+  } else if (rg.idx_read < rg.idx_write) {
+    return ((1 + rg.idx_read) != rg.idx_write);
+  } else if (rg.idx_read > rg.idx_write) {
+    return true;
   }
   PG_ASSERT(0);
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_ring_write_slice(PgRing *rg,
-                                                               PgString data) {
-  PG_ASSERT(nullptr != rg->data.data);
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_try_write_byte(PgRing *rg,
+                                                                  u8 byte) {
+  PG_ASSERT(rg);
   PG_ASSERT(rg->idx_read <= rg->data.len);
   PG_ASSERT(rg->idx_write <= rg->data.len);
-  PG_ASSERT(rg->data.len > 0);
+  PG_ASSERT(rg->data.len);
 
-  if (rg->idx_write < rg->idx_read) { // Easy case.
-    u64 space = rg->idx_read - rg->idx_write - 1;
-    PG_ASSERT(space <= rg->data.len);
-
-    if (data.len > space) {
-      return false;
-    }
-    memcpy(rg->data.data + rg->idx_write, data.data, data.len);
-    rg->idx_write += data.len;
-    PG_ASSERT(rg->idx_write <= rg->data.len);
-    PG_ASSERT(rg->idx_write < rg->idx_read);
-  } else { // Hard case: need potentially two writes.
-    PG_ASSERT(rg->idx_write >= rg->idx_read);
-
-    u64 can_write1 = rg->data.len - rg->idx_write;
-
-    u64 can_write2 = rg->idx_read;
-    if (can_write1 >= 1 && rg->idx_read == 0) {
-      can_write1 -= 1; // Reserve empty slot.
-    } else if (can_write2 >= 1) {
-      PG_ASSERT(rg->idx_read > 0);
-      can_write2 -= 1;
-    }
-    PG_ASSERT(can_write1 <= rg->data.len - 1);
-    PG_ASSERT(can_write2 <= rg->data.len - 1);
-
-    u64 can_write = can_write1 + can_write2;
-    if (can_write < data.len) {
-      return false;
-    }
-
-    u64 write_len1 = PG_MIN(can_write1, data.len);
-    PG_ASSERT(rg->idx_write + write_len1 <= rg->data.len);
-    PG_ASSERT(write_len1 <= data.len);
-    memcpy(rg->data.data + rg->idx_write, data.data, write_len1);
-    rg->idx_write += write_len1;
-    if (rg->idx_write == rg->data.len) {
-      rg->idx_write = 0;
-    }
-    PG_ASSERT(rg->idx_write < rg->data.len);
-
-    u64 write_len2 = data.len - write_len1;
-    if (write_len2 > 0) {
-      PG_ASSERT(rg->idx_write = rg->data.len - 1);
-
-      PG_ASSERT(write_len2 + 1 <= rg->idx_read);
-      PG_ASSERT(write_len1 + write_len2 <= data.len);
-      memcpy(rg->data.data, data.data + write_len1, write_len2);
-      rg->idx_write = write_len2;
-      PG_ASSERT(rg->idx_write + 1 <= rg->idx_read);
-    }
+  if (!pg_ring_can_write(*rg)) {
+    return false;
   }
 
+  PG_SLICE_AT(rg->data, rg->idx_write) = byte;
+  rg->idx_write = (1 + rg->idx_write) % rg->data.len;
   return true;
 }
 
-[[maybe_unused]] static u64 pg_ring_read_slice(PgRing *rg, PgString dst) {
-  PG_ASSERT(nullptr != rg->data.data);
+[[maybe_unused]] [[nodiscard]] static Pgu8Ok pg_ring_try_read_byte(PgRing *rg) {
+  PG_ASSERT(rg);
   PG_ASSERT(rg->idx_read <= rg->data.len);
   PG_ASSERT(rg->idx_write <= rg->data.len);
-  PG_ASSERT(rg->data.len > 0);
+  PG_ASSERT(rg->data.len);
 
-  if (0 == dst.len) {
-    return 0;
-  }
-  PG_ASSERT(nullptr != dst.data);
+  Pgu8Ok res = {0};
 
-  if (rg->idx_write == rg->idx_read) { // Empty.
-    return 0;
+  if (!pg_ring_can_read(*rg)) {
+    return res;
   }
 
-  if (rg->idx_read < rg->idx_write) { // Easy case.
-    u64 n_read = PG_MIN(rg->idx_write - rg->idx_read, dst.len);
-
-    memcpy(dst.data, rg->data.data + rg->idx_read, n_read);
-    rg->idx_read += n_read;
-    PG_ASSERT(rg->idx_read < rg->data.len);
-    return n_read;
-  }
-
-  if (rg->idx_read > rg->idx_write) { // Hard case.
-    u64 can_read1 = rg->data.len - rg->idx_read;
-
-    if (dst.len <= can_read1) { // 1 read.
-      u64 n_read = dst.len;
-      PG_ASSERT(rg->idx_read + n_read < rg->data.len);
-      memcpy(dst.data, rg->data.data + rg->idx_read, n_read);
-
-      rg->idx_read += n_read;
-      PG_ASSERT(rg->idx_read <= rg->data.len);
-
-      return n_read;
-    }
-
-    // 2 reads.
-    u64 n_read = can_read1;
-    PG_ASSERT(rg->idx_read + n_read == rg->data.len);
-    memcpy(dst.data, rg->data.data + rg->idx_read, n_read);
-
-    rg->idx_read = 0;
-
-    return n_read + pg_ring_read_slice(rg, PG_SLICE_RANGE_START(dst, n_read));
-  }
-
-  PG_ASSERT(0);
-}
-
-[[maybe_unused]] [[nodiscard]] static PgStringOk
-pg_ring_read_until_excl(PgRing *rg, PgString needle, PgAllocator *allocator) {
-  PgStringOk res = {0};
-  i64 idx = -1;
-
-  {
-    PgRing cpy_rg = *rg;
-
-    PgString dst = pg_string_make(pg_ring_read_space(*rg), allocator);
-    PG_ASSERT(pg_ring_read_slice(rg, dst));
-    *rg = cpy_rg; // Reset.
-    pg_free(allocator, dst.data);
-
-    idx = pg_string_index_of_string(dst, needle);
-    if (-1 == idx) {
-      return res;
-    }
-  }
-
-  res.ok = true;
-  res.res = pg_string_make((u64)idx, allocator);
-  PG_ASSERT(pg_ring_read_slice(rg, res.res));
-
-  // Read and throw away the needle.
-  {
-    PgString dst_needle = pg_string_make(needle.len, allocator);
-    PG_ASSERT(pg_ring_read_slice(rg, dst_needle));
-    PG_ASSERT(pg_string_eq(needle, dst_needle));
-    pg_free(allocator, dst_needle.data);
-  }
+  res.res = PG_SLICE_AT(rg->data, rg->idx_read);
+  rg->idx_read = (1 + rg->idx_read) % rg->data.len;
 
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_ring_read_u8(PgRing *rg,
-                                                           u8 *val) {
-  PgString s = {.len = sizeof(*val), .data = val};
-  return pg_ring_read_slice(rg, s);
+[[maybe_unused]] [[nodiscard]] static u64
+pg_ring_try_write_bytes(PgRing *rg, Pgu8Slice src) {
+  PG_ASSERT(nullptr != rg->data.data);
+  PG_ASSERT(rg->idx_read <= rg->data.len);
+  PG_ASSERT(rg->idx_write <= rg->data.len);
+  PG_ASSERT(rg->data.len > 0);
+
+  for (u64 i = 0; i < src.len; i++) {
+    if (!pg_ring_can_write(*rg)) {
+      return i;
+    }
+
+    PG_SLICE_AT(rg->data, rg->idx_write) = PG_SLICE_AT(src, i);
+  }
+
+  return src.len;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_ring_read_u32(PgRing *rg,
-                                                            u32 *val) {
+[[maybe_unused]] static u64 pg_ring_try_read_bytes(PgRing *rg, Pgu8Slice dst) {
+  PG_ASSERT(nullptr != rg->data.data);
+  PG_ASSERT(rg->idx_read <= rg->data.len);
+  PG_ASSERT(rg->idx_write <= rg->data.len);
+  PG_ASSERT(rg->data.len > 0);
+
+  for (u64 i = 0; i < dst.len; i++) {
+    if (!pg_ring_can_read(*rg)) {
+      return i;
+    }
+
+    PG_SLICE_AT(dst, i) = PG_SLICE_AT(rg->data, rg->idx_read);
+  }
+
+  return dst.len;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool pg_ring_try_read_u32(PgRing *rg,
+                                                                u32 *val) {
   PgString s = {.len = sizeof(*val), .data = (u8 *)val};
-  return pg_ring_read_slice(rg, s);
+  return pg_ring_try_read_bytes(rg, s);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError pg_writer_flush(PgWriter *w) {
@@ -2215,9 +2122,6 @@ static Pgu64Ok pg_bytes_last_index_of_bytes(Pgu8Slice haystack,
     return res;
   }
 
-  u8 needle_first = PG_SLICE_AT(needle, 0);
-  Pgu8Slice searchable = haystack;
-
   for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
     if (pg_bytes_eq(needle, PG_SLICE_RANGE_START(haystack, (u64)i))) {
       res.res = (u64)i;
@@ -2272,8 +2176,8 @@ pg_round_up_multiple_of(u64 n, u64 multiple) {
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
-pg_string_indexof_unescaped_rune(PgString haystack, PgRune needle,
-                                 PgRune escape) {
+pg_string_index_of_unescaped_rune(PgString haystack, PgRune needle,
+                                  PgRune escape) {
   while (!pg_string_is_empty(haystack)) {
     i64 idx = pg_string_index_of_rune(haystack, needle);
     if (-1 == idx) {
@@ -2291,15 +2195,15 @@ pg_string_indexof_unescaped_rune(PgString haystack, PgRune needle,
 }
 
 [[maybe_unused]] [[nodiscard]] static i64
-pg_string_indexof_any_unescaped_rune(PgString haystack, PgString needles,
-                                     PgRune escape) {
+pg_string_index_of_any_unescaped_rune(PgString haystack, PgString needles,
+                                      PgRune escape) {
   PgUtf8Iterator it = pg_make_utf8_iterator(needles);
   PgRuneResult res_rune = {0};
   for (res_rune = pg_utf8_iterator_next(&it);
        0 == res_rune.err && 0 != res_rune.res;
        res_rune = pg_utf8_iterator_next(&it)) {
     PgRune needle = res_rune.res;
-    i64 idx = pg_string_indexof_unescaped_rune(haystack, needle, escape);
+    i64 idx = pg_string_index_of_unescaped_rune(haystack, needle, escape);
     if (-1 != idx) {
       return idx;
     }
@@ -5173,7 +5077,7 @@ PG_RESULT(PgUrl) PgUrlResult;
 pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
   PgStringDynResult res = {0};
 
-  if (-1 != pg_string_indexof_any_rune(s, PG_S("?#:"))) {
+  if (-1 != pg_string_index_of_any_rune(s, PG_S("?#:"))) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
@@ -5690,7 +5594,7 @@ pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
 
   Pgu64Result res = {0};
 
-  u64 n_read = pg_ring_read_slice(&r->ring, dst);
+  u64 n_read = pg_ring_try_read_bytes(&r->ring, dst);
   if (n_read > 0) {
     res.res = n_read;
     return res;
@@ -5698,13 +5602,25 @@ pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
 
   // Time to call the underlying reader.
 
-  r->reader.read_fn(&r->reader, dst);
+  u8 tmp[4096] = {0};
+  Pgu8Slice tmp_slice = {
+      .data = tmp,
+      .len = PG_MIN(PG_STATIC_ARRAY_LEN(tmp), pg_ring_write_space(r->ring)),
+  };
+  Pgu64Result res_read = r->reader.read_fn(&r->reader, tmp_slice);
+  if (res_read.err) {
+    res.err = res_read.err;
+    return res;
+  }
+
+  pg_ring_try_write_bytes(&r->ring, PG_SLICE_RANGE(tmp_slice, 0, res_read.res));
 
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_buf_reader_read_until_bytes_excl(PgBufReader *r, Pgu8Slice dst) {
+pg_buf_reader_read_until_bytes_excl(PgBufReader *r, Pgu8Slice dst,
+                                    Pgu8Slice needle) {
 
   Pgu8Slice writable = dst;
   for (;;) {
@@ -5712,7 +5628,9 @@ pg_buf_reader_read_until_bytes_excl(PgBufReader *r, Pgu8Slice dst) {
       return (Pgu64Result){.err = PG_ERR_EOF};
     }
 
-    if (pg_bytes_last_index_of_byte()) {
+    Pgu64Ok search = pg_bytes_last_index_of_bytes(dst, needle);
+    if (search.ok) {
+      return (Pgu64Result){.res = search.res};
     }
 
     Pgu64Result res = pg_buf_reader_read(r, writable);
@@ -5722,8 +5640,6 @@ pg_buf_reader_read_until_bytes_excl(PgBufReader *r, Pgu8Slice dst) {
 
     writable = PG_SLICE_RANGE_START(writable, res.res);
   }
-
-  return res;
 }
 
 #if 0
@@ -6360,7 +6276,7 @@ static PgHtmlTokenResult pg_html_tokenize_attribute_key_value(PgString s,
       return res;
     }
 
-    idx = pg_string_indexof_rune(PG_SLICE_RANGE_START(s, *pos), quote);
+    idx = pg_string_index_of_rune(PG_SLICE_RANGE_START(s, *pos), quote);
     if (-1 == idx) {
       res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
       return res;

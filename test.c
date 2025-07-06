@@ -32,83 +32,83 @@ static void test_string_first() {
   }
 }
 
-static void test_string_indexof_rune() {
+static void test_string_index_of_rune() {
   // Empty.
   {
-    PG_ASSERT(-1 == pg_string_indexof_rune(PG_S(""), 0x805e /* 聞 */));
+    PG_ASSERT(-1 == pg_string_index_of_rune(PG_S(""), 0x805e /* 聞 */));
   }
 
   // Unicode
   {
     PgString haystack = PG_S("朝日新聞デジタル聞");
-    PG_ASSERT(9 == pg_string_indexof_rune(haystack, 0x805e /* 聞 */));
-    PG_ASSERT(-1 == pg_string_indexof_rune(haystack, 0x1f34c /* 🍌 */));
+    PG_ASSERT(9 == pg_string_index_of_rune(haystack, 0x805e /* 聞 */));
+    PG_ASSERT(-1 == pg_string_index_of_rune(haystack, 0x1f34c /* 🍌 */));
   }
 }
 
-static void test_string_last_indexof_rune() {
+static void test_string_last_index_of_rune() {
   // Empty.
   {
-    PG_ASSERT(-1 == pg_string_last_indexof_rune(PG_S(""), 0x805e /* 聞 */));
+    PG_ASSERT(-1 == pg_string_last_index_of_rune(PG_S(""), 0x805e /* 聞 */));
   }
 
   // Unicode
   {
     PgString haystack = PG_S("朝日新聞デジタ聞ル");
-    PG_ASSERT(21 == pg_string_last_indexof_rune(haystack, 0x805e /* 聞 */));
-    PG_ASSERT(-1 == pg_string_last_indexof_rune(haystack, 0x1f34c /* 🍌 */));
+    PG_ASSERT(21 == pg_string_last_index_of_rune(haystack, 0x805e /* 聞 */));
+    PG_ASSERT(-1 == pg_string_last_index_of_rune(haystack, 0x1f34c /* 🍌 */));
   }
 }
 
-static void test_string_indexof_string() {
+static void test_string_index_of_string() {
   // Empty haystack.
   {
-    PG_ASSERT(-1 == pg_string_indexof_string((PgString){0}, PG_S("fox")));
+    PG_ASSERT(-1 == pg_string_index_of_string((PgString){0}, PG_S("fox")));
   }
 
   // Empty needle.
   {
-    PG_ASSERT(-1 == pg_string_indexof_string(PG_S("hello"), (PgString){0}));
+    PG_ASSERT(-1 == pg_string_index_of_string(PG_S("hello"), (PgString){0}));
   }
 
   // Not found.
   {
-    PG_ASSERT(-1 == pg_string_indexof_string(PG_S("hello 🍌 world"),
-                                             PG_S("foobar 🍌")));
+    PG_ASSERT(-1 == pg_string_index_of_string(PG_S("hello 🍌 world"),
+                                              PG_S("foobar 🍌")));
   }
 
   // Found, one occurence.
   {
     PG_ASSERT(11 ==
-              pg_string_indexof_string(PG_S("hello 🍌 world"), PG_S("world")));
+              pg_string_index_of_string(PG_S("hello 🍌 world"), PG_S("world")));
   }
 
   // Found, one occurence.
   {
-    PG_ASSERT(0 == pg_string_indexof_string(PG_S("hello 🍌 world\n"),
-                                            PG_S("hello 🍌 world")));
+    PG_ASSERT(0 == pg_string_index_of_string(PG_S("hello 🍌 world\n"),
+                                             PG_S("hello 🍌 world")));
   }
 
   // Found, first occurence.
   {
-    PG_ASSERT(6 ==
-              pg_string_indexof_string(PG_S("world hello hell"), PG_S("hell")));
+    PG_ASSERT(
+        6 == pg_string_index_of_string(PG_S("world hello hell"), PG_S("hell")));
   }
 
   // Found, second occurence.
   {
     PG_ASSERT(10 ==
-              pg_string_indexof_string(PG_S("hello fox foxy"), PG_S("foxy")));
+              pg_string_index_of_string(PG_S("hello fox foxy"), PG_S("foxy")));
   }
 
   // Almost found, prefix matches.
   {
     PG_ASSERT(-1 ==
-              pg_string_indexof_string(PG_S("hello world"), PG_S("worldly")));
+              pg_string_index_of_string(PG_S("hello world"), PG_S("worldly")));
   }
 
   {
-    PG_ASSERT(0 == pg_string_indexof_string(PG_S("/"), PG_S("/")));
+    PG_ASSERT(0 == pg_string_index_of_string(PG_S("/"), PG_S("/")));
   }
 }
 
@@ -648,34 +648,34 @@ static void test_url_encode() {
   }
 }
 
-static void test_string_indexof_any_byte() {
+static void test_string_index_of_any_byte() {
   {
-    i64 idx = pg_string_indexof_any_rune(PG_S(""), PG_S(""));
+    i64 idx = pg_string_index_of_any_rune(PG_S(""), PG_S(""));
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_rune(PG_S(""), PG_S(":"));
+    i64 idx = pg_string_index_of_any_rune(PG_S(""), PG_S(":"));
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_rune(PG_S("?"), PG_S("🚀🛸"));
+    i64 idx = pg_string_index_of_any_rune(PG_S("?"), PG_S("🚀🛸"));
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_rune(PG_S("abc"), PG_S("🚀🛸"));
+    i64 idx = pg_string_index_of_any_rune(PG_S("abc"), PG_S("🚀🛸"));
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_rune(PG_S("x"), PG_S("yz"));
+    i64 idx = pg_string_index_of_any_rune(PG_S("x"), PG_S("yz"));
     PG_ASSERT(-1 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_rune(PG_S("🛸"), PG_S("🚀🛸"));
+    i64 idx = pg_string_index_of_any_rune(PG_S("🛸"), PG_S("🚀🛸"));
     PG_ASSERT(0 == idx);
   }
   {
-    i64 idx = pg_string_indexof_any_rune(PG_S("朝日新聞デジタ聞ル🚀🛸A"),
-                                         PG_S("🚀🛸"));
+    i64 idx = pg_string_index_of_any_rune(PG_S("朝日新聞デジタ聞ル🚀🛸A"),
+                                          PG_S("🚀🛸"));
     PG_ASSERT(27 == idx);
   }
 }
@@ -780,15 +780,15 @@ static void test_ring_buffer_write_slice() {
   {
     PgRing rg = {.data = pg_string_make(12, allocator)};
     PG_ASSERT(pg_ring_write_space(rg) == rg.data.len - 1);
-    PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello")));
+    PG_ASSERT(pg_ring_try_write_bytes(&rg, PG_S("hello")));
     PG_ASSERT(5 == rg.idx_write);
     PG_ASSERT(pg_ring_write_space(rg) == rg.data.len - 1 - 5);
 
-    PG_ASSERT(false == pg_ring_write_slice(&rg, PG_S(" world!")));
+    PG_ASSERT(false == pg_ring_try_write_bytes(&rg, PG_S(" world!")));
     PG_ASSERT(5 == rg.idx_write);
     PG_ASSERT(pg_ring_write_space(rg) == rg.data.len - 1 - 5);
 
-    PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S(" world")));
+    PG_ASSERT(true == pg_ring_try_write_bytes(&rg, PG_S(" world")));
     PG_ASSERT(11 == rg.idx_write);
     PG_ASSERT(pg_ring_write_space(rg) == 0);
 
@@ -805,7 +805,7 @@ static void test_ring_buffer_write_slice() {
         .idx_read = 2,
     };
     PG_ASSERT(pg_ring_write_space(rg) == 0);
-    PG_ASSERT(false == pg_ring_write_slice(&rg, PG_S("hello")));
+    PG_ASSERT(false == pg_ring_try_write_bytes(&rg, PG_S("hello")));
     PG_ASSERT(1 == rg.idx_write);
     PG_ASSERT(pg_ring_write_space(rg) == 0);
   }
@@ -817,7 +817,7 @@ static void test_ring_buffer_write_slice() {
         .idx_write = 2,
     };
     PG_ASSERT(pg_ring_write_space(rg) == 10);
-    PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello")));
+    PG_ASSERT(pg_ring_try_write_bytes(&rg, PG_S("hello")));
     PG_ASSERT(2 + 5 == rg.idx_write);
     PG_ASSERT(pg_ring_write_space(rg) == 5);
   }
@@ -830,7 +830,7 @@ static void test_ring_buffer_write_slice() {
         .idx_write = 3,
     };
     PG_ASSERT(pg_ring_write_space(rg) == 10);
-    PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello worl")));
+    PG_ASSERT(pg_ring_try_write_bytes(&rg, PG_S("hello worl")));
     PG_ASSERT(1 == rg.idx_write);
     PG_ASSERT(pg_ring_write_space(rg) == 0);
     PG_ASSERT(pg_string_eq(rg.data, PG_S("l\x0\x0hello wor")));
@@ -846,37 +846,37 @@ static void test_ring_buffer_read_write_slice() {
   {
     PgRing rg = {.data = pg_string_make(12, allocator)};
     PG_ASSERT(0 == pg_ring_read_space(rg));
-    PG_ASSERT(0 == pg_ring_read_slice(&rg, (PgString){0}));
+    PG_ASSERT(0 == pg_ring_try_read_bytes(&rg, (PgString){0}));
 
     PgString dst = pg_string_clone(PG_S("xyz"), allocator);
-    PG_ASSERT(0 == pg_ring_read_slice(&rg, dst));
+    PG_ASSERT(0 == pg_ring_try_read_bytes(&rg, dst));
   }
 
   // Write to empty ring buffer, then read part of it.
   {
     PgRing rg = {.data = pg_string_make(12, allocator)};
-    PG_ASSERT(pg_ring_write_slice(&rg, PG_S("hello")));
+    PG_ASSERT(pg_ring_try_write_bytes(&rg, PG_S("hello")));
     PG_ASSERT(5 == rg.idx_write);
     PG_ASSERT(5 == pg_ring_read_space(rg));
 
     PgString dst = pg_string_clone(PG_S("xyz"), allocator);
-    PG_ASSERT(3 == pg_ring_read_slice(&rg, dst));
+    PG_ASSERT(3 == pg_ring_try_read_bytes(&rg, dst));
     PG_ASSERT(pg_string_eq(dst, PG_S("hel")));
     PG_ASSERT(3 == rg.idx_read);
     PG_ASSERT(2 == pg_ring_read_space(rg));
 
-    PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S(" world!")));
+    PG_ASSERT(true == pg_ring_try_write_bytes(&rg, PG_S(" world!")));
     PG_ASSERT(0 == rg.idx_write);
     PG_ASSERT(9 == pg_ring_read_space(rg));
 
-    PG_ASSERT(false == pg_ring_write_slice(&rg, PG_S("abc")));
+    PG_ASSERT(false == pg_ring_try_write_bytes(&rg, PG_S("abc")));
     PG_ASSERT(9 == pg_ring_read_space(rg));
-    PG_ASSERT(true == pg_ring_write_slice(&rg, PG_S("ab")));
+    PG_ASSERT(true == pg_ring_try_write_bytes(&rg, PG_S("ab")));
     PG_ASSERT(11 == pg_ring_read_space(rg));
     PG_ASSERT(2 == rg.idx_write);
 
     dst = pg_string_clone(PG_S("abcdefghijk"), allocator);
-    PG_ASSERT(11 == pg_ring_read_slice(&rg, dst));
+    PG_ASSERT(11 == pg_ring_try_read_bytes(&rg, dst));
     PG_ASSERT(pg_string_eq(dst, PG_S("lo world!ab")));
     PG_ASSERT(2 == rg.idx_read);
     PG_ASSERT(0 == pg_ring_read_space(rg));
@@ -889,7 +889,7 @@ static void test_ring_buffer_read_until_excl() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgRing rg = {.data = pg_string_make(4 * PG_KiB, allocator)};
-  PG_ASSERT(pg_ring_write_slice(
+  PG_ASSERT(pg_ring_try_write_bytes(
       &rg, PG_S("The quick brown fox jumps over the lazy dog")));
 
   {
@@ -952,9 +952,9 @@ static void test_ring_buffer_read_write_fuzz() {
     PgString to = pg_string_make(len, allocator_strings);
     pg_rand_string_mut(&rng, to);
 
-    bool ok_write = pg_ring_write_slice(&rg, from);
+    bool ok_write = pg_ring_try_write_bytes(&rg, from);
     (void)ok_write;
-    bool ok_read = pg_ring_read_slice(&rg, to);
+    bool ok_read = pg_ring_try_read_bytes(&rg, to);
     (void)ok_read;
 
     PG_ASSERT(pg_ring_write_space(rg) <= rg.data.len - 1);
@@ -2537,11 +2537,11 @@ int main() {
   test_utf8_count();
   test_string_last();
   test_string_first();
-  test_string_indexof_rune();
-  test_string_last_indexof_rune();
+  test_string_index_of_rune();
+  test_string_last_index_of_rune();
   test_slice_range();
   test_utf8_iterator();
-  test_string_indexof_string();
+  test_string_index_of_string();
   test_string_trim();
   test_string_cut();
   test_string_split_byte();
@@ -2555,7 +2555,7 @@ int main() {
   test_dynu8_append_u8_hex_upper();
   test_ipv4_address_to_string();
   test_url_encode();
-  test_string_indexof_any_byte();
+  test_string_index_of_any_byte();
   test_u8x4_be_to_u32_and_back();
   test_bitfield();
   test_ring_buffer_write_slice();
