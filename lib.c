@@ -3503,7 +3503,7 @@ typedef struct {
 PG_RESULT(PgIpv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
 
 [[maybe_unused]] [[nodiscard]] static PgDnsResolveIpv4AddressSocketResult
-pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena);
+pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgAllocator *allocator);
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_tcp_listen(PgFileDescriptor sock, u64 backlog);
@@ -3538,6 +3538,7 @@ pg_net_get_socket_error(PgFileDescriptor socket);
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <stdlib.h>
@@ -3585,6 +3586,90 @@ static PgError pg_net_set_nodelay(PgFileDescriptor sock, bool enabled) {
   }
 
   return 0;
+}
+
+static PgError pg_net_connect_ipv4(PgFileDescriptor sock,
+                                   PgIpv4Address address) {
+  struct sockaddr_in addr = {
+      .sin_family = AF_INET,
+      .sin_port = htons(address.port),
+      .sin_addr = {htonl(address.ip)},
+  };
+
+  int ret = 0;
+  do {
+    ret = connect(sock.fd, (struct sockaddr *)&addr, sizeof(addr));
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    if (EINPROGRESS != errno) {
+      return (PgError)errno;
+    }
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]]
+static PgDnsResolveIpv4AddressSocketResult
+pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgAllocator *allocator) {
+  PgDnsResolveIpv4AddressSocketResult res = {0};
+
+  struct addrinfo hints = {0};
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_protocol = IPPROTO_TCP;
+
+  struct addrinfo *addr_info = nullptr;
+  int res_getaddrinfo = 0;
+  do {
+    res_getaddrinfo = getaddrinfo(
+        pg_string_to_cstr(host, allocator),
+        pg_string_to_cstr(pg_u64_to_string(port, allocator), allocator), &hints,
+        &addr_info);
+  } while (-1 == res_getaddrinfo && EINTR == errno);
+
+  if (-1 == res_getaddrinfo) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  struct addrinfo *rp = nullptr;
+  for (rp = addr_info; rp != nullptr; rp = rp->ai_next) {
+    PgFileDescriptorResult res_create_socket = pg_net_create_tcp_socket();
+    if (res_create_socket.err) {
+      res.err = res_create_socket.err;
+      continue;
+    }
+
+    // TODO: Use pg_net_connect_ipv4?
+    int ret = 0;
+    do {
+      ret = connect(res_create_socket.res.fd, rp->ai_addr, rp->ai_addrlen);
+    } while (-1 == ret && EINTR == errno);
+
+    if (-1 == ret) {
+      if (EINPROGRESS != errno) {
+        (void)pg_net_socket_close(res_create_socket.res);
+        continue;
+      }
+    }
+
+    res.res.socket = res_create_socket.res;
+
+    res.res.address.ip =
+        ntohl(((struct sockaddr_in *)(void *)rp->ai_addr)->sin_addr.s_addr);
+    res.res.address.port = port;
+    break;
+  }
+
+  freeaddrinfo(addr_info);
+
+  if (nullptr == rp) { // No address succeeded.
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  return res;
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
