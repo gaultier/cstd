@@ -1431,6 +1431,17 @@ static void test_http_parse_header() {
   }
 }
 
+static void test_http_read_request() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  // PgReader reader = pg_reader_make_from_
+  PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
+  PgHttpRequestReadResult res_req =
+      pg_http_read_request(&buf_reader, allocator);
+}
+
 #if 0
 static void test_http_read_response() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
@@ -2481,6 +2492,7 @@ int main() {
   test_http_parse_response_status_line();
   test_http_parse_request_status_line();
   test_http_parse_header();
+  test_http_read_request();
 #if 0
   test_http_read_response();
   test_http_request_response();

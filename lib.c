@@ -174,6 +174,8 @@ PG_SLICE(i64) Pgi64Slice;
 
 PG_DYN(char *) PgCstrDyn;
 typedef Pgu8Slice PgString;
+PG_DYN(PgString) PgStringDyn;
+PG_RESULT(PgStringDyn) PgStringDynResult;
 
 PG_SLICE(void) PgAnySlice;
 PG_DYN(void) PgAnyDyn;
@@ -195,6 +197,647 @@ PG_RESULT(Pgu8Slice) Pgu8SliceResult;
 #define PG_STACKTRACE_MAX 64
 #define PG_LOG_STRING_MAX 256
 #define PG_LOG_LINE_MAX_LENGTH 8192
+
+typedef struct PgAllocator PgAllocator;
+
+typedef void *(*PgAllocFn)(PgAllocator *allocator, u64 sizeof_type,
+                           u64 alignof_type, u64 elem_count);
+typedef void *(*PgReallocFn)(PgAllocator *allocator, void *ptr,
+                             u64 elem_count_old, u64 sizeof_type,
+                             u64 alignof_type, u64 elem_count);
+typedef void (*PgFreeFn)(PgAllocator *allocator, void *ptr);
+struct PgAllocator {
+  PgAllocFn alloc_fn;
+  PgReallocFn realloc_fn;
+  PgFreeFn free_fn;
+};
+
+typedef union {
+  int fd;
+  void *ptr;
+} PgFileDescriptor;
+
+PG_RESULT(PgFileDescriptor) PgFileDescriptorResult;
+
+typedef enum {
+  PG_FILE_ACCESS_NONE = 0,
+  PG_FILE_ACCESS_READ = 1 << 0,
+  PG_FILE_ACCESS_WRITE = 1 << 1,
+  PG_FILE_ACCESS_READ_WRITE = 1 << 2,
+} PgFileAccess;
+
+static const u64 PG_FILE_ACCESS_ALL =
+    PG_FILE_ACCESS_READ | PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE;
+
+typedef u32 PgRune;
+PG_RESULT(PgRune) PgRuneResult;
+
+typedef struct {
+  PgString s;
+  u64 idx;
+} PgUtf8Iterator;
+
+typedef struct {
+  PgString s;
+  PgString sep;
+} PgSplitIterator;
+
+typedef struct {
+  PgString left, right;
+  bool ok;
+} PgStringCut;
+
+typedef struct {
+  Pgu8Slice left, right;
+  bool ok;
+} PgBytesCut;
+
+typedef struct {
+  PgString left, right;
+  bool consumed;
+} PgStringPairConsume;
+
+typedef struct {
+  PgString left, right;
+  bool consumed;
+  PgRune matched;
+} PgStringPairConsumeAny;
+
+typedef struct {
+  u64 n;
+  bool present;
+  PgString remaining;
+} PgParseNumberResult;
+
+typedef struct {
+  u8 *start;
+  u8 *end;
+
+  // For stats
+  u8 *start_original;
+  // For releasing the arena.
+  u8 *os_start;
+  u64 os_alloc_size;
+} PgArena;
+
+typedef struct {
+  PgAllocFn alloc_fn;
+  PgReallocFn realloc_fn;
+  PgFreeFn free_fn;
+} PgHeapAllocator;
+static_assert(sizeof(PgHeapAllocator) == sizeof(PgAllocator));
+
+typedef struct {
+  PgAllocFn alloc_fn;
+  PgReallocFn realloc_fn;
+  PgFreeFn free_fn;
+  PgArena *arena;
+} PgArenaAllocator;
+static_assert(sizeof(PgArenaAllocator) >= sizeof(PgAllocator));
+
+typedef enum {
+  PG_CMP_LESS = -1,
+  PG_CMP_EQ = 0,
+  PG_CMP_GREATER = 1,
+} PgCompare;
+
+typedef enum {
+  PG_READER_KIND_BYTES,
+  PG_READER_KIND_FILE,
+} PgReaderKind;
+
+typedef struct {
+  PgReaderKind kind;
+  union {
+    PgFileDescriptor file;
+    Pgu8Slice bytes;
+  } u;
+} PgReader;
+
+typedef struct PgWriter PgWriter;
+
+struct PgWriter {
+  WriteFn write_fn;
+  FlushFn flush_fn;
+  CloseFn close_fn;
+  PgFileDescriptor ctx;
+};
+
+// Ring buffer.
+// Invariants:
+// - Empty: `idx_read == idx_write`.
+// - Otherwise: empty slot between `idx_read` and `idx_write`.
+typedef struct {
+  u64 idx_read, idx_write;
+  PgString data;
+} PgRing;
+
+typedef struct {
+  u8 data[PG_SHA1_DIGEST_LENGTH];
+} PgSha1;
+
+typedef Pgu64Result (*WriteFn)(PgWriter *w, Pgu8Slice src,
+                               PgAllocator *allocator);
+typedef PgError (*FlushFn)(PgWriter *w);
+typedef PgError (*CloseFn)(void *self);
+
+typedef struct {
+  u32 ip;   // Host order.
+  u16 port; // Host order.
+} PgIpv4Address;
+PG_DYN(PgIpv4Address) PgIpv4AddressDyn;
+PG_SLICE(PgIpv4Address) PgIpv4AddressSlice;
+
+// Example: nodes=6
+// Matrix:
+//   | 0 1 2 3 4 5
+// ---------------
+// 0 | x
+// 1 | 0 x
+// 2 | 1 0 x
+// 3 | 0 1 1 x
+// 4 | 0 0 0 0 x
+// 5 | 1 1 1 1 1 x
+// => Bitfield: [0 1 0 0 1 1 0 0 0 0 1 1 1 1 1] .
+typedef struct {
+  u64 nodes_count, bitfield_len;
+  // Stores the lower triangular half (without diagonal).
+  PgString bitfield;
+} PgAdjacencyMatrix;
+
+typedef struct {
+  PgAdjacencyMatrix matrix;
+  u64 row, col;
+  bool scan_mode_column;
+} PgAdjacencyMatrixNeighborIterator;
+
+typedef struct {
+  u64 row, col, node;
+  bool edge;
+  bool has_value;
+} PgAdjacencyMatrixNeighbor;
+
+typedef enum {
+  PG_CLOCK_KIND_MONOTONIC,
+  PG_CLOCK_KIND_REALTIME,
+  // TODO: More?
+} PgClockKind;
+
+typedef struct {
+  u64 state;
+} PgRng;
+
+typedef enum [[clang::flag_enum]] {
+  PG_VIRTUAL_MEM_FLAGS_NONE = 0,
+  PG_VIRTUAL_MEM_FLAGS_READ = 1,
+  PG_VIRTUAL_MEM_FLAGS_WRITE = 2,
+  PG_VIRTUAL_MEM_FLAGS_EXEC = 4,
+} PgVirtualMemFlags;
+
+typedef struct {
+  u64 start_incl, end_excl, idx;
+} Pgu64Range;
+PG_OK(Pgu64Range) Pgu64RangeOk;
+
+typedef struct {
+  i32 exit_status;
+  i32 signal;
+  bool exited, signaled, core_dumped, stopped;
+  // Only if `spawn_options.stdout == PG_CHILD_PROCESS_STD_IO_PIPE`.
+  PgString stdout_captured;
+  // Only if `spawn_options.stderr == PG_CHILD_PROCESS_STD_IO_PIPE`.
+  PgString stderr_captured;
+} PgProcessStatus;
+PG_RESULT(PgProcessStatus) PgProcessExitResult;
+
+typedef struct {
+  PgString stdout_captured, stderr_captured;
+} PgProcessCaptureStd;
+PG_RESULT(PgProcessCaptureStd) PgProcessCaptureStdResult;
+
+typedef struct {
+  u64 pid;
+  // Only if `spawn_options.stdin == PG_CHILD_PROCESS_STD_IO_PIPE`.
+  PgFileDescriptor stdin_pipe;
+  // Only if `spawn_options.stdout == PG_CHILD_PROCESS_STD_IO_PIPE`.
+  PgFileDescriptor stdout_pipe;
+  // Only if `spawn_options.stderr == PG_CHILD_PROCESS_STD_IO_PIPE`.
+  PgFileDescriptor stderr_pipe;
+} PgProcess;
+PG_RESULT(PgProcess) PgProcessResult;
+
+typedef enum {
+  PG_CHILD_PROCESS_STD_IO_INHERIT,
+  // `/dev/null` on Unix, `NUL` on Windows.
+  PG_CHILD_PROCESS_STD_IO_IGNORE,
+  PG_CHILD_PROCESS_STD_IO_PIPE,
+  PG_CHILD_PROCESS_STD_IO_CLOSE,
+} PgChildProcessStdIo;
+
+typedef struct {
+  PgChildProcessStdIo stdin_capture, stdout_capture, stderr_capture;
+  // TODO: env, cwd, etc.
+} PgProcessSpawnOptions;
+
+typedef struct {
+  PgIpv4Address address;
+  PgFileDescriptor socket;
+} PgIpv4AddressSocket;
+PG_RESULT(PgIpv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
+
+typedef struct {
+  PgIpv4Address address;
+  PgFileDescriptor socket;
+  PgError err;
+} PgIpv4AddressAcceptResult;
+
+typedef enum {
+  HTTP_METHOD_UNKNOWN,
+  HTTP_METHOD_OPTIONS,
+  HTTP_METHOD_GET,
+  HTTP_METHOD_HEAD,
+  HTTP_METHOD_POST,
+  HTTP_METHOD_PUT,
+  HTTP_METHOD_DELETE,
+  HTTP_METHOD_TRACE,
+  HTTP_METHOD_CONNECT,
+  HTTP_METHOD_EXTENSION,
+} PgHttpMethod;
+
+typedef struct {
+  PgString key, value;
+} PgStringKeyValue;
+PG_RESULT(PgStringKeyValue) PgStringKeyValueResult;
+PG_DYN(PgStringKeyValue) PgStringKeyValueDyn;
+PG_SLICE(PgStringKeyValue) PgStringKeyValueSlice;
+PG_RESULT(PgStringKeyValueDyn) PgStringDynKeyValueResult;
+
+typedef struct {
+  PgString scheme;
+  PgString username, password;
+  PgString host; // Including subdomains.
+  PgStringDyn path_components;
+  PgStringKeyValueDyn query_parameters;
+  u16 port;
+  // TODO: fragment.
+} PgUrl;
+
+typedef struct {
+  PgString id;
+  PgUrl url; // Does not have a scheme, domain, port.
+  PgHttpMethod method;
+  PgStringKeyValueDyn headers;
+  u8 version_minor;
+  u8 version_major;
+} PgHttpRequest;
+
+// `GET /en-US/docs/Web/HTTP/Messages HTTP/1.1`.
+typedef struct {
+  PgHttpMethod method;
+  u8 version_minor;
+  u8 version_major;
+  PgUrl url; // Does not have a scheme, domain, port.
+} PgHttpRequestStatusLine;
+
+PG_RESULT(PgHttpRequestStatusLine) PgHttpRequestStatusLineResult;
+
+// `HTTP/1.1 201 Created`.
+typedef struct {
+  u8 version_minor;
+  u8 version_major;
+  u16 status;
+} PgHttpResponseStatusLine;
+
+PG_RESULT(PgHttpResponseStatusLine) PgHttpResponseStatusLineResult;
+
+typedef struct {
+  u8 version_major;
+  u8 version_minor;
+  u16 status;
+  PgStringKeyValueDyn headers;
+} PgHttpResponse;
+
+typedef struct {
+  PgString username, password;
+} PgUrlUserInfo;
+PG_RESULT(PgUrlUserInfo) PgUrlUserInfoResult;
+
+typedef struct {
+  PgUrlUserInfo user_info;
+  PgString host;
+  u16 port;
+} PgUrlAuthority;
+PG_RESULT(PgUrlAuthority) PgUrlAuthorityResult;
+PG_RESULT(PgUrl) PgUrlResult;
+
+typedef struct {
+  bool done;
+  PgHttpResponse res;
+  PgError err;
+} PgHttpResponseReadResult;
+
+typedef struct {
+  bool done;
+  PgHttpRequest res;
+  PgError err;
+} PgHttpRequestReadResult;
+
+typedef struct {
+  PgReader reader;
+  PgRing ring;
+} PgBufReader;
+
+typedef enum {
+  PG_LOG_VALUE_STRING,
+  PG_LOG_VALUE_U64,
+  PG_LOG_VALUE_I64,
+  PG_LOG_VALUE_IPV4_ADDRESS,
+  // TODO: IPV6_ADDRESS
+} PgLogValueKind;
+
+typedef enum {
+  PG_LOG_LEVEL_DEBUG,
+  PG_LOG_LEVEL_INFO,
+  PG_LOG_LEVEL_ERROR,
+} PgLogLevel;
+
+typedef struct PgLogger PgLogger;
+typedef PgString (*PgMakeLogLineFn)(u8 *mem, u64 mem_len, PgLogger *logger,
+                                    PgLogLevel level, PgString msg,
+                                    i32 args_count, ...);
+
+typedef struct PgLogger {
+  PgLogLevel level;
+  PgWriter writer;
+  PgMakeLogLineFn make_log_line;
+  u64 monotonic_epoch;
+};
+
+typedef struct {
+  PgLogValueKind kind;
+  union {
+    PgString s;
+    u32 n32;
+    u64 n64;
+    i32 s32;
+    i64 s64;
+    PgIpv4Address ipv4_address;
+  };
+} PgLogValue;
+
+typedef struct {
+  PgString key;
+  PgLogValue value;
+} PgLogEntry;
+
+typedef struct {
+  u8 value[16];
+  u8 version;
+} PgUuid;
+
+typedef enum {
+  PG_HTML_TOKEN_KIND_NONE,
+  PG_HTML_TOKEN_KIND_TEXT,
+  PG_HTML_TOKEN_KIND_TAG_OPENING,
+  PG_HTML_TOKEN_KIND_TAG_CLOSING,
+  PG_HTML_TOKEN_KIND_ATTRIBUTE,
+  PG_HTML_TOKEN_KIND_COMMENT,
+  PG_HTML_TOKEN_KIND_DOCTYPE,
+} PgHtmlTokenKind;
+
+typedef struct {
+  PgHtmlTokenKind kind;
+  u32 start, end;
+  union {
+#if 0
+    PgKeyValue attribute;
+#endif
+    PgString tag;
+    PgString doctype;
+    PgString text;
+    PgString comment;
+  };
+} PgHtmlToken;
+PG_RESULT(PgHtmlToken) PgHtmlTokenResult;
+PG_DYN(PgHtmlToken) PgHtmlTokenDyn;
+PG_SLICE(PgHtmlToken) PgHtmlTokenSlice;
+PG_RESULT(PgHtmlTokenDyn) PgHtmlTokenDynResult;
+
+typedef enum {
+  PG_HTML_PARSE_ERROR_NONE = 0,
+  PG_HTML_PARSE_ERROR_INCORRECTLY_CLOSED_COMMENT = 0x600,
+  PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME = 0x601,
+  PG_HTML_PARSE_ERROR_EOF_IN_TAG = 0x602,
+  PG_HTML_PARSE_ERROR_UNEXPECTED_CHARACTER_IN_ATTRIBUTE_NAME = 0x603,
+  PG_HTML_PARSE_ERROR_UNEXPECTED_EQUALS_SIGN_BEFORE_ATTRIBUTE_NAME = 0x604,
+  PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE = 0x605,
+  PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME = 0x606,
+  PG_HTML_PARSE_ERROR_MISSING_DOCTYPE_NAME = 0x607,
+  PG_HTML_PARSE_ERROR_EOF_IN_COMMENT = 0x608,
+} PgHtmlParseError;
+
+typedef struct PgLinkedListNode PgLinkedListNode;
+struct PgLinkedListNode {
+  PgLinkedListNode *next;
+};
+
+typedef struct PgHtmlNode PgHtmlNode;
+struct PgHtmlNode {
+  PgHtmlToken token_start, token_end;
+  PgLinkedListNode parent, next_sibling, first_child;
+};
+PG_RESULT(PgHtmlNode *) PgHtmlNodePtrResult;
+
+// TODO: Remove and use enum values instead.
+static const u32 PgElfProgramHeaderTypeLoad = 1;
+static const u32 PgElfProgramHeaderFlagsExecutable = 1;
+static const u32 PgElfProgramHeaderFlagsReadable = 4;
+
+typedef enum : u32 {
+  PG_ELF_SECTION_HEADER_KIND_NULL = 0,
+  PG_ELF_SECTION_HEADER_KIND_PROGBITS = 1,
+  PG_ELF_SECTION_HEADER_KIND_SYMTAB = 2,
+  PG_ELF_SECTION_HEADER_KIND_STRTAB = 3,
+  PG_ELF_SECTION_HEADER_KIND_RELA = 4,
+  PG_ELF_SECTION_HEADER_KIND_HASH = 5,
+  PG_ELF_SECTION_HEADER_KIND_DYNAMIC = 6,
+  PG_ELF_SECTION_HEADER_KIND_NOTE = 7,
+  PG_ELF_SECTION_HEADER_KIND_NOBITS = 8,
+  PG_ELF_SECTION_HEADER_KIND_REL = 9,
+  PG_ELF_SECTION_HEADER_KIND_SHLIB = 10,
+  PG_ELF_SECTION_HEADER_KIND_DYNSYM = 11,
+} PgElfSectionHeaderKind;
+
+typedef struct {
+  u32 name;
+  u8 info;
+  u8 other;
+  u16 section_header_table_index;
+  u64 value;
+  u64 size;
+} PgElfSymbolTableEntry;
+static_assert(24 == sizeof(PgElfSymbolTableEntry));
+PG_DYN(PgElfSymbolTableEntry) PgElfSymbolTableEntryDyn;
+
+typedef enum : u8 {
+  PG_ELF_SYMBOL_BIND_LOCAL = 0,
+  PG_ELF_SYMBOL_BIND_GLOBAL = 1,
+  PG_ELF_SYMBOL_BIND_WEAK = 2,
+  PG_ELF_SYMBOL_BIND_LOPROC = 13,
+  PG_ELF_SYMBOL_BIND_HIPROC = 15,
+} PgElfSymbolBind;
+
+typedef enum : u8 {
+  PG_ELF_SYMBOL_TYPE_NONE = 0,
+  PG_ELF_SYMBOL_TYPE_OBJECT = 1,
+  PG_ELF_SYMBOL_TYPE_FUNC = 2,
+  PG_ELF_SYMBOL_TYPE_SECTION = 3,
+  PG_ELF_SYMBOL_TYPE_FILE = 4,
+  PG_ELF_SYMBOL_TYPE_LOPROC = 13,
+  PG_ELF_SYMBOL_TYPE_HIPROC = 15,
+} PgElfSymbolType;
+
+typedef enum : u64 {
+  PG_ELF_SECTION_HEADER_FLAG_WRITE = 1 << 0,
+  PG_ELF_SECTION_HEADER_FLAG_ALLOC = 1 << 1,
+  PG_ELF_SECTION_HEADER_FLAG_EXECINSTR = 1 << 2,
+  PG_ELF_SECTION_HEADER_FLAG_MASKPROC = 0xf0000000,
+} PgElfSectionHeaderFlag;
+
+typedef struct {
+  u32 type;
+  u32 flags;
+  u64 p_offset;
+  u64 p_vaddr;
+  u64 p_paddr;
+  u64 p_filesz;
+  u64 p_memsz;
+  u64 alignment;
+} PgElfProgramHeader;
+static_assert(56 == sizeof(PgElfProgramHeader));
+PG_DYN(PgElfProgramHeader) PgElfProgramHeaderDyn;
+
+typedef struct {
+  u32 name;
+  PgElfSectionHeaderKind kind;
+  u64 flags;
+  u64 addr;
+  u64 offset;
+  u64 size;
+  u32 link;
+  u32 info;
+  u64 align;
+  u64 entsize;
+} PgElfSectionHeader;
+static_assert(64 == sizeof(PgElfSectionHeader));
+PG_DYN(PgElfSectionHeader) PgElfSectionHeaderDyn;
+PG_SLICE(PgElfSectionHeader) PgElfSectionHeaderSlice;
+PG_OK(PgElfSectionHeader) PgElfSectionHeaderOk;
+
+typedef enum {
+  PG_ELF_KNOWN_SECTION_TEXT,
+  PG_ELF_KNOWN_SECTION_RODATA,
+  PG_ELF_KNOWN_SECTION_DATA,
+  PG_ELF_KNOWN_SECTION_STRTAB,
+  PG_ELF_KNOWN_SECTION_RELOC_TEXT,
+  PG_ELF_KNOWN_SECTION_SYMTAB,
+} PgElfKnownSection;
+
+typedef enum : u8 {
+  PG_ELF_ENDIAN_LITTLE = 1,
+} PgElfEndianness;
+
+typedef enum : u16 {
+  PG_ELF_TYPE_NONE,
+  PG_ELF_TYPE_RELOCATABLE_FILE,
+  PG_ELF_TYPE_EXECUTABLE_FILE,
+  PG_ELF_TYPE_SHARED_OBJECT_FILE,
+  PG_ELF_TYPE_CORE_FILE,
+} PgElfType;
+
+typedef enum : u8 {
+  PG_ELF_CLASS_NONE,
+  PG_ELF_CLASS_32_BITS,
+  PG_ELF_CLASS_64_BITS,
+} PgElfClass;
+
+typedef enum : u16 {
+  PG_ELF_ARCH_NONE = 0,
+  PG_ELF_ARCH_SPARC = 2,
+  PG_ELF_ARCH_386 = 3,
+  PG_ELF_ARCH_SPARC_32_PLUS = 18,
+  PG_ELF_ARCH_SPARC_V9 = 43,
+  PG_ELF_ARCH_AMD64 = 62,
+} PgElfArchitecture;
+
+typedef struct {
+  u8 magic[4];
+  PgElfClass class;
+  PgElfEndianness endianness;
+  u8 elf_header_version;
+  u8 abi_version;
+  PG_PAD(8);
+  PgElfType type;
+  PgElfArchitecture architecture;
+  u32 elf_version;
+  u64 entrypoint_address;
+  u64 program_header_offset;
+  u64 section_header_offset;
+  u32 cpu_flags;
+  u16 header_size;
+  u16 program_header_entry_size;
+  u16 program_header_entries_count;
+  u16 section_header_entry_size;
+  u16 section_header_entries_count;
+  // The section header table index of the entry that is associated with the
+  // section name string table.
+  u16 section_header_index;
+} PgElfHeader;
+static_assert(24 == offsetof(PgElfHeader, entrypoint_address));
+static_assert(52 == offsetof(PgElfHeader, header_size));
+static_assert(64 == sizeof(PgElfHeader));
+
+typedef struct {
+  Pgu8Slice bytes;
+
+  PgElfHeader header;
+  PgElfProgramHeaderDyn program_headers;
+  PgElfSectionHeaderDyn section_headers;
+
+  // Useful section header data.
+  PgElfSymbolTableEntryDyn symtab;
+  Pgu8Slice strtab;
+  Pgu8Slice program_text;
+  u32 program_text_idx;
+} PgElf;
+PG_RESULT(PgElf) PgElfResult;
+
+// ---------------- Functions.
+
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin();
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout();
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr();
+
+[[maybe_unused]] static Pgu64Result pg_file_read_at(PgFileDescriptor file,
+                                                    PgString buf, u64 offset);
+
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
+pg_file_open(PgString path, PgFileAccess access, u64 mode,
+             bool create_if_not_exists, PgAllocator *allocator);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_file_close(PgFileDescriptor file);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_file_truncate(PgFileDescriptor file, u64 size);
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_file_size(PgFileDescriptor file);
+
+[[nodiscard]] static Pgu64Result pg_file_read(PgFileDescriptor file,
+                                              PgString dst);
+[[maybe_unused]] static Pgu64Result pg_file_write(PgFileDescriptor file,
+                                                  PgString s);
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
@@ -274,26 +917,6 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
   }
   return hash;
 }
-
-typedef union {
-  int fd;
-  void *ptr;
-} PgFileDescriptor;
-
-PG_RESULT(PgFileDescriptor) PgFileDescriptorResult;
-
-typedef enum {
-  PG_FILE_ACCESS_NONE = 0,
-  PG_FILE_ACCESS_READ = 1 << 0,
-  PG_FILE_ACCESS_WRITE = 1 << 1,
-  PG_FILE_ACCESS_READ_WRITE = 1 << 2,
-} PgFileAccess;
-
-static const u64 PG_FILE_ACCESS_ALL =
-    PG_FILE_ACCESS_READ | PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE;
-
-typedef u32 PgRune;
-PG_RESULT(PgRune) PgRuneResult;
 
 [[maybe_unused]] [[nodiscard]] static bool pg_rune_is_hex_digit(PgRune c) {
   return ('0' <= c && c <= '9') || ('A' <= c && c <= 'F') ||
@@ -385,11 +1008,6 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
   })
 
 #define PG_SLICE_RANGE_START(s, start) PG_SLICE_RANGE(s, start, (s).len)
-
-typedef struct {
-  PgString s;
-  u64 idx;
-} PgUtf8Iterator;
 
 [[maybe_unused]] [[nodiscard]] static PgUtf8Iterator
 pg_make_utf8_iterator(PgString s) {
@@ -659,11 +1277,6 @@ pg_string_trim_space(PgString s) {
   return res;
 }
 
-typedef struct {
-  PgString s;
-  PgString sep;
-} PgSplitIterator;
-
 [[maybe_unused]] [[nodiscard]] static PgSplitIterator
 pg_string_split_string(PgString s, PgString sep) {
   return (PgSplitIterator){.s = s, .sep = sep};
@@ -691,11 +1304,6 @@ pg_string_index_of_rune(PgString haystack, PgRune needle) {
   }
   PG_ASSERT(0);
 }
-
-typedef struct {
-  PgString left, right;
-  bool ok;
-} PgStringCut;
 
 [[maybe_unused]] [[nodiscard]] static PgStringCut
 pg_string_cut_rune(PgString s, PgRune needle) {
@@ -764,32 +1372,122 @@ pg_string_cut_rune(PgString s, PgRune needle) {
   return memcmp(a.data, b.data, a.len) == 0;
 }
 
-typedef struct {
-  Pgu8Slice left, right;
-  bool ok;
-} PgBytesCut;
+[[maybe_unused]] [[nodiscard]]
+static Pgu64Ok pg_bytes_index_of_byte(Pgu8Slice haystack, u8 needle) {
+  Pgu64Ok res = {0};
 
-[[maybe_unused]] [[nodiscard]] static PgBytesCut pg_bytes_cut_byte(Pgu8Slice s,
-                                                                   u8 needle) {
-  PgBytesCut res = {0};
+  for (u64 i = 0; i < haystack.len; i++) {
+    u8 it = PG_SLICE_AT(haystack, i);
+    if (needle == it) {
+      res.res = i;
+      res.ok = true;
+      return res;
+    }
+  }
 
-  if (PG_SLICE_IS_EMPTY(s)) {
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]]
+static Pgu64Ok pg_bytes_last_index_of_byte(Pgu8Slice haystack, u8 needle) {
+  Pgu64Ok res = {0};
+
+  for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
+    u8 it = PG_SLICE_AT(haystack, i);
+    if (needle == it) {
+      res.res = (u64)i;
+      res.ok = true;
+      return res;
+    }
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]]
+static Pgu64Ok pg_bytes_index_of_bytes(Pgu8Slice haystack, Pgu8Slice needle) {
+  Pgu64Ok res = {0};
+
+  if (PG_SLICE_IS_EMPTY(needle)) {
     return res;
   }
 
-  PG_ASSERT(s.data);
-  u8 *ret = memchr(s.data, needle, s.len);
+  if (needle.len > haystack.len) {
+    return res;
+  }
+
+  for (u64 i = 0; i < haystack.len; i++) {
+    if (pg_bytes_eq(needle, PG_SLICE_RANGE_START(haystack, (u64)i))) {
+      res.res = (u64)i;
+      res.ok = true;
+      return res;
+    }
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]]
+static Pgu64Ok pg_bytes_last_index_of_bytes(Pgu8Slice haystack,
+                                            Pgu8Slice needle) {
+  Pgu64Ok res = {0};
+
+  if (PG_SLICE_IS_EMPTY(needle)) {
+    return res;
+  }
+
+  if (needle.len > haystack.len) {
+    return res;
+  }
+
+  for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
+    if (pg_bytes_eq(needle, PG_SLICE_RANGE_START(haystack, (u64)i))) {
+      res.res = (u64)i;
+      res.ok = true;
+      return res;
+    }
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgBytesCut
+pg_bytes_cut_byte(Pgu8Slice haystack, u8 needle) {
+  PgBytesCut res = {0};
+
+  if (PG_SLICE_IS_EMPTY(haystack)) {
+    return res;
+  }
+
+  PG_ASSERT(haystack.data);
+  // TODO: Use `pg_bytes_index_of_byte`?
+  u8 *ret = memchr(haystack.data, needle, haystack.len);
 
   if (!ret) {
     return res;
   }
 
   res.ok = true;
-  res.left.data = s.data;
-  res.left.len = (u64)(ret - s.data);
+  res.left.data = haystack.data;
+  res.left.len = (u64)(ret - haystack.data);
   res.right.data = ret + 1;
-  res.right.len = s.len - res.left.len - 1;
+  res.right.len = haystack.len - res.left.len - 1;
 
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgBytesCut
+pg_bytes_cut_bytes_excl(Pgu8Slice haystack, Pgu8Slice needle) {
+  PgBytesCut res = {0};
+
+  Pgu64Ok search = pg_bytes_index_of_bytes(haystack, needle);
+  if (!search.ok) {
+    return res;
+  }
+
+  res.ok = true;
+  res.left = PG_SLICE_RANGE(haystack, 0, search.res);
+  res.right = PG_SLICE_RANGE_START(haystack, search.res);
   return res;
 }
 
@@ -856,11 +1554,6 @@ pg_string_split_next(PgSplitIterator *it) {
   return (PgStringOk){0};
 }
 
-typedef struct {
-  PgString left, right;
-  bool consumed;
-} PgStringPairConsume;
-
 [[maybe_unused]] [[nodiscard]] static PgStringPairConsume
 pg_string_consume_until_rune_excl(PgString haystack, PgRune needle) {
   PgStringPairConsume res = {0};
@@ -898,12 +1591,6 @@ pg_string_consume_until_rune_incl(PgString haystack, PgRune needle) {
 
   return res;
 }
-
-typedef struct {
-  PgString left, right;
-  bool consumed;
-  PgRune matched;
-} PgStringPairConsumeAny;
 
 [[maybe_unused]] [[nodiscard]] static PgStringPairConsumeAny
 pg_string_consume_until_any_rune_incl(PgString haystack, PgString needles) {
@@ -1050,12 +1737,6 @@ pg_string_ends_with(PgString haystack, PgString needle) {
   return pg_string_eq(needle, end);
 }
 
-typedef struct {
-  u64 n;
-  bool present;
-  PgString remaining;
-} PgParseNumberResult;
-
 [[maybe_unused]] [[nodiscard]] static PgParseNumberResult
 pg_string_parse_u64(PgString s) {
   PgParseNumberResult res = {0};
@@ -1088,17 +1769,6 @@ pg_string_parse_u64(PgString s) {
   res.remaining = PG_SLICE_RANGE_START(s, last_idx);
   return res;
 }
-
-typedef struct {
-  u8 *start;
-  u8 *end;
-
-  // For stats
-  u8 *start_original;
-  // For releasing the arena.
-  u8 *os_start;
-  u64 os_alloc_size;
-} PgArena;
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_arena_mem_use(PgArena arena) {
   PG_ASSERT(arena.start >= arena.start_original);
@@ -1195,20 +1865,6 @@ pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
 #define pg_try_arena_new(a, t, n)                                              \
   ((t *)pg_try_arena_alloc((a), sizeof(t), _Alignof(typeof(t)), (n)))
 
-typedef struct PgAllocator PgAllocator;
-
-typedef void *(*PgAllocFn)(PgAllocator *allocator, u64 sizeof_type,
-                           u64 alignof_type, u64 elem_count);
-typedef void *(*PgReallocFn)(PgAllocator *allocator, void *ptr,
-                             u64 elem_count_old, u64 sizeof_type,
-                             u64 alignof_type, u64 elem_count);
-typedef void (*PgFreeFn)(PgAllocator *allocator, void *ptr);
-struct PgAllocator {
-  PgAllocFn alloc_fn;
-  PgReallocFn realloc_fn;
-  PgFreeFn free_fn;
-};
-
 [[nodiscard]]
 static void *pg_alloc_heap_libc(PgAllocator *allocator, u64 sizeof_type,
                                 u64 alignof_type, u64 elem_count) {
@@ -1231,13 +1887,6 @@ static void pg_free_heap_libc(PgAllocator *allocator, void *ptr) {
   (void)allocator;
   free(ptr);
 }
-
-typedef struct {
-  PgAllocFn alloc_fn;
-  PgReallocFn realloc_fn;
-  PgFreeFn free_fn;
-} PgHeapAllocator;
-static_assert(sizeof(PgHeapAllocator) == sizeof(PgAllocator));
 
 [[maybe_unused]] [[nodiscard]] static PgHeapAllocator pg_make_heap_allocator() {
   return (PgHeapAllocator){
@@ -1292,15 +1941,6 @@ pg_realloc(PgAllocator *allocator, void *ptr, u64 elem_count_old,
   }
 }
 
-typedef struct {
-  PgAllocFn alloc_fn;
-  PgReallocFn realloc_fn;
-  PgFreeFn free_fn;
-  PgArena *arena;
-} PgArenaAllocator;
-
-static_assert(sizeof(PgArenaAllocator) >= sizeof(PgAllocator));
-
 [[maybe_unused]] [[nodiscard]]
 static void *pg_alloc_arena(PgAllocator *allocator, u64 sizeof_type,
                             u64 alignof_type, u64 elem_count) {
@@ -1354,6 +1994,15 @@ pg_string_make(u64 len, PgAllocator *allocator) {
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static Pgu8Slice
+pg_bytes_make(u64 len, PgAllocator *allocator) {
+  Pgu8Slice res = {0};
+  res.len = len;
+  res.data = pg_alloc(allocator, sizeof(u8), _Alignof(u8), len);
+  PG_ASSERT(res.data);
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static char *
 pg_string_to_cstr(PgString s, PgAllocator *allocator) {
   char *res = (char *)pg_alloc(allocator, sizeof(u8), 1, s.len + 1);
@@ -1371,12 +2020,6 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
       .len = strlen(s),
   };
 }
-
-typedef enum {
-  PG_CMP_LESS = -1,
-  PG_CMP_EQ = 0,
-  PG_CMP_GREATER = 1,
-} PgCompare;
 
 [[maybe_unused]] [[nodiscard]] static PgCompare pg_string_cmp(PgString a,
                                                               PgString b) {
@@ -1464,9 +2107,6 @@ typedef enum {
 #define PG_DYN_SPACE(T, dyn)                                                   \
   ((T){.data = (dyn)->data + (dyn)->len, .len = (dyn)->cap - (dyn)->len})
 
-PG_DYN(PgString) PgStringDyn;
-PG_RESULT(PgStringDyn) PgStringDynResult;
-
 #define PG_DYN_PUSH(s, allocator)                                              \
   (PG_DYN_ENSURE_CAP(s, (s)->len + 1, allocator),                              \
    (s)->len > 0 ? PG_ASSERT((s)->data) : 0, (s)->data + (s)->len++)
@@ -1509,14 +2149,6 @@ PG_RESULT(PgStringDyn) PgStringDynResult;
     }                                                                          \
   } while (0)
 
-typedef struct PgReader PgReader;
-typedef Pgu64Result (*ReadFn)(PgReader *r, Pgu8Slice dst);
-typedef struct PgWriter PgWriter;
-typedef Pgu64Result (*WriteFn)(PgWriter *w, Pgu8Slice src,
-                               PgAllocator *allocator);
-typedef PgError (*FlushFn)(PgWriter *w);
-typedef PgError (*CloseFn)(void *self);
-
 [[maybe_unused]] [[nodiscard]] static Pgu8Dyn
 pg_string_builder_make(u64 cap, PgAllocator *allocator) {
   Pgu8Dyn res = {0};
@@ -1524,27 +2156,6 @@ pg_string_builder_make(u64 cap, PgAllocator *allocator) {
   PG_ASSERT(res.data);
   return res;
 }
-
-struct PgReader {
-  ReadFn read_fn;
-  PgFileDescriptor ctx;
-};
-
-struct PgWriter {
-  WriteFn write_fn;
-  FlushFn flush_fn;
-  CloseFn close_fn;
-  PgFileDescriptor ctx;
-};
-
-// Ring buffer.
-// Invariants:
-// - Empty: `idx_read == idx_write`.
-// - Otherwise: empty slot between `idx_read` and `idx_write`.
-typedef struct {
-  u64 idx_read, idx_write;
-  PgString data;
-} PgRing;
 
 [[maybe_unused]] static PgRing pg_ring_make(u64 cap, PgAllocator *allocator) {
   return (PgRing){.data = pg_string_make(cap + 1, allocator)};
@@ -1758,6 +2369,29 @@ pg_writer_write_string_full(PgWriter *w, PgString s, PgAllocator *allocator) {
   return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
 }
 
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_reader_read(PgReader *r, Pgu8Slice dst) {
+  PG_ASSERT(dst.data);
+
+  switch (r->kind) {
+  case PG_READER_KIND_BYTES: {
+    Pgu64Result res = {0};
+
+    u64 n = PG_MIN(dst.len, r->u.bytes.len);
+    memcpy(dst.data, r->u.bytes.data, n);
+    res.res = n;
+
+    r->u.bytes = PG_SLICE_RANGE_START(r->u.bytes, n);
+
+    return res;
+  }
+  case PG_READER_KIND_FILE:
+    return pg_file_read(r->u.file, dst);
+  default:
+    PG_ASSERT(0);
+  }
+}
+
 [[nodiscard]] [[maybe_unused]] static PgStringResult
 pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
   PgStringResult res = {.res.data = buf.data};
@@ -1767,7 +2401,7 @@ pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
     PG_ASSERT(idx < buf.len);
 
     Pgu8Slice dst = PG_SLICE_RANGE_START(buf, idx);
-    Pgu64Result read_res = r->read_fn(r, dst);
+    Pgu64Result read_res = pg_reader_read(r, dst);
 
     if (read_res.err) {
       res.err = read_res.err;
@@ -1794,7 +2428,7 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r, PgAllocator *allocator) {
   u8 tmp[4096] = {0};
   PgString dst = {.data = tmp, .len = PG_STATIC_ARRAY_LEN(tmp)};
 
-  res = r->read_fn(r, dst);
+  res = pg_reader_read(r, dst);
   if (res.err) {
     return res;
   }
@@ -2096,62 +2730,6 @@ static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n,
 }
 
 [[maybe_unused]] [[nodiscard]]
-static Pgu64Ok pg_bytes_index_of_byte(Pgu8Slice haystack, u8 needle) {
-  Pgu64Ok res = {0};
-
-  for (u64 i = 0; i < haystack.len; i++) {
-    u8 it = PG_SLICE_AT(haystack, i);
-    if (needle == it) {
-      res.res = i;
-      res.ok = true;
-      return res;
-    }
-  }
-
-  return res;
-}
-
-[[maybe_unused]] [[nodiscard]]
-static Pgu64Ok pg_bytes_last_index_of_byte(Pgu8Slice haystack, u8 needle) {
-  Pgu64Ok res = {0};
-
-  for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
-    u8 it = PG_SLICE_AT(haystack, i);
-    if (needle == it) {
-      res.res = (u64)i;
-      res.ok = true;
-      return res;
-    }
-  }
-
-  return res;
-}
-
-[[maybe_unused]] [[nodiscard]]
-static Pgu64Ok pg_bytes_last_index_of_bytes(Pgu8Slice haystack,
-                                            Pgu8Slice needle) {
-  Pgu64Ok res = {0};
-
-  if (PG_SLICE_IS_EMPTY(needle)) {
-    return res;
-  }
-
-  if (needle.len > haystack.len) {
-    return res;
-  }
-
-  for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
-    if (pg_bytes_eq(needle, PG_SLICE_RANGE_START(haystack, (u64)i))) {
-      res.res = (u64)i;
-      res.ok = true;
-      return res;
-    }
-  }
-
-  return res;
-}
-
-[[maybe_unused]] [[nodiscard]]
 static PgString pg_bytes_to_hex_string(Pgu8Slice bytes, PgRune sep,
                                        PgAllocator *allocator) {
 
@@ -2277,10 +2855,6 @@ pg_string_ieq_ascii(PgString a, PgString b, PgArena arena) {
 
   return pg_string_eq(a_clone, b_clone);
 }
-
-typedef struct {
-  u8 data[PG_SHA1_DIGEST_LENGTH];
-} PgSha1;
 
 #if defined(__x86_64__) && defined(__SSSE3__) && defined(__SHA__)
 #include <immintrin.h>
@@ -2501,14 +3075,6 @@ static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
 }
 #endif
 
-typedef struct {
-  u32 ip;   // Host order.
-  u16 port; // Host order.
-} PgIpv4Address;
-
-PG_DYN(PgIpv4Address) PgIpv4AddressDyn;
-PG_SLICE(PgIpv4Address) PgIpv4AddressSlice;
-
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_net_ipv4_address_to_string(PgIpv4Address address, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
@@ -2611,35 +3177,6 @@ pg_bitfield_get_first_zero(PgString bitfield) {
   }
   return res;
 }
-
-// Example: nodes=6
-// Matrix:
-//   | 0 1 2 3 4 5
-// ---------------
-// 0 | x
-// 1 | 0 x
-// 2 | 1 0 x
-// 3 | 0 1 1 x
-// 4 | 0 0 0 0 x
-// 5 | 1 1 1 1 1 x
-// => Bitfield: [0 1 0 0 1 1 0 0 0 0 1 1 1 1 1] .
-typedef struct {
-  u64 nodes_count, bitfield_len;
-  // Stores the lower triangular half (without diagonal).
-  PgString bitfield;
-} PgAdjacencyMatrix;
-
-typedef struct {
-  PgAdjacencyMatrix matrix;
-  u64 row, col;
-  bool scan_mode_column;
-} PgAdjacencyMatrixNeighborIterator;
-
-typedef struct {
-  u64 row, col, node;
-  bool edge;
-  bool has_value;
-} PgAdjacencyMatrixNeighbor;
 
 [[maybe_unused]] [[nodiscard]] static PgAdjacencyMatrix
 pg_adjacency_matrix_make(u64 nodes_count, PgAllocator *allocator) {
@@ -2839,18 +3376,8 @@ pg_adjacency_matrix_print(PgAdjacencyMatrix matrix) {
   }
 }
 
-typedef enum {
-  PG_CLOCK_KIND_MONOTONIC,
-  PG_CLOCK_KIND_REALTIME,
-  // TODO: More?
-} PgClockKind;
-
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_time_ns_now(PgClockKind clock_kind);
-
-typedef struct {
-  u64 state;
-} PgRng;
 
 // From https://nullprogram.com/blog/2017/09/21/.
 // PCG.
@@ -2930,13 +3457,6 @@ pg_file_close(PgFileDescriptor file);
 
 [[nodiscard]] static u64 pg_os_get_page_size();
 
-typedef enum [[clang::flag_enum]] {
-  PG_VIRTUAL_MEM_FLAGS_NONE = 0,
-  PG_VIRTUAL_MEM_FLAGS_READ = 1,
-  PG_VIRTUAL_MEM_FLAGS_WRITE = 2,
-  PG_VIRTUAL_MEM_FLAGS_EXEC = 4,
-} PgVirtualMemFlags;
-
 [[nodiscard]] i32 pg_os_get_last_error();
 [[nodiscard]] PgVoidPtrResult pg_virtual_mem_alloc(u64 size,
                                                    PgVirtualMemFlags flags);
@@ -3011,11 +3531,6 @@ pg_arena_make_from_virtual_mem(u64 size) {
 
   return pg_virtual_mem_release(arena->os_start, arena->os_alloc_size);
 }
-
-typedef struct {
-  u64 start_incl, end_excl, idx;
-} Pgu64Range;
-PG_OK(Pgu64Range) Pgu64RangeOk;
 
 [[maybe_unused]] [[nodiscard]] static Pgu64RangeOk
 pg_u64_range_search(Pgu64Slice haystack, u64 needle) {
@@ -3124,31 +3639,6 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
   return w;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin();
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout();
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr();
-
-[[maybe_unused]] static Pgu64Result pg_file_read_at(PgFileDescriptor file,
-                                                    PgString buf, u64 offset);
-
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
-pg_file_open(PgString path, PgFileAccess access, u64 mode,
-             bool create_if_not_exists, PgAllocator *allocator);
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_file_close(PgFileDescriptor file);
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_file_truncate(PgFileDescriptor file, u64 size);
-
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_file_size(PgFileDescriptor file);
-
-[[nodiscard]] static Pgu64Result pg_file_read(PgFileDescriptor file,
-                                              PgString dst);
-[[maybe_unused]] static Pgu64Result pg_file_write(PgFileDescriptor file,
-                                                  PgString s);
-
 [[maybe_unused]] static PgStringResult
 pg_file_read_full_from_descriptor(PgFileDescriptor file, u64 size,
                                   PgAllocator *allocator) {
@@ -3230,16 +3720,19 @@ end:
   return res;
 }
 
-[[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_reader_file_read(PgReader *r, Pgu8Slice dst) {
-  return pg_file_read(r->ctx, dst);
-}
-
 [[nodiscard]] [[maybe_unused]] static PgReader
 pg_reader_make_from_file_descriptor(PgFileDescriptor file) {
   PgReader r = {0};
-  r.ctx = file;
-  r.read_fn = pg_reader_file_read;
+  r.kind = PG_READER_KIND_FILE;
+  r.u.file = file;
+  return r;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgReader
+pg_reader_make_from_bytes(Pgu8Slice bytes) {
+  PgReader r = {0};
+  r.kind = PG_READER_KIND_BYTES;
+  r.u.bytes = bytes;
   return r;
 }
 
@@ -3321,46 +3814,6 @@ end:
   return err;
 }
 
-typedef struct {
-  i32 exit_status;
-  i32 signal;
-  bool exited, signaled, core_dumped, stopped;
-  // Only if `spawn_options.stdout == PG_CHILD_PROCESS_STD_IO_PIPE`.
-  PgString stdout_captured;
-  // Only if `spawn_options.stderr == PG_CHILD_PROCESS_STD_IO_PIPE`.
-  PgString stderr_captured;
-} PgProcessStatus;
-PG_RESULT(PgProcessStatus) PgProcessExitResult;
-
-typedef struct {
-  PgString stdout_captured, stderr_captured;
-} PgProcessCaptureStd;
-PG_RESULT(PgProcessCaptureStd) PgProcessCaptureStdResult;
-
-typedef struct {
-  u64 pid;
-  // Only if `spawn_options.stdin == PG_CHILD_PROCESS_STD_IO_PIPE`.
-  PgFileDescriptor stdin_pipe;
-  // Only if `spawn_options.stdout == PG_CHILD_PROCESS_STD_IO_PIPE`.
-  PgFileDescriptor stdout_pipe;
-  // Only if `spawn_options.stderr == PG_CHILD_PROCESS_STD_IO_PIPE`.
-  PgFileDescriptor stderr_pipe;
-} PgProcess;
-PG_RESULT(PgProcess) PgProcessResult;
-
-typedef enum {
-  PG_CHILD_PROCESS_STD_IO_INHERIT,
-  // `/dev/null` on Unix, `NUL` on Windows.
-  PG_CHILD_PROCESS_STD_IO_IGNORE,
-  PG_CHILD_PROCESS_STD_IO_PIPE,
-  PG_CHILD_PROCESS_STD_IO_CLOSE,
-} PgChildProcessStdIo;
-
-typedef struct {
-  PgChildProcessStdIo stdin_capture, stdout_capture, stderr_capture;
-  // TODO: env, cwd, etc.
-} PgProcessSpawnOptions;
-
 [[nodiscard]] [[maybe_unused]]
 static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
                                         PgProcessSpawnOptions options,
@@ -3425,12 +3878,6 @@ pg_net_set_nodelay(PgFileDescriptor sock, bool enabled);
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_connect_ipv4(PgFileDescriptor sock, PgIpv4Address address);
 
-typedef struct {
-  PgIpv4Address address;
-  PgFileDescriptor socket;
-} PgIpv4AddressSocket;
-PG_RESULT(PgIpv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
-
 [[maybe_unused]] [[nodiscard]] static PgDnsResolveIpv4AddressSocketResult
 pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgAllocator *allocator);
 
@@ -3450,12 +3897,6 @@ pg_net_socket_write(PgFileDescriptor sock, PgString data);
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_net_socket_read(PgFileDescriptor sock, PgString data);
-
-typedef struct {
-  PgIpv4Address address;
-  PgFileDescriptor socket;
-  PgError err;
-} PgIpv4AddressAcceptResult;
 
 [[maybe_unused]] [[nodiscard]] static PgIpv4AddressAcceptResult
 pg_net_tcp_accept(PgFileDescriptor sock);
@@ -4148,27 +4589,6 @@ pg_writer_unix_file_write(PgWriter *w, Pgu8Slice src) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_reader_unix_file_read(PgReader *r, u8 *buf, size_t buf_len) {
-  PG_ASSERT(nullptr != r);
-  PG_ASSERT(nullptr != buf);
-
-  PgFileDescriptor file = r->ctx;
-  isize n = 0;
-  do {
-    n = read(file.fd, buf, buf_len);
-  } while (-1 == n && EINTR == errno);
-
-  Pgu64Result res = {0};
-  if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.res = (u64)n;
-  }
-
-  return res;
-}
-
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_writer_file_write(PgWriter *w, Pgu8Slice src, PgAllocator *) {
   return pg_writer_unix_file_write(w, src);
 }
@@ -4681,19 +5101,6 @@ pg_file_open(PgString path, PgFileAccess access, u64 mode,
 
 #endif
 
-typedef enum {
-  HTTP_METHOD_UNKNOWN,
-  HTTP_METHOD_OPTIONS,
-  HTTP_METHOD_GET,
-  HTTP_METHOD_HEAD,
-  HTTP_METHOD_POST,
-  HTTP_METHOD_PUT,
-  HTTP_METHOD_DELETE,
-  HTTP_METHOD_TRACE,
-  HTTP_METHOD_CONNECT,
-  HTTP_METHOD_EXTENSION,
-} PgHttpMethod;
-
 [[maybe_unused]]
 PgString static pg_http_method_to_string(PgHttpMethod m) {
   switch (m) {
@@ -4721,60 +5128,6 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
     PG_ASSERT(0);
   }
 }
-
-typedef struct {
-  PgString key, value;
-} PgStringKeyValue;
-
-PG_RESULT(PgStringKeyValue) PgStringKeyValueResult;
-PG_DYN(PgStringKeyValue) PgStringKeyValueDyn;
-PG_SLICE(PgStringKeyValue) PgStringKeyValueSlice;
-PG_RESULT(PgStringKeyValueDyn) PgStringDynKeyValueResult;
-
-typedef struct {
-  PgString scheme;
-  PgString username, password;
-  PgString host; // Including subdomains.
-  PgStringDyn path_components;
-  PgStringKeyValueDyn query_parameters;
-  u16 port;
-  // TODO: fragment.
-} PgUrl;
-
-typedef struct {
-  PgString id;
-  PgUrl url; // Does not have a scheme, domain, port.
-  PgHttpMethod method;
-  PgStringKeyValueDyn headers;
-  u8 version_minor;
-  u8 version_major;
-} PgHttpRequest;
-
-// `GET /en-US/docs/Web/HTTP/Messages HTTP/1.1`.
-typedef struct {
-  PgHttpMethod method;
-  u8 version_minor;
-  u8 version_major;
-  PgUrl url; // Does not have a scheme, domain, port.
-} PgHttpRequestStatusLine;
-
-PG_RESULT(PgHttpRequestStatusLine) PgHttpRequestStatusLineResult;
-
-// `HTTP/1.1 201 Created`.
-typedef struct {
-  u8 version_minor;
-  u8 version_major;
-  u16 status;
-} PgHttpResponseStatusLine;
-
-PG_RESULT(PgHttpResponseStatusLine) PgHttpResponseStatusLineResult;
-
-typedef struct {
-  u8 version_major;
-  u8 version_minor;
-  u16 status;
-  PgStringKeyValueDyn headers;
-} PgHttpResponse;
 
 [[maybe_unused]] [[nodiscard]] static PgHttpResponseStatusLineResult
 pg_http_parse_response_status_line(PgString status_line) {
@@ -5074,22 +5427,6 @@ pg_html_sanitize(PgString s, PgAllocator *allocator) {
 
   return PG_DYN_SLICE(PgString, res);
 }
-
-typedef struct {
-  PgString username, password;
-} PgUrlUserInfo;
-
-PG_RESULT(PgUrlUserInfo) PgUrlUserInfoResult;
-
-typedef struct {
-  PgUrlUserInfo user_info;
-  PgString host;
-  u16 port;
-} PgUrlAuthority;
-
-PG_RESULT(PgUrlAuthority) PgUrlAuthorityResult;
-
-PG_RESULT(PgUrl) PgUrlResult;
 
 [[maybe_unused]] [[nodiscard]] static PgStringDynResult
 pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
@@ -5529,18 +5866,6 @@ pg_http_parse_header(PgString s) {
   return res;
 }
 
-typedef struct {
-  bool done;
-  PgHttpResponse res;
-  PgError err;
-} PgHttpResponseReadResult;
-
-typedef struct {
-  bool done;
-  PgHttpRequest res;
-  PgError err;
-} PgHttpRequestReadResult;
-
 #if 0
 [[maybe_unused]] [[nodiscard]] static PgHttpResponseReadResult
 pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
@@ -5593,11 +5918,6 @@ pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
 }
 #endif
 
-typedef struct {
-  PgReader reader;
-  PgRing ring;
-} PgBufReader;
-
 [[maybe_unused]] [[nodiscard]] static PgBufReader
 pg_buf_reader_make(PgReader reader, u64 buf_size, PgAllocator *allocator) {
   PgBufReader res = {0};
@@ -5610,7 +5930,6 @@ pg_buf_reader_make(PgReader reader, u64 buf_size, PgAllocator *allocator) {
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
   PG_ASSERT(r);
-  PG_ASSERT(r->reader.read_fn);
 
   Pgu64Result res = {0};
 
@@ -5627,7 +5946,7 @@ pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
       .data = tmp,
       .len = PG_MIN(PG_STATIC_ARRAY_LEN(tmp), pg_ring_write_space(r->ring)),
   };
-  Pgu64Result res_read = r->reader.read_fn(&r->reader, tmp_slice);
+  Pgu64Result res_read = pg_reader_read(&r->reader, tmp_slice);
   if (res_read.err) {
     res.err = res_read.err;
     return res;
@@ -5639,43 +5958,78 @@ pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_buf_reader_read_until_bytes_excl(PgBufReader *r, Pgu8Slice dst,
-                                    Pgu8Slice needle) {
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_buf_reader_try_fill_internal_buffer(PgBufReader *r) {
+  PG_ASSERT(r);
 
-  Pgu8Slice writable = dst;
   for (;;) {
-    if (PG_SLICE_IS_EMPTY(writable)) {
-      return (Pgu64Result){.err = PG_ERR_EOF};
+    u64 ring_write_space = pg_ring_write_space(r->ring);
+    u8 tmp[4096] = {0};
+    Pgu8Slice tmp_slice = {
+        .data = tmp,
+        .len = PG_MIN(ring_write_space, PG_STATIC_ARRAY_LEN(tmp)),
+    };
+    // No more space.
+    if (0 == tmp_slice.len) {
+      return 0;
     }
 
-    Pgu64Ok search = pg_bytes_last_index_of_bytes(dst, needle);
-    if (search.ok) {
-      return (Pgu64Result){.res = search.res};
+    Pgu64Result res_read = pg_reader_read(&r->reader, tmp_slice);
+    if (res_read.err) {
+      return res_read.err;
+    }
+    if (0 == res_read.res) { // EOF?
+      return 0;
     }
 
-    Pgu64Result res = pg_buf_reader_read(r, writable);
-    if (res.err) {
-      return res;
-    }
-
-    writable = PG_SLICE_RANGE_START(writable, res.res);
+    Pgu8Slice read_data = PG_SLICE_RANGE(tmp_slice, 0, res_read.res);
+    PG_ASSERT(read_data.len == pg_ring_try_write_bytes(&r->ring, read_data));
   }
 }
 
-#if 0
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_buf_reader_read_mem_until_bytes_excl(PgBufReader *r, Pgu8Slice dst,
+                                        Pgu8Slice needle) {
+  PG_ASSERT(dst.data);
+
+  Pgu64Result res = {0};
+
+  PgError err = pg_buf_reader_try_fill_internal_buffer(r);
+  if (err) {
+    res.err = err;
+    return res;
+  }
+
+  {
+    PgRing ring = r->ring;
+    (void)pg_ring_try_write_bytes(&ring, dst);
+    PgBytesCut cut = pg_bytes_cut_bytes_excl(dst, needle);
+    if (cut.ok) {
+      r->ring = ring; // Commit.
+      res.res = cut.left.len;
+      return res;
+    }
+  }
+
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
 pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
   PgHttpRequestReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
-  PgStringOk s = pg_buf_reader_read(reader, sep, allocator);
-  if (!s.ok) {
-    res.err = PG_ERR_INVALID_VALUE;
+  Pgu8Slice header_bytes = pg_bytes_make(reader->ring.data.len, allocator);
+  Pgu64Result res_read_headers =
+      pg_buf_reader_read_mem_until_bytes_excl(reader, header_bytes, sep);
+  if (res_read_headers.err) {
+    res.err = res_read_headers.err;
     return res;
   }
 
-  PgSplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
+  header_bytes.len = res_read_headers.res;
+
+  PgSplitIterator it = pg_string_split_string(header_bytes, PG_S("\r\n"));
   PgStringOk res_split = pg_string_split_next(&it);
   if (!res_split.ok) {
     res.err = PG_ERR_INVALID_VALUE;
@@ -5715,7 +6069,6 @@ pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
   res.done = true;
   return res;
 }
-#endif
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_http_write_request(PgWriter *w, PgHttpRequest req, PgAllocator *allocator) {
@@ -5809,48 +6162,6 @@ pg_http_headers_parse_content_length(PgStringKeyValueSlice headers,
   }
   return res;
 }
-
-typedef enum {
-  PG_LOG_VALUE_STRING,
-  PG_LOG_VALUE_U64,
-  PG_LOG_VALUE_I64,
-  PG_LOG_VALUE_IPV4_ADDRESS,
-  // TODO: IPV6_ADDRESS
-} PgLogValueKind;
-
-typedef enum {
-  PG_LOG_LEVEL_DEBUG,
-  PG_LOG_LEVEL_INFO,
-  PG_LOG_LEVEL_ERROR,
-} PgLogLevel;
-
-typedef struct PgLogger PgLogger;
-typedef PgString (*PgMakeLogLineFn)(u8 *mem, u64 mem_len, PgLogger *logger,
-                                    PgLogLevel level, PgString msg,
-                                    i32 args_count, ...);
-struct PgLogger {
-  PgLogLevel level;
-  PgWriter writer;
-  PgMakeLogLineFn make_log_line;
-  u64 monotonic_epoch;
-};
-
-typedef struct {
-  PgLogValueKind kind;
-  union {
-    PgString s;
-    u32 n32;
-    u64 n64;
-    i32 s32;
-    i64 s64;
-    PgIpv4Address ipv4_address;
-  };
-} PgLogValue;
-
-typedef struct {
-  PgString key;
-  PgLogValue value;
-} PgLogEntry;
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
@@ -6139,10 +6450,6 @@ typedef int (*PgCmpFn)(const void *a, const void *b);
   }
 }
 
-typedef struct {
-  u8 value[16];
-  u8 version;
-} PgUuid;
 [[maybe_unused]] [[nodiscard]] static PgUuid pg_uuid_v5(PgUuid namespace,
                                                         PgString name) {
   PG_SHA1_CTX ctx = {0};
@@ -6211,48 +6518,6 @@ pg_uuid_to_string(PgUuid uuid, PgAllocator *allocator) {
 
   return res;
 }
-
-typedef enum {
-  PG_HTML_TOKEN_KIND_NONE,
-  PG_HTML_TOKEN_KIND_TEXT,
-  PG_HTML_TOKEN_KIND_TAG_OPENING,
-  PG_HTML_TOKEN_KIND_TAG_CLOSING,
-  PG_HTML_TOKEN_KIND_ATTRIBUTE,
-  PG_HTML_TOKEN_KIND_COMMENT,
-  PG_HTML_TOKEN_KIND_DOCTYPE,
-} PgHtmlTokenKind;
-
-typedef struct {
-  PgHtmlTokenKind kind;
-  u32 start, end;
-  union {
-#if 0
-    PgKeyValue attribute;
-#endif
-    PgString tag;
-    PgString doctype;
-    PgString text;
-    PgString comment;
-  };
-} PgHtmlToken;
-PG_RESULT(PgHtmlToken) PgHtmlTokenResult;
-PG_DYN(PgHtmlToken) PgHtmlTokenDyn;
-PG_SLICE(PgHtmlToken) PgHtmlTokenSlice;
-PG_RESULT(PgHtmlTokenDyn) PgHtmlTokenDynResult;
-
-typedef enum {
-  PG_HTML_PARSE_ERROR_NONE = 0,
-  PG_HTML_PARSE_ERROR_INCORRECTLY_CLOSED_COMMENT = 0x600,
-  PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME = 0x601,
-  PG_HTML_PARSE_ERROR_EOF_IN_TAG = 0x602,
-  PG_HTML_PARSE_ERROR_UNEXPECTED_CHARACTER_IN_ATTRIBUTE_NAME = 0x603,
-  PG_HTML_PARSE_ERROR_UNEXPECTED_EQUALS_SIGN_BEFORE_ATTRIBUTE_NAME = 0x604,
-  PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE = 0x605,
-  PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME = 0x606,
-  PG_HTML_PARSE_ERROR_MISSING_DOCTYPE_NAME = 0x607,
-  PG_HTML_PARSE_ERROR_EOF_IN_COMMENT = 0x608,
-
-} PgHtmlParseError;
 
 #if 0
 [[maybe_unused]] [[nodiscard]]
@@ -6638,11 +6903,6 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
   PG_ASSERT(0);
 }
 
-typedef struct PgLinkedListNode PgLinkedListNode;
-struct PgLinkedListNode {
-  PgLinkedListNode *next;
-};
-
 [[maybe_unused]] static void pg_linked_list_init(PgLinkedListNode *node) {
   PG_ASSERT(node);
   node->next = node;
@@ -6671,13 +6931,6 @@ static PgLinkedListNode *pg_linked_list_tail(PgLinkedListNode *node) {
 
   pg_linked_list_tail(head)->next = elem;
 }
-
-typedef struct PgHtmlNode PgHtmlNode;
-struct PgHtmlNode {
-  PgHtmlToken token_start, token_end;
-  PgLinkedListNode parent, next_sibling, first_child;
-};
-PG_RESULT(PgHtmlNode *) PgHtmlNodePtrResult;
 
 [[nodiscard]] static PgHtmlNode *pg_html_node_get_parent(PgHtmlNode *node) {
   PgLinkedListNode *linked_list_node = node->parent.next;
@@ -6950,169 +7203,6 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
   }
 }
 #endif
-
-static const u32 PgElfProgramHeaderTypeLoad = 1;
-static const u32 PgElfProgramHeaderFlagsExecutable = 1;
-static const u32 PgElfProgramHeaderFlagsReadable = 4;
-
-typedef enum : u32 {
-  PG_ELF_SECTION_HEADER_KIND_NULL = 0,
-  PG_ELF_SECTION_HEADER_KIND_PROGBITS = 1,
-  PG_ELF_SECTION_HEADER_KIND_SYMTAB = 2,
-  PG_ELF_SECTION_HEADER_KIND_STRTAB = 3,
-  PG_ELF_SECTION_HEADER_KIND_RELA = 4,
-  PG_ELF_SECTION_HEADER_KIND_HASH = 5,
-  PG_ELF_SECTION_HEADER_KIND_DYNAMIC = 6,
-  PG_ELF_SECTION_HEADER_KIND_NOTE = 7,
-  PG_ELF_SECTION_HEADER_KIND_NOBITS = 8,
-  PG_ELF_SECTION_HEADER_KIND_REL = 9,
-  PG_ELF_SECTION_HEADER_KIND_SHLIB = 10,
-  PG_ELF_SECTION_HEADER_KIND_DYNSYM = 11,
-} PgElfSectionHeaderKind;
-
-typedef struct {
-  u32 name;
-  u8 info;
-  u8 other;
-  u16 section_header_table_index;
-  u64 value;
-  u64 size;
-} PgElfSymbolTableEntry;
-static_assert(24 == sizeof(PgElfSymbolTableEntry));
-PG_DYN(PgElfSymbolTableEntry) PgElfSymbolTableEntryDyn;
-
-typedef enum : u8 {
-  PG_ELF_SYMBOL_BIND_LOCAL = 0,
-  PG_ELF_SYMBOL_BIND_GLOBAL = 1,
-  PG_ELF_SYMBOL_BIND_WEAK = 2,
-  PG_ELF_SYMBOL_BIND_LOPROC = 13,
-  PG_ELF_SYMBOL_BIND_HIPROC = 15,
-} PgElfSymbolBind;
-
-typedef enum : u8 {
-  PG_ELF_SYMBOL_TYPE_NONE = 0,
-  PG_ELF_SYMBOL_TYPE_OBJECT = 1,
-  PG_ELF_SYMBOL_TYPE_FUNC = 2,
-  PG_ELF_SYMBOL_TYPE_SECTION = 3,
-  PG_ELF_SYMBOL_TYPE_FILE = 4,
-  PG_ELF_SYMBOL_TYPE_LOPROC = 13,
-  PG_ELF_SYMBOL_TYPE_HIPROC = 15,
-} PgElfSymbolType;
-
-typedef enum : u64 {
-  PG_ELF_SECTION_HEADER_FLAG_WRITE = 1 << 0,
-  PG_ELF_SECTION_HEADER_FLAG_ALLOC = 1 << 1,
-  PG_ELF_SECTION_HEADER_FLAG_EXECINSTR = 1 << 2,
-  PG_ELF_SECTION_HEADER_FLAG_MASKPROC = 0xf0000000,
-} PgElfSectionHeaderFlag;
-
-typedef struct {
-  u32 type;
-  u32 flags;
-  u64 p_offset;
-  u64 p_vaddr;
-  u64 p_paddr;
-  u64 p_filesz;
-  u64 p_memsz;
-  u64 alignment;
-} PgElfProgramHeader;
-static_assert(56 == sizeof(PgElfProgramHeader));
-PG_DYN(PgElfProgramHeader) PgElfProgramHeaderDyn;
-
-typedef struct {
-  u32 name;
-  PgElfSectionHeaderKind kind;
-  u64 flags;
-  u64 addr;
-  u64 offset;
-  u64 size;
-  u32 link;
-  u32 info;
-  u64 align;
-  u64 entsize;
-} PgElfSectionHeader;
-static_assert(64 == sizeof(PgElfSectionHeader));
-PG_DYN(PgElfSectionHeader) PgElfSectionHeaderDyn;
-PG_SLICE(PgElfSectionHeader) PgElfSectionHeaderSlice;
-PG_OK(PgElfSectionHeader) PgElfSectionHeaderOk;
-
-typedef enum {
-  PG_ELF_KNOWN_SECTION_TEXT,
-  PG_ELF_KNOWN_SECTION_RODATA,
-  PG_ELF_KNOWN_SECTION_DATA,
-  PG_ELF_KNOWN_SECTION_STRTAB,
-  PG_ELF_KNOWN_SECTION_RELOC_TEXT,
-  PG_ELF_KNOWN_SECTION_SYMTAB,
-} PgElfKnownSection;
-
-typedef enum : u8 {
-  PG_ELF_ENDIAN_LITTLE = 1,
-} PgElfEndianness;
-
-typedef enum : u16 {
-  PG_ELF_TYPE_NONE,
-  PG_ELF_TYPE_RELOCATABLE_FILE,
-  PG_ELF_TYPE_EXECUTABLE_FILE,
-  PG_ELF_TYPE_SHARED_OBJECT_FILE,
-  PG_ELF_TYPE_CORE_FILE,
-} PgElfType;
-
-typedef enum : u8 {
-  PG_ELF_CLASS_NONE,
-  PG_ELF_CLASS_32_BITS,
-  PG_ELF_CLASS_64_BITS,
-} PgElfClass;
-
-typedef enum : u16 {
-  PG_ELF_ARCH_NONE = 0,
-  PG_ELF_ARCH_SPARC = 2,
-  PG_ELF_ARCH_386 = 3,
-  PG_ELF_ARCH_SPARC_32_PLUS = 18,
-  PG_ELF_ARCH_SPARC_V9 = 43,
-  PG_ELF_ARCH_AMD64 = 62,
-} PgElfArchitecture;
-
-typedef struct {
-  u8 magic[4];
-  PgElfClass class;
-  PgElfEndianness endianness;
-  u8 elf_header_version;
-  u8 abi_version;
-  PG_PAD(8);
-  PgElfType type;
-  PgElfArchitecture architecture;
-  u32 elf_version;
-  u64 entrypoint_address;
-  u64 program_header_offset;
-  u64 section_header_offset;
-  u32 cpu_flags;
-  u16 header_size;
-  u16 program_header_entry_size;
-  u16 program_header_entries_count;
-  u16 section_header_entry_size;
-  u16 section_header_entries_count;
-  // The section header table index of the entry that is associated with the
-  // section name string table.
-  u16 section_header_index;
-} PgElfHeader;
-static_assert(24 == offsetof(PgElfHeader, entrypoint_address));
-static_assert(52 == offsetof(PgElfHeader, header_size));
-static_assert(64 == sizeof(PgElfHeader));
-
-typedef struct {
-  Pgu8Slice bytes;
-
-  PgElfHeader header;
-  PgElfProgramHeaderDyn program_headers;
-  PgElfSectionHeaderDyn section_headers;
-
-  // Useful section header data.
-  PgElfSymbolTableEntryDyn symtab;
-  Pgu8Slice strtab;
-  Pgu8Slice program_text;
-  u32 program_text_idx;
-} PgElf;
-PG_RESULT(PgElf) PgElfResult;
 
 [[nodiscard]] [[maybe_unused]] static PgElfSymbolType
 pg_elf_symbol_get_type(PgElfSymbolTableEntry sym) {
