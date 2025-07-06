@@ -1440,6 +1440,7 @@ static void test_http_read_request() {
       pg_http_read_request(&buf_reader, allocator);
 
   PG_ASSERT(!res_req.err);
+  PG_ASSERT(res_req.done);
 }
 
 #if 0
