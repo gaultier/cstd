@@ -4428,19 +4428,40 @@ pg_file_open(PgString path, PgFileAccess access, u64 mode,
 
 typedef enum {
   HTTP_METHOD_UNKNOWN,
+  HTTP_METHOD_OPTIONS,
   HTTP_METHOD_GET,
-  HTTP_METHOD_POST
+  HTTP_METHOD_HEAD,
+  HTTP_METHOD_POST,
+  HTTP_METHOD_PUT,
+  HTTP_METHOD_DELETE,
+  HTTP_METHOD_TRACE,
+  HTTP_METHOD_CONNECT,
+  HTTP_METHOD_EXTENSION,
 } PgHttpMethod;
 
 [[maybe_unused]]
 PgString static pg_http_method_to_string(PgHttpMethod m) {
   switch (m) {
   case HTTP_METHOD_UNKNOWN:
-    return PG_S("unknown");
+    return PG_S("UNKNOWN");
+  case HTTP_METHOD_OPTIONS:
+    return PG_S("OPTIONS");
   case HTTP_METHOD_GET:
     return PG_S("GET");
+  case HTTP_METHOD_HEAD:
+    return PG_S("HEAD");
   case HTTP_METHOD_POST:
     return PG_S("POST");
+  case HTTP_METHOD_PUT:
+    return PG_S("PUT");
+  case HTTP_METHOD_DELETE:
+    return PG_S("DELETE");
+  case HTTP_METHOD_TRACE:
+    return PG_S("TRACE");
+  case HTTP_METHOD_CONNECT:
+    return PG_S("CONNECT");
+  case HTTP_METHOD_EXTENSION:
+    return PG_S("EXTENSION");
   default:
     PG_ASSERT(0);
   }
@@ -5266,8 +5287,7 @@ typedef struct {
 } PgHttpRequestReadResult;
 
 [[maybe_unused]] [[nodiscard]] static PgHttpResponseReadResult
-pg_http_read_response(PgRing *rg, u64 max_http_headers,
-                      PgAllocator *allocator) {
+pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
   PgHttpResponseReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
@@ -5294,7 +5314,7 @@ pg_http_read_response(PgRing *rg, u64 max_http_headers,
   res.res.version_major = res_status_line.res.version_major;
   res.res.version_minor = res_status_line.res.version_minor;
 
-  for (u64 _i = 0; _i < max_http_headers; _i++) {
+  for (;;) {
     res_split = pg_string_split_next(&it);
     if (!res_split.ok) {
       break;
@@ -5317,7 +5337,7 @@ pg_http_read_response(PgRing *rg, u64 max_http_headers,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
-pg_http_read_request(PgRing *rg, u64 max_http_headers, PgAllocator *allocator) {
+pg_http_read_request(PgRing *rg, PgAllocator *allocator) {
   PgHttpRequestReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
@@ -5345,7 +5365,7 @@ pg_http_read_request(PgRing *rg, u64 max_http_headers, PgAllocator *allocator) {
   res.res.version_major = res_status_line.res.version_major;
   res.res.version_minor = res_status_line.res.version_minor;
 
-  for (u64 _i = 0; _i < max_http_headers; _i++) {
+  for (;;) {
     res_split = pg_string_split_next(&it);
     if (!res_split.ok) {
       break;
