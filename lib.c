@@ -3487,6 +3487,53 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
   }
 }
 
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
+pg_net_create_tcp_socket();
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_close(PgFileDescriptor sock);
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_set_nodelay(PgFileDescriptor sock, bool enabled);
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_connect_ipv4(PgFileDescriptor sock, PgIpv4Address address);
+
+typedef struct {
+  PgIpv4Address address;
+  PgFileDescriptor socket;
+} PgIpv4AddressSocket;
+PG_RESULT(PgIpv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
+
+[[maybe_unused]] [[nodiscard]] static PgDnsResolveIpv4AddressSocketResult
+pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_tcp_listen(PgFileDescriptor sock, u64 backlog);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_tcp_bind_ipv4(PgFileDescriptor sock, PgIpv4Address addr);
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_enable_reuse(PgFileDescriptor sock);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_set_blocking(PgFileDescriptor sock, bool blocking);
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_net_socket_write(PgFileDescriptor sock, PgString data);
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_net_socket_read(PgFileDescriptor sock, PgString data);
+
+typedef struct {
+  PgIpv4Address address;
+  PgFileDescriptor socket;
+  PgError err;
+} PgIpv4AddressAcceptResult;
+
+[[maybe_unused]] [[nodiscard]] static PgIpv4AddressAcceptResult
+pg_net_tcp_accept(PgFileDescriptor sock);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_get_socket_error(PgFileDescriptor socket);
+
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
@@ -3534,613 +3581,616 @@ static PgError pg_net_set_nodelay(PgFileDescriptor sock, bool enabled) {
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
+    return (PgError)errno;
+  }
 
-    [[nodiscard]] [[maybe_unused]] static PgError pg_file_rewind_start(
-        PgFileDescriptor f) {
-      off_t ret = lseek(f.fd, 0, SEEK_SET);
+  return 0;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_rewind_start(PgFileDescriptor f) {
+  off_t ret = lseek(f.fd, 0, SEEK_SET);
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+  return 0;
+}
+
+// TODO: Review in the context of multiple threads spawning and reaping
+// processes.
+[[nodiscard]] [[maybe_unused]]
+static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
+                                        PgProcessSpawnOptions options,
+                                        PgAllocator *allocator) {
+  PgProcessResult res = {0};
+
+  char *path_c = (char *)pg_string_to_cstr(path, allocator);
+
+  PgCstrDyn args_c = {0};
+  PG_DYN_ENSURE_CAP(&args_c, args.len + 2, allocator);
+  *PG_DYN_PUSH(&args_c, allocator) = path_c;
+
+  for (u64 i = 0; i < args.len; i++) {
+    PgString arg = PG_SLICE_AT(args, i);
+
+    *PG_DYN_PUSH(&args_c, allocator) = pg_string_to_cstr(arg, allocator);
+  }
+  PG_ASSERT(args.len + 1 == args_c.len);
+
+  int stdin_pipe[2] = {0};
+  {
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdin_capture) {
+      int ret = pipe(stdin_pipe);
       if (-1 == ret) {
-        return (PgError)errno;
-      }
-      return 0;
-    }
-
-    // TODO: Review in the context of multiple threads spawning and reaping
-    // processes.
-    [[nodiscard]] [[maybe_unused]]
-    static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
-                                            PgProcessSpawnOptions options,
-                                            PgAllocator * allocator) {
-      PgProcessResult res = {0};
-
-      char *path_c = (char *)pg_string_to_cstr(path, allocator);
-
-      PgCstrDyn args_c = {0};
-      PG_DYN_ENSURE_CAP(&args_c, args.len + 2, allocator);
-      *PG_DYN_PUSH(&args_c, allocator) = path_c;
-
-      for (u64 i = 0; i < args.len; i++) {
-        PgString arg = PG_SLICE_AT(args, i);
-
-        *PG_DYN_PUSH(&args_c, allocator) = pg_string_to_cstr(arg, allocator);
-      }
-      PG_ASSERT(args.len + 1 == args_c.len);
-
-      int stdin_pipe[2] = {0};
-      {
-        if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdin_capture) {
-          int ret = pipe(stdin_pipe);
-          if (-1 == ret) {
-            res.err = (PgError)errno;
-            goto end;
-          }
-        }
-      }
-
-      int stdout_pipe[2] = {0};
-      {
-        if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdout_capture) {
-          int ret = pipe(stdout_pipe);
-          if (-1 == ret) {
-            res.err = (PgError)errno;
-            goto end;
-          }
-        }
-      }
-
-      int stderr_pipe[2] = {0};
-      {
-        if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stderr_capture) {
-          int ret = pipe(stderr_pipe);
-          if (-1 == ret) {
-            res.err = (PgError)errno;
-            goto end;
-          }
-        }
-      }
-
-      int pid = fork();
-
-      if (-1 == pid) {
         res.err = (PgError)errno;
         goto end;
       }
-
-      if (0 == pid) { // Child.
-
-        bool need_ignore =
-            (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdin_capture) ||
-            (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdout_capture) ||
-            (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stderr_capture);
-
-        int fd_ignore = 0;
-        if (need_ignore) {
-          fd_ignore = open("/dev/null", O_RDWR, 0);
-          PG_ASSERT(-1 != fd_ignore);
-        }
-
-        if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdin_capture) {
-          close(stdin_pipe[PG_PIPE_WRITE]);
-          int ret_dup2 = dup2(stdin_pipe[PG_PIPE_READ], STDIN_FILENO);
-          PG_ASSERT(-1 != ret_dup2);
-        } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stdin_capture) {
-          close(STDIN_FILENO);
-        } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdin_capture) {
-          int ret_dup2 = dup2(fd_ignore, STDIN_FILENO);
-          PG_ASSERT(-1 != ret_dup2);
-        }
-
-        if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdout_capture) {
-          close(stdout_pipe[PG_PIPE_READ]);
-          int ret_dup2 = dup2(stdout_pipe[PG_PIPE_WRITE], STDOUT_FILENO);
-          PG_ASSERT(-1 != ret_dup2);
-        } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stdout_capture) {
-          close(STDOUT_FILENO);
-        } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdout_capture) {
-          int ret_dup2 = dup2(fd_ignore, STDOUT_FILENO);
-          PG_ASSERT(-1 != ret_dup2);
-        }
-
-        if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stderr_capture) {
-          close(stderr_pipe[PG_PIPE_READ]);
-          int ret_dup2 = dup2(stderr_pipe[PG_PIPE_WRITE], STDERR_FILENO);
-          PG_ASSERT(-1 != ret_dup2);
-        } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stderr_capture) {
-          close(STDERR_FILENO);
-        } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stderr_capture) {
-          int ret_dup2 = dup2(fd_ignore, STDERR_FILENO);
-          PG_ASSERT(-1 != ret_dup2);
-        }
-
-        if (-1 == execvp(path_c, args_c.data)) {
-          // Not easy to give the error back to the caller here.
-          // Maybe with a separate pipe?
-          PG_ASSERT(0);
-        }
-        PG_ASSERT(0 && "unreachable");
-      }
-
-      PG_ASSERT(pid > 0); // Parent.
-      res.res.pid = (u64)pid;
-      res.res.stdin_pipe.fd = stdin_pipe[PG_PIPE_WRITE];
-      res.res.stdout_pipe.fd = stdout_pipe[PG_PIPE_READ];
-      res.res.stderr_pipe.fd = stderr_pipe[PG_PIPE_READ];
-
-    end:
-      for (u64 i = 0; i < args_c.len; i++) {
-        char *arg_c = PG_SLICE_AT(args_c, i);
-        pg_free(allocator, arg_c);
-      }
-
-      if (stdin_pipe[PG_PIPE_READ]) {
-        close(stdin_pipe[PG_PIPE_READ]);
-      }
-      if (stdout_pipe[PG_PIPE_WRITE]) {
-        close(stdout_pipe[PG_PIPE_WRITE]);
-      }
-      if (stderr_pipe[PG_PIPE_WRITE]) {
-        close(stderr_pipe[PG_PIPE_WRITE]);
-      }
-
-      if (res.err) {
-        if (stdin_pipe[PG_PIPE_WRITE]) {
-          close(stdin_pipe[PG_PIPE_WRITE]);
-        }
-        if (stdout_pipe[PG_PIPE_READ]) {
-          close(stdout_pipe[PG_PIPE_READ]);
-        }
-        if (stderr_pipe[PG_PIPE_READ]) {
-          close(stderr_pipe[PG_PIPE_READ]);
-        }
-      }
-
-      return res;
     }
+  }
 
-    // TODO: Review in the context of multiple threads spawning and reaping
-    // processes.
-    [[nodiscard]] [[maybe_unused]]
-    static PgProcessCaptureStdResult pg_process_capture_std_io(
-        PgProcess process, PgAllocator * allocator) {
-      PgProcessCaptureStdResult res = {0};
-      Pgu8Dyn stdout_sb = {0};
-      Pgu8Dyn stderr_sb = {0};
-
-      if (process.stdout_pipe.fd) {
-        stdout_sb = pg_string_builder_make(4096, allocator);
-      }
-
-      if (process.stderr_pipe.fd) {
-        stderr_sb = pg_string_builder_make(4096, allocator);
-      }
-
-      while (process.stdout_pipe.fd || process.stderr_pipe.fd) {
-        struct pollfd pollfds[2] = {0};
-        nfds_t pollfds_len = 0;
-
-        if (process.stdout_pipe.fd) {
-          pollfds[pollfds_len++] = (struct pollfd){
-              .fd = process.stdout_pipe.fd,
-              .events = POLLIN,
-          };
-        }
-
-        if (process.stderr_pipe.fd) {
-          pollfds[pollfds_len++] = (struct pollfd){
-              .fd = process.stderr_pipe.fd,
-              .events = POLLIN,
-          };
-        }
-
-        int res_poll = poll(pollfds, pollfds_len, -1);
-        if (-1 == res_poll) {
-          res.err = (PgError)errno;
-          goto end;
-        }
-
-        if (0 == res_poll) {
-          break;
-        }
-
-        for (u64 i = 0; i < (u64)res_poll; i++) {
-          struct pollfd pollfd = PG_C_ARRAY_AT(pollfds, pollfds_len, i);
-
-          PgFileDescriptor *fd = &process.stdout_pipe;
-          Pgu8Dyn *sb = &stdout_sb;
-          if (pollfd.fd == process.stderr_pipe.fd) {
-            fd = &process.stderr_pipe;
-            sb = &stderr_sb;
-          }
-
-          if (pollfd.revents & (POLLERR | POLLNVAL)) {
-            close(pollfd.fd);
-            fd->fd = 0;
-            continue;
-          }
-
-          // Not sure why/how it could happen?
-          if (0 == (pollfd.revents & (POLLIN | POLLHUP))) {
-            continue;
-          }
-
-          u8 tmp[4096] = {0};
-          ssize_t read_n = read(pollfd.fd, tmp, PG_STATIC_ARRAY_LEN(tmp));
-          if (-1 == read_n) {
-            res.err = (PgError)errno;
-            goto end;
-          }
-          if (0 == read_n) {
-            close(pollfd.fd);
-            fd->fd = 0;
-            continue;
-          }
-
-          PgString actually_read = {.data = tmp, .len = (u64)read_n};
-          PG_DYN_APPEND_SLICE(sb, actually_read, allocator);
-        }
-      }
-
-    end:
-      if (res.err) {
-        pg_free(allocator, stdout_sb.data);
-        pg_free(allocator, stderr_sb.data);
-      }
-
-      if (process.stdin_pipe.fd) {
-        close(process.stdin_pipe.fd);
-      }
-      if (process.stdout_pipe.fd) {
-        close(process.stdout_pipe.fd);
-      }
-      if (process.stderr_pipe.fd) {
-        close(process.stderr_pipe.fd);
-      }
-
-      res.res.stdout_captured = PG_DYN_SLICE(PgString, stdout_sb);
-      res.res.stderr_captured = PG_DYN_SLICE(PgString, stderr_sb);
-      return res;
-    }
-
-    [[nodiscard]] [[maybe_unused]]
-    static PgProcessExitResult pg_process_wait(PgProcess process,
-                                               PgAllocator * allocator) {
-      PgProcessExitResult res = {0};
-
-      PgProcessCaptureStdResult res_capture =
-          pg_process_capture_std_io(process, allocator);
-      if (res_capture.err) {
-        res.err = res_capture.err;
-        return res;
-      }
-
-      int status = 0;
-      int ret = waitpid((pid_t)process.pid, &status, 0);
-
+  int stdout_pipe[2] = {0};
+  {
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdout_capture) {
+      int ret = pipe(stdout_pipe);
       if (-1 == ret) {
         res.err = (PgError)errno;
-        return res;
-      }
-
-      res.res.exit_status = WEXITSTATUS(status);
-      res.res.exited = WIFEXITED(status);
-      res.res.signaled = WIFSIGNALED(status);
-      res.res.signal = WTERMSIG(status);
-      res.res.core_dumped = WCOREDUMP(status);
-      res.res.stopped = WIFSTOPPED(status);
-      res.res.stdout_captured = res_capture.res.stdout_captured;
-      res.res.stderr_captured = res_capture.res.stderr_captured;
-
-      return res;
-    }
-
-    [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin() {
-      return (PgFileDescriptor){.fd = STDIN_FILENO};
-    }
-    [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout() {
-      return (PgFileDescriptor){.fd = STDOUT_FILENO};
-    }
-    [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr() {
-      return (PgFileDescriptor){.fd = STDERR_FILENO};
-    }
-
-    [[nodiscard]] i32 pg_os_get_last_error() { return errno; }
-
-    [[nodiscard]] i32 pg_virtual_mem_flags_to_os_flags(
-        PgVirtualMemFlags flags) {
-      u64 res = 0;
-      if (flags & PG_VIRTUAL_MEM_FLAGS_READ) {
-        res |= PROT_READ;
-      }
-      if (flags & PG_VIRTUAL_MEM_FLAGS_WRITE) {
-        res |= PROT_WRITE;
-      }
-      if (flags & PG_VIRTUAL_MEM_FLAGS_EXEC) {
-        res |= PROT_EXEC;
-      }
-      return (i32)res;
-    }
-
-    [[nodiscard]] PgVoidPtrResult pg_virtual_mem_alloc(
-        u64 size, PgVirtualMemFlags flags) {
-      PG_ASSERT(size > 0);
-
-      PgVoidPtrResult res = {0};
-      res.res = mmap(nullptr, size, pg_virtual_mem_flags_to_os_flags(flags),
-                     MAP_ANON | MAP_PRIVATE, -1, 0);
-      if ((void *)-1 == res.res) {
-        res.err = (PgError)pg_os_get_last_error();
-      }
-      return res;
-    }
-
-    [[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
-                                                 PgVirtualMemFlags flags_new) {
-      if (-1 ==
-          mprotect(ptr, size, pg_virtual_mem_flags_to_os_flags(flags_new))) {
-        return (PgError)pg_os_get_last_error();
-      }
-      return 0;
-    }
-
-    [[nodiscard]] PgError pg_virtual_mem_release(void *ptr, u64 size) {
-      if (-1 == munmap(ptr, size)) {
-        return (PgError)pg_os_get_last_error();
-      }
-      return 0;
-    }
-
-    [[maybe_unused]] [[nodiscard]] static PgError pg_writer_unix_file_flush(
-        PgWriter * w) {
-      PG_ASSERT(nullptr != w);
-      return (PgError){0};
-    }
-
-    [[maybe_unused]] [[nodiscard]] static Pgu64Result pg_writer_unix_file_write(
-        PgWriter * w, u8 * buf, size_t buf_len) {
-      PG_ASSERT(nullptr != w);
-      PG_ASSERT(nullptr != buf);
-
-      PgFileDescriptor file = w->ctx;
-      isize n = 0;
-      do {
-        n = write(file.fd, buf, buf_len);
-      } while (-1 == n && EINTR == errno);
-
-      Pgu64Result res = {0};
-      if (n < 0) {
-        res.err = (PgError)errno;
-      } else {
-        res.res = (u64)n;
-      }
-
-      return res;
-    }
-
-    [[maybe_unused]] [[nodiscard]] static Pgu64Result pg_reader_unix_file_read(
-        PgReader * r, u8 * buf, size_t buf_len) {
-      PG_ASSERT(nullptr != r);
-      PG_ASSERT(nullptr != buf);
-
-      PgFileDescriptor file = r->ctx;
-      isize n = 0;
-      do {
-        n = read(file.fd, buf, buf_len);
-      } while (-1 == n && EINTR == errno);
-
-      Pgu64Result res = {0};
-      if (n < 0) {
-        res.err = (PgError)errno;
-      } else {
-        res.res = (u64)n;
-      }
-
-      return res;
-    }
-
-    [[maybe_unused]] [[nodiscard]] static Pgu64Result pg_writer_file_write(
-        PgWriter * w, u8 * buf, size_t buf_len, PgAllocator *) {
-      return pg_writer_unix_file_write(w, buf, buf_len);
-    }
-
-    [[maybe_unused]] [[nodiscard]] static PgError pg_writer_file_flush(
-        PgWriter * w) {
-      return pg_writer_unix_file_flush(w);
-    }
-
-    [[maybe_unused]] [[nodiscard]] static Pgu64Result pg_reader_file_read(
-        PgReader * r, u8 * buf, size_t buf_len) {
-      return pg_reader_unix_file_read(r, buf, buf_len);
-    }
-
-    [[maybe_unused]] [[nodiscard]] static clockid_t pg_clock_to_linux(
-        PgClockKind clock_kind) {
-      switch (clock_kind) {
-      case PG_CLOCK_KIND_MONOTONIC:
-        return CLOCK_MONOTONIC;
-      case PG_CLOCK_KIND_REALTIME:
-        return CLOCK_REALTIME;
-      default:
-        PG_ASSERT(0);
+        goto end;
       }
     }
+  }
 
-    [[maybe_unused]] [[nodiscard]] static Pgu64Result pg_time_ns_now(
-        PgClockKind clock) {
-      Pgu64Result res = {0};
-
-      struct timespec ts = {0};
-      int ret = 0;
-      do {
-        ret = clock_gettime(pg_clock_to_linux(clock), &ts);
-      } while (-1 == ret && EINTR == errno);
-
+  int stderr_pipe[2] = {0};
+  {
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stderr_capture) {
+      int ret = pipe(stderr_pipe);
       if (-1 == ret) {
         res.err = (PgError)errno;
-        return res;
+        goto end;
+      }
+    }
+  }
+
+  int pid = fork();
+
+  if (-1 == pid) {
+    res.err = (PgError)errno;
+    goto end;
+  }
+
+  if (0 == pid) { // Child.
+
+    bool need_ignore =
+        (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdin_capture) ||
+        (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdout_capture) ||
+        (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stderr_capture);
+
+    int fd_ignore = 0;
+    if (need_ignore) {
+      fd_ignore = open("/dev/null", O_RDWR, 0);
+      PG_ASSERT(-1 != fd_ignore);
+    }
+
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdin_capture) {
+      close(stdin_pipe[PG_PIPE_WRITE]);
+      int ret_dup2 = dup2(stdin_pipe[PG_PIPE_READ], STDIN_FILENO);
+      PG_ASSERT(-1 != ret_dup2);
+    } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stdin_capture) {
+      close(STDIN_FILENO);
+    } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdin_capture) {
+      int ret_dup2 = dup2(fd_ignore, STDIN_FILENO);
+      PG_ASSERT(-1 != ret_dup2);
+    }
+
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdout_capture) {
+      close(stdout_pipe[PG_PIPE_READ]);
+      int ret_dup2 = dup2(stdout_pipe[PG_PIPE_WRITE], STDOUT_FILENO);
+      PG_ASSERT(-1 != ret_dup2);
+    } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stdout_capture) {
+      close(STDOUT_FILENO);
+    } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stdout_capture) {
+      int ret_dup2 = dup2(fd_ignore, STDOUT_FILENO);
+      PG_ASSERT(-1 != ret_dup2);
+    }
+
+    if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stderr_capture) {
+      close(stderr_pipe[PG_PIPE_READ]);
+      int ret_dup2 = dup2(stderr_pipe[PG_PIPE_WRITE], STDERR_FILENO);
+      PG_ASSERT(-1 != ret_dup2);
+    } else if (PG_CHILD_PROCESS_STD_IO_CLOSE == options.stderr_capture) {
+      close(STDERR_FILENO);
+    } else if (PG_CHILD_PROCESS_STD_IO_IGNORE == options.stderr_capture) {
+      int ret_dup2 = dup2(fd_ignore, STDERR_FILENO);
+      PG_ASSERT(-1 != ret_dup2);
+    }
+
+    if (-1 == execvp(path_c, args_c.data)) {
+      // Not easy to give the error back to the caller here.
+      // Maybe with a separate pipe?
+      PG_ASSERT(0);
+    }
+    PG_ASSERT(0 && "unreachable");
+  }
+
+  PG_ASSERT(pid > 0); // Parent.
+  res.res.pid = (u64)pid;
+  res.res.stdin_pipe.fd = stdin_pipe[PG_PIPE_WRITE];
+  res.res.stdout_pipe.fd = stdout_pipe[PG_PIPE_READ];
+  res.res.stderr_pipe.fd = stderr_pipe[PG_PIPE_READ];
+
+end:
+  for (u64 i = 0; i < args_c.len; i++) {
+    char *arg_c = PG_SLICE_AT(args_c, i);
+    pg_free(allocator, arg_c);
+  }
+
+  if (stdin_pipe[PG_PIPE_READ]) {
+    close(stdin_pipe[PG_PIPE_READ]);
+  }
+  if (stdout_pipe[PG_PIPE_WRITE]) {
+    close(stdout_pipe[PG_PIPE_WRITE]);
+  }
+  if (stderr_pipe[PG_PIPE_WRITE]) {
+    close(stderr_pipe[PG_PIPE_WRITE]);
+  }
+
+  if (res.err) {
+    if (stdin_pipe[PG_PIPE_WRITE]) {
+      close(stdin_pipe[PG_PIPE_WRITE]);
+    }
+    if (stdout_pipe[PG_PIPE_READ]) {
+      close(stdout_pipe[PG_PIPE_READ]);
+    }
+    if (stderr_pipe[PG_PIPE_READ]) {
+      close(stderr_pipe[PG_PIPE_READ]);
+    }
+  }
+
+  return res;
+}
+
+// TODO: Review in the context of multiple threads spawning and reaping
+// processes.
+[[nodiscard]] [[maybe_unused]]
+static PgProcessCaptureStdResult
+pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
+  PgProcessCaptureStdResult res = {0};
+  Pgu8Dyn stdout_sb = {0};
+  Pgu8Dyn stderr_sb = {0};
+
+  if (process.stdout_pipe.fd) {
+    stdout_sb = pg_string_builder_make(4096, allocator);
+  }
+
+  if (process.stderr_pipe.fd) {
+    stderr_sb = pg_string_builder_make(4096, allocator);
+  }
+
+  while (process.stdout_pipe.fd || process.stderr_pipe.fd) {
+    struct pollfd pollfds[2] = {0};
+    nfds_t pollfds_len = 0;
+
+    if (process.stdout_pipe.fd) {
+      pollfds[pollfds_len++] = (struct pollfd){
+          .fd = process.stdout_pipe.fd,
+          .events = POLLIN,
+      };
+    }
+
+    if (process.stderr_pipe.fd) {
+      pollfds[pollfds_len++] = (struct pollfd){
+          .fd = process.stderr_pipe.fd,
+          .events = POLLIN,
+      };
+    }
+
+    int res_poll = poll(pollfds, pollfds_len, -1);
+    if (-1 == res_poll) {
+      res.err = (PgError)errno;
+      goto end;
+    }
+
+    if (0 == res_poll) {
+      break;
+    }
+
+    for (u64 i = 0; i < (u64)res_poll; i++) {
+      struct pollfd pollfd = PG_C_ARRAY_AT(pollfds, pollfds_len, i);
+
+      PgFileDescriptor *fd = &process.stdout_pipe;
+      Pgu8Dyn *sb = &stdout_sb;
+      if (pollfd.fd == process.stderr_pipe.fd) {
+        fd = &process.stderr_pipe;
+        sb = &stderr_sb;
       }
 
-      res.res = (u64)ts.tv_sec * PG_Seconds + (u64)ts.tv_nsec;
-
-      return res;
-    }
-
-    [[maybe_unused]] static u64 pg_fill_call_stack(
-        u64 call_stack[PG_STACKTRACE_MAX]) {
-      u64 *frame_pointer = __builtin_frame_address(0);
-      u64 res = 0;
-
-      while (res < PG_STACKTRACE_MAX && frame_pointer != 0 &&
-             ((uint64_t)frame_pointer & 7) == 0 && *frame_pointer != 0) {
-        u64 instruction_pointer = *(frame_pointer + 1);
-        frame_pointer = (u64 *)*frame_pointer;
-
-        // `ip` points to the return instruction in the caller, once this call
-        // is done. But: We want the location of the call i.e. the `call xxx`
-        // instruction, so we subtract one byte to point inside it, which is not
-        // quite 'at' it, but good enough.
-        call_stack[res++] = instruction_pointer - 1;
+      if (pollfd.revents & (POLLERR | POLLNVAL)) {
+        close(pollfd.fd);
+        fd->fd = 0;
+        continue;
       }
 
-      return res;
-    }
+      // Not sure why/how it could happen?
+      if (0 == (pollfd.revents & (POLLIN | POLLHUP))) {
+        continue;
+      }
 
-    [[nodiscard]] static u64 pg_os_get_page_size() {
-      i64 ret = 0;
-      do {
-        ret = sysconf(_SC_PAGE_SIZE);
-      } while (-1 == ret && EINTR == errno);
-
-      PG_ASSERT(ret > 0);
-
-      return (u64)ret;
-    }
-
-    [[maybe_unused]] static Pgu64Result pg_file_read(PgFileDescriptor file,
-                                                     PgString buf) {
-      Pgu64Result res = {0};
-
-      isize n = 0;
-      do {
-        n = read(file.fd, buf.data, buf.len);
-      } while (-1 == n && EINTR == errno);
-
-      if (-1 == n) {
+      u8 tmp[4096] = {0};
+      ssize_t read_n = read(pollfd.fd, tmp, PG_STATIC_ARRAY_LEN(tmp));
+      if (-1 == read_n) {
         res.err = (PgError)errno;
-        return res;
+        goto end;
+      }
+      if (0 == read_n) {
+        close(pollfd.fd);
+        fd->fd = 0;
+        continue;
       }
 
-      res.res = (u64)n;
-      return res;
+      PgString actually_read = {.data = tmp, .len = (u64)read_n};
+      PG_DYN_APPEND_SLICE(sb, actually_read, allocator);
     }
+  }
 
-    [[maybe_unused]] static Pgu64Result pg_file_write(PgFileDescriptor file,
-                                                      PgString s) {
-      Pgu64Result res = {0};
+end:
+  if (res.err) {
+    pg_free(allocator, stdout_sb.data);
+    pg_free(allocator, stderr_sb.data);
+  }
 
-      isize n = 0;
-      do {
-        n = write(file.fd, s.data, s.len);
-      } while (-1 == n && EINTR == errno);
+  if (process.stdin_pipe.fd) {
+    close(process.stdin_pipe.fd);
+  }
+  if (process.stdout_pipe.fd) {
+    close(process.stdout_pipe.fd);
+  }
+  if (process.stderr_pipe.fd) {
+    close(process.stderr_pipe.fd);
+  }
 
-      if (-1 == n) {
-        res.err = (PgError)errno;
-        return res;
-      }
+  res.res.stdout_captured = PG_DYN_SLICE(PgString, stdout_sb);
+  res.res.stderr_captured = PG_DYN_SLICE(PgString, stderr_sb);
+  return res;
+}
 
-      res.res = (u64)n;
-      return res;
-    }
+[[nodiscard]] [[maybe_unused]]
+static PgProcessExitResult pg_process_wait(PgProcess process,
+                                           PgAllocator *allocator) {
+  PgProcessExitResult res = {0};
 
-    [[maybe_unused]] [[nodiscard]] static PgError pg_file_truncate(
-        PgFileDescriptor file, u64 size) {
-      if (-1 == ftruncate(file.fd, (i64)size)) {
-        return (PgError)pg_os_get_last_error();
-      }
-      return 0;
-    }
+  PgProcessCaptureStdResult res_capture =
+      pg_process_capture_std_io(process, allocator);
+  if (res_capture.err) {
+    res.err = res_capture.err;
+    return res;
+  }
 
-    [[maybe_unused]] static Pgu64Result pg_file_read_at(
-        PgFileDescriptor file, PgString buf, u64 offset) {
-      Pgu64Result res = {0};
+  int status = 0;
+  int ret = waitpid((pid_t)process.pid, &status, 0);
 
-      isize n = 0;
-      do {
-        n = pread(file.fd, buf.data, buf.len, (off_t)offset);
-      } while (-1 == n && EINTR == errno);
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
 
-      if (-1 == n) {
-        res.err = (PgError)errno;
-        return res;
-      }
+  res.res.exit_status = WEXITSTATUS(status);
+  res.res.exited = WIFEXITED(status);
+  res.res.signaled = WIFSIGNALED(status);
+  res.res.signal = WTERMSIG(status);
+  res.res.core_dumped = WCOREDUMP(status);
+  res.res.stopped = WIFSTOPPED(status);
+  res.res.stdout_captured = res_capture.res.stdout_captured;
+  res.res.stderr_captured = res_capture.res.stderr_captured;
 
-      res.res = (u64)n;
-      return res;
-    }
+  return res;
+}
 
-    [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult pg_file_open(
-        PgString path, PgFileAccess access, u64 mode, bool create_if_not_exists,
-        PgAllocator *allocator) {
-      PgFileDescriptorResult res = {0};
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin() {
+  return (PgFileDescriptor){.fd = STDIN_FILENO};
+}
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout() {
+  return (PgFileDescriptor){.fd = STDOUT_FILENO};
+}
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr() {
+  return (PgFileDescriptor){.fd = STDERR_FILENO};
+}
 
-      int flags = 0;
-      switch (access & PG_FILE_ACCESS_ALL) {
-      case PG_FILE_ACCESS_READ:
-        flags = O_RDONLY;
-        break;
-      case PG_FILE_ACCESS_WRITE:
-        flags = O_WRONLY | O_TRUNC;
-        break;
-      case PG_FILE_ACCESS_READ_WRITE:
-        flags = O_RDWR;
-        break;
-      case PG_FILE_ACCESS_NONE:
-      default:
-        PG_ASSERT(0);
-      }
+[[nodiscard]] i32 pg_os_get_last_error() { return errno; }
 
-      if (create_if_not_exists) {
-        flags |= O_CREAT;
-      }
+[[nodiscard]] i32 pg_virtual_mem_flags_to_os_flags(PgVirtualMemFlags flags) {
+  u64 res = 0;
+  if (flags & PG_VIRTUAL_MEM_FLAGS_READ) {
+    res |= PROT_READ;
+  }
+  if (flags & PG_VIRTUAL_MEM_FLAGS_WRITE) {
+    res |= PROT_WRITE;
+  }
+  if (flags & PG_VIRTUAL_MEM_FLAGS_EXEC) {
+    res |= PROT_EXEC;
+  }
+  return (i32)res;
+}
 
-      char *path_os = pg_string_to_cstr(path, allocator);
-      int fd = open(path_os, flags, mode ? mode : 0600);
-      pg_free(allocator, path_os);
+[[nodiscard]] PgVoidPtrResult pg_virtual_mem_alloc(u64 size,
+                                                   PgVirtualMemFlags flags) {
+  PG_ASSERT(size > 0);
 
-      if (-1 == fd) {
-        res.err = (PgError)pg_os_get_last_error();
-        return res;
-      }
+  PgVoidPtrResult res = {0};
+  res.res = mmap(nullptr, size, pg_virtual_mem_flags_to_os_flags(flags),
+                 MAP_ANON | MAP_PRIVATE, -1, 0);
+  if ((void *)-1 == res.res) {
+    res.err = (PgError)pg_os_get_last_error();
+  }
+  return res;
+}
 
-      res.res.fd = fd;
-      return res;
-    }
+[[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
+                                             PgVirtualMemFlags flags_new) {
+  if (-1 == mprotect(ptr, size, pg_virtual_mem_flags_to_os_flags(flags_new))) {
+    return (PgError)pg_os_get_last_error();
+  }
+  return 0;
+}
 
-    [[maybe_unused]] [[nodiscard]] static PgError pg_file_close(
-        PgFileDescriptor file) {
-      if (-1 == close(file.fd)) {
-        return (PgError)pg_os_get_last_error();
-      }
+[[nodiscard]] PgError pg_virtual_mem_release(void *ptr, u64 size) {
+  if (-1 == munmap(ptr, size)) {
+    return (PgError)pg_os_get_last_error();
+  }
+  return 0;
+}
 
-      return 0;
-    }
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_writer_unix_file_flush(PgWriter *w) {
+  PG_ASSERT(nullptr != w);
+  return (PgError){0};
+}
 
-    [[maybe_unused]] [[nodiscard]] static Pgu64Result pg_file_size(
-        PgFileDescriptor file) {
-      Pgu64Result res = {0};
-      struct stat st = {0};
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_writer_unix_file_write(PgWriter *w, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != w);
+  PG_ASSERT(nullptr != buf);
 
-      int ret = 0;
-      do {
-        ret = fstat(file.fd, &st);
-      } while (-1 == ret && EINTR == errno);
+  PgFileDescriptor file = w->ctx;
+  isize n = 0;
+  do {
+    n = write(file.fd, buf, buf_len);
+  } while (-1 == n && EINTR == errno);
 
-      if (-1 == ret) {
-        res.err = (PgError)pg_os_get_last_error();
-        return res;
-      }
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
 
-      res.res = (u64)st.st_size;
-      return res;
-    }
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_reader_unix_file_read(PgReader *r, u8 *buf, size_t buf_len) {
+  PG_ASSERT(nullptr != r);
+  PG_ASSERT(nullptr != buf);
+
+  PgFileDescriptor file = r->ctx;
+  isize n = 0;
+  do {
+    n = read(file.fd, buf, buf_len);
+  } while (-1 == n && EINTR == errno);
+
+  Pgu64Result res = {0};
+  if (n < 0) {
+    res.err = (PgError)errno;
+  } else {
+    res.res = (u64)n;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_writer_file_write(PgWriter *w, u8 *buf, size_t buf_len, PgAllocator *) {
+  return pg_writer_unix_file_write(w, buf, buf_len);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_writer_file_flush(PgWriter *w) {
+  return pg_writer_unix_file_flush(w);
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_reader_file_read(PgReader *r, u8 *buf, size_t buf_len) {
+  return pg_reader_unix_file_read(r, buf, buf_len);
+}
+
+[[maybe_unused]] [[nodiscard]] static clockid_t
+pg_clock_to_linux(PgClockKind clock_kind) {
+  switch (clock_kind) {
+  case PG_CLOCK_KIND_MONOTONIC:
+    return CLOCK_MONOTONIC;
+  case PG_CLOCK_KIND_REALTIME:
+    return CLOCK_REALTIME;
+  default:
+    PG_ASSERT(0);
+  }
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_time_ns_now(PgClockKind clock) {
+  Pgu64Result res = {0};
+
+  struct timespec ts = {0};
+  int ret = 0;
+  do {
+    ret = clock_gettime(pg_clock_to_linux(clock), &ts);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u64)ts.tv_sec * PG_Seconds + (u64)ts.tv_nsec;
+
+  return res;
+}
+
+[[maybe_unused]] static u64
+pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
+  u64 *frame_pointer = __builtin_frame_address(0);
+  u64 res = 0;
+
+  while (res < PG_STACKTRACE_MAX && frame_pointer != 0 &&
+         ((uint64_t)frame_pointer & 7) == 0 && *frame_pointer != 0) {
+    u64 instruction_pointer = *(frame_pointer + 1);
+    frame_pointer = (u64 *)*frame_pointer;
+
+    // `ip` points to the return instruction in the caller, once this call
+    // is done. But: We want the location of the call i.e. the `call xxx`
+    // instruction, so we subtract one byte to point inside it, which is not
+    // quite 'at' it, but good enough.
+    call_stack[res++] = instruction_pointer - 1;
+  }
+
+  return res;
+}
+
+[[nodiscard]] static u64 pg_os_get_page_size() {
+  i64 ret = 0;
+  do {
+    ret = sysconf(_SC_PAGE_SIZE);
+  } while (-1 == ret && EINTR == errno);
+
+  PG_ASSERT(ret > 0);
+
+  return (u64)ret;
+}
+
+[[maybe_unused]] static Pgu64Result pg_file_read(PgFileDescriptor file,
+                                                 PgString buf) {
+  Pgu64Result res = {0};
+
+  isize n = 0;
+  do {
+    n = read(file.fd, buf.data, buf.len);
+  } while (-1 == n && EINTR == errno);
+
+  if (-1 == n) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u64)n;
+  return res;
+}
+
+[[maybe_unused]] static Pgu64Result pg_file_write(PgFileDescriptor file,
+                                                  PgString s) {
+  Pgu64Result res = {0};
+
+  isize n = 0;
+  do {
+    n = write(file.fd, s.data, s.len);
+  } while (-1 == n && EINTR == errno);
+
+  if (-1 == n) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u64)n;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_file_truncate(PgFileDescriptor file, u64 size) {
+  if (-1 == ftruncate(file.fd, (i64)size)) {
+    return (PgError)pg_os_get_last_error();
+  }
+  return 0;
+}
+
+[[maybe_unused]] static Pgu64Result pg_file_read_at(PgFileDescriptor file,
+                                                    PgString buf, u64 offset) {
+  Pgu64Result res = {0};
+
+  isize n = 0;
+  do {
+    n = pread(file.fd, buf.data, buf.len, (off_t)offset);
+  } while (-1 == n && EINTR == errno);
+
+  if (-1 == n) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u64)n;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
+pg_file_open(PgString path, PgFileAccess access, u64 mode,
+             bool create_if_not_exists, PgAllocator *allocator) {
+  PgFileDescriptorResult res = {0};
+
+  int flags = 0;
+  switch (access & PG_FILE_ACCESS_ALL) {
+  case PG_FILE_ACCESS_READ:
+    flags = O_RDONLY;
+    break;
+  case PG_FILE_ACCESS_WRITE:
+    flags = O_WRONLY | O_TRUNC;
+    break;
+  case PG_FILE_ACCESS_READ_WRITE:
+    flags = O_RDWR;
+    break;
+  case PG_FILE_ACCESS_NONE:
+  default:
+    PG_ASSERT(0);
+  }
+
+  if (create_if_not_exists) {
+    flags |= O_CREAT;
+  }
+
+  char *path_os = pg_string_to_cstr(path, allocator);
+  int fd = open(path_os, flags, mode ? mode : 0600);
+  pg_free(allocator, path_os);
+
+  if (-1 == fd) {
+    res.err = (PgError)pg_os_get_last_error();
+    return res;
+  }
+
+  res.res.fd = fd;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_file_close(PgFileDescriptor file) {
+  if (-1 == close(file.fd)) {
+    return (PgError)pg_os_get_last_error();
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_file_size(PgFileDescriptor file) {
+  Pgu64Result res = {0};
+  struct stat st = {0};
+
+  int ret = 0;
+  do {
+    ret = fstat(file.fd, &st);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    res.err = (PgError)pg_os_get_last_error();
+    return res;
+  }
+
+  res.res = (u64)st.st_size;
+  return res;
+}
 
 #else
 
@@ -4457,1272 +4507,1223 @@ pg_file_open(PgString path, PgFileAccess access, u64 mode,
 
 #endif
 
-    typedef enum {
-      HTTP_METHOD_UNKNOWN,
-      HTTP_METHOD_OPTIONS,
-      HTTP_METHOD_GET,
-      HTTP_METHOD_HEAD,
-      HTTP_METHOD_POST,
-      HTTP_METHOD_PUT,
-      HTTP_METHOD_DELETE,
-      HTTP_METHOD_TRACE,
-      HTTP_METHOD_CONNECT,
-      HTTP_METHOD_EXTENSION,
-    } PgHttpMethod;
+typedef enum {
+  HTTP_METHOD_UNKNOWN,
+  HTTP_METHOD_OPTIONS,
+  HTTP_METHOD_GET,
+  HTTP_METHOD_HEAD,
+  HTTP_METHOD_POST,
+  HTTP_METHOD_PUT,
+  HTTP_METHOD_DELETE,
+  HTTP_METHOD_TRACE,
+  HTTP_METHOD_CONNECT,
+  HTTP_METHOD_EXTENSION,
+} PgHttpMethod;
 
-    [[maybe_unused]]
-    PgString static pg_http_method_to_string(PgHttpMethod m) {
-      switch (m) {
-      case HTTP_METHOD_UNKNOWN:
-        return PG_S("UNKNOWN");
-      case HTTP_METHOD_OPTIONS:
-        return PG_S("OPTIONS");
-      case HTTP_METHOD_GET:
-        return PG_S("GET");
-      case HTTP_METHOD_HEAD:
-        return PG_S("HEAD");
-      case HTTP_METHOD_POST:
-        return PG_S("POST");
-      case HTTP_METHOD_PUT:
-        return PG_S("PUT");
-      case HTTP_METHOD_DELETE:
-        return PG_S("DELETE");
-      case HTTP_METHOD_TRACE:
-        return PG_S("TRACE");
-      case HTTP_METHOD_CONNECT:
-        return PG_S("CONNECT");
-      case HTTP_METHOD_EXTENSION:
-        return PG_S("EXTENSION");
-      default:
-        PG_ASSERT(0);
-      }
-    }
+[[maybe_unused]]
+PgString static pg_http_method_to_string(PgHttpMethod m) {
+  switch (m) {
+  case HTTP_METHOD_UNKNOWN:
+    return PG_S("UNKNOWN");
+  case HTTP_METHOD_OPTIONS:
+    return PG_S("OPTIONS");
+  case HTTP_METHOD_GET:
+    return PG_S("GET");
+  case HTTP_METHOD_HEAD:
+    return PG_S("HEAD");
+  case HTTP_METHOD_POST:
+    return PG_S("POST");
+  case HTTP_METHOD_PUT:
+    return PG_S("PUT");
+  case HTTP_METHOD_DELETE:
+    return PG_S("DELETE");
+  case HTTP_METHOD_TRACE:
+    return PG_S("TRACE");
+  case HTTP_METHOD_CONNECT:
+    return PG_S("CONNECT");
+  case HTTP_METHOD_EXTENSION:
+    return PG_S("EXTENSION");
+  default:
+    PG_ASSERT(0);
+  }
+}
 
-    typedef struct {
-      PgString key, value;
-    } PgStringKeyValue;
+typedef struct {
+  PgString key, value;
+} PgStringKeyValue;
 
-    PG_RESULT(PgStringKeyValue) PgStringKeyValueResult;
-    PG_DYN(PgStringKeyValue) PgStringKeyValueDyn;
-    PG_SLICE(PgStringKeyValue) PgStringKeyValueSlice;
-    PG_RESULT(PgStringKeyValueDyn) PgStringDynKeyValueResult;
+PG_RESULT(PgStringKeyValue) PgStringKeyValueResult;
+PG_DYN(PgStringKeyValue) PgStringKeyValueDyn;
+PG_SLICE(PgStringKeyValue) PgStringKeyValueSlice;
+PG_RESULT(PgStringKeyValueDyn) PgStringDynKeyValueResult;
 
-    typedef struct {
-      PgString scheme;
-      PgString username, password;
-      PgString host; // Including subdomains.
-      PgStringDyn path_components;
-      PgStringKeyValueDyn query_parameters;
-      u16 port;
-      // TODO: fragment.
-    } PgUrl;
+typedef struct {
+  PgString scheme;
+  PgString username, password;
+  PgString host; // Including subdomains.
+  PgStringDyn path_components;
+  PgStringKeyValueDyn query_parameters;
+  u16 port;
+  // TODO: fragment.
+} PgUrl;
 
-    typedef struct {
-      PgString id;
-      PgUrl url; // Does not have a scheme, domain, port.
-      PgHttpMethod method;
-      PgStringKeyValueDyn headers;
-      u8 version_minor;
-      u8 version_major;
-    } PgHttpRequest;
+typedef struct {
+  PgString id;
+  PgUrl url; // Does not have a scheme, domain, port.
+  PgHttpMethod method;
+  PgStringKeyValueDyn headers;
+  u8 version_minor;
+  u8 version_major;
+} PgHttpRequest;
 
-    // `GET /en-US/docs/Web/HTTP/Messages HTTP/1.1`.
-    typedef struct {
-      PgHttpMethod method;
-      u8 version_minor;
-      u8 version_major;
-      PgUrl url; // Does not have a scheme, domain, port.
-    } PgHttpRequestStatusLine;
+// `GET /en-US/docs/Web/HTTP/Messages HTTP/1.1`.
+typedef struct {
+  PgHttpMethod method;
+  u8 version_minor;
+  u8 version_major;
+  PgUrl url; // Does not have a scheme, domain, port.
+} PgHttpRequestStatusLine;
 
-    PG_RESULT(PgHttpRequestStatusLine) PgHttpRequestStatusLineResult;
+PG_RESULT(PgHttpRequestStatusLine) PgHttpRequestStatusLineResult;
 
-    // `HTTP/1.1 201 Created`.
-    typedef struct {
-      u8 version_minor;
-      u8 version_major;
-      u16 status;
-    } PgHttpResponseStatusLine;
+// `HTTP/1.1 201 Created`.
+typedef struct {
+  u8 version_minor;
+  u8 version_major;
+  u16 status;
+} PgHttpResponseStatusLine;
 
-    PG_RESULT(PgHttpResponseStatusLine) PgHttpResponseStatusLineResult;
+PG_RESULT(PgHttpResponseStatusLine) PgHttpResponseStatusLineResult;
 
-    typedef struct {
-      u8 version_major;
-      u8 version_minor;
-      u16 status;
-      PgStringKeyValueDyn headers;
-    } PgHttpResponse;
+typedef struct {
+  u8 version_major;
+  u8 version_minor;
+  u16 status;
+  PgStringKeyValueDyn headers;
+} PgHttpResponse;
 
-    [[maybe_unused]] [[nodiscard]] static PgHttpResponseStatusLineResult
-    pg_http_parse_response_status_line(PgString status_line) {
-      PgHttpResponseStatusLineResult res = {0};
+[[maybe_unused]] [[nodiscard]] static PgHttpResponseStatusLineResult
+pg_http_parse_response_status_line(PgString status_line) {
+  PgHttpResponseStatusLineResult res = {0};
 
-      PgString remaining = status_line;
-      {
-        PgStringOk consume = pg_string_consume_string(remaining, PG_S("HTTP/"));
-        if (!consume.ok) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        remaining = consume.res;
-      }
-
-      {
-        PgParseNumberResult res_major = pg_string_parse_u64(remaining);
-        if (!res_major.present) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        if (res_major.n > 3) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        res.res.version_major = (u8)res_major.n;
-        remaining = res_major.remaining;
-      }
-
-      {
-        PgStringOk consume = pg_string_consume_rune(remaining, '.');
-        if (!consume.ok) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        remaining = consume.res;
-      }
-
-      {
-        PgParseNumberResult res_minor = pg_string_parse_u64(remaining);
-        if (!res_minor.present) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        if (res_minor.n > 9) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        res.res.version_minor = (u8)res_minor.n;
-        remaining = res_minor.remaining;
-      }
-
-      {
-        PgStringOk consume = pg_string_consume_rune(remaining, ' ');
-        if (!consume.ok) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        remaining = consume.res;
-      }
-
-      {
-        PgParseNumberResult res_status_code = pg_string_parse_u64(remaining);
-        if (!res_status_code.present) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        if (res_status_code.n < 100 || res_status_code.n > 599) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        res.res.status = (u16)res_status_code.n;
-        remaining = res_status_code.remaining;
-      }
-
-      // TODO: Should we keep the human-readable status code around or validate
-      // it?
-
+  PgString remaining = status_line;
+  {
+    PgStringOk consume = pg_string_consume_string(remaining, PG_S("HTTP/"));
+    if (!consume.ok) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
+    remaining = consume.res;
+  }
 
-    [[maybe_unused]]
-    static void pg_http_push_header(PgStringKeyValueDyn * headers, PgString key,
-                                    PgString value, PgArena * arena) {
-      PgArenaAllocator arena_allocator = pg_make_arena_allocator(arena);
-      *PG_DYN_PUSH(headers, (PgAllocator *)&arena_allocator) =
-          (PgStringKeyValue){.key = key, .value = value};
-    }
-
-    [[nodiscard]] [[maybe_unused]] static PgError pg_writer_url_encode(
-        PgWriter * w, PgString key, PgString value, PgAllocator * allocator) {
-      PgError err = 0;
-
-      for (u64 i = 0; i < key.len; i++) {
-        u8 c = PG_SLICE_AT(key, i);
-        if (pg_rune_ascii_is_alphanumeric(c)) {
-          err = pg_writer_write_u8(w, c, allocator);
-          if (err) {
-            return err;
-          }
-        } else {
-          err = pg_writer_write_u8(w, '%', allocator);
-          if (err) {
-            return err;
-          }
-
-          err = pg_writer_write_u8_hex_upper(w, c, allocator);
-          if (err) {
-            return err;
-          }
-        }
-      }
-
-      err = pg_writer_write_u8(w, '=', allocator);
-      if (err) {
-        return err;
-      }
-
-      for (u64 i = 0; i < value.len; i++) {
-        u8 c = PG_SLICE_AT(value, i);
-        if (pg_rune_ascii_is_alphanumeric(c)) {
-          err = pg_writer_write_u8(w, c, allocator);
-          if (err) {
-            return err;
-          }
-        } else {
-          err = pg_writer_write_u8(w, '%', allocator);
-          if (err) {
-            return err;
-          }
-          err = pg_writer_write_u8_hex_upper(w, c, allocator);
-          if (err) {
-            return err;
-          }
-        }
-      }
-      return 0;
-    }
-
-    [[maybe_unused]] [[nodiscard]] static PgError
-    pg_http_request_write_status_line(PgWriter * w, PgHttpRequest req,
-                                      PgAllocator * allocator) {
-      PgError err = 0;
-
-      err = pg_writer_write_string_full(w, pg_http_method_to_string(req.method),
-                                        allocator);
-      if (err) {
-        return err;
-      }
-
-      err = pg_writer_write_string_full(w, PG_S(" /"), allocator);
-      if (err) {
-        return err;
-      }
-
-      for (u64 i = 0; i < req.url.path_components.len; i++) {
-        PgString path_component = PG_SLICE_AT(req.url.path_components, i);
-        err = pg_writer_write_string_full(w, path_component, allocator);
-        if (err) {
-          return err;
-        }
-
-        if (i < req.url.path_components.len - 1) {
-          err = pg_writer_write_string_full(w, PG_S("/"), allocator);
-          if (err) {
-            return err;
-          }
-        }
-      }
-
-      if (req.url.query_parameters.len > 0) {
-        err = pg_writer_write_string_full(w, PG_S("?"), allocator);
-        if (err) {
-          return err;
-        }
-
-        for (u64 i = 0; i < req.url.query_parameters.len; i++) {
-          PgStringKeyValue param = PG_SLICE_AT(req.url.query_parameters, i);
-          err = pg_writer_url_encode(w, param.key, param.value, allocator);
-          if (err) {
-            return err;
-          }
-
-          if (i < req.url.query_parameters.len - 1) {
-            err = pg_writer_write_string_full(w, PG_S("&"), allocator);
-            if (err) {
-              return err;
-            }
-          }
-        }
-      }
-
-      err = pg_writer_write_string_full(w, PG_S(" HTTP/1.1\r\n"), allocator);
-      if (err) {
-        return err;
-      }
-      return 0;
-    }
-
-    [[maybe_unused]] [[nodiscard]] static PgError
-    pg_http_response_write_status_line(PgWriter * w, PgHttpResponse res,
-                                       PgAllocator * allocator) {
-      PgError err = 0;
-
-      err = pg_writer_write_string_full(w, PG_S("HTTP/"), allocator);
-      if (err) {
-        return err;
-      }
-
-      err = pg_writer_write_u64_as_string(w, res.version_major, allocator);
-      if (err) {
-        return err;
-      }
-
-      err = pg_writer_write_u8(w, '.', allocator);
-      if (err) {
-        return err;
-      }
-
-      err = pg_writer_write_u64_as_string(w, res.version_minor, allocator);
-      if (err) {
-        return err;
-      }
-
-      err = pg_writer_write_u8(w, ' ', allocator);
-      if (err) {
-        return err;
-      }
-
-      err = pg_writer_write_u64_as_string(w, res.status, allocator);
-      if (err) {
-        return err;
-      }
-
-      err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
-      if (err) {
-        return err;
-      }
-
-      return 0;
-    }
-
-    [[nodiscard]] [[maybe_unused]] static PgError pg_http_write_header(
-        PgWriter * w, PgStringKeyValue header, PgAllocator * allocator) {
-      PgError err = 0;
-
-      err = pg_writer_write_string_full(w, header.key, allocator);
-      if (err) {
-        return err;
-      }
-
-      err = pg_writer_write_string_full(w, PG_S(": "), allocator);
-      if (err) {
-        return err;
-      }
-
-      err = pg_writer_write_string_full(w, header.value, allocator);
-      if (err) {
-        return err;
-      }
-
-      err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
-      if (err) {
-        return err;
-      }
-
-      return 0;
-    }
-
-    // NOTE: Only sanitation for including the string inside an HTML tag e.g.:
-    // `<div>...ESCAPED_STRING..</div>`.
-    // To include the string inside other context (e.g. JS, CSS, HTML
-    // attributes, etc), more advance sanitation is required.
-    [[maybe_unused]] [[nodiscard]] static PgString pg_html_sanitize(
-        PgString s, PgAllocator * allocator) {
-      Pgu8Dyn res = {0};
-      PG_DYN_ENSURE_CAP(&res, s.len, allocator);
-      for (u64 i = 0; i < s.len; i++) {
-        u8 c = PG_SLICE_AT(s, i);
-
-        if ('&' == c) {
-          PG_DYN_APPEND_SLICE(&res, PG_S("&amp;"), allocator);
-        } else if ('<' == c) {
-          PG_DYN_APPEND_SLICE(&res, PG_S("&lt;"), allocator);
-        } else if ('>' == c) {
-          PG_DYN_APPEND_SLICE(&res, PG_S("&gt;"), allocator);
-        } else if ('"' == c) {
-          PG_DYN_APPEND_SLICE(&res, PG_S("&quot;"), allocator);
-        } else if ('\'' == c) {
-          PG_DYN_APPEND_SLICE(&res, PG_S("&#39;"), allocator);
-        } else {
-          *PG_DYN_PUSH(&res, allocator) = c;
-        }
-      }
-
-      return PG_DYN_SLICE(PgString, res);
-    }
-
-    typedef struct {
-      PgString username, password;
-    } PgUrlUserInfo;
-
-    PG_RESULT(PgUrlUserInfo) PgUrlUserInfoResult;
-
-    typedef struct {
-      PgUrlUserInfo user_info;
-      PgString host;
-      u16 port;
-    } PgUrlAuthority;
-
-    PG_RESULT(PgUrlAuthority) PgUrlAuthorityResult;
-
-    PG_RESULT(PgUrl) PgUrlResult;
-
-    [[maybe_unused]] [[nodiscard]] static PgStringDynResult
-    pg_url_parse_path_components(PgString s, PgAllocator * allocator) {
-      PgStringDynResult res = {0};
-
-      if (-1 != pg_string_indexof_any_rune(s, PG_S("?#:"))) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
-      if (PG_SLICE_IS_EMPTY(s)) {
-        return res;
-      }
-
-      if (!pg_string_starts_with(s, PG_S("/"))) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
-      PgStringDyn components = {0};
-
-      PgSplitIterator split_it_slash = pg_string_split_string(s, PG_S("/"));
-      for (u64 i = 0; i < s.len; i++) { // Bound.
-        PgStringOk split = pg_string_split_next(&split_it_slash);
-        if (!split.ok) {
-          break;
-        }
-
-        if (PG_SLICE_IS_EMPTY(split.res)) {
-          continue;
-        }
-
-        *PG_DYN_PUSH(&components, allocator) = split.res;
-      }
-
-      res.res = components;
+  {
+    PgParseNumberResult res_major = pg_string_parse_u64(remaining);
+    if (!res_major.present) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
-
-    [[maybe_unused]] [[nodiscard]] static PgStringDynKeyValueResult
-    pg_url_parse_query_parameters(PgString s, PgAllocator * allocator) {
-      PgStringDynKeyValueResult res = {0};
-
-      PgString remaining = s;
-      {
-        PgStringOk res_consume_question = pg_string_consume_rune(s, '?');
-        if (!res_consume_question.ok) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        remaining = res_consume_question.res;
-      }
-
-      for (u64 _i = 0; _i < s.len; _i++) {
-        PgStringPairConsume res_consume_and =
-            pg_string_consume_until_rune_incl(remaining, '&');
-        remaining = res_consume_and.right;
-
-        PgString kv = res_consume_and.left;
-        PgStringPairConsume res_consume_eq =
-            pg_string_consume_until_rune_incl(kv, '=');
-        PgString k = res_consume_eq.left;
-        PgString v = res_consume_eq.consumed ? res_consume_eq.right : PG_S("");
-
-        if (!PG_SLICE_IS_EMPTY(k)) {
-          *PG_DYN_PUSH(&res.res, allocator) =
-              (PgStringKeyValue){.key = k, .value = v};
-        }
-
-        if (!res_consume_and.consumed) {
-          break;
-        }
-      }
-
+    if (res_major.n > 3) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
+    res.res.version_major = (u8)res_major.n;
+    remaining = res_major.remaining;
+  }
 
-    [[maybe_unused]] [[nodiscard]] static PgUrlUserInfoResult
-    pg_url_parse_user_info(PgString s) {
-      PgUrlUserInfoResult res = {0};
-      // https://www.rfc-editor.org/rfc/rfc3986#section-3.2.1:
-      // Use of the format "user:password" in the userinfo field is
-      // deprecated.  Applications should not render as clear text any data
-      // after the first colon (":") character found within a userinfo
-      // subcomponent unless the data after the colon is the empty string
-      // (indicating no password).  Applications may choose to ignore or
-      // reject such data when it is received.
-
-      if (PG_SLICE_IS_EMPTY(s)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
+  {
+    PgStringOk consume = pg_string_consume_rune(remaining, '.');
+    if (!consume.ok) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
+    remaining = consume.res;
+  }
 
-    [[maybe_unused]] [[nodiscard]] static Pgu16Result pg_url_parse_port(
-        PgString s) {
-      Pgu16Result res = {0};
-
-      // Allowed.
-      if (PG_SLICE_IS_EMPTY(s)) {
-        return res;
-      }
-
-      PgParseNumberResult port_parse = pg_string_parse_u64(s);
-      if (!PG_SLICE_IS_EMPTY(port_parse.remaining)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-      if (port_parse.n > UINT16_MAX) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-      res.res = (u16)port_parse.n;
+  {
+    PgParseNumberResult res_minor = pg_string_parse_u64(remaining);
+    if (!res_minor.present) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
-
-    [[maybe_unused]] [[nodiscard]] static PgUrlAuthorityResult
-    pg_url_parse_authority(PgString s) {
-      PgUrlAuthorityResult res = {0};
-
-      PgString remaining = s;
-      // User info, optional.
-      {
-        PgStringPairConsume user_info_and_rem =
-            pg_string_consume_until_rune_incl(remaining, '@');
-        remaining = user_info_and_rem.right;
-
-        if (user_info_and_rem.consumed) {
-          PgUrlUserInfoResult res_user_info =
-              pg_url_parse_user_info(user_info_and_rem.left);
-          if (res_user_info.err) {
-            res.err = res_user_info.err;
-            return res;
-          }
-          res.res.user_info = res_user_info.res;
-        }
-      }
-
-      // Host, mandatory.
-      PgStringPairConsume host_and_rem =
-          pg_string_consume_until_rune_incl(remaining, ':');
-      {
-        remaining = host_and_rem.right;
-        res.res.host = host_and_rem.left;
-        if (PG_SLICE_IS_EMPTY(res.res.host)) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-      }
-
-      // Port, optional.
-      if (host_and_rem.consumed) {
-        Pgu16Result res_port = pg_url_parse_port(host_and_rem.right);
-        if (res_port.err) {
-          res.err = res_port.err;
-          return res;
-        }
-        res.res.port = res_port.res;
-      }
-
+    if (res_minor.n > 9) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
+    res.res.version_minor = (u8)res_minor.n;
+    remaining = res_minor.remaining;
+  }
 
-    [[maybe_unused]] [[nodiscard]] static bool pg_url_is_scheme_valid(
-        PgString scheme) {
-      if (PG_SLICE_IS_EMPTY(scheme)) {
-        return false;
-      }
-
-      u8 first = PG_SLICE_AT(scheme, 0);
-      if (!pg_rune_ascii_is_alphabetical(first)) {
-        return false;
-      }
-
-      for (u64 i = 0; i < scheme.len; i++) {
-        u8 c = PG_SLICE_AT(scheme, i);
-        if (!(pg_rune_ascii_is_alphanumeric(c) || c == '+' || c == '-' ||
-              c == '.')) {
-          return false;
-        }
-      }
-
-      return true;
-    }
-
-    [[maybe_unused]] [[nodiscard]] static PgUrlResult
-    pg_url_parse_after_authority(PgString s, PgAllocator * allocator) {
-      PgUrlResult res = {0};
-      PgString remaining = s;
-
-      PgStringPairConsumeAny path_components_and_rem =
-          pg_string_consume_until_any_rune_excl(remaining, PG_S("?#"));
-      remaining = path_components_and_rem.right;
-
-      // Path, optional.
-      if (pg_string_starts_with(s, PG_S("/"))) {
-        PG_ASSERT(!PG_SLICE_IS_EMPTY(path_components_and_rem.left));
-
-        PgStringDynResult res_path_components = pg_url_parse_path_components(
-            path_components_and_rem.left, allocator);
-        if (res_path_components.err) {
-          res.err = res_path_components.err;
-          return res;
-        }
-        res.res.path_components = res_path_components.res;
-      }
-
-      // Query parameters, optional.
-      if (path_components_and_rem.consumed &&
-          path_components_and_rem.matched == '?') {
-        PgStringDynKeyValueResult res_query = pg_url_parse_query_parameters(
-            path_components_and_rem.right, allocator);
-        if (res_query.err) {
-          res.err = res_query.err;
-          return res;
-        }
-        res.res.query_parameters = res_query.res;
-      }
-
-      // TODO: fragments.
-
-      PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.scheme));
-      PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.username));
-      PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.password));
-      PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.host));
-      PG_ASSERT(0 == res.res.port);
-
+  {
+    PgStringOk consume = pg_string_consume_rune(remaining, ' ');
+    if (!consume.ok) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
+    remaining = consume.res;
+  }
 
-    [[maybe_unused]] [[nodiscard]] static PgUrlResult pg_url_parse(
-        PgString s, PgAllocator * allocator) {
-      PgUrlResult res = {0};
-
-      PgString remaining = s;
-
-      // Scheme, mandatory.
-      {
-        PgStringPairConsume scheme_and_rem =
-            pg_string_consume_until_rune_incl(remaining, ':');
-        remaining = scheme_and_rem.right;
-
-        if (!scheme_and_rem.consumed) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-
-        if (!pg_url_is_scheme_valid(scheme_and_rem.left)) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        res.res.scheme = scheme_and_rem.left;
-      }
-
-      // Assume `://` as separator between the scheme and authority.
-      // TODO: Be less strict hier.
-      {
-
-        PgStringOk res_consume =
-            pg_string_consume_string(remaining, PG_S("//"));
-        if (!res_consume.ok) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        remaining = res_consume.res;
-      }
-
-      // Authority, mandatory.
-      PgStringPairConsumeAny authority_and_rem =
-          pg_string_consume_until_any_rune_excl(remaining, PG_S("/?#"));
-      remaining = authority_and_rem.right;
-      {
-        if (PG_SLICE_IS_EMPTY(authority_and_rem.left)) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-
-        PgUrlAuthorityResult res_authority =
-            pg_url_parse_authority(authority_and_rem.left);
-        if (res_authority.err) {
-          res.err = res_authority.err;
-          return res;
-        }
-        res.res.host = res_authority.res.host;
-        res.res.port = res_authority.res.port;
-        res.res.username = res_authority.res.user_info.username;
-        res.res.password = res_authority.res.user_info.password;
-      }
-
-      PgUrlResult res_after_authority =
-          pg_url_parse_after_authority(remaining, allocator);
-      if (res_after_authority.err) {
-        res.err = res_after_authority.err;
-        return res;
-      }
-      res.res.path_components = res_after_authority.res.path_components;
-      res.res.query_parameters = res_after_authority.res.query_parameters;
-
+  {
+    PgParseNumberResult res_status_code = pg_string_parse_u64(remaining);
+    if (!res_status_code.present) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
-
-    [[maybe_unused]] [[nodiscard]] static bool pg_http_url_is_valid(PgUrl u) {
-      // TODO: Support https.
-      if (!pg_string_eq(u.scheme, PG_S("http"))) {
-        return false;
-      }
-
-      return true;
-    }
-
-    [[maybe_unused]] [[nodiscard]] static PgHttpRequestStatusLineResult
-    pg_http_parse_request_status_line(PgString status_line,
-                                      PgAllocator * allocator) {
-      PgHttpRequestStatusLineResult res = {0};
-
-      PgString remaining = status_line;
-      {
-        if (pg_string_starts_with(remaining, PG_S("GET"))) {
-          PgStringOk consume = pg_string_consume_string(remaining, PG_S("GET"));
-          PG_ASSERT(consume.ok);
-          remaining = consume.res;
-          res.res.method = HTTP_METHOD_GET;
-        } else if (pg_string_starts_with(remaining, PG_S("POST"))) {
-          PgStringOk consume =
-              pg_string_consume_string(remaining, PG_S("POST"));
-          PG_ASSERT(consume.ok);
-          remaining = consume.res;
-          res.res.method = HTTP_METHOD_POST;
-        } else {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-      }
-
-      {
-        PgStringOk consume = pg_string_consume_rune(remaining, ' ');
-        if (!consume.ok) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        remaining = consume.res;
-      }
-
-      i64 idx_space = pg_string_indexof_rune(remaining, ' ');
-      if (-1 == idx_space) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-      PgString path = PG_SLICE_RANGE(remaining, 0, (u64)idx_space);
-      remaining = PG_SLICE_RANGE_START(remaining, (u64)idx_space + 1);
-      {
-        PgUrlResult res_url = pg_url_parse_after_authority(path, allocator);
-        if (res_url.err) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-
-        res.res.url = res_url.res;
-      }
-
-      {
-        PgStringOk consume = pg_string_consume_string(remaining, PG_S("HTTP/"));
-        if (!consume.ok) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        remaining = consume.res;
-      }
-
-      {
-        PgParseNumberResult res_major = pg_string_parse_u64(remaining);
-        if (!res_major.present) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        if (res_major.n > 3) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        res.res.version_major = (u8)res_major.n;
-        remaining = res_major.remaining;
-      }
-
-      {
-        PgStringOk consume = pg_string_consume_rune(remaining, '.');
-        if (!consume.ok) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        remaining = consume.res;
-      }
-
-      {
-        PgParseNumberResult res_minor = pg_string_parse_u64(remaining);
-        if (!res_minor.present) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        if (res_minor.n > 9) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        res.res.version_minor = (u8)res_minor.n;
-        remaining = res_minor.remaining;
-      }
-
-      if (!PG_SLICE_IS_EMPTY(remaining)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
+    if (res_status_code.n < 100 || res_status_code.n > 599) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
+    res.res.status = (u16)res_status_code.n;
+    remaining = res_status_code.remaining;
+  }
 
-    [[maybe_unused]] [[nodiscard]] static PgStringKeyValueResult
-    pg_http_parse_header(PgString s) {
-      PgStringKeyValueResult res = {0};
+  // TODO: Should we keep the human-readable status code around or validate
+  // it?
 
-      PgStringCut cut = pg_string_cut_rune(s, ':');
-      if (!cut.ok) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
+  return res;
+}
+
+[[maybe_unused]]
+static void pg_http_push_header(PgStringKeyValueDyn *headers, PgString key,
+                                PgString value, PgArena *arena) {
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(arena);
+  *PG_DYN_PUSH(headers, (PgAllocator *)&arena_allocator) =
+      (PgStringKeyValue){.key = key, .value = value};
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_writer_url_encode(PgWriter *w, PgString key, PgString value,
+                     PgAllocator *allocator) {
+  PgError err = 0;
+
+  for (u64 i = 0; i < key.len; i++) {
+    u8 c = PG_SLICE_AT(key, i);
+    if (pg_rune_ascii_is_alphanumeric(c)) {
+      err = pg_writer_write_u8(w, c, allocator);
+      if (err) {
+        return err;
       }
-
-      res.res.key = pg_string_trim_space(cut.left);
-      if (pg_string_is_empty(res.res.key)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
-      res.res.value = pg_string_trim_space(cut.right);
-      if (pg_string_is_empty(res.res.value)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
-      return res;
-    }
-
-    typedef struct {
-      bool done;
-      PgHttpResponse res;
-      PgError err;
-    } PgHttpResponseReadResult;
-
-    typedef struct {
-      bool done;
-      PgHttpRequest res;
-      PgError err;
-    } PgHttpRequestReadResult;
-
-    [[maybe_unused]] [[nodiscard]] static PgHttpResponseReadResult
-    pg_http_read_response(PgRing * rg, PgAllocator * allocator) {
-      PgHttpResponseReadResult res = {0};
-      PgString sep = PG_S("\r\n\r\n");
-
-      PgStringOk s = pg_ring_read_until_excl(rg, sep, allocator);
-      if (!s.ok) { // In progress.
-        return res;
-      }
-
-      PgSplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
-      PgStringOk res_split = pg_string_split_next(&it);
-      if (!res_split.ok) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
-      PgHttpResponseStatusLineResult res_status_line =
-          pg_http_parse_response_status_line(res_split.res);
-      if (res_status_line.err) {
-        res.err = res_status_line.err;
-        return res;
-      }
-
-      res.res.status = res_status_line.res.status;
-      res.res.version_major = res_status_line.res.version_major;
-      res.res.version_minor = res_status_line.res.version_minor;
-
-      for (;;) {
-        res_split = pg_string_split_next(&it);
-        if (!res_split.ok) {
-          break;
-        }
-        PgStringKeyValueResult res_kv = pg_http_parse_header(res_split.res);
-        if (res_kv.err) {
-          res.err = res_kv.err;
-          return res;
-        }
-
-        *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.res;
-      }
-      if (!PG_SLICE_IS_EMPTY(it.s)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
-      res.done = true;
-      return res;
-    }
-
-    [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
-    pg_http_read_request(PgRing * rg, PgAllocator * allocator) {
-      PgHttpRequestReadResult res = {0};
-      PgString sep = PG_S("\r\n\r\n");
-
-      PgStringOk s = pg_ring_read_until_excl(rg, sep, allocator);
-      if (!s.ok) { // In progress.
-        return res;
-      }
-
-      PgSplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
-      PgStringOk res_split = pg_string_split_next(&it);
-      if (!res_split.ok) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
-      PgHttpRequestStatusLineResult res_status_line =
-          pg_http_parse_request_status_line(res_split.res, allocator);
-      if (res_status_line.err) {
-        res.err = res_status_line.err;
-        return res;
-      }
-
-      res.res.method = res_status_line.res.method;
-      res.res.url = res_status_line.res.url;
-      res.res.version_major = res_status_line.res.version_major;
-      res.res.version_minor = res_status_line.res.version_minor;
-
-      for (;;) {
-        res_split = pg_string_split_next(&it);
-        if (!res_split.ok) {
-          break;
-        }
-        PgStringKeyValueResult res_kv = pg_http_parse_header(res_split.res);
-        if (res_kv.err) {
-          res.err = res_kv.err;
-          return res;
-        }
-
-        *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.res;
-      }
-      if (!PG_SLICE_IS_EMPTY(it.s)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
-      res.done = true;
-      return res;
-    }
-
-    [[nodiscard]] [[maybe_unused]] static PgError pg_http_write_request(
-        PgWriter * w, PgHttpRequest req, PgAllocator * allocator) {
-      PgError err = 0;
-
-      err = pg_http_request_write_status_line(w, req, allocator);
+    } else {
+      err = pg_writer_write_u8(w, '%', allocator);
       if (err) {
         return err;
       }
 
-      for (u64 i = 0; i < req.headers.len; i++) {
-        PgStringKeyValue header = PG_SLICE_AT(req.headers, i);
-        err = pg_http_write_header(w, header, allocator);
+      err = pg_writer_write_u8_hex_upper(w, c, allocator);
+      if (err) {
+        return err;
+      }
+    }
+  }
+
+  err = pg_writer_write_u8(w, '=', allocator);
+  if (err) {
+    return err;
+  }
+
+  for (u64 i = 0; i < value.len; i++) {
+    u8 c = PG_SLICE_AT(value, i);
+    if (pg_rune_ascii_is_alphanumeric(c)) {
+      err = pg_writer_write_u8(w, c, allocator);
+      if (err) {
+        return err;
+      }
+    } else {
+      err = pg_writer_write_u8(w, '%', allocator);
+      if (err) {
+        return err;
+      }
+      err = pg_writer_write_u8_hex_upper(w, c, allocator);
+      if (err) {
+        return err;
+      }
+    }
+  }
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
+                                  PgAllocator *allocator) {
+  PgError err = 0;
+
+  err = pg_writer_write_string_full(w, pg_http_method_to_string(req.method),
+                                    allocator);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_string_full(w, PG_S(" /"), allocator);
+  if (err) {
+    return err;
+  }
+
+  for (u64 i = 0; i < req.url.path_components.len; i++) {
+    PgString path_component = PG_SLICE_AT(req.url.path_components, i);
+    err = pg_writer_write_string_full(w, path_component, allocator);
+    if (err) {
+      return err;
+    }
+
+    if (i < req.url.path_components.len - 1) {
+      err = pg_writer_write_string_full(w, PG_S("/"), allocator);
+      if (err) {
+        return err;
+      }
+    }
+  }
+
+  if (req.url.query_parameters.len > 0) {
+    err = pg_writer_write_string_full(w, PG_S("?"), allocator);
+    if (err) {
+      return err;
+    }
+
+    for (u64 i = 0; i < req.url.query_parameters.len; i++) {
+      PgStringKeyValue param = PG_SLICE_AT(req.url.query_parameters, i);
+      err = pg_writer_url_encode(w, param.key, param.value, allocator);
+      if (err) {
+        return err;
+      }
+
+      if (i < req.url.query_parameters.len - 1) {
+        err = pg_writer_write_string_full(w, PG_S("&"), allocator);
         if (err) {
           return err;
         }
       }
-      err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
-      if (err) {
-        return err;
-      }
+    }
+  }
 
-      return 0;
+  err = pg_writer_write_string_full(w, PG_S(" HTTP/1.1\r\n"), allocator);
+  if (err) {
+    return err;
+  }
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_http_response_write_status_line(PgWriter *w, PgHttpResponse res,
+                                   PgAllocator *allocator) {
+  PgError err = 0;
+
+  err = pg_writer_write_string_full(w, PG_S("HTTP/"), allocator);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_u64_as_string(w, res.version_major, allocator);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_u8(w, '.', allocator);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_u64_as_string(w, res.version_minor, allocator);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_u8(w, ' ', allocator);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_u64_as_string(w, res.status, allocator);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
+  if (err) {
+    return err;
+  }
+
+  return 0;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_http_write_header(PgWriter *w, PgStringKeyValue header,
+                     PgAllocator *allocator) {
+  PgError err = 0;
+
+  err = pg_writer_write_string_full(w, header.key, allocator);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_string_full(w, PG_S(": "), allocator);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_string_full(w, header.value, allocator);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
+  if (err) {
+    return err;
+  }
+
+  return 0;
+}
+
+// NOTE: Only sanitation for including the string inside an HTML tag e.g.:
+// `<div>...ESCAPED_STRING..</div>`.
+// To include the string inside other context (e.g. JS, CSS, HTML
+// attributes, etc), more advance sanitation is required.
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_html_sanitize(PgString s, PgAllocator *allocator) {
+  Pgu8Dyn res = {0};
+  PG_DYN_ENSURE_CAP(&res, s.len, allocator);
+  for (u64 i = 0; i < s.len; i++) {
+    u8 c = PG_SLICE_AT(s, i);
+
+    if ('&' == c) {
+      PG_DYN_APPEND_SLICE(&res, PG_S("&amp;"), allocator);
+    } else if ('<' == c) {
+      PG_DYN_APPEND_SLICE(&res, PG_S("&lt;"), allocator);
+    } else if ('>' == c) {
+      PG_DYN_APPEND_SLICE(&res, PG_S("&gt;"), allocator);
+    } else if ('"' == c) {
+      PG_DYN_APPEND_SLICE(&res, PG_S("&quot;"), allocator);
+    } else if ('\'' == c) {
+      PG_DYN_APPEND_SLICE(&res, PG_S("&#39;"), allocator);
+    } else {
+      *PG_DYN_PUSH(&res, allocator) = c;
+    }
+  }
+
+  return PG_DYN_SLICE(PgString, res);
+}
+
+typedef struct {
+  PgString username, password;
+} PgUrlUserInfo;
+
+PG_RESULT(PgUrlUserInfo) PgUrlUserInfoResult;
+
+typedef struct {
+  PgUrlUserInfo user_info;
+  PgString host;
+  u16 port;
+} PgUrlAuthority;
+
+PG_RESULT(PgUrlAuthority) PgUrlAuthorityResult;
+
+PG_RESULT(PgUrl) PgUrlResult;
+
+[[maybe_unused]] [[nodiscard]] static PgStringDynResult
+pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
+  PgStringDynResult res = {0};
+
+  if (-1 != pg_string_indexof_any_rune(s, PG_S("?#:"))) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  if (PG_SLICE_IS_EMPTY(s)) {
+    return res;
+  }
+
+  if (!pg_string_starts_with(s, PG_S("/"))) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  PgStringDyn components = {0};
+
+  PgSplitIterator split_it_slash = pg_string_split_string(s, PG_S("/"));
+  for (u64 i = 0; i < s.len; i++) { // Bound.
+    PgStringOk split = pg_string_split_next(&split_it_slash);
+    if (!split.ok) {
+      break;
     }
 
-    [[maybe_unused]] static PgString pg_http_request_to_string(
-        PgHttpRequest req, PgAllocator * allocator) {
-      Pgu8Dyn sb = {0};
-      PG_DYN_ENSURE_CAP(&sb,
-                        // TODO: Tweak this number?
-                        128 + req.url.path_components.len * 64 +
-                            req.url.query_parameters.len * 64 +
-                            req.headers.len * 128,
-                        allocator);
-      PgWriter w = pg_writer_make_from_string_builder(&sb);
-
-      PG_ASSERT(0 == pg_http_write_request(&w, req, allocator));
-
-      return PG_DYN_SLICE(PgString, sb);
+    if (PG_SLICE_IS_EMPTY(split.res)) {
+      continue;
     }
 
-    [[maybe_unused]] static PgError pg_http_write_response(
-        PgWriter * w, PgHttpResponse res, PgAllocator * allocator) {
-      PgError err = 0;
+    *PG_DYN_PUSH(&components, allocator) = split.res;
+  }
 
-      err = pg_http_response_write_status_line(w, res, allocator);
-      if (err) {
-        return err;
-      }
+  res.res = components;
+  return res;
+}
 
-      for (u64 i = 0; i < res.headers.len; i++) {
-        PgStringKeyValue header = PG_SLICE_AT(res.headers, i);
-        err = pg_http_write_header(w, header, allocator);
-        if (err) {
-          return err;
-        }
-      }
-      err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
-      if (err) {
-        return err;
-      }
+[[maybe_unused]] [[nodiscard]] static PgStringDynKeyValueResult
+pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
+  PgStringDynKeyValueResult res = {0};
 
-      return 0;
+  PgString remaining = s;
+  {
+    PgStringOk res_consume_question = pg_string_consume_rune(s, '?');
+    if (!res_consume_question.ok) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    remaining = res_consume_question.res;
+  }
+
+  for (u64 _i = 0; _i < s.len; _i++) {
+    PgStringPairConsume res_consume_and =
+        pg_string_consume_until_rune_incl(remaining, '&');
+    remaining = res_consume_and.right;
+
+    PgString kv = res_consume_and.left;
+    PgStringPairConsume res_consume_eq =
+        pg_string_consume_until_rune_incl(kv, '=');
+    PgString k = res_consume_eq.left;
+    PgString v = res_consume_eq.consumed ? res_consume_eq.right : PG_S("");
+
+    if (!PG_SLICE_IS_EMPTY(k)) {
+      *PG_DYN_PUSH(&res.res, allocator) =
+          (PgStringKeyValue){.key = k, .value = v};
     }
 
-    [[maybe_unused]] [[nodiscard]] static Pgu64Result
-    pg_http_headers_parse_content_length(PgStringKeyValueSlice headers,
-                                         PgArena arena) {
-      Pgu64Result res = {0};
+    if (!res_consume_and.consumed) {
+      break;
+    }
+  }
 
-      for (u64 i = 0; i < headers.len; i++) {
-        PgStringKeyValue h = PG_SLICE_AT(headers, i);
+  return res;
+}
 
-        if (!pg_string_ieq_ascii(PG_S("Content-Length"), h.key, arena)) {
-          continue;
-        }
+[[maybe_unused]] [[nodiscard]] static PgUrlUserInfoResult
+pg_url_parse_user_info(PgString s) {
+  PgUrlUserInfoResult res = {0};
+  // https://www.rfc-editor.org/rfc/rfc3986#section-3.2.1:
+  // Use of the format "user:password" in the userinfo field is
+  // deprecated.  Applications should not render as clear text any data
+  // after the first colon (":") character found within a userinfo
+  // subcomponent unless the data after the colon is the empty string
+  // (indicating no password).  Applications may choose to ignore or
+  // reject such data when it is received.
 
-        PgParseNumberResult res_parse = pg_string_parse_u64(h.value);
-        if (!res_parse.present) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
-        if (!pg_string_is_empty(res_parse.remaining)) {
-          res.err = PG_ERR_INVALID_VALUE;
-          return res;
-        }
+  if (PG_SLICE_IS_EMPTY(s)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
 
-        res.res = res_parse.n;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu16Result
+pg_url_parse_port(PgString s) {
+  Pgu16Result res = {0};
+
+  // Allowed.
+  if (PG_SLICE_IS_EMPTY(s)) {
+    return res;
+  }
+
+  PgParseNumberResult port_parse = pg_string_parse_u64(s);
+  if (!PG_SLICE_IS_EMPTY(port_parse.remaining)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  if (port_parse.n > UINT16_MAX) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  res.res = (u16)port_parse.n;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgUrlAuthorityResult
+pg_url_parse_authority(PgString s) {
+  PgUrlAuthorityResult res = {0};
+
+  PgString remaining = s;
+  // User info, optional.
+  {
+    PgStringPairConsume user_info_and_rem =
+        pg_string_consume_until_rune_incl(remaining, '@');
+    remaining = user_info_and_rem.right;
+
+    if (user_info_and_rem.consumed) {
+      PgUrlUserInfoResult res_user_info =
+          pg_url_parse_user_info(user_info_and_rem.left);
+      if (res_user_info.err) {
+        res.err = res_user_info.err;
         return res;
       }
+      res.res.user_info = res_user_info.res;
+    }
+  }
+
+  // Host, mandatory.
+  PgStringPairConsume host_and_rem =
+      pg_string_consume_until_rune_incl(remaining, ':');
+  {
+    remaining = host_and_rem.right;
+    res.res.host = host_and_rem.left;
+    if (PG_SLICE_IS_EMPTY(res.res.host)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+  }
+
+  // Port, optional.
+  if (host_and_rem.consumed) {
+    Pgu16Result res_port = pg_url_parse_port(host_and_rem.right);
+    if (res_port.err) {
+      res.err = res_port.err;
+      return res;
+    }
+    res.res.port = res_port.res;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool
+pg_url_is_scheme_valid(PgString scheme) {
+  if (PG_SLICE_IS_EMPTY(scheme)) {
+    return false;
+  }
+
+  u8 first = PG_SLICE_AT(scheme, 0);
+  if (!pg_rune_ascii_is_alphabetical(first)) {
+    return false;
+  }
+
+  for (u64 i = 0; i < scheme.len; i++) {
+    u8 c = PG_SLICE_AT(scheme, i);
+    if (!(pg_rune_ascii_is_alphanumeric(c) || c == '+' || c == '-' ||
+          c == '.')) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgUrlResult
+pg_url_parse_after_authority(PgString s, PgAllocator *allocator) {
+  PgUrlResult res = {0};
+  PgString remaining = s;
+
+  PgStringPairConsumeAny path_components_and_rem =
+      pg_string_consume_until_any_rune_excl(remaining, PG_S("?#"));
+  remaining = path_components_and_rem.right;
+
+  // Path, optional.
+  if (pg_string_starts_with(s, PG_S("/"))) {
+    PG_ASSERT(!PG_SLICE_IS_EMPTY(path_components_and_rem.left));
+
+    PgStringDynResult res_path_components =
+        pg_url_parse_path_components(path_components_and_rem.left, allocator);
+    if (res_path_components.err) {
+      res.err = res_path_components.err;
+      return res;
+    }
+    res.res.path_components = res_path_components.res;
+  }
+
+  // Query parameters, optional.
+  if (path_components_and_rem.consumed &&
+      path_components_and_rem.matched == '?') {
+    PgStringDynKeyValueResult res_query =
+        pg_url_parse_query_parameters(path_components_and_rem.right, allocator);
+    if (res_query.err) {
+      res.err = res_query.err;
+      return res;
+    }
+    res.res.query_parameters = res_query.res;
+  }
+
+  // TODO: fragments.
+
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.scheme));
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.username));
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.password));
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.res.host));
+  PG_ASSERT(0 == res.res.port);
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgUrlResult
+pg_url_parse(PgString s, PgAllocator *allocator) {
+  PgUrlResult res = {0};
+
+  PgString remaining = s;
+
+  // Scheme, mandatory.
+  {
+    PgStringPairConsume scheme_and_rem =
+        pg_string_consume_until_rune_incl(remaining, ':');
+    remaining = scheme_and_rem.right;
+
+    if (!scheme_and_rem.consumed) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
 
-    PG_RESULT(PgFileDescriptor) PgFileDescriptorResult;
-    [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
-    pg_net_create_tcp_socket();
-    [[maybe_unused]] [[nodiscard]] static PgError pg_net_socket_close(
-        PgFileDescriptor sock);
-    [[maybe_unused]] [[nodiscard]] static PgError pg_net_set_nodelay(
-        PgFileDescriptor sock, bool enabled);
-    [[maybe_unused]] [[nodiscard]] static PgError pg_net_connect_ipv4(
-        PgFileDescriptor sock, PgIpv4Address address);
+    if (!pg_url_is_scheme_valid(scheme_and_rem.left)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    res.res.scheme = scheme_and_rem.left;
+  }
 
-    typedef struct {
-      PgIpv4Address address;
-      PgFileDescriptor socket;
-    } PgIpv4AddressSocket;
-    PG_RESULT(PgIpv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
+  // Assume `://` as separator between the scheme and authority.
+  // TODO: Be less strict hier.
+  {
 
-    [[maybe_unused]] [[nodiscard]] static PgDnsResolveIpv4AddressSocketResult
-    pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgArena arena);
+    PgStringOk res_consume = pg_string_consume_string(remaining, PG_S("//"));
+    if (!res_consume.ok) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    remaining = res_consume.res;
+  }
 
-    [[maybe_unused]] [[nodiscard]] static PgError pg_net_tcp_listen(
-        PgFileDescriptor sock, u64 backlog);
-
-    [[maybe_unused]] [[nodiscard]] static PgError pg_net_tcp_bind_ipv4(
-        PgFileDescriptor sock, PgIpv4Address addr);
-    [[maybe_unused]] [[nodiscard]] static PgError pg_net_socket_enable_reuse(
-        PgFileDescriptor sock);
-
-    [[maybe_unused]] [[nodiscard]] static PgError pg_net_socket_set_blocking(
-        PgFileDescriptor sock, bool blocking);
-
-    [[maybe_unused]] [[nodiscard]] static Pgu64Result pg_net_socket_write(
-        PgFileDescriptor sock, PgString data);
-
-    [[maybe_unused]] [[nodiscard]] static Pgu64Result pg_net_socket_read(
-        PgFileDescriptor sock, PgString data);
-
-    typedef struct {
-      PgIpv4Address address;
-      PgFileDescriptor socket;
-      PgError err;
-    } PgIpv4AddressAcceptResult;
-    [[maybe_unused]] [[nodiscard]] static PgIpv4AddressAcceptResult
-    pg_net_tcp_accept(PgFileDescriptor sock);
-
-    [[maybe_unused]] [[nodiscard]] static PgError pg_net_get_socket_error(
-        PgFileDescriptor socket);
-
-    [[maybe_unused]]
-    static void pg_http_server_start(u16 port) {}
-
-    typedef enum {
-      PG_LOG_VALUE_STRING,
-      PG_LOG_VALUE_U64,
-      PG_LOG_VALUE_I64,
-      PG_LOG_VALUE_IPV4_ADDRESS,
-      // TODO: IPV6_ADDRESS
-    } PgLogValueKind;
-
-    typedef enum {
-      PG_LOG_LEVEL_DEBUG,
-      PG_LOG_LEVEL_INFO,
-      PG_LOG_LEVEL_ERROR,
-    } PgLogLevel;
-
-    typedef struct PgLogger PgLogger;
-    typedef PgString (*PgMakeLogLineFn)(u8 *mem, u64 mem_len, PgLogger *logger,
-                                        PgLogLevel level, PgString msg,
-                                        i32 args_count, ...);
-    struct PgLogger {
-      PgLogLevel level;
-      PgWriter writer;
-      PgMakeLogLineFn make_log_line;
-      u64 monotonic_epoch;
-    };
-
-    typedef struct {
-      PgLogValueKind kind;
-      union {
-        PgString s;
-        u32 n32;
-        u64 n64;
-        i32 s32;
-        i64 s64;
-        PgIpv4Address ipv4_address;
-      };
-    } PgLogValue;
-
-    typedef struct {
-      PgString key;
-      PgLogValue value;
-    } PgLogEntry;
-
-    [[maybe_unused]] [[nodiscard]] static PgString pg_log_make_log_line_logfmt(
-        u8 * mem, u64 mem_len, PgLogger * logger, PgLogLevel level,
-        PgString msg, i32 args_count, ...);
-
-    [[maybe_unused]] [[nodiscard]] static PgLogger
-    pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
-      PgLogger logger = {
-          .level = level,
-          .writer = pg_writer_make_from_file_descriptor(pg_os_stdout()),
-          .make_log_line = pg_log_make_log_line_logfmt,
-          // TODO: Consider using `rtdsc` or such.
-          .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res,
-      };
-
-      return logger;
+  // Authority, mandatory.
+  PgStringPairConsumeAny authority_and_rem =
+      pg_string_consume_until_any_rune_excl(remaining, PG_S("/?#"));
+  remaining = authority_and_rem.right;
+  {
+    if (PG_SLICE_IS_EMPTY(authority_and_rem.left)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
     }
 
-    [[maybe_unused]] [[nodiscard]] static PgString pg_log_level_to_string(
-        PgLogLevel level) {
-      switch (level) {
-      case PG_LOG_LEVEL_DEBUG:
-        return PG_S("debug");
-      case PG_LOG_LEVEL_INFO:
-        return PG_S("info");
-      case PG_LOG_LEVEL_ERROR:
-        return PG_S("error");
-      default:
-        PG_ASSERT(false);
-      }
+    PgUrlAuthorityResult res_authority =
+        pg_url_parse_authority(authority_and_rem.left);
+    if (res_authority.err) {
+      res.err = res_authority.err;
+      return res;
     }
+    res.res.host = res_authority.res.host;
+    res.res.port = res_authority.res.port;
+    res.res.username = res_authority.res.user_info.username;
+    res.res.password = res_authority.res.user_info.password;
+  }
+
+  PgUrlResult res_after_authority =
+      pg_url_parse_after_authority(remaining, allocator);
+  if (res_after_authority.err) {
+    res.err = res_after_authority.err;
+    return res;
+  }
+  res.res.path_components = res_after_authority.res.path_components;
+  res.res.query_parameters = res_after_authority.res.query_parameters;
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool pg_http_url_is_valid(PgUrl u) {
+  // TODO: Support https.
+  if (!pg_string_eq(u.scheme, PG_S("http"))) {
+    return false;
+  }
+
+  return true;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgHttpRequestStatusLineResult
+pg_http_parse_request_status_line(PgString status_line,
+                                  PgAllocator *allocator) {
+  PgHttpRequestStatusLineResult res = {0};
+
+  PgString remaining = status_line;
+  {
+    if (pg_string_starts_with(remaining, PG_S("GET"))) {
+      PgStringOk consume = pg_string_consume_string(remaining, PG_S("GET"));
+      PG_ASSERT(consume.ok);
+      remaining = consume.res;
+      res.res.method = HTTP_METHOD_GET;
+    } else if (pg_string_starts_with(remaining, PG_S("POST"))) {
+      PgStringOk consume = pg_string_consume_string(remaining, PG_S("POST"));
+      PG_ASSERT(consume.ok);
+      remaining = consume.res;
+      res.res.method = HTTP_METHOD_POST;
+    } else {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+  }
+
+  {
+    PgStringOk consume = pg_string_consume_rune(remaining, ' ');
+    if (!consume.ok) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    remaining = consume.res;
+  }
+
+  i64 idx_space = pg_string_indexof_rune(remaining, ' ');
+  if (-1 == idx_space) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  PgString path = PG_SLICE_RANGE(remaining, 0, (u64)idx_space);
+  remaining = PG_SLICE_RANGE_START(remaining, (u64)idx_space + 1);
+  {
+    PgUrlResult res_url = pg_url_parse_after_authority(path, allocator);
+    if (res_url.err) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+
+    res.res.url = res_url.res;
+  }
+
+  {
+    PgStringOk consume = pg_string_consume_string(remaining, PG_S("HTTP/"));
+    if (!consume.ok) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    remaining = consume.res;
+  }
+
+  {
+    PgParseNumberResult res_major = pg_string_parse_u64(remaining);
+    if (!res_major.present) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    if (res_major.n > 3) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    res.res.version_major = (u8)res_major.n;
+    remaining = res_major.remaining;
+  }
+
+  {
+    PgStringOk consume = pg_string_consume_rune(remaining, '.');
+    if (!consume.ok) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    remaining = consume.res;
+  }
+
+  {
+    PgParseNumberResult res_minor = pg_string_parse_u64(remaining);
+    if (!res_minor.present) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    if (res_minor.n > 9) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    res.res.version_minor = (u8)res_minor.n;
+    remaining = res_minor.remaining;
+  }
+
+  if (!PG_SLICE_IS_EMPTY(remaining)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgStringKeyValueResult
+pg_http_parse_header(PgString s) {
+  PgStringKeyValueResult res = {0};
+
+  PgStringCut cut = pg_string_cut_rune(s, ':');
+  if (!cut.ok) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  res.res.key = pg_string_trim_space(cut.left);
+  if (pg_string_is_empty(res.res.key)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  res.res.value = pg_string_trim_space(cut.right);
+  if (pg_string_is_empty(res.res.value)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  return res;
+}
+
+typedef struct {
+  bool done;
+  PgHttpResponse res;
+  PgError err;
+} PgHttpResponseReadResult;
+
+typedef struct {
+  bool done;
+  PgHttpRequest res;
+  PgError err;
+} PgHttpRequestReadResult;
+
+[[maybe_unused]] [[nodiscard]] static PgHttpResponseReadResult
+pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
+  PgHttpResponseReadResult res = {0};
+  PgString sep = PG_S("\r\n\r\n");
+
+  PgStringOk s = pg_ring_read_until_excl(rg, sep, allocator);
+  if (!s.ok) { // In progress.
+    return res;
+  }
+
+  PgSplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
+  PgStringOk res_split = pg_string_split_next(&it);
+  if (!res_split.ok) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  PgHttpResponseStatusLineResult res_status_line =
+      pg_http_parse_response_status_line(res_split.res);
+  if (res_status_line.err) {
+    res.err = res_status_line.err;
+    return res;
+  }
+
+  res.res.status = res_status_line.res.status;
+  res.res.version_major = res_status_line.res.version_major;
+  res.res.version_minor = res_status_line.res.version_minor;
+
+  for (;;) {
+    res_split = pg_string_split_next(&it);
+    if (!res_split.ok) {
+      break;
+    }
+    PgStringKeyValueResult res_kv = pg_http_parse_header(res_split.res);
+    if (res_kv.err) {
+      res.err = res_kv.err;
+      return res;
+    }
+
+    *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.res;
+  }
+  if (!PG_SLICE_IS_EMPTY(it.s)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  res.done = true;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
+pg_http_read_request(PgRing *rg, PgAllocator *allocator) {
+  PgHttpRequestReadResult res = {0};
+  PgString sep = PG_S("\r\n\r\n");
+
+  PgStringOk s = pg_ring_read_until_excl(rg, sep, allocator);
+  if (!s.ok) { // In progress.
+    return res;
+  }
+
+  PgSplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
+  PgStringOk res_split = pg_string_split_next(&it);
+  if (!res_split.ok) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  PgHttpRequestStatusLineResult res_status_line =
+      pg_http_parse_request_status_line(res_split.res, allocator);
+  if (res_status_line.err) {
+    res.err = res_status_line.err;
+    return res;
+  }
+
+  res.res.method = res_status_line.res.method;
+  res.res.url = res_status_line.res.url;
+  res.res.version_major = res_status_line.res.version_major;
+  res.res.version_minor = res_status_line.res.version_minor;
+
+  for (;;) {
+    res_split = pg_string_split_next(&it);
+    if (!res_split.ok) {
+      break;
+    }
+    PgStringKeyValueResult res_kv = pg_http_parse_header(res_split.res);
+    if (res_kv.err) {
+      res.err = res_kv.err;
+      return res;
+    }
+
+    *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.res;
+  }
+  if (!PG_SLICE_IS_EMPTY(it.s)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  res.done = true;
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_http_write_request(PgWriter *w, PgHttpRequest req, PgAllocator *allocator) {
+  PgError err = 0;
+
+  err = pg_http_request_write_status_line(w, req, allocator);
+  if (err) {
+    return err;
+  }
+
+  for (u64 i = 0; i < req.headers.len; i++) {
+    PgStringKeyValue header = PG_SLICE_AT(req.headers, i);
+    err = pg_http_write_header(w, header, allocator);
+    if (err) {
+      return err;
+    }
+  }
+  err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
+  if (err) {
+    return err;
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] static PgString
+pg_http_request_to_string(PgHttpRequest req, PgAllocator *allocator) {
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb,
+                    // TODO: Tweak this number?
+                    128 + req.url.path_components.len * 64 +
+                        req.url.query_parameters.len * 64 +
+                        req.headers.len * 128,
+                    allocator);
+  PgWriter w = pg_writer_make_from_string_builder(&sb);
+
+  PG_ASSERT(0 == pg_http_write_request(&w, req, allocator));
+
+  return PG_DYN_SLICE(PgString, sb);
+}
+
+[[maybe_unused]] static PgError pg_http_write_response(PgWriter *w,
+                                                       PgHttpResponse res,
+                                                       PgAllocator *allocator) {
+  PgError err = 0;
+
+  err = pg_http_response_write_status_line(w, res, allocator);
+  if (err) {
+    return err;
+  }
+
+  for (u64 i = 0; i < res.headers.len; i++) {
+    PgStringKeyValue header = PG_SLICE_AT(res.headers, i);
+    err = pg_http_write_header(w, header, allocator);
+    if (err) {
+      return err;
+    }
+  }
+  err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
+  if (err) {
+    return err;
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_http_headers_parse_content_length(PgStringKeyValueSlice headers,
+                                     PgArena arena) {
+  Pgu64Result res = {0};
+
+  for (u64 i = 0; i < headers.len; i++) {
+    PgStringKeyValue h = PG_SLICE_AT(headers, i);
+
+    if (!pg_string_ieq_ascii(PG_S("Content-Length"), h.key, arena)) {
+      continue;
+    }
+
+    PgParseNumberResult res_parse = pg_string_parse_u64(h.value);
+    if (!res_parse.present) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    if (!pg_string_is_empty(res_parse.remaining)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+
+    res.res = res_parse.n;
+    return res;
+  }
+  return res;
+}
+
+[[maybe_unused]]
+static void pg_http_server_start(u16 port) {
+  (void)port;
+}
+
+typedef enum {
+  PG_LOG_VALUE_STRING,
+  PG_LOG_VALUE_U64,
+  PG_LOG_VALUE_I64,
+  PG_LOG_VALUE_IPV4_ADDRESS,
+  // TODO: IPV6_ADDRESS
+} PgLogValueKind;
+
+typedef enum {
+  PG_LOG_LEVEL_DEBUG,
+  PG_LOG_LEVEL_INFO,
+  PG_LOG_LEVEL_ERROR,
+} PgLogLevel;
+
+typedef struct PgLogger PgLogger;
+typedef PgString (*PgMakeLogLineFn)(u8 *mem, u64 mem_len, PgLogger *logger,
+                                    PgLogLevel level, PgString msg,
+                                    i32 args_count, ...);
+struct PgLogger {
+  PgLogLevel level;
+  PgWriter writer;
+  PgMakeLogLineFn make_log_line;
+  u64 monotonic_epoch;
+};
+
+typedef struct {
+  PgLogValueKind kind;
+  union {
+    PgString s;
+    u32 n32;
+    u64 n64;
+    i32 s32;
+    i64 s64;
+    PgIpv4Address ipv4_address;
+  };
+} PgLogValue;
+
+typedef struct {
+  PgString key;
+  PgLogValue value;
+} PgLogEntry;
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
+                            PgLogLevel level, PgString msg, i32 args_count,
+                            ...);
+
+[[maybe_unused]] [[nodiscard]] static PgLogger
+pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
+  PgLogger logger = {
+      .level = level,
+      .writer = pg_writer_make_from_file_descriptor(pg_os_stdout()),
+      .make_log_line = pg_log_make_log_line_logfmt,
+      // TODO: Consider using `rtdsc` or such.
+      .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res,
+  };
+
+  return logger;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_log_level_to_string(PgLogLevel level) {
+  switch (level) {
+  case PG_LOG_LEVEL_DEBUG:
+    return PG_S("debug");
+  case PG_LOG_LEVEL_INFO:
+    return PG_S("info");
+  case PG_LOG_LEVEL_ERROR:
+    return PG_S("error");
+  default:
+    PG_ASSERT(false);
+  }
+}
 
 #define pg_log_c_u8(k, v) pg_log_u8(PG_S(k), v)
 
-    [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u8(PgString k,
-                                                               u8 v) {
-      return (PgLogEntry){
-          .key = k,
-          .value.kind = PG_LOG_VALUE_U64,
-          .value.n64 = (u64)v,
-      };
-    }
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u8(PgString k, u8 v) {
+  return (PgLogEntry){
+      .key = k,
+      .value.kind = PG_LOG_VALUE_U64,
+      .value.n64 = (u64)v,
+  };
+}
 
 #define pg_log_c_u16(k, v) pg_log_u16(PG_S(k), v)
 
-    [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u16(PgString k,
-                                                                u16 v) {
-      return (PgLogEntry){
-          .key = k,
-          .value.kind = PG_LOG_VALUE_U64,
-          .value.n64 = (u64)v,
-      };
-    }
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u16(PgString k, u16 v) {
+  return (PgLogEntry){
+      .key = k,
+      .value.kind = PG_LOG_VALUE_U64,
+      .value.n64 = (u64)v,
+  };
+}
 
 #define pg_log_c_u32(k, v) pg_log_u32(PG_S(k), v)
 
-    [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u32(PgString k,
-                                                                u32 v) {
-      return (PgLogEntry){
-          .key = k,
-          .value.kind = PG_LOG_VALUE_U64,
-          .value.n64 = (u64)v,
-      };
-    }
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u32(PgString k, u32 v) {
+  return (PgLogEntry){
+      .key = k,
+      .value.kind = PG_LOG_VALUE_U64,
+      .value.n64 = (u64)v,
+  };
+}
 
 #define pg_log_c_u64(k, v) pg_log_u64(PG_S(k), v)
 
-    [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u64(PgString k,
-                                                                u64 v) {
-      return (PgLogEntry){
-          .key = k,
-          .value.kind = PG_LOG_VALUE_U64,
-          .value.n64 = v,
-      };
-    }
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_u64(PgString k, u64 v) {
+  return (PgLogEntry){
+      .key = k,
+      .value.kind = PG_LOG_VALUE_U64,
+      .value.n64 = v,
+  };
+}
 
 #define pg_log_c_i32(k, v) pg_log_i32(PG_S(k), v)
 
-    [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_i32(PgString k,
-                                                                i32 v) {
-      return (PgLogEntry){
-          .key = k,
-          .value.kind = PG_LOG_VALUE_I64,
-          .value.s64 = (i64)v,
-      };
-    }
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_i32(PgString k, i32 v) {
+  return (PgLogEntry){
+      .key = k,
+      .value.kind = PG_LOG_VALUE_I64,
+      .value.s64 = (i64)v,
+  };
+}
 
 #define pg_log_c_err(k, v) pg_log_i32(PG_S(k), (i32)v)
 #define pg_log_err(k, v) pg_log_i32(k, (i32)v)
 
 #define pg_log_c_i64(k, v) pg_log_i64(PG_S(k), v)
 
-    [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_i64(PgString k,
-                                                                i64 v) {
-      return (PgLogEntry){
-          .key = k,
-          .value.kind = PG_LOG_VALUE_I64,
-          .value.s64 = v,
-      };
-    }
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_i64(PgString k, i64 v) {
+  return (PgLogEntry){
+      .key = k,
+      .value.kind = PG_LOG_VALUE_I64,
+      .value.s64 = v,
+  };
+}
 
-    [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_s(PgString k,
-                                                              PgString v) {
-      return (PgLogEntry){
-          .key = k,
-          .value.kind = PG_LOG_VALUE_STRING,
-          .value.s = v,
-      };
-    }
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_s(PgString k,
+                                                          PgString v) {
+  return (PgLogEntry){
+      .key = k,
+      .value.kind = PG_LOG_VALUE_STRING,
+      .value.s = v,
+  };
+}
 
 #define pg_log_c_s(k, v) pg_log_s(PG_S(k), v)
 
 #define pg_log_c_ipv4(k, v) pg_log_ipv4(PG_S(k), v)
 
-    [[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_ipv4(
-        PgString k, PgIpv4Address v) {
-      return (PgLogEntry){
-          .key = k,
-          .value.kind = PG_LOG_VALUE_IPV4_ADDRESS,
-          .value.ipv4_address = v,
-      };
-    }
+[[maybe_unused]] [[nodiscard]] static PgLogEntry pg_log_ipv4(PgString k,
+                                                             PgIpv4Address v) {
+  return (PgLogEntry){
+      .key = k,
+      .value.kind = PG_LOG_VALUE_IPV4_ADDRESS,
+      .value.ipv4_address = v,
+  };
+}
 
 #define PG_LOG_ARGS_COUNT(...)                                                 \
   (sizeof((PgLogEntry[]){__VA_ARGS__}) / sizeof(PgLogEntry))
@@ -5746,279 +5747,269 @@ pg_file_open(PgString path, PgFileAccess access, u64 mode,
                               xxx_log_line.len, nullptr);                      \
   } while (0)
 
-    [[maybe_unused]] static void pg_logfmt_escape_u8(Pgu8Dyn * sb, u8 c,
-                                                     PgAllocator * allocator) {
-      if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' ||
-          c == '.' || c == '/' || c == '(' || c == ')' ||
-          pg_rune_ascii_is_alphanumeric(c)) {
-        *PG_DYN_PUSH(sb, allocator) = c;
-      } else {
-        u8 c1 = c % 16;
-        u8 c2 = c / 16;
-        PG_DYN_APPEND_SLICE(sb, PG_S("\\x"), allocator);
-        *PG_DYN_PUSH(sb, allocator) = pg_u8_to_hex_rune(c2);
-        *PG_DYN_PUSH(sb, allocator) = pg_u8_to_hex_rune(c1);
-      }
+[[maybe_unused]] static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c,
+                                                 PgAllocator *allocator) {
+  if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' || c == '.' ||
+      c == '/' || c == '(' || c == ')' || pg_rune_ascii_is_alphanumeric(c)) {
+    *PG_DYN_PUSH(sb, allocator) = c;
+  } else {
+    u8 c1 = c % 16;
+    u8 c2 = c / 16;
+    PG_DYN_APPEND_SLICE(sb, PG_S("\\x"), allocator);
+    *PG_DYN_PUSH(sb, allocator) = pg_u8_to_hex_rune(c2);
+    *PG_DYN_PUSH(sb, allocator) = pg_u8_to_hex_rune(c1);
+  }
+}
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_logfmt_escape_string(PgString entry, PgAllocator *allocator) {
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, 2 + PG_CLAMP(0, entry.len, PG_LOG_STRING_MAX + 4) * 2,
+                    allocator);
+  *PG_DYN_PUSH(&sb, allocator) = '"';
+
+  if (entry.len <= PG_LOG_STRING_MAX) {
+    for (u64 i = 0; i < entry.len; i++) {
+      u8 c = PG_SLICE_AT(entry, i);
+      pg_logfmt_escape_u8(&sb, c, allocator);
     }
-
-    [[maybe_unused]] [[nodiscard]] static PgString pg_logfmt_escape_string(
-        PgString entry, PgAllocator * allocator) {
-      Pgu8Dyn sb = {0};
-      PG_DYN_ENSURE_CAP(&sb,
-                        2 + PG_CLAMP(0, entry.len, PG_LOG_STRING_MAX + 4) * 2,
-                        allocator);
-      *PG_DYN_PUSH(&sb, allocator) = '"';
-
-      if (entry.len <= PG_LOG_STRING_MAX) {
-        for (u64 i = 0; i < entry.len; i++) {
-          u8 c = PG_SLICE_AT(entry, i);
-          pg_logfmt_escape_u8(&sb, c, allocator);
-        }
-      } else {
-        for (u64 i = 0; i < PG_LOG_STRING_MAX / 2; i++) {
-          u8 c = PG_SLICE_AT(entry, i);
-          pg_logfmt_escape_u8(&sb, c, allocator);
-        }
-        PG_DYN_APPEND_SLICE(&sb, PG_S("[..]"), allocator);
-        for (u64 i = (entry.len - PG_LOG_STRING_MAX / 2); i < entry.len; i++) {
-          u8 c = PG_SLICE_AT(entry, i);
-          pg_logfmt_escape_u8(&sb, c, allocator);
-        }
-      }
-      *PG_DYN_PUSH(&sb, allocator) = '"';
-
-      return PG_DYN_SLICE(PgString, sb);
+  } else {
+    for (u64 i = 0; i < PG_LOG_STRING_MAX / 2; i++) {
+      u8 c = PG_SLICE_AT(entry, i);
+      pg_logfmt_escape_u8(&sb, c, allocator);
     }
-
-    [[nodiscard]] static PgArena pg_arena_make_from_mem(u8 * data, u64 len) {
-      PgArena arena = {
-          .start = data,
-          .end = data + len,
-          .start_original = data,
-      };
-
-      return arena;
+    PG_DYN_APPEND_SLICE(&sb, PG_S("[..]"), allocator);
+    for (u64 i = (entry.len - PG_LOG_STRING_MAX / 2); i < entry.len; i++) {
+      u8 c = PG_SLICE_AT(entry, i);
+      pg_logfmt_escape_u8(&sb, c, allocator);
     }
+  }
+  *PG_DYN_PUSH(&sb, allocator) = '"';
 
-    [[maybe_unused]] [[nodiscard]] static PgString pg_log_make_log_line_logfmt(
-        u8 * mem, u64 mem_len, PgLogger * logger, PgLogLevel level,
-        PgString msg, i32 args_count, ...) {
-      PgArena arena = pg_arena_make_from_mem(mem, mem_len);
-      PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-      PgAllocator *allocator =
-          pg_arena_allocator_as_allocator(&arena_allocator);
+  return PG_DYN_SLICE(PgString, sb);
+}
 
-      // Ignore clock errors.
-      u64 monotonic_ns =
-          pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res - logger->monotonic_epoch;
-      u64 timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME).res;
+[[nodiscard]] static PgArena pg_arena_make_from_mem(u8 *data, u64 len) {
+  PgArena arena = {
+      .start = data,
+      .end = data + len,
+      .start_original = data,
+  };
 
-      // FIXME: `try` alloc.
-      Pgu8Dyn sb = {0};
-      PG_DYN_ENSURE_CAP(&sb, 256, allocator);
-      PgWriter w = pg_writer_make_from_string_builder(&sb);
+  return arena;
+}
 
-      PG_ASSERT(0 ==
-                pg_writer_write_string_full(&w, PG_S("level="), allocator));
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
+                            PgLogLevel level, PgString msg, i32 args_count,
+                            ...) {
+  PgArena arena = pg_arena_make_from_mem(mem, mem_len);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  // Ignore clock errors.
+  u64 monotonic_ns =
+      pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res - logger->monotonic_epoch;
+  u64 timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME).res;
+
+  // FIXME: `try` alloc.
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, 256, allocator);
+  PgWriter w = pg_writer_make_from_string_builder(&sb);
+
+  PG_ASSERT(0 == pg_writer_write_string_full(&w, PG_S("level="), allocator));
+  PG_ASSERT(0 == pg_writer_write_string_full(&w, pg_log_level_to_string(level),
+                                             allocator));
+
+  PG_ASSERT(0 ==
+            pg_writer_write_string_full(&w, PG_S(" timestamp_ns="), allocator));
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, timestamp_ns, allocator));
+
+  PG_ASSERT(0 ==
+            pg_writer_write_string_full(&w, PG_S(" monotonic_ns="), allocator));
+  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, monotonic_ns, allocator));
+
+  PG_ASSERT(0 == pg_writer_write_string_full(&w, PG_S(" message="), allocator));
+  PG_ASSERT(0 == pg_writer_write_string_full(
+                     &w, pg_logfmt_escape_string(msg, allocator), allocator));
+
+  va_list argp = {0};
+  va_start(argp, args_count);
+  for (i32 i = 0; i < args_count; i++) {
+    PgLogEntry entry = va_arg(argp, PgLogEntry);
+    PG_ASSERT(0 == pg_writer_write_u8(&w, ' ', allocator));
+    PG_ASSERT(0 == pg_writer_write_string_full(&w, entry.key, allocator));
+    PG_ASSERT(0 == pg_writer_write_u8(&w, '=', allocator));
+
+    switch (entry.value.kind) {
+    case PG_LOG_VALUE_STRING: {
       PG_ASSERT(0 == pg_writer_write_string_full(
-                         &w, pg_log_level_to_string(level), allocator));
-
-      PG_ASSERT(0 == pg_writer_write_string_full(&w, PG_S(" timestamp_ns="),
-                                                 allocator));
-      PG_ASSERT(0 ==
-                pg_writer_write_u64_as_string(&w, timestamp_ns, allocator));
-
-      PG_ASSERT(0 == pg_writer_write_string_full(&w, PG_S(" monotonic_ns="),
-                                                 allocator));
-      PG_ASSERT(0 ==
-                pg_writer_write_u64_as_string(&w, monotonic_ns, allocator));
-
-      PG_ASSERT(0 ==
-                pg_writer_write_string_full(&w, PG_S(" message="), allocator));
-      PG_ASSERT(0 ==
-                pg_writer_write_string_full(
-                    &w, pg_logfmt_escape_string(msg, allocator), allocator));
-
-      va_list argp = {0};
-      va_start(argp, args_count);
-      for (i32 i = 0; i < args_count; i++) {
-        PgLogEntry entry = va_arg(argp, PgLogEntry);
-        PG_ASSERT(0 == pg_writer_write_u8(&w, ' ', allocator));
-        PG_ASSERT(0 == pg_writer_write_string_full(&w, entry.key, allocator));
-        PG_ASSERT(0 == pg_writer_write_u8(&w, '=', allocator));
-
-        switch (entry.value.kind) {
-        case PG_LOG_VALUE_STRING: {
-          PG_ASSERT(0 == pg_writer_write_string_full(
-                             &w,
-                             pg_logfmt_escape_string(entry.value.s, allocator),
-                             allocator));
-          break;
-        }
-        case PG_LOG_VALUE_U64:
-          PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, entry.value.n64,
-                                                       allocator));
-          break;
-        case PG_LOG_VALUE_I64:
-          PG_ASSERT(0 == pg_writer_write_i64_as_string(&w, entry.value.s64,
-                                                       allocator));
-          break;
-        case PG_LOG_VALUE_IPV4_ADDRESS: {
-          PgString ipv4_addr_str = pg_net_ipv4_address_to_string(
-              entry.value.ipv4_address, allocator);
-          PG_ASSERT(0 ==
-                    pg_writer_write_string_full(&w, ipv4_addr_str, allocator));
-        } break;
-        default:
-          PG_ASSERT(0 && "invalid PgLogValueKind");
-        }
-      }
-      va_end(argp);
-
-      PG_ASSERT(0 == pg_writer_write_u8(&w, '\n', allocator));
-
-      return PG_DYN_SLICE(PgString, sb);
+                         &w, pg_logfmt_escape_string(entry.value.s, allocator),
+                         allocator));
+      break;
     }
-
-    typedef int (*PgCmpFn)(const void *a, const void *b);
-
-    [[maybe_unused]] static void pg_sort_unique(
-        void *elems, u64 elem_size, u64 *elems_count, PgCmpFn cmp_fn) {
-      // TODO: own sort.
-      qsort(elems, *elems_count, elem_size, cmp_fn);
-
-      if (*elems_count <= 1) {
-        return;
-      }
-
-      for (u64 i = 1; i < *elems_count;) {
-        void *previous = (u8 *)elems + elem_size * (i - 1);
-        void *current = (u8 *)elems + elem_size * i;
-        if (PG_CMP_EQ == cmp_fn(previous, current)) {
-          memmove(previous, current, elem_size * (*elems_count - i));
-          PG_ASSERT(*elems_count > 0);
-          *elems_count -= 1;
-        } else {
-          i += 1;
-        }
-      }
+    case PG_LOG_VALUE_U64:
+      PG_ASSERT(0 ==
+                pg_writer_write_u64_as_string(&w, entry.value.n64, allocator));
+      break;
+    case PG_LOG_VALUE_I64:
+      PG_ASSERT(0 ==
+                pg_writer_write_i64_as_string(&w, entry.value.s64, allocator));
+      break;
+    case PG_LOG_VALUE_IPV4_ADDRESS: {
+      PgString ipv4_addr_str =
+          pg_net_ipv4_address_to_string(entry.value.ipv4_address, allocator);
+      PG_ASSERT(0 == pg_writer_write_string_full(&w, ipv4_addr_str, allocator));
+    } break;
+    default:
+      PG_ASSERT(0 && "invalid PgLogValueKind");
     }
+  }
+  va_end(argp);
 
-    typedef struct {
-      u8 value[16];
-      u8 version;
-    } PgUuid;
-    [[maybe_unused]] [[nodiscard]] static PgUuid pg_uuid_v5(PgUuid namespace,
-                                                            PgString name) {
-      PG_SHA1_CTX ctx = {0};
-      PG_SHA1Init(&ctx);
-      PG_SHA1Update(&ctx, namespace.value,
-                    PG_STATIC_ARRAY_LEN(namespace.value));
-      PG_SHA1Update(&ctx, name.data, name.len);
+  PG_ASSERT(0 == pg_writer_write_u8(&w, '\n', allocator));
 
-      PgSha1 digest = {0};
-      PG_SHA1Final(digest.data, &ctx);
+  return PG_DYN_SLICE(PgString, sb);
+}
 
-      PgUuid res = {.version = 5};
-      memcpy(res.value, digest.data, 16);
+typedef int (*PgCmpFn)(const void *a, const void *b);
 
-      res.value[6] &= 0x0F;
-      res.value[6] |= 0x50;
+[[maybe_unused]] static void pg_sort_unique(void *elems, u64 elem_size,
+                                            u64 *elems_count, PgCmpFn cmp_fn) {
+  // TODO: own sort.
+  qsort(elems, *elems_count, elem_size, cmp_fn);
 
-      res.value[8] &= 0x3F;
-      res.value[8] |= 0x80;
+  if (*elems_count <= 1) {
+    return;
+  }
 
-      return res;
+  for (u64 i = 1; i < *elems_count;) {
+    void *previous = (u8 *)elems + elem_size * (i - 1);
+    void *current = (u8 *)elems + elem_size * i;
+    if (PG_CMP_EQ == cmp_fn(previous, current)) {
+      memmove(previous, current, elem_size * (*elems_count - i));
+      PG_ASSERT(*elems_count > 0);
+      *elems_count -= 1;
+    } else {
+      i += 1;
     }
+  }
+}
+
+typedef struct {
+  u8 value[16];
+  u8 version;
+} PgUuid;
+[[maybe_unused]] [[nodiscard]] static PgUuid pg_uuid_v5(PgUuid namespace,
+                                                        PgString name) {
+  PG_SHA1_CTX ctx = {0};
+  PG_SHA1Init(&ctx);
+  PG_SHA1Update(&ctx, namespace.value, PG_STATIC_ARRAY_LEN(namespace.value));
+  PG_SHA1Update(&ctx, name.data, name.len);
+
+  PgSha1 digest = {0};
+  PG_SHA1Final(digest.data, &ctx);
+
+  PgUuid res = {.version = 5};
+  memcpy(res.value, digest.data, 16);
+
+  res.value[6] &= 0x0F;
+  res.value[6] |= 0x50;
+
+  res.value[8] &= 0x3F;
+  res.value[8] |= 0x80;
+
+  return res;
+}
 
 #define PG_UUID_STRING_LENGTH (8 + 4 + 4 + 4 + 12 + 4)
 
-    [[maybe_unused]] [[nodiscard]] static PgString pg_uuid_to_string(
-        PgUuid uuid, PgAllocator * allocator) {
-      PgString res = pg_string_make(PG_UUID_STRING_LENGTH, allocator);
-      u64 i = 0;
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_uuid_to_string(PgUuid uuid, PgAllocator *allocator) {
+  PgString res = pg_string_make(PG_UUID_STRING_LENGTH, allocator);
+  u64 i = 0;
 
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[0] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[0] & 0xF);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[1] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[1] & 0xF);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[2] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[2] & 0xF);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[3] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[3] & 0xF);
-      res.data[i++] = '-';
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[4] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[4] & 0xF);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[5] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[5] & 0xF);
-      res.data[i++] = '-';
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[6] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[6] & 0xF);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[7] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[7] & 0xF);
-      res.data[i++] = '-';
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[8] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[8] & 0xF);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[9] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[9] & 0xF);
-      res.data[i++] = '-';
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[10] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[10] & 0xF);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[11] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[11] & 0xF);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[12] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[12] & 0xF);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[13] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[13] & 0xF);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[14] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[14] & 0xF);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[15] >> 4);
-      res.data[i++] = pg_u8_to_hex_rune(uuid.value[15] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[0] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[0] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[1] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[1] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[2] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[2] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[3] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[3] & 0xF);
+  res.data[i++] = '-';
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[4] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[4] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[5] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[5] & 0xF);
+  res.data[i++] = '-';
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[6] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[6] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[7] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[7] & 0xF);
+  res.data[i++] = '-';
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[8] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[8] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[9] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[9] & 0xF);
+  res.data[i++] = '-';
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[10] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[10] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[11] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[11] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[12] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[12] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[13] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[13] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[14] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[14] & 0xF);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[15] >> 4);
+  res.data[i++] = pg_u8_to_hex_rune(uuid.value[15] & 0xF);
 
-      return res;
-    }
+  return res;
+}
 
-    typedef enum {
-      PG_HTML_TOKEN_KIND_NONE,
-      PG_HTML_TOKEN_KIND_TEXT,
-      PG_HTML_TOKEN_KIND_TAG_OPENING,
-      PG_HTML_TOKEN_KIND_TAG_CLOSING,
-      PG_HTML_TOKEN_KIND_ATTRIBUTE,
-      PG_HTML_TOKEN_KIND_COMMENT,
-      PG_HTML_TOKEN_KIND_DOCTYPE,
-    } PgHtmlTokenKind;
+typedef enum {
+  PG_HTML_TOKEN_KIND_NONE,
+  PG_HTML_TOKEN_KIND_TEXT,
+  PG_HTML_TOKEN_KIND_TAG_OPENING,
+  PG_HTML_TOKEN_KIND_TAG_CLOSING,
+  PG_HTML_TOKEN_KIND_ATTRIBUTE,
+  PG_HTML_TOKEN_KIND_COMMENT,
+  PG_HTML_TOKEN_KIND_DOCTYPE,
+} PgHtmlTokenKind;
 
-    typedef struct {
-      PgHtmlTokenKind kind;
-      u32 start, end;
-      union {
+typedef struct {
+  PgHtmlTokenKind kind;
+  u32 start, end;
+  union {
 #if 0
     PgKeyValue attribute;
 #endif
-        PgString tag;
-        PgString doctype;
-        PgString text;
-        PgString comment;
-      };
-    } PgHtmlToken;
-    PG_RESULT(PgHtmlToken) PgHtmlTokenResult;
-    PG_DYN(PgHtmlToken) PgHtmlTokenDyn;
-    PG_SLICE(PgHtmlToken) PgHtmlTokenSlice;
-    PG_RESULT(PgHtmlTokenDyn) PgHtmlTokenDynResult;
+    PgString tag;
+    PgString doctype;
+    PgString text;
+    PgString comment;
+  };
+} PgHtmlToken;
+PG_RESULT(PgHtmlToken) PgHtmlTokenResult;
+PG_DYN(PgHtmlToken) PgHtmlTokenDyn;
+PG_SLICE(PgHtmlToken) PgHtmlTokenSlice;
+PG_RESULT(PgHtmlTokenDyn) PgHtmlTokenDynResult;
 
-    typedef enum {
-      PG_HTML_PARSE_ERROR_NONE = 0,
-      PG_HTML_PARSE_ERROR_INCORRECTLY_CLOSED_COMMENT = 0x600,
-      PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME = 0x601,
-      PG_HTML_PARSE_ERROR_EOF_IN_TAG = 0x602,
-      PG_HTML_PARSE_ERROR_UNEXPECTED_CHARACTER_IN_ATTRIBUTE_NAME = 0x603,
-      PG_HTML_PARSE_ERROR_UNEXPECTED_EQUALS_SIGN_BEFORE_ATTRIBUTE_NAME = 0x604,
-      PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE = 0x605,
-      PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME = 0x606,
-      PG_HTML_PARSE_ERROR_MISSING_DOCTYPE_NAME = 0x607,
-      PG_HTML_PARSE_ERROR_EOF_IN_COMMENT = 0x608,
+typedef enum {
+  PG_HTML_PARSE_ERROR_NONE = 0,
+  PG_HTML_PARSE_ERROR_INCORRECTLY_CLOSED_COMMENT = 0x600,
+  PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME = 0x601,
+  PG_HTML_PARSE_ERROR_EOF_IN_TAG = 0x602,
+  PG_HTML_PARSE_ERROR_UNEXPECTED_CHARACTER_IN_ATTRIBUTE_NAME = 0x603,
+  PG_HTML_PARSE_ERROR_UNEXPECTED_EQUALS_SIGN_BEFORE_ATTRIBUTE_NAME = 0x604,
+  PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE = 0x605,
+  PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME = 0x606,
+  PG_HTML_PARSE_ERROR_MISSING_DOCTYPE_NAME = 0x607,
+  PG_HTML_PARSE_ERROR_EOF_IN_COMMENT = 0x608,
 
-    } PgHtmlParseError;
+} PgHtmlParseError;
 
 #if 0
 [[maybe_unused]] [[nodiscard]]
@@ -6076,531 +6067,515 @@ static PgHtmlTokenResult pg_html_tokenize_attribute_key_value(PgString s,
 }
 #endif
 
-    [[nodiscard]] static bool pg_html_tag_is_self_closing(PgString tag) {
-      return pg_string_eq(tag, PG_S("area")) ||
-             pg_string_eq(tag, PG_S("base")) || pg_string_eq(tag, PG_S("br")) ||
-             pg_string_eq(tag, PG_S("col")) ||
-             pg_string_eq(tag, PG_S("embed")) ||
-             pg_string_eq(tag, PG_S("hr")) || pg_string_eq(tag, PG_S("img")) ||
-             pg_string_eq(tag, PG_S("input")) ||
-             pg_string_eq(tag, PG_S("link")) ||
-             pg_string_eq(tag, PG_S("meta")) ||
-             pg_string_eq(tag, PG_S("param")) ||
-             pg_string_eq(tag, PG_S("source")) ||
-             pg_string_eq(tag, PG_S("track")) || pg_string_eq(tag, PG_S("wbr"));
+[[nodiscard]] static bool pg_html_tag_is_self_closing(PgString tag) {
+  return pg_string_eq(tag, PG_S("area")) || pg_string_eq(tag, PG_S("base")) ||
+         pg_string_eq(tag, PG_S("br")) || pg_string_eq(tag, PG_S("col")) ||
+         pg_string_eq(tag, PG_S("embed")) || pg_string_eq(tag, PG_S("hr")) ||
+         pg_string_eq(tag, PG_S("img")) || pg_string_eq(tag, PG_S("input")) ||
+         pg_string_eq(tag, PG_S("link")) || pg_string_eq(tag, PG_S("meta")) ||
+         pg_string_eq(tag, PG_S("param")) ||
+         pg_string_eq(tag, PG_S("source")) ||
+         pg_string_eq(tag, PG_S("track")) || pg_string_eq(tag, PG_S("wbr"));
+}
+
+[[nodiscard]] static bool pg_svg_tag_is_self_closing(PgString tag) {
+  return pg_string_eq(tag, PG_S("path")) || pg_string_eq(tag, PG_S("line")) ||
+         pg_string_eq(tag, PG_S("circle")) || pg_string_eq(tag, PG_S("rect")) ||
+         pg_string_eq(tag, PG_S("polygon")) ||
+         pg_string_eq(tag, PG_S("polyline")) || pg_string_eq(tag, PG_S("stop"));
+
+  // TODO: more.
+}
+
+// FIXME
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
+                                           PgHtmlTokenDyn *tokens,
+                                           PgAllocator *allocator) {
+  (void)tokens;
+  (void)allocator;
+
+  PgRune quote = 0;
+
+  for (;;) {
+    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+
+    if (0 == first) { // Early EOF.
+      return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
     }
 
-    [[nodiscard]] static bool pg_svg_tag_is_self_closing(PgString tag) {
-      return pg_string_eq(tag, PG_S("path")) ||
-             pg_string_eq(tag, PG_S("line")) ||
-             pg_string_eq(tag, PG_S("circle")) ||
-             pg_string_eq(tag, PG_S("rect")) ||
-             pg_string_eq(tag, PG_S("polygon")) ||
-             pg_string_eq(tag, PG_S("polyline")) ||
-             pg_string_eq(tag, PG_S("stop"));
-
-      // TODO: more.
-    }
-
-    // FIXME
-    [[maybe_unused]] [[nodiscard]]
-    static PgError pg_html_tokenize_attributes(PgString s, u64 * pos,
-                                               PgHtmlTokenDyn * tokens,
-                                               PgAllocator * allocator) {
-      (void)tokens;
-      (void)allocator;
-
-      PgRune quote = 0;
-
-      for (;;) {
-        PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-
-        if (0 == first) { // Early EOF.
-          return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
-        }
-
-        if (pg_rune_ascii_is_space(first)) { // Skip.
-          *pos += pg_utf8_rune_bytes_count(first);
-          continue;
-        }
-
-        if (('"' == first || '\'' == first) && 0 == quote) { // Entering quotes.
-          quote = first;
-          *pos += pg_utf8_rune_bytes_count(first);
-          continue;
-        }
-        if (quote && first == quote) { // Exiting quotes.
-          quote = 0;
-          *pos += pg_utf8_rune_bytes_count(first);
-          continue;
-        }
-
-        if (0 == quote && ('>' == first)) { // End of tag.
-          return 0;
-        }
-
-        // Other characters, skip.
-        *pos += pg_utf8_rune_bytes_count(first);
-      }
-
-      PG_ASSERT(0);
-    }
-
-    [[nodiscard]]
-    static PgError pg_html_tokenize_comment(PgString s, u64 * pos,
-                                            PgHtmlTokenDyn * tokens,
-                                            PgAllocator * allocator) {
-      u32 start = (u32)*pos;
-
-      for (;;) {
-        PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-        if (0 == first) {
-          return PG_HTML_PARSE_ERROR_EOF_IN_COMMENT;
-        }
-
-        // FIXME: More complicated than that in the spec.
-        if (pg_string_starts_with(PG_SLICE_RANGE_START(s, *pos), PG_S("-->"))) {
-          PgHtmlToken token = {
-              .kind = PG_HTML_TOKEN_KIND_COMMENT,
-              .comment = pg_string_trim_space(PG_SLICE_RANGE(s, start, *pos)),
-              .start = start,
-              .end = (u32)*pos,
-          };
-          *PG_DYN_PUSH(tokens, allocator) = token;
-
-          *pos += PG_S("-->").len;
-          return 0;
-        }
-
-        *pos += pg_utf8_rune_bytes_count(first);
-      }
-    }
-
-    [[nodiscard]]
-    static PgError pg_html_tokenize_doctype_name(PgString s, u64 * pos,
-                                                 PgHtmlTokenDyn * tokens,
-                                                 PgAllocator * allocator) {
-
-      PgHtmlToken token = {
-          .kind = PG_HTML_TOKEN_KIND_DOCTYPE,
-          .doctype = {.data = s.data + *pos},
-          .start = (u32)*pos,
-      };
-
-      for (;;) {
-        PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-
-        if (0 == first) {
-          return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
-        }
-
-        if (pg_rune_ascii_is_space(first)) {
-          *pos += pg_utf8_rune_bytes_count(first);
-          return 0;
-        }
-
-        if ('>' == first) {
-          token.end = (u32)*pos;
-          token.doctype.len = token.end - token.start;
-          PG_ASSERT(!pg_string_is_empty(token.doctype));
-          *PG_DYN_PUSH(tokens, allocator) = token;
-
-          *pos += pg_utf8_rune_bytes_count(first);
-          return 0;
-        }
-
-        *pos += pg_utf8_rune_bytes_count(first);
-      }
-    }
-
-    [[nodiscard]]
-    static PgError pg_html_tokenize_doctype(PgString s, u64 * pos,
-                                            PgHtmlTokenDyn * tokens,
-                                            PgAllocator * allocator) {
-      *pos += PG_S("DOCTYPE").len;
-
-      PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-      if (!pg_rune_ascii_is_space(first)) {
-        return PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME;
-      }
+    if (pg_rune_ascii_is_space(first)) { // Skip.
       *pos += pg_utf8_rune_bytes_count(first);
-
-      for (;;) {
-        first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-        if (0 == first) {
-          return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
-        }
-
-        if (pg_rune_ascii_is_space(first)) {
-          *pos += pg_utf8_rune_bytes_count(first);
-          continue;
-        }
-
-        if ('>' == first) {
-          return PG_HTML_PARSE_ERROR_MISSING_DOCTYPE_NAME;
-        }
-
-        return pg_html_tokenize_doctype_name(s, pos, tokens, allocator);
-      }
+      continue;
     }
 
-    [[nodiscard]]
-    static PgError pg_html_tokenize_markup(PgString s, u64 * pos,
-                                           PgHtmlTokenDyn * tokens,
-                                           PgAllocator * allocator) {
-      if (pg_string_starts_with(PG_SLICE_RANGE_START(s, *pos), PG_S("--"))) {
-        *pos += pg_utf8_rune_bytes_count('-');
-        *pos += pg_utf8_rune_bytes_count('-');
-        return pg_html_tokenize_comment(s, pos, tokens, allocator);
-      }
+    if (('"' == first || '\'' == first) && 0 == quote) { // Entering quotes.
+      quote = first;
+      *pos += pg_utf8_rune_bytes_count(first);
+      continue;
+    }
+    if (quote && first == quote) { // Exiting quotes.
+      quote = 0;
+      *pos += pg_utf8_rune_bytes_count(first);
+      continue;
+    }
 
-      if (PG_SLICE_RANGE_START(s, *pos).len >= PG_S("DOCTYPE").len &&
-          (('D' == PG_SLICE_AT(s, *pos + 0) ||
-            'd' == PG_SLICE_AT(s, *pos + 0)) ||
-           ('O' == PG_SLICE_AT(s, *pos + 0) ||
-            'o' == PG_SLICE_AT(s, *pos + 1)) ||
-           ('C' == PG_SLICE_AT(s, *pos + 0) ||
-            'c' == PG_SLICE_AT(s, *pos + 2)) ||
-           ('T' == PG_SLICE_AT(s, *pos + 0) ||
-            't' == PG_SLICE_AT(s, *pos + 3)) ||
-           ('Y' == PG_SLICE_AT(s, *pos + 0) ||
-            'y' == PG_SLICE_AT(s, *pos + 4)) ||
-           ('P' == PG_SLICE_AT(s, *pos + 0) ||
-            'p' == PG_SLICE_AT(s, *pos + 5)) ||
-           ('E' == PG_SLICE_AT(s, *pos + 0) ||
-            'e' == PG_SLICE_AT(s, *pos + 6)))) {
-        return pg_html_tokenize_doctype(s, pos, tokens, allocator);
-      }
-      PG_ASSERT(0);
-
+    if (0 == quote && ('>' == first)) { // End of tag.
       return 0;
     }
 
-    [[nodiscard]]
-    static PgError pg_html_tokenize_tag(PgString s, u64 * pos,
-                                        PgHtmlTokenDyn * tokens,
-                                        PgAllocator * allocator) {
-      PG_ASSERT('<' == pg_string_first(PG_SLICE_RANGE_START(s, *pos)));
-      *pos += pg_utf8_rune_bytes_count('<');
+    // Other characters, skip.
+    *pos += pg_utf8_rune_bytes_count(first);
+  }
 
-      if ('!' == pg_string_first(PG_SLICE_RANGE_START(s, *pos))) {
-        *pos += pg_utf8_rune_bytes_count('!');
-        return pg_html_tokenize_markup(s, pos, tokens, allocator);
-      }
+  PG_ASSERT(0);
+}
 
+[[nodiscard]]
+static PgError pg_html_tokenize_comment(PgString s, u64 *pos,
+                                        PgHtmlTokenDyn *tokens,
+                                        PgAllocator *allocator) {
+  u32 start = (u32)*pos;
+
+  for (;;) {
+    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    if (0 == first) {
+      return PG_HTML_PARSE_ERROR_EOF_IN_COMMENT;
+    }
+
+    // FIXME: More complicated than that in the spec.
+    if (pg_string_starts_with(PG_SLICE_RANGE_START(s, *pos), PG_S("-->"))) {
       PgHtmlToken token = {
-          .start = (u32)*pos,
-          .end = 0, // Backpatched,
-          .kind = PG_HTML_TOKEN_KIND_TAG_OPENING,
-          .tag = {.data = s.data + *pos}, // Length backpatched.
+          .kind = PG_HTML_TOKEN_KIND_COMMENT,
+          .comment = pg_string_trim_space(PG_SLICE_RANGE(s, start, *pos)),
+          .start = start,
+          .end = (u32)*pos,
       };
+      *PG_DYN_PUSH(tokens, allocator) = token;
 
-      PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-      if ('/' == first) {
-        *pos += pg_utf8_rune_bytes_count(first);
-        token.start = (u32)*pos;
-        token.kind = PG_HTML_TOKEN_KIND_TAG_CLOSING;
-        token.tag.data += pg_utf8_rune_bytes_count(first);
-      }
+      *pos += PG_S("-->").len;
+      return 0;
+    }
 
-      first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-      if (!pg_rune_ascii_is_alphabetical(first)) {
-        return PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME;
-      }
+    *pos += pg_utf8_rune_bytes_count(first);
+  }
+}
+
+[[nodiscard]]
+static PgError pg_html_tokenize_doctype_name(PgString s, u64 *pos,
+                                             PgHtmlTokenDyn *tokens,
+                                             PgAllocator *allocator) {
+
+  PgHtmlToken token = {
+      .kind = PG_HTML_TOKEN_KIND_DOCTYPE,
+      .doctype = {.data = s.data + *pos},
+      .start = (u32)*pos,
+  };
+
+  for (;;) {
+    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+
+    if (0 == first) {
+      return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
+    }
+
+    if (pg_rune_ascii_is_space(first)) {
       *pos += pg_utf8_rune_bytes_count(first);
+      return 0;
+    }
 
-      for (;;) {
-        first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    if ('>' == first) {
+      token.end = (u32)*pos;
+      token.doctype.len = token.end - token.start;
+      PG_ASSERT(!pg_string_is_empty(token.doctype));
+      *PG_DYN_PUSH(tokens, allocator) = token;
 
-        if (0 == first) { // Early EOF.
-          return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
-        }
+      *pos += pg_utf8_rune_bytes_count(first);
+      return 0;
+    }
 
-        // End of tag name.
-        if ('>' == first || pg_rune_ascii_is_space(first)) {
-          if (0 == token.tag.len) {
-            token.tag.len = (u64)((s.data + *pos) - token.tag.data);
-          }
-          PG_ASSERT(token.tag.len <= s.len);
-          if (0 == token.end) {
-            token.end = (u32)*pos;
-          }
-        }
+    *pos += pg_utf8_rune_bytes_count(first);
+  }
+}
 
-        if ('>' == first) {
-          token.tag = pg_string_trim_space(token.tag);
-          token.tag = pg_string_trim_right(token.tag, '/');
+[[nodiscard]]
+static PgError pg_html_tokenize_doctype(PgString s, u64 *pos,
+                                        PgHtmlTokenDyn *tokens,
+                                        PgAllocator *allocator) {
+  *pos += PG_S("DOCTYPE").len;
 
-          *PG_DYN_PUSH(tokens, allocator) = token;
-          *pos += pg_utf8_rune_bytes_count(first);
-          return 0;
-        }
+  PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  if (!pg_rune_ascii_is_space(first)) {
+    return PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME;
+  }
+  *pos += pg_utf8_rune_bytes_count(first);
 
-        if (pg_rune_ascii_is_space(first)) {
-          *pos += pg_utf8_rune_bytes_count(first);
-          PgError err = pg_html_tokenize_attributes(s, pos, tokens, allocator);
-          if (err) {
-            return err;
-          }
-          continue;
-        }
+  for (;;) {
+    first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    if (0 == first) {
+      return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
+    }
 
-        // Skip other characters in tag name.
-        *pos += pg_utf8_rune_bytes_count(first);
+    if (pg_rune_ascii_is_space(first)) {
+      *pos += pg_utf8_rune_bytes_count(first);
+      continue;
+    }
+
+    if ('>' == first) {
+      return PG_HTML_PARSE_ERROR_MISSING_DOCTYPE_NAME;
+    }
+
+    return pg_html_tokenize_doctype_name(s, pos, tokens, allocator);
+  }
+}
+
+[[nodiscard]]
+static PgError pg_html_tokenize_markup(PgString s, u64 *pos,
+                                       PgHtmlTokenDyn *tokens,
+                                       PgAllocator *allocator) {
+  if (pg_string_starts_with(PG_SLICE_RANGE_START(s, *pos), PG_S("--"))) {
+    *pos += pg_utf8_rune_bytes_count('-');
+    *pos += pg_utf8_rune_bytes_count('-');
+    return pg_html_tokenize_comment(s, pos, tokens, allocator);
+  }
+
+  if (PG_SLICE_RANGE_START(s, *pos).len >= PG_S("DOCTYPE").len &&
+      (('D' == PG_SLICE_AT(s, *pos + 0) || 'd' == PG_SLICE_AT(s, *pos + 0)) ||
+       ('O' == PG_SLICE_AT(s, *pos + 0) || 'o' == PG_SLICE_AT(s, *pos + 1)) ||
+       ('C' == PG_SLICE_AT(s, *pos + 0) || 'c' == PG_SLICE_AT(s, *pos + 2)) ||
+       ('T' == PG_SLICE_AT(s, *pos + 0) || 't' == PG_SLICE_AT(s, *pos + 3)) ||
+       ('Y' == PG_SLICE_AT(s, *pos + 0) || 'y' == PG_SLICE_AT(s, *pos + 4)) ||
+       ('P' == PG_SLICE_AT(s, *pos + 0) || 'p' == PG_SLICE_AT(s, *pos + 5)) ||
+       ('E' == PG_SLICE_AT(s, *pos + 0) || 'e' == PG_SLICE_AT(s, *pos + 6)))) {
+    return pg_html_tokenize_doctype(s, pos, tokens, allocator);
+  }
+  PG_ASSERT(0);
+
+  return 0;
+}
+
+[[nodiscard]]
+static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
+                                    PgHtmlTokenDyn *tokens,
+                                    PgAllocator *allocator) {
+  PG_ASSERT('<' == pg_string_first(PG_SLICE_RANGE_START(s, *pos)));
+  *pos += pg_utf8_rune_bytes_count('<');
+
+  if ('!' == pg_string_first(PG_SLICE_RANGE_START(s, *pos))) {
+    *pos += pg_utf8_rune_bytes_count('!');
+    return pg_html_tokenize_markup(s, pos, tokens, allocator);
+  }
+
+  PgHtmlToken token = {
+      .start = (u32)*pos,
+      .end = 0, // Backpatched,
+      .kind = PG_HTML_TOKEN_KIND_TAG_OPENING,
+      .tag = {.data = s.data + *pos}, // Length backpatched.
+  };
+
+  PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  if ('/' == first) {
+    *pos += pg_utf8_rune_bytes_count(first);
+    token.start = (u32)*pos;
+    token.kind = PG_HTML_TOKEN_KIND_TAG_CLOSING;
+    token.tag.data += pg_utf8_rune_bytes_count(first);
+  }
+
+  first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  if (!pg_rune_ascii_is_alphabetical(first)) {
+    return PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME;
+  }
+  *pos += pg_utf8_rune_bytes_count(first);
+
+  for (;;) {
+    first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+
+    if (0 == first) { // Early EOF.
+      return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
+    }
+
+    // End of tag name.
+    if ('>' == first || pg_rune_ascii_is_space(first)) {
+      if (0 == token.tag.len) {
+        token.tag.len = (u64)((s.data + *pos) - token.tag.data);
+      }
+      PG_ASSERT(token.tag.len <= s.len);
+      if (0 == token.end) {
+        token.end = (u32)*pos;
       }
     }
 
-    // TODO: Decode html entities e.g. `&amp;` ?
-    [[maybe_unused]] [[nodiscard]]
-    static PgError pg_html_tokenize_data(PgString s, u64 * pos,
-                                         PgHtmlTokenDyn * tokens,
-                                         PgAllocator * allocator) {
-      u32 start = (u32)*pos;
+    if ('>' == first) {
+      token.tag = pg_string_trim_space(token.tag);
+      token.tag = pg_string_trim_right(token.tag, '/');
 
-      PG_ASSERT(tokens->len > 0);
-      PG_ASSERT(PG_SLICE_LAST(*tokens).end <= start);
+      *PG_DYN_PUSH(tokens, allocator) = token;
+      *pos += pg_utf8_rune_bytes_count(first);
+      return 0;
+    }
 
-      for (;;) {
-        PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-        // TODO: Check about null byte.
-        if (0 == first) {
-          return 0;
-        }
-        if ('<' == first) { // End of data, start of tag.
-          PgHtmlToken token = {
-              .start = start,
-              .end = (u32)(*pos),
-              .kind = PG_HTML_TOKEN_KIND_TEXT,
-              .text = PG_SLICE_RANGE(s, start, *pos),
-          };
-          if (!pg_string_is_empty(pg_string_trim_space(token.text))) {
-            *PG_DYN_PUSH(tokens, allocator) = token;
-          }
-          return 0;
-        }
-        // TODO: Ampersand.
-
-        *pos += pg_utf8_rune_bytes_count(first);
+    if (pg_rune_ascii_is_space(first)) {
+      *pos += pg_utf8_rune_bytes_count(first);
+      PgError err = pg_html_tokenize_attributes(s, pos, tokens, allocator);
+      if (err) {
+        return err;
       }
+      continue;
     }
 
-    [[maybe_unused]] [[nodiscard]] static PgHtmlTokenDynResult pg_html_tokenize(
-        PgString s, PgAllocator * allocator) {
-      PgHtmlTokenDynResult res = {0};
+    // Skip other characters in tag name.
+    *pos += pg_utf8_rune_bytes_count(first);
+  }
+}
 
-      /* PgString comment_start = PG_S("<!--"); */
-      /* PgString comment_end = PG_S("-->"); */
-      PgRune tag_start = '<';
-      u64 pos = 0;
-      for (;;) {
-        PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, pos));
-        if (0 == first) { // EOF.
-          return res;
-        }
+// TODO: Decode html entities e.g. `&amp;` ?
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_html_tokenize_data(PgString s, u64 *pos,
+                                     PgHtmlTokenDyn *tokens,
+                                     PgAllocator *allocator) {
+  u32 start = (u32)*pos;
 
-        // TODO: Doctype.
-        // TODO: Comment.
+  PG_ASSERT(tokens->len > 0);
+  PG_ASSERT(PG_SLICE_LAST(*tokens).end <= start);
 
-        // Tag.
-        if (tag_start == first) {
-          res.err = pg_html_tokenize_tag(s, &pos, &res.res, allocator);
-          if (res.err) {
-            return res;
-          }
-
-          res.err = pg_html_tokenize_data(s, &pos, &res.res, allocator);
-          if (res.err) {
-            return res;
-          }
-        }
+  for (;;) {
+    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    // TODO: Check about null byte.
+    if (0 == first) {
+      return 0;
+    }
+    if ('<' == first) { // End of data, start of tag.
+      PgHtmlToken token = {
+          .start = start,
+          .end = (u32)(*pos),
+          .kind = PG_HTML_TOKEN_KIND_TEXT,
+          .text = PG_SLICE_RANGE(s, start, *pos),
+      };
+      if (!pg_string_is_empty(pg_string_trim_space(token.text))) {
+        *PG_DYN_PUSH(tokens, allocator) = token;
       }
-      PG_ASSERT(0);
+      return 0;
+    }
+    // TODO: Ampersand.
+
+    *pos += pg_utf8_rune_bytes_count(first);
+  }
+}
+
+[[maybe_unused]] [[nodiscard]] static PgHtmlTokenDynResult
+pg_html_tokenize(PgString s, PgAllocator *allocator) {
+  PgHtmlTokenDynResult res = {0};
+
+  /* PgString comment_start = PG_S("<!--"); */
+  /* PgString comment_end = PG_S("-->"); */
+  PgRune tag_start = '<';
+  u64 pos = 0;
+  for (;;) {
+    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, pos));
+    if (0 == first) { // EOF.
+      return res;
     }
 
-    typedef struct PgLinkedListNode PgLinkedListNode;
-    struct PgLinkedListNode {
-      PgLinkedListNode *next;
-    };
+    // TODO: Doctype.
+    // TODO: Comment.
 
-    [[maybe_unused]] static void pg_linked_list_init(PgLinkedListNode * node) {
-      PG_ASSERT(node);
-      node->next = node;
-    }
-
-    [[nodiscard]]
-    static bool pg_linked_list_is_empty(PgLinkedListNode * node) {
-      PG_ASSERT(node);
-      return node->next == node;
-    }
-
-    [[maybe_unused]] [[nodiscard]]
-    static PgLinkedListNode *pg_linked_list_tail(PgLinkedListNode * node) {
-      PG_ASSERT(node);
-      PgLinkedListNode *it = node;
-      for (; !pg_linked_list_is_empty(it); it = it->next) {
-      }
-      PG_ASSERT(it);
-      return it;
-    }
-
-    [[maybe_unused]] static void pg_linked_list_append(
-        PgLinkedListNode * head, PgLinkedListNode * elem) {
-      PG_ASSERT(head);
-      PG_ASSERT(elem);
-
-      pg_linked_list_tail(head)->next = elem;
-    }
-
-    typedef struct PgHtmlNode PgHtmlNode;
-    struct PgHtmlNode {
-      PgHtmlToken token_start, token_end;
-      PgLinkedListNode parent, next_sibling, first_child;
-    };
-    PG_RESULT(PgHtmlNode *) PgHtmlNodePtrResult;
-
-    [[nodiscard]] static PgHtmlNode *pg_html_node_get_parent(PgHtmlNode *
-                                                             node) {
-      PgLinkedListNode *linked_list_node = node->parent.next;
-      return PG_CONTAINER_OF(linked_list_node, PgHtmlNode, parent);
-    }
-
-    [[nodiscard]] static PgHtmlNode *pg_html_node_get_first_child(PgHtmlNode *
-                                                                  node) {
-      PgLinkedListNode *linked_list_node = node->first_child.next;
-      return PG_CONTAINER_OF(linked_list_node, PgHtmlNode, first_child);
-    }
-
-    [[maybe_unused]] [[nodiscard]] static PgHtmlNode *
-    pg_html_node_get_next_sibling(PgHtmlNode * node) {
-      PgLinkedListNode *linked_list_node = node->next_sibling.next;
-      return PG_CONTAINER_OF(linked_list_node, PgHtmlNode, next_sibling);
-    }
-
-    [[maybe_unused]] [[nodiscard]] static PgHtmlNodePtrResult pg_html_parse(
-        PgString s, PgAllocator * allocator) {
-      PgHtmlNodePtrResult res = {0};
-
-      PgHtmlTokenDynResult res_tokens = pg_html_tokenize(s, allocator);
-      if (res_tokens.err) {
-        res.err = res_tokens.err;
+    // Tag.
+    if (tag_start == first) {
+      res.err = pg_html_tokenize_tag(s, &pos, &res.res, allocator);
+      if (res.err) {
         return res;
       }
-      PgHtmlTokenSlice tokens = PG_DYN_SLICE(PgHtmlTokenSlice, res_tokens.res);
 
-      PgHtmlNode *root =
+      res.err = pg_html_tokenize_data(s, &pos, &res.res, allocator);
+      if (res.err) {
+        return res;
+      }
+    }
+  }
+  PG_ASSERT(0);
+}
+
+typedef struct PgLinkedListNode PgLinkedListNode;
+struct PgLinkedListNode {
+  PgLinkedListNode *next;
+};
+
+[[maybe_unused]] static void pg_linked_list_init(PgLinkedListNode *node) {
+  PG_ASSERT(node);
+  node->next = node;
+}
+
+[[nodiscard]]
+static bool pg_linked_list_is_empty(PgLinkedListNode *node) {
+  PG_ASSERT(node);
+  return node->next == node;
+}
+
+[[maybe_unused]] [[nodiscard]]
+static PgLinkedListNode *pg_linked_list_tail(PgLinkedListNode *node) {
+  PG_ASSERT(node);
+  PgLinkedListNode *it = node;
+  for (; !pg_linked_list_is_empty(it); it = it->next) {
+  }
+  PG_ASSERT(it);
+  return it;
+}
+
+[[maybe_unused]] static void pg_linked_list_append(PgLinkedListNode *head,
+                                                   PgLinkedListNode *elem) {
+  PG_ASSERT(head);
+  PG_ASSERT(elem);
+
+  pg_linked_list_tail(head)->next = elem;
+}
+
+typedef struct PgHtmlNode PgHtmlNode;
+struct PgHtmlNode {
+  PgHtmlToken token_start, token_end;
+  PgLinkedListNode parent, next_sibling, first_child;
+};
+PG_RESULT(PgHtmlNode *) PgHtmlNodePtrResult;
+
+[[nodiscard]] static PgHtmlNode *pg_html_node_get_parent(PgHtmlNode *node) {
+  PgLinkedListNode *linked_list_node = node->parent.next;
+  return PG_CONTAINER_OF(linked_list_node, PgHtmlNode, parent);
+}
+
+[[nodiscard]] static PgHtmlNode *
+pg_html_node_get_first_child(PgHtmlNode *node) {
+  PgLinkedListNode *linked_list_node = node->first_child.next;
+  return PG_CONTAINER_OF(linked_list_node, PgHtmlNode, first_child);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgHtmlNode *
+pg_html_node_get_next_sibling(PgHtmlNode *node) {
+  PgLinkedListNode *linked_list_node = node->next_sibling.next;
+  return PG_CONTAINER_OF(linked_list_node, PgHtmlNode, next_sibling);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgHtmlNodePtrResult
+pg_html_parse(PgString s, PgAllocator *allocator) {
+  PgHtmlNodePtrResult res = {0};
+
+  PgHtmlTokenDynResult res_tokens = pg_html_tokenize(s, allocator);
+  if (res_tokens.err) {
+    res.err = res_tokens.err;
+    return res;
+  }
+  PgHtmlTokenSlice tokens = PG_DYN_SLICE(PgHtmlTokenSlice, res_tokens.res);
+
+  PgHtmlNode *root =
+      pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
+  pg_linked_list_init(&root->parent);
+  pg_linked_list_init(&root->first_child);
+  pg_linked_list_init(&root->next_sibling);
+
+  PgHtmlNode *parent = root;
+
+  for (u64 i = 0; i < tokens.len; i++) {
+    PgHtmlToken token = PG_SLICE_AT(tokens, i);
+    PG_ASSERT(parent);
+
+    bool is_self_closing = ((PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind) ||
+                            PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind) &&
+                           (pg_html_tag_is_self_closing(token.tag) ||
+                            pg_svg_tag_is_self_closing(token.tag));
+
+    if (PG_HTML_TOKEN_KIND_TEXT == token.kind ||
+        PG_HTML_TOKEN_KIND_COMMENT == token.kind ||
+        PG_HTML_TOKEN_KIND_DOCTYPE == token.kind || is_self_closing) {
+      PgHtmlNode *node =
           pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
-      pg_linked_list_init(&root->parent);
-      pg_linked_list_init(&root->first_child);
-      pg_linked_list_init(&root->next_sibling);
+      pg_linked_list_init(&node->parent);
+      pg_linked_list_init(&node->first_child);
+      pg_linked_list_init(&node->next_sibling);
+      node->token_start = node->token_end = token;
+      node->parent.next = &parent->parent;
 
-      PgHtmlNode *parent = root;
+      PgLinkedListNode *first_child_of_parent = &parent->first_child;
+      if (pg_linked_list_is_empty(first_child_of_parent)) {
+        first_child_of_parent->next = &node->first_child;
+      } else {
+        PgLinkedListNode *next_sibling_of_first_child_of_parent =
+            &pg_html_node_get_first_child(parent)->next_sibling;
+        pg_linked_list_append(next_sibling_of_first_child_of_parent,
+                              &node->next_sibling);
+      }
+    } else if (PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind) {
+      PgHtmlNode *node =
+          pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
+      pg_linked_list_init(&node->parent);
+      pg_linked_list_init(&node->first_child);
+      pg_linked_list_init(&node->next_sibling);
+      node->token_start = node->token_end = token;
+      node->parent.next = &parent->parent;
 
-      for (u64 i = 0; i < tokens.len; i++) {
-        PgHtmlToken token = PG_SLICE_AT(tokens, i);
-        PG_ASSERT(parent);
-
-        bool is_self_closing =
-            ((PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind) ||
-             PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind) &&
-            (pg_html_tag_is_self_closing(token.tag) ||
-             pg_svg_tag_is_self_closing(token.tag));
-
-        if (PG_HTML_TOKEN_KIND_TEXT == token.kind ||
-            PG_HTML_TOKEN_KIND_COMMENT == token.kind ||
-            PG_HTML_TOKEN_KIND_DOCTYPE == token.kind || is_self_closing) {
-          PgHtmlNode *node =
-              pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
-          pg_linked_list_init(&node->parent);
-          pg_linked_list_init(&node->first_child);
-          pg_linked_list_init(&node->next_sibling);
-          node->token_start = node->token_end = token;
-          node->parent.next = &parent->parent;
-
-          PgLinkedListNode *first_child_of_parent = &parent->first_child;
-          if (pg_linked_list_is_empty(first_child_of_parent)) {
-            first_child_of_parent->next = &node->first_child;
-          } else {
-            PgLinkedListNode *next_sibling_of_first_child_of_parent =
-                &pg_html_node_get_first_child(parent)->next_sibling;
-            pg_linked_list_append(next_sibling_of_first_child_of_parent,
-                                  &node->next_sibling);
-          }
-        } else if (PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind) {
-          PgHtmlNode *node =
-              pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
-          pg_linked_list_init(&node->parent);
-          pg_linked_list_init(&node->first_child);
-          pg_linked_list_init(&node->next_sibling);
-          node->token_start = node->token_end = token;
-          node->parent.next = &parent->parent;
-
-          PgLinkedListNode *first_child_of_parent = &parent->first_child;
-          if (pg_linked_list_is_empty(first_child_of_parent)) {
-            first_child_of_parent->next = &node->first_child;
-          } else {
-            PgLinkedListNode *next_sibling_of_first_child_of_parent =
-                &pg_html_node_get_first_child(parent)->next_sibling;
-            pg_linked_list_append(next_sibling_of_first_child_of_parent,
-                                  &node->next_sibling);
-          }
-
-          if (!is_self_closing) {
-            parent = node;
-          }
-        } else if (PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind) {
-          PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING ==
-                        parent->token_start.kind &&
-                    pg_string_eq(parent->token_start.tag, token.tag));
-          parent->token_end = token;
-
-          parent = pg_html_node_get_parent(parent);
-        } else {
-          PG_ASSERT(0 && "todo");
-        }
+      PgLinkedListNode *first_child_of_parent = &parent->first_child;
+      if (pg_linked_list_is_empty(first_child_of_parent)) {
+        first_child_of_parent->next = &node->first_child;
+      } else {
+        PgLinkedListNode *next_sibling_of_first_child_of_parent =
+            &pg_html_node_get_first_child(parent)->next_sibling;
+        pg_linked_list_append(next_sibling_of_first_child_of_parent,
+                              &node->next_sibling);
       }
 
-      // All tags correctly closed.
-      PG_ASSERT(parent == root);
-
-      PG_ASSERT(pg_linked_list_is_empty(&root->next_sibling));
-      PG_ASSERT(pg_linked_list_is_empty(&root->parent));
-      res.res = root;
-      PG_ASSERT(root->parent.next == &root->parent);
-      return res;
-    }
-
-    [[maybe_unused]] [[nodiscard]] static bool pg_html_node_is_title_opening(
-        PgHtmlNode * node) {
-      return (PG_HTML_TOKEN_KIND_TAG_OPENING == node->token_start.kind) &&
-             (pg_string_eq(node->token_start.tag, PG_S("h1")) ||
-              pg_string_eq(node->token_start.tag, PG_S("h2")) ||
-              pg_string_eq(node->token_start.tag, PG_S("h3")) ||
-              pg_string_eq(node->token_start.tag, PG_S("h4")) ||
-              pg_string_eq(node->token_start.tag, PG_S("h5")) ||
-              pg_string_eq(node->token_start.tag, PG_S("h6")));
-    }
-
-    [[maybe_unused]] [[nodiscard]] static u8 pg_html_node_get_title_level(
-        PgHtmlNode * node) {
-      return pg_html_node_is_title_opening(node)
-                 ? ((u8)pg_string_last(node->token_start.tag) - '0')
-                 : 0;
-    }
-
-    [[maybe_unused]] [[nodiscard]] static PgString
-    pg_html_node_get_simple_title_content(PgHtmlNode * node) {
-      if (!pg_html_node_is_title_opening(node)) {
-        return PG_S("");
+      if (!is_self_closing) {
+        parent = node;
       }
-      PG_ASSERT(!pg_linked_list_is_empty(&node->first_child));
-      PgHtmlNode *child =
-          PG_CONTAINER_OF(node->first_child.next, PgHtmlNode, first_child);
-      PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == child->token_start.kind);
-      PgString res = child->token_start.text;
+    } else if (PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind) {
+      PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == parent->token_start.kind &&
+                pg_string_eq(parent->token_start.tag, token.tag));
+      parent->token_end = token;
 
-      PG_ASSERT(!pg_string_is_empty(res));
-      return res;
+      parent = pg_html_node_get_parent(parent);
+    } else {
+      PG_ASSERT(0 && "todo");
     }
+  }
+
+  // All tags correctly closed.
+  PG_ASSERT(parent == root);
+
+  PG_ASSERT(pg_linked_list_is_empty(&root->next_sibling));
+  PG_ASSERT(pg_linked_list_is_empty(&root->parent));
+  res.res = root;
+  PG_ASSERT(root->parent.next == &root->parent);
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool
+pg_html_node_is_title_opening(PgHtmlNode *node) {
+  return (PG_HTML_TOKEN_KIND_TAG_OPENING == node->token_start.kind) &&
+         (pg_string_eq(node->token_start.tag, PG_S("h1")) ||
+          pg_string_eq(node->token_start.tag, PG_S("h2")) ||
+          pg_string_eq(node->token_start.tag, PG_S("h3")) ||
+          pg_string_eq(node->token_start.tag, PG_S("h4")) ||
+          pg_string_eq(node->token_start.tag, PG_S("h5")) ||
+          pg_string_eq(node->token_start.tag, PG_S("h6")));
+}
+
+[[maybe_unused]] [[nodiscard]] static u8
+pg_html_node_get_title_level(PgHtmlNode *node) {
+  return pg_html_node_is_title_opening(node)
+             ? ((u8)pg_string_last(node->token_start.tag) - '0')
+             : 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_html_node_get_simple_title_content(PgHtmlNode *node) {
+  if (!pg_html_node_is_title_opening(node)) {
+    return PG_S("");
+  }
+  PG_ASSERT(!pg_linked_list_is_empty(&node->first_child));
+  PgHtmlNode *child =
+      PG_CONTAINER_OF(node->first_child.next, PgHtmlNode, first_child);
+  PG_ASSERT(PG_HTML_TOKEN_KIND_TEXT == child->token_start.kind);
+  PgString res = child->token_start.text;
+
+  PG_ASSERT(!pg_string_is_empty(res));
+  return res;
+}
 
 #if 0
 PG_SLICE(thrd_t) PgThreadSlice;
@@ -6733,409 +6708,404 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
 }
 #endif
 
-    static const u32 PgElfProgramHeaderTypeLoad = 1;
-    static const u32 PgElfProgramHeaderFlagsExecutable = 1;
-    static const u32 PgElfProgramHeaderFlagsReadable = 4;
+static const u32 PgElfProgramHeaderTypeLoad = 1;
+static const u32 PgElfProgramHeaderFlagsExecutable = 1;
+static const u32 PgElfProgramHeaderFlagsReadable = 4;
 
-    typedef enum : u32 {
-      PG_ELF_SECTION_HEADER_KIND_NULL = 0,
-      PG_ELF_SECTION_HEADER_KIND_PROGBITS = 1,
-      PG_ELF_SECTION_HEADER_KIND_SYMTAB = 2,
-      PG_ELF_SECTION_HEADER_KIND_STRTAB = 3,
-      PG_ELF_SECTION_HEADER_KIND_RELA = 4,
-      PG_ELF_SECTION_HEADER_KIND_HASH = 5,
-      PG_ELF_SECTION_HEADER_KIND_DYNAMIC = 6,
-      PG_ELF_SECTION_HEADER_KIND_NOTE = 7,
-      PG_ELF_SECTION_HEADER_KIND_NOBITS = 8,
-      PG_ELF_SECTION_HEADER_KIND_REL = 9,
-      PG_ELF_SECTION_HEADER_KIND_SHLIB = 10,
-      PG_ELF_SECTION_HEADER_KIND_DYNSYM = 11,
-    } PgElfSectionHeaderKind;
+typedef enum : u32 {
+  PG_ELF_SECTION_HEADER_KIND_NULL = 0,
+  PG_ELF_SECTION_HEADER_KIND_PROGBITS = 1,
+  PG_ELF_SECTION_HEADER_KIND_SYMTAB = 2,
+  PG_ELF_SECTION_HEADER_KIND_STRTAB = 3,
+  PG_ELF_SECTION_HEADER_KIND_RELA = 4,
+  PG_ELF_SECTION_HEADER_KIND_HASH = 5,
+  PG_ELF_SECTION_HEADER_KIND_DYNAMIC = 6,
+  PG_ELF_SECTION_HEADER_KIND_NOTE = 7,
+  PG_ELF_SECTION_HEADER_KIND_NOBITS = 8,
+  PG_ELF_SECTION_HEADER_KIND_REL = 9,
+  PG_ELF_SECTION_HEADER_KIND_SHLIB = 10,
+  PG_ELF_SECTION_HEADER_KIND_DYNSYM = 11,
+} PgElfSectionHeaderKind;
 
-    typedef struct {
-      u32 name;
-      u8 info;
-      u8 other;
-      u16 section_header_table_index;
-      u64 value;
-      u64 size;
-    } PgElfSymbolTableEntry;
-    static_assert(24 == sizeof(PgElfSymbolTableEntry));
-    PG_DYN(PgElfSymbolTableEntry) PgElfSymbolTableEntryDyn;
+typedef struct {
+  u32 name;
+  u8 info;
+  u8 other;
+  u16 section_header_table_index;
+  u64 value;
+  u64 size;
+} PgElfSymbolTableEntry;
+static_assert(24 == sizeof(PgElfSymbolTableEntry));
+PG_DYN(PgElfSymbolTableEntry) PgElfSymbolTableEntryDyn;
 
-    typedef enum : u8 {
-      PG_ELF_SYMBOL_BIND_LOCAL = 0,
-      PG_ELF_SYMBOL_BIND_GLOBAL = 1,
-      PG_ELF_SYMBOL_BIND_WEAK = 2,
-      PG_ELF_SYMBOL_BIND_LOPROC = 13,
-      PG_ELF_SYMBOL_BIND_HIPROC = 15,
-    } PgElfSymbolBind;
+typedef enum : u8 {
+  PG_ELF_SYMBOL_BIND_LOCAL = 0,
+  PG_ELF_SYMBOL_BIND_GLOBAL = 1,
+  PG_ELF_SYMBOL_BIND_WEAK = 2,
+  PG_ELF_SYMBOL_BIND_LOPROC = 13,
+  PG_ELF_SYMBOL_BIND_HIPROC = 15,
+} PgElfSymbolBind;
 
-    typedef enum : u8 {
-      PG_ELF_SYMBOL_TYPE_NONE = 0,
-      PG_ELF_SYMBOL_TYPE_OBJECT = 1,
-      PG_ELF_SYMBOL_TYPE_FUNC = 2,
-      PG_ELF_SYMBOL_TYPE_SECTION = 3,
-      PG_ELF_SYMBOL_TYPE_FILE = 4,
-      PG_ELF_SYMBOL_TYPE_LOPROC = 13,
-      PG_ELF_SYMBOL_TYPE_HIPROC = 15,
-    } PgElfSymbolType;
+typedef enum : u8 {
+  PG_ELF_SYMBOL_TYPE_NONE = 0,
+  PG_ELF_SYMBOL_TYPE_OBJECT = 1,
+  PG_ELF_SYMBOL_TYPE_FUNC = 2,
+  PG_ELF_SYMBOL_TYPE_SECTION = 3,
+  PG_ELF_SYMBOL_TYPE_FILE = 4,
+  PG_ELF_SYMBOL_TYPE_LOPROC = 13,
+  PG_ELF_SYMBOL_TYPE_HIPROC = 15,
+} PgElfSymbolType;
 
-    typedef enum : u64 {
-      PG_ELF_SECTION_HEADER_FLAG_WRITE = 1 << 0,
-      PG_ELF_SECTION_HEADER_FLAG_ALLOC = 1 << 1,
-      PG_ELF_SECTION_HEADER_FLAG_EXECINSTR = 1 << 2,
-      PG_ELF_SECTION_HEADER_FLAG_MASKPROC = 0xf0000000,
-    } PgElfSectionHeaderFlag;
+typedef enum : u64 {
+  PG_ELF_SECTION_HEADER_FLAG_WRITE = 1 << 0,
+  PG_ELF_SECTION_HEADER_FLAG_ALLOC = 1 << 1,
+  PG_ELF_SECTION_HEADER_FLAG_EXECINSTR = 1 << 2,
+  PG_ELF_SECTION_HEADER_FLAG_MASKPROC = 0xf0000000,
+} PgElfSectionHeaderFlag;
 
-    typedef struct {
-      u32 type;
-      u32 flags;
-      u64 p_offset;
-      u64 p_vaddr;
-      u64 p_paddr;
-      u64 p_filesz;
-      u64 p_memsz;
-      u64 alignment;
-    } PgElfProgramHeader;
-    static_assert(56 == sizeof(PgElfProgramHeader));
-    PG_DYN(PgElfProgramHeader) PgElfProgramHeaderDyn;
+typedef struct {
+  u32 type;
+  u32 flags;
+  u64 p_offset;
+  u64 p_vaddr;
+  u64 p_paddr;
+  u64 p_filesz;
+  u64 p_memsz;
+  u64 alignment;
+} PgElfProgramHeader;
+static_assert(56 == sizeof(PgElfProgramHeader));
+PG_DYN(PgElfProgramHeader) PgElfProgramHeaderDyn;
 
-    typedef struct {
-      u32 name;
-      PgElfSectionHeaderKind kind;
-      u64 flags;
-      u64 addr;
-      u64 offset;
-      u64 size;
-      u32 link;
-      u32 info;
-      u64 align;
-      u64 entsize;
-    } PgElfSectionHeader;
-    static_assert(64 == sizeof(PgElfSectionHeader));
-    PG_DYN(PgElfSectionHeader) PgElfSectionHeaderDyn;
-    PG_SLICE(PgElfSectionHeader) PgElfSectionHeaderSlice;
-    PG_OK(PgElfSectionHeader) PgElfSectionHeaderOk;
+typedef struct {
+  u32 name;
+  PgElfSectionHeaderKind kind;
+  u64 flags;
+  u64 addr;
+  u64 offset;
+  u64 size;
+  u32 link;
+  u32 info;
+  u64 align;
+  u64 entsize;
+} PgElfSectionHeader;
+static_assert(64 == sizeof(PgElfSectionHeader));
+PG_DYN(PgElfSectionHeader) PgElfSectionHeaderDyn;
+PG_SLICE(PgElfSectionHeader) PgElfSectionHeaderSlice;
+PG_OK(PgElfSectionHeader) PgElfSectionHeaderOk;
 
-    typedef enum {
-      PG_ELF_KNOWN_SECTION_TEXT,
-      PG_ELF_KNOWN_SECTION_RODATA,
-      PG_ELF_KNOWN_SECTION_DATA,
-      PG_ELF_KNOWN_SECTION_STRTAB,
-      PG_ELF_KNOWN_SECTION_RELOC_TEXT,
-      PG_ELF_KNOWN_SECTION_SYMTAB,
-    } PgElfKnownSection;
+typedef enum {
+  PG_ELF_KNOWN_SECTION_TEXT,
+  PG_ELF_KNOWN_SECTION_RODATA,
+  PG_ELF_KNOWN_SECTION_DATA,
+  PG_ELF_KNOWN_SECTION_STRTAB,
+  PG_ELF_KNOWN_SECTION_RELOC_TEXT,
+  PG_ELF_KNOWN_SECTION_SYMTAB,
+} PgElfKnownSection;
 
-    typedef enum : u8 {
-      PG_ELF_ENDIAN_LITTLE = 1,
-    } PgElfEndianness;
+typedef enum : u8 {
+  PG_ELF_ENDIAN_LITTLE = 1,
+} PgElfEndianness;
 
-    typedef enum : u16 {
-      PG_ELF_TYPE_NONE,
-      PG_ELF_TYPE_RELOCATABLE_FILE,
-      PG_ELF_TYPE_EXECUTABLE_FILE,
-      PG_ELF_TYPE_SHARED_OBJECT_FILE,
-      PG_ELF_TYPE_CORE_FILE,
-    } PgElfType;
+typedef enum : u16 {
+  PG_ELF_TYPE_NONE,
+  PG_ELF_TYPE_RELOCATABLE_FILE,
+  PG_ELF_TYPE_EXECUTABLE_FILE,
+  PG_ELF_TYPE_SHARED_OBJECT_FILE,
+  PG_ELF_TYPE_CORE_FILE,
+} PgElfType;
 
-    typedef enum : u8 {
-      PG_ELF_CLASS_NONE,
-      PG_ELF_CLASS_32_BITS,
-      PG_ELF_CLASS_64_BITS,
-    } PgElfClass;
+typedef enum : u8 {
+  PG_ELF_CLASS_NONE,
+  PG_ELF_CLASS_32_BITS,
+  PG_ELF_CLASS_64_BITS,
+} PgElfClass;
 
-    typedef enum : u16 {
-      PG_ELF_ARCH_NONE = 0,
-      PG_ELF_ARCH_SPARC = 2,
-      PG_ELF_ARCH_386 = 3,
-      PG_ELF_ARCH_SPARC_32_PLUS = 18,
-      PG_ELF_ARCH_SPARC_V9 = 43,
-      PG_ELF_ARCH_AMD64 = 62,
-    } PgElfArchitecture;
+typedef enum : u16 {
+  PG_ELF_ARCH_NONE = 0,
+  PG_ELF_ARCH_SPARC = 2,
+  PG_ELF_ARCH_386 = 3,
+  PG_ELF_ARCH_SPARC_32_PLUS = 18,
+  PG_ELF_ARCH_SPARC_V9 = 43,
+  PG_ELF_ARCH_AMD64 = 62,
+} PgElfArchitecture;
 
-    typedef struct {
-      u8 magic[4];
-      PgElfClass class;
-      PgElfEndianness endianness;
-      u8 elf_header_version;
-      u8 abi_version;
-      PG_PAD(8);
-      PgElfType type;
-      PgElfArchitecture architecture;
-      u32 elf_version;
-      u64 entrypoint_address;
-      u64 program_header_offset;
-      u64 section_header_offset;
-      u32 cpu_flags;
-      u16 header_size;
-      u16 program_header_entry_size;
-      u16 program_header_entries_count;
-      u16 section_header_entry_size;
-      u16 section_header_entries_count;
-      // The section header table index of the entry that is associated with the
-      // section name string table.
-      u16 section_header_index;
-    } PgElfHeader;
-    static_assert(24 == offsetof(PgElfHeader, entrypoint_address));
-    static_assert(52 == offsetof(PgElfHeader, header_size));
-    static_assert(64 == sizeof(PgElfHeader));
+typedef struct {
+  u8 magic[4];
+  PgElfClass class;
+  PgElfEndianness endianness;
+  u8 elf_header_version;
+  u8 abi_version;
+  PG_PAD(8);
+  PgElfType type;
+  PgElfArchitecture architecture;
+  u32 elf_version;
+  u64 entrypoint_address;
+  u64 program_header_offset;
+  u64 section_header_offset;
+  u32 cpu_flags;
+  u16 header_size;
+  u16 program_header_entry_size;
+  u16 program_header_entries_count;
+  u16 section_header_entry_size;
+  u16 section_header_entries_count;
+  // The section header table index of the entry that is associated with the
+  // section name string table.
+  u16 section_header_index;
+} PgElfHeader;
+static_assert(24 == offsetof(PgElfHeader, entrypoint_address));
+static_assert(52 == offsetof(PgElfHeader, header_size));
+static_assert(64 == sizeof(PgElfHeader));
 
-    typedef struct {
-      Pgu8Slice bytes;
+typedef struct {
+  Pgu8Slice bytes;
 
-      PgElfHeader header;
-      PgElfProgramHeaderDyn program_headers;
-      PgElfSectionHeaderDyn section_headers;
+  PgElfHeader header;
+  PgElfProgramHeaderDyn program_headers;
+  PgElfSectionHeaderDyn section_headers;
 
-      // Useful section header data.
-      PgElfSymbolTableEntryDyn symtab;
-      Pgu8Slice strtab;
-      Pgu8Slice program_text;
-      u32 program_text_idx;
-    } PgElf;
-    PG_RESULT(PgElf) PgElfResult;
+  // Useful section header data.
+  PgElfSymbolTableEntryDyn symtab;
+  Pgu8Slice strtab;
+  Pgu8Slice program_text;
+  u32 program_text_idx;
+} PgElf;
+PG_RESULT(PgElf) PgElfResult;
 
-    [[nodiscard]] [[maybe_unused]] static PgElfSymbolType
-    pg_elf_symbol_get_type(PgElfSymbolTableEntry sym) {
-      return sym.info & 0xf;
-    }
+[[nodiscard]] [[maybe_unused]] static PgElfSymbolType
+pg_elf_symbol_get_type(PgElfSymbolTableEntry sym) {
+  return sym.info & 0xf;
+}
 
-    [[nodiscard]] [[maybe_unused]] static PgElfSymbolBind
-    pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
-      return sym.info >> 4;
-    }
+[[nodiscard]] [[maybe_unused]] static PgElfSymbolBind
+pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
+  return sym.info >> 4;
+}
 
-    [[nodiscard]] static Pgu8SliceResult pg_elf_get_section_header_bytes(
-        PgElf elf, u32 section_idx) {
-      Pgu8SliceResult res = {0};
+[[nodiscard]] static Pgu8SliceResult
+pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
+  Pgu8SliceResult res = {0};
 
-      if (section_idx >= elf.section_headers.len) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
+  if (section_idx >= elf.section_headers.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
 
-      PgElfSectionHeader section =
-          PG_SLICE_AT(elf.section_headers, section_idx);
+  PgElfSectionHeader section = PG_SLICE_AT(elf.section_headers, section_idx);
 
-      u64 end = 0;
-      if (__builtin_add_overflow(section.offset, section.size, &end)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
+  u64 end = 0;
+  if (__builtin_add_overflow(section.offset, section.size, &end)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
 
-      if (end >= elf.bytes.len) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
+  if (end >= elf.bytes.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
 
-      res.res = PG_SLICE_RANGE(elf.bytes, section.offset, end);
+  res.res = PG_SLICE_RANGE(elf.bytes, section.offset, end);
 
+  return res;
+}
+
+[[nodiscard]] static PgStringResult pg_elf_get_string_at(PgElf elf,
+                                                         u32 offset) {
+  PgStringResult res = {0};
+
+  if (offset >= elf.strtab.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  Pgu8Slice at = PG_SLICE_RANGE_START(elf.strtab, offset);
+
+  PgBytesCut cut = pg_bytes_cut_byte(at, 0);
+  if (!cut.ok) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  res.res = cut.left;
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgElfResult
+pg_elf_parse(Pgu8Slice elf_bytes, PgAllocator *allocator) {
+  PgElfResult res = {0};
+  res.res.bytes = elf_bytes;
+
+  if (elf_bytes.len < sizeof(PgElfHeader)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  memcpy(&res.res.header, elf_bytes.data, sizeof(res.res.header));
+
+  // Section headers.
+  {
+    PgElfHeader h = res.res.header;
+    u64 section_headers_size = 0;
+    if (__builtin_mul_overflow(h.section_header_entries_count,
+                               h.section_header_entry_size,
+                               &section_headers_size)) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
 
-    [[nodiscard]] static PgStringResult pg_elf_get_string_at(PgElf elf,
-                                                             u32 offset) {
-      PgStringResult res = {0};
-
-      if (offset >= elf.strtab.len) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
-      Pgu8Slice at = PG_SLICE_RANGE_START(elf.strtab, offset);
-
-      PgBytesCut cut = pg_bytes_cut_byte(at, 0);
-      if (!cut.ok) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-
-      res.res = cut.left;
-
+    u64 section_headers_end = 0;
+    if (__builtin_add_overflow(h.section_header_offset, section_headers_size,
+                               &section_headers_end)) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
+    PG_ASSERT(h.section_header_offset <= section_headers_end);
 
-    [[maybe_unused]] [[nodiscard]] static PgElfResult pg_elf_parse(
-        Pgu8Slice elf_bytes, PgAllocator * allocator) {
-      PgElfResult res = {0};
-      res.res.bytes = elf_bytes;
+    Pgu8Slice section_headers_bytes =
+        PG_SLICE_RANGE(elf_bytes, h.section_header_offset, section_headers_end);
+    res.res.section_headers = (PgElfSectionHeaderDyn){
+        .data = (void *)section_headers_bytes.data,
+        .len = h.section_header_entries_count,
+        .cap = h.section_header_entries_count,
+    };
+    for (u32 i = 0; i < res.res.section_headers.len; i++) {
+      PgElfSectionHeader section = PG_SLICE_AT(res.res.section_headers, i);
 
-      if (elf_bytes.len < sizeof(PgElfHeader)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-      memcpy(&res.res.header, elf_bytes.data, sizeof(res.res.header));
-
-      // Section headers.
-      {
-        PgElfHeader h = res.res.header;
-        u64 section_headers_size = 0;
-        if (__builtin_mul_overflow(h.section_header_entries_count,
-                                   h.section_header_entry_size,
-                                   &section_headers_size)) {
-          res.err = PG_ERR_INVALID_VALUE;
+      switch (section.kind) {
+      case PG_ELF_SECTION_HEADER_KIND_SYMTAB: {
+        Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(res.res, i);
+        if (res_bytes.err) {
+          res.err = res_bytes.err;
           return res;
         }
 
-        u64 section_headers_end = 0;
-        if (__builtin_add_overflow(h.section_header_offset,
-                                   section_headers_size,
-                                   &section_headers_end)) {
-          res.err = PG_ERR_INVALID_VALUE;
+        Pgu8Slice bytes = res_bytes.res;
+
+        if (PG_SLICE_IS_EMPTY(bytes)) {
+          res.err = res_bytes.err;
           return res;
         }
-        PG_ASSERT(h.section_header_offset <= section_headers_end);
 
-        Pgu8Slice section_headers_bytes = PG_SLICE_RANGE(
-            elf_bytes, h.section_header_offset, section_headers_end);
-        res.res.section_headers = (PgElfSectionHeaderDyn){
-            .data = (void *)section_headers_bytes.data,
-            .len = h.section_header_entries_count,
-            .cap = h.section_header_entries_count,
-        };
-        for (u32 i = 0; i < res.res.section_headers.len; i++) {
-          PgElfSectionHeader section = PG_SLICE_AT(res.res.section_headers, i);
-
-          switch (section.kind) {
-          case PG_ELF_SECTION_HEADER_KIND_SYMTAB: {
-            Pgu8SliceResult res_bytes =
-                pg_elf_get_section_header_bytes(res.res, i);
-            if (res_bytes.err) {
-              res.err = res_bytes.err;
-              return res;
-            }
-
-            Pgu8Slice bytes = res_bytes.res;
-
-            if (PG_SLICE_IS_EMPTY(bytes)) {
-              res.err = res_bytes.err;
-              return res;
-            }
-
-            PG_DYN_ENSURE_CAP(&res.res.symtab, section.size, allocator);
-            memcpy(res.res.symtab.data, bytes.data, bytes.len);
-            res.res.symtab.len = bytes.len / sizeof(PgElfSymbolTableEntry);
-          } break;
-          case PG_ELF_SECTION_HEADER_KIND_STRTAB: {
-            Pgu8SliceResult res_bytes =
-                pg_elf_get_section_header_bytes(res.res, i);
-            if (res_bytes.err) {
-              res.err = res_bytes.err;
-              return res;
-            }
-
-            if (PG_SLICE_IS_EMPTY(res_bytes.res)) {
-              res.err = res_bytes.err;
-              return res;
-            }
-
-            res.res.strtab = res_bytes.res;
-          } break;
-          default: {
-          }
-          }
-        }
-
-        // Second pass to find the `.text` section since section header might be
-        // in any order.
-        for (u32 i = 0; i < res.res.section_headers.len; i++) {
-          PgElfSectionHeader section = PG_SLICE_AT(res.res.section_headers, i);
-
-          if (PG_ELF_SECTION_HEADER_KIND_PROGBITS != section.kind) {
-            continue;
-          }
-
-          PgStringResult res_str = pg_elf_get_string_at(res.res, section.name);
-          if (res_str.err) {
-            res.err = res_str.err;
-            return res;
-          }
-
-          if (!pg_string_eq(res_str.res, PG_S(".text"))) {
-            continue;
-          }
-
-          // Found.
-
-          Pgu8SliceResult res_bytes =
-              pg_elf_get_section_header_bytes(res.res, i);
-          if (res_bytes.err) {
-            res.err = res_bytes.err;
-            return res;
-          }
-
-          res.res.program_text = res_bytes.res;
-          res.res.program_text_idx = i;
-          break;
-        }
-
-        if (PG_SLICE_IS_EMPTY(res.res.program_text)) {
-          res.err = PG_ERR_INVALID_VALUE;
+        PG_DYN_ENSURE_CAP(&res.res.symtab, section.size, allocator);
+        memcpy(res.res.symtab.data, bytes.data, bytes.len);
+        res.res.symtab.len = bytes.len / sizeof(PgElfSymbolTableEntry);
+      } break;
+      case PG_ELF_SECTION_HEADER_KIND_STRTAB: {
+        Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(res.res, i);
+        if (res_bytes.err) {
+          res.err = res_bytes.err;
           return res;
         }
-      }
 
-      return res;
+        if (PG_SLICE_IS_EMPTY(res_bytes.res)) {
+          res.err = res_bytes.err;
+          return res;
+        }
+
+        res.res.strtab = res_bytes.res;
+      } break;
+      default: {
+      }
+      }
     }
 
-    [[maybe_unused]] [[nodiscard]] static Pgu8SliceResult
-    pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
-      Pgu8SliceResult res = {0};
+    // Second pass to find the `.text` section since section header might be
+    // in any order.
+    for (u32 i = 0; i < res.res.section_headers.len; i++) {
+      PgElfSectionHeader section = PG_SLICE_AT(res.res.section_headers, i);
 
-      if (elf.program_text_idx != sym.section_header_table_index) {
-        res.err = PG_ERR_INVALID_VALUE;
+      if (PG_ELF_SECTION_HEADER_KIND_PROGBITS != section.kind) {
+        continue;
+      }
+
+      PgStringResult res_str = pg_elf_get_string_at(res.res, section.name);
+      if (res_str.err) {
+        res.err = res_str.err;
         return res;
       }
 
-      if (sym.value >= elf.program_text.len) {
-        res.err = PG_ERR_INVALID_VALUE;
+      if (!pg_string_eq(res_str.res, PG_S(".text"))) {
+        continue;
+      }
+
+      // Found.
+
+      Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(res.res, i);
+      if (res_bytes.err) {
+        res.err = res_bytes.err;
         return res;
       }
 
-      u64 end = 0;
-      if (__builtin_add_overflow(sym.value, sym.size, &end)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
+      res.res.program_text = res_bytes.res;
+      res.res.program_text_idx = i;
+      break;
+    }
 
-      res.res = PG_SLICE_RANGE(elf.program_text, sym.value, end);
+    if (PG_SLICE_IS_EMPTY(res.res.program_text)) {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu8SliceResult
+pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
+  Pgu8SliceResult res = {0};
+
+  if (elf.program_text_idx != sym.section_header_table_index) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  if (sym.value >= elf.program_text.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  u64 end = 0;
+  if (__builtin_add_overflow(sym.value, sym.size, &end)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  res.res = PG_SLICE_RANGE(elf.program_text, sym.value, end);
+  return res;
+}
 
 #ifdef PG_OS_LINUX
 #include <sys/sendfile.h>
 
-    [[nodiscard]] [[maybe_unused]] static PgError pg_file_send_to_socket(
-        PgFileDescriptor dst, PgFileDescriptor src) {
-      Pgu64Result res_size = pg_file_size(src);
-      if (res_size.err) {
-        return res_size.err;
-      }
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
+  Pgu64Result res_size = pg_file_size(src);
+  if (res_size.err) {
+    return res_size.err;
+  }
 
-      i64 offset = 0;
-      u64 size = res_size.res;
+  i64 offset = 0;
+  u64 size = res_size.res;
 
-      for (u64 _i = 0; _i < size; _i++) {
-        i64 ret = sendfile(dst.fd, src.fd, &offset, size);
-        if (-1 == ret) {
-          // TODO: Perhaps fallback to `read(2)` + `write(2)` in case of
-          // `EINVAL` or `ENOSYS`.
-          return (PgError)errno;
-        }
-
-        size -= (u64)ret;
-        offset += ret;
-
-        if (0 == size) {
-          break;
-        }
-      }
-      return 0;
+  for (u64 _i = 0; _i < size; _i++) {
+    i64 ret = sendfile(dst.fd, src.fd, &offset, size);
+    if (-1 == ret) {
+      // TODO: Perhaps fallback to `read(2)` + `write(2)` in case of
+      // `EINVAL` or `ENOSYS`.
+      return (PgError)errno;
     }
+
+    size -= (u64)ret;
+    offset += ret;
+
+    if (0 == size) {
+      break;
+    }
+  }
+  return 0;
+}
 
 #endif
 
-    // TODO: sendfile on BSD.
+// TODO: sendfile on BSD.
 
 #endif
