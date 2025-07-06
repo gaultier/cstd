@@ -1674,7 +1674,6 @@ typedef struct {
 
   if (rg->idx_read > rg->idx_write) { // Hard case.
     u64 can_read1 = rg->data.len - rg->idx_read;
-    u64 can_read2 = rg->idx_write;
 
     if (dst.len <= can_read1) { // 1 read.
       u64 n_read = dst.len;
@@ -1682,10 +1681,19 @@ typedef struct {
       memcpy(dst.data, rg->data.data + rg->idx_read, n_read);
 
       rg->idx_read += n_read;
+      PG_ASSERT(rg->idx_read <= rg->data.len);
+
       return n_read;
     }
 
     // 2 reads.
+    u64 n_read = can_read1;
+    PG_ASSERT(rg->idx_read + n_read == rg->data.len);
+    memcpy(dst.data, rg->data.data + rg->idx_read, n_read);
+
+    rg->idx_read = 0;
+
+    return n_read + pg_ring_read_slice(rg, PG_SLICE_RANGE_START(dst, n_read));
   }
 
   PG_ASSERT(0);
