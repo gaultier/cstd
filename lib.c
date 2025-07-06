@@ -3534,6 +3534,10 @@ pg_net_tcp_accept(PgFileDescriptor sock);
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_get_socket_error(PgFileDescriptor socket);
 
+[[maybe_unused]] [[nodiscard]] static Pgu32Result pg_process_dup();
+
+[[nodiscard]] static PgError pg_process_avoid_child_zombies();
+
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
@@ -3551,6 +3555,30 @@ pg_net_get_socket_error(PgFileDescriptor socket);
 
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
+
+[[nodiscard]] static PgError pg_process_avoid_child_zombies() {
+  struct sigaction handler = {.sa_handler = SIG_IGN};
+  int ret = sigaction(SIGCHLD, &handler, nullptr);
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu32Result pg_process_dup() {
+  Pgu32Result res = {0};
+
+  i32 pid = fork();
+
+  if (-1 == pid) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u32)pid;
+  return res;
+}
 
 [[nodiscard]]
 static PgFileDescriptorResult pg_net_create_tcp_socket() {
@@ -5783,42 +5811,6 @@ pg_http_headers_parse_content_length(PgStringKeyValueSlice headers,
   return res;
 }
 
-[[maybe_unused]]
-static PgError pg_http_server_start(u16 port, u64 backlog) {
-  PgFileDescriptorResult res_create = pg_net_create_tcp_socket();
-  if (res_create.err) {
-    return res_create.err;
-  }
-  PgFileDescriptor server_socket = res_create.res;
-
-  PgIpv4Address address = {.port = port};
-  PgError err = pg_net_tcp_bind_ipv4(server_socket, address);
-  if (err) {
-    goto end;
-  }
-
-  err = pg_net_tcp_listen(server_socket, backlog);
-  if (err) {
-    goto end;
-  }
-
-  for (;;) {
-    PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(server_socket);
-    if (res_accept.err) {
-      // TODO: Some errors are retryable.
-      err = res_accept.err;
-      goto end;
-    }
-
-    (void)pg_net_socket_write(res_accept.socket, PG_S("hello"));
-    (void)pg_net_socket_close(res_accept.socket);
-  }
-
-end:
-  (void)pg_net_socket_close(server_socket);
-  return err;
-}
-
 typedef enum {
   PG_LOG_VALUE_STRING,
   PG_LOG_VALUE_U64,
@@ -7361,4 +7353,83 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
 
 // TODO: sendfile on BSD.
 
+[[maybe_unused]]
+static PgError pg_http_server_start(u16 port, u64 backlog, PgLogger *logger) {
+  PgError err = 0;
+  err = pg_process_avoid_child_zombies();
+  if (err) {
+    pg_log(logger, PG_LOG_LEVEL_ERROR,
+           "http server: failed to avoid child zombies",
+           pg_log_c_u16("port", port), pg_log_c_err("err", err));
+    return err;
+  }
+
+  PgFileDescriptorResult res_create = pg_net_create_tcp_socket();
+  if (res_create.err) {
+    pg_log(logger, PG_LOG_LEVEL_ERROR,
+           "http server: failed to create tcp socket",
+           pg_log_c_u16("port", port), pg_log_c_err("err", err));
+    return res_create.err;
+  }
+  PgFileDescriptor server_socket = res_create.res;
+
+  err = pg_net_socket_enable_reuse(server_socket);
+  if (err) {
+    pg_log(logger, PG_LOG_LEVEL_ERROR,
+           "http server: failed to enable socket reuse",
+           pg_log_c_u16("port", port), pg_log_c_err("err", err));
+    goto end;
+  }
+
+  PgIpv4Address address = {.port = port};
+  err = pg_net_tcp_bind_ipv4(server_socket, address);
+  if (err) {
+    pg_log(logger, PG_LOG_LEVEL_ERROR, "http server: failed to bind tcp socket",
+           pg_log_c_u16("port", port), pg_log_c_err("err", err));
+    goto end;
+  }
+
+  err = pg_net_tcp_listen(server_socket, backlog);
+  if (err) {
+    pg_log(logger, PG_LOG_LEVEL_ERROR,
+           "http server: failed to listen on tcp socket",
+           pg_log_c_u16("port", port), pg_log_c_err("err", err));
+    goto end;
+  }
+
+  for (;;) {
+    PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(server_socket);
+    if (res_accept.err) {
+      // TODO: Some errors are retryable.
+      err = res_accept.err;
+      pg_log(logger, PG_LOG_LEVEL_ERROR,
+             "http server: failed to accept new connection",
+             pg_log_c_u16("port", port), pg_log_c_err("err", err));
+      goto end;
+    }
+
+    Pgu32Result res_proc_dup = pg_process_dup();
+    if (res_proc_dup.err) {
+      pg_log(
+          logger, PG_LOG_LEVEL_ERROR,
+          "http server: failed to spawn new process to handle new connection",
+          pg_log_c_u16("port", port), pg_log_c_err("err", res_proc_dup.err));
+      (void)pg_net_socket_close(res_accept.socket);
+      continue;
+    }
+
+    if (0 == res_proc_dup.res) { // Child.
+      (void)pg_net_socket_write(res_accept.socket, PG_S("hello"));
+      exit(0);
+    }
+
+    PG_ASSERT(res_proc_dup.res); // Parent.
+
+    (void)pg_net_socket_close(res_accept.socket);
+  }
+
+end:
+  (void)pg_net_socket_close(server_socket);
+  return err;
+}
 #endif
