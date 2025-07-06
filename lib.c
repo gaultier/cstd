@@ -1647,65 +1647,48 @@ typedef struct {
   return true;
 }
 
-[[maybe_unused]] [[nodiscard]] static bool pg_ring_read_slice(PgRing *rg,
-                                                              PgString data) {
+[[maybe_unused]] [[nodiscard]] static u64 pg_ring_read_slice(PgRing *rg,
+                                                             PgString dst) {
   PG_ASSERT(nullptr != rg->data.data);
   PG_ASSERT(rg->idx_read <= rg->data.len);
   PG_ASSERT(rg->idx_write <= rg->data.len);
   PG_ASSERT(rg->data.len > 0);
 
-  if (0 == data.len) {
-    return true;
+  if (0 == dst.len) {
+    return 0;
   }
-  PG_ASSERT(nullptr != data.data);
+  PG_ASSERT(nullptr != dst.data);
 
   if (rg->idx_write == rg->idx_read) { // Empty.
-    return false;
-  } else if (rg->idx_read < rg->idx_write) { // Easy case.
-    u64 can_read = rg->idx_write - rg->idx_read;
-    if (data.len > can_read) {
-      return false;
-    }
-    u64 n_read = PG_MIN(data.len, can_read);
-
-    memcpy(data.data, rg->data.data + rg->idx_read, n_read);
-    rg->idx_read += n_read;
-    PG_ASSERT(rg->idx_read < rg->data.len);
-  } else { // Hard case: potentially 2 reads.
-    PG_ASSERT(rg->idx_read > rg->idx_write);
-    u64 can_read1 = rg->data.len - rg->idx_read;
-    u64 can_read2 = rg->idx_write;
-    u64 can_read = can_read1 + can_read2;
-    if (can_read < data.len) {
-      // TODO: Should we do short reads like `read(2)`?
-      return false;
-    }
-
-    u64 read_len1 = PG_MIN(can_read1, data.len);
-    PG_ASSERT(read_len1 <= data.len);
-    PG_ASSERT(read_len1 <= rg->data.len);
-
-    memcpy(data.data, rg->data.data + rg->idx_read, read_len1);
-    rg->idx_read += read_len1;
-    if (rg->idx_read == rg->data.len) {
-      rg->idx_read = 0;
-    }
-    PG_ASSERT(rg->idx_read < rg->data.len);
-    PG_ASSERT(rg->idx_write < rg->data.len);
-
-    u64 read_len2 = data.len - read_len1;
-    if (read_len2 > 0) {
-      PG_ASSERT(0 == rg->idx_read);
-
-      memcpy(data.data + read_len1, rg->data.data, read_len2);
-      rg->idx_read += read_len2;
-      PG_ASSERT(rg->idx_read <= data.len);
-      PG_ASSERT(rg->idx_read <= rg->data.len);
-      PG_ASSERT(rg->idx_read <= rg->idx_write);
-    }
+    return 0;
   }
 
-  return true;
+  if (rg->idx_read < rg->idx_write) { // Easy case.
+    u64 n_read = PG_MIN(rg->idx_write - rg->idx_read, dst.len);
+
+    memcpy(dst.data, rg->data.data + rg->idx_read, n_read);
+    rg->idx_read += n_read;
+    PG_ASSERT(rg->idx_read < rg->data.len);
+    return n_read;
+  }
+
+  if (rg->idx_read > rg->idx_write) { // Hard case.
+    u64 can_read1 = rg->data.len - rg->idx_read;
+    u64 can_read2 = rg->idx_write;
+
+    if (dst.len <= can_read1) { // 1 read.
+      u64 n_read = dst.len;
+      PG_ASSERT(rg->idx_read + n_read < rg->data.len);
+      memcpy(dst.data, rg->data.data + rg->idx_read, n_read);
+
+      rg->idx_read += n_read;
+      return n_read;
+    }
+
+    // 2 reads.
+  }
+
+  PG_ASSERT(0);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringOk
@@ -5616,12 +5599,46 @@ pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
   return res;
 }
 
+typedef struct {
+  PgReader reader;
+  PgRing ring;
+} PgBufReader;
+
+[[maybe_unused]] [[nodiscard]] static PgBufReader
+pg_buf_reader_make(PgReader reader, u64 buf_size, PgAllocator *allocator) {
+  PgBufReader res = {0};
+  res.reader = reader;
+  res.ring = pg_ring_make(buf_size, allocator);
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_buf_reader_read(PgBufReader *r, Pgu8Slice buf) {
+  Pgu64Result res = {0};
+
+  u64 space_before = pg_ring_read_space(r->ring);
+  if (buf.len <= space_before) { // No need to call the underlying reader.
+    PG_ASSERT(pg_ring_read_slice(&r->ring, buf));
+
+    res.res = buf.len;
+    return res;
+  }
+  u64 space_after = pg_ring_read_space(r->ring);
+
+  u64 idx = space_after - space_before;
+  (void)idx;
+
+  return res;
+}
+
+#if 0
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
 pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
   PgHttpRequestReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
-  PgStringOk s = pg_reader_read_until_bytes_excl(reader, sep, allocator);
+  PgStringOk s = pg_buf_reader_read(reader, sep, allocator);
   if (!s.ok) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
@@ -5667,6 +5684,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
   res.done = true;
   return res;
 }
+#endif
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_http_write_request(PgWriter *w, PgHttpRequest req, PgAllocator *allocator) {
@@ -7305,7 +7323,8 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
 
 [[maybe_unused]]
 static void pg_http_server_handler(PgFileDescriptor sock) {
-  pg_http_parse_request_status_line();
+  (void)sock;
+  // pg_http_parse_request_status_line();
 }
 
 [[maybe_unused]]

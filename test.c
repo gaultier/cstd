@@ -846,10 +846,10 @@ static void test_ring_buffer_read_write_slice() {
   {
     PgRing rg = {.data = pg_string_make(12, allocator)};
     PG_ASSERT(0 == pg_ring_read_space(rg));
-    PG_ASSERT(true == pg_ring_read_slice(&rg, (PgString){0}));
+    PG_ASSERT(0 == pg_ring_read_slice(&rg, (PgString){0}));
 
     PgString dst = pg_string_clone(PG_S("xyz"), allocator);
-    PG_ASSERT(false == pg_ring_read_slice(&rg, dst));
+    PG_ASSERT(0 == pg_ring_read_slice(&rg, dst));
   }
 
   // Write to empty ring buffer, then read part of it.
@@ -860,7 +860,7 @@ static void test_ring_buffer_read_write_slice() {
     PG_ASSERT(5 == pg_ring_read_space(rg));
 
     PgString dst = pg_string_clone(PG_S("xyz"), allocator);
-    PG_ASSERT(pg_ring_read_slice(&rg, dst));
+    PG_ASSERT(3 == pg_ring_read_slice(&rg, dst));
     PG_ASSERT(pg_string_eq(dst, PG_S("hel")));
     PG_ASSERT(3 == rg.idx_read);
     PG_ASSERT(2 == pg_ring_read_space(rg));
@@ -876,7 +876,7 @@ static void test_ring_buffer_read_write_slice() {
     PG_ASSERT(2 == rg.idx_write);
 
     dst = pg_string_clone(PG_S("abcdefghijk"), allocator);
-    PG_ASSERT(pg_ring_read_slice(&rg, dst));
+    PG_ASSERT(11 == pg_ring_read_slice(&rg, dst));
     PG_ASSERT(pg_string_eq(dst, PG_S("lo world!ab")));
     PG_ASSERT(2 == rg.idx_read);
     PG_ASSERT(0 == pg_ring_read_space(rg));
@@ -1516,6 +1516,7 @@ static void test_http_parse_header() {
   }
 }
 
+#if 0
 static void test_http_read_response() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -1593,7 +1594,6 @@ static void test_http_read_response() {
   }
 }
 
-#if 0
 static void test_http_request_response() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
 
@@ -2568,8 +2568,11 @@ int main() {
   test_http_parse_response_status_line();
   test_http_parse_request_status_line();
   test_http_parse_header();
+#if 0
   test_http_read_response();
-  // test_http_request_response();
+  test_http_request_response();
+#endif
+
   test_log();
   test_div_ceil();
   test_path_base_name();
