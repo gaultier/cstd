@@ -1434,7 +1434,8 @@ static void test_http_read_request() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgString req_str =
-      PG_S("PUT /info HTTP/1.1\r\nAccept: application/json\r\nContent-Type: "
+      PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1\r\nAccept: "
+           "application/json\r\nContent-Type: "
            "text/html\r\n\r\nHello, world!");
   PgReader reader = pg_reader_make_from_bytes(req_str);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
@@ -1446,6 +1447,27 @@ static void test_http_read_request() {
 
   PgHttpRequest req = res_req.res;
   PG_ASSERT(PG_HTTP_METHOD_PUT == req.method);
+  PG_ASSERT(!req.url.scheme.len);
+  PG_ASSERT(!req.url.username.len);
+  PG_ASSERT(!req.url.password.len);
+  PG_ASSERT(!req.url.host.len);
+  PG_ASSERT(!req.url.port);
+  PG_ASSERT(3 == req.url.path_components.len);
+  PG_ASSERT(2 == req.url.query_parameters.len);
+
+  PG_ASSERT(
+      pg_string_eq(PG_S("info"), PG_SLICE_AT(req.url.path_components, 0)));
+  PG_ASSERT(
+      pg_string_eq(PG_S("download"), PG_SLICE_AT(req.url.path_components, 1)));
+  PG_ASSERT(
+      pg_string_eq(PG_S("index.mp3"), PG_SLICE_AT(req.url.path_components, 2)));
+
+  PgStringKeyValue query_param0 = PG_SLICE_AT(req.url.query_parameters, 0);
+  PgStringKeyValue query_param1 = PG_SLICE_AT(req.url.query_parameters, 1);
+  PG_ASSERT(pg_string_eq(PG_S("foo"), query_param0.key));
+  PG_ASSERT(pg_string_eq(PG_S("bar"), query_param0.value));
+  PG_ASSERT(pg_string_eq(PG_S("baz"), query_param1.key));
+  PG_ASSERT(pg_string_eq(PG_S(""), query_param1.value));
 }
 
 #if 0
