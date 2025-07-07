@@ -5914,29 +5914,29 @@ pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
 pg_buf_reader_try_fill_internal_buffer(PgBufReader *r) {
   PG_ASSERT(r);
 
-  for (;;) {
-    u64 ring_write_space = pg_ring_write_space(r->ring);
-    u8 tmp[4096] = {0};
-    Pgu8Slice tmp_slice = {
-        .data = tmp,
-        .len = PG_MIN(ring_write_space, PG_STATIC_ARRAY_LEN(tmp)),
-    };
-    // No more space.
-    if (0 == tmp_slice.len) {
-      return 0;
-    }
-
-    Pgu64Result res_read = pg_reader_read(&r->reader, tmp_slice);
-    if (res_read.err) {
-      return res_read.err;
-    }
-    if (0 == res_read.res) { // EOF?
-      return 0;
-    }
-
-    Pgu8Slice read_data = PG_SLICE_RANGE(tmp_slice, 0, res_read.res);
-    PG_ASSERT(read_data.len == pg_ring_try_write_bytes(&r->ring, read_data));
+  u64 ring_write_space = pg_ring_write_space(r->ring);
+  u8 tmp[4096] = {0};
+  Pgu8Slice tmp_slice = {
+      .data = tmp,
+      .len = PG_MIN(ring_write_space, PG_STATIC_ARRAY_LEN(tmp)),
+  };
+  // No more space.
+  if (0 == tmp_slice.len) {
+    return 0;
   }
+
+  Pgu64Result res_read = pg_reader_read(&r->reader, tmp_slice);
+  if (res_read.err) {
+    return res_read.err;
+  }
+  if (0 == res_read.res) {
+    return PG_ERR_EOF;
+  }
+
+  Pgu8Slice read_data = PG_SLICE_RANGE(tmp_slice, 0, res_read.res);
+  PG_ASSERT(read_data.len == pg_ring_try_write_bytes(&r->ring, read_data));
+
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
@@ -5944,28 +5944,26 @@ pg_buf_reader_read_mem_until_bytes_incl(PgBufReader *r, Pgu8Slice dst,
                                         Pgu8Slice needle) {
   PG_ASSERT(dst.data);
 
-  Pgu64Result res = {0};
+  for (;;) {
+    Pgu64Result res = {0};
+    PgError err = pg_buf_reader_try_fill_internal_buffer(r);
+    if (err) {
+      res.err = err;
+      return res;
+    }
 
-  PgError err = pg_buf_reader_try_fill_internal_buffer(r);
-  if (err) {
-    res.err = err;
-    return res;
-  }
-
-  // FIXME: This adds the requirement to have memory to store x2 the ring!
-  PgRing ring = r->ring;
-  (void)pg_ring_try_read_bytes(&ring, dst);
-  PgBytesCut cut = pg_bytes_cut_bytes_excl(dst, needle);
-  if (cut.ok) {
-    // Do the real read out of the real ring.
-    u64 n_read = cut.left.len + needle.len;
-    PG_ASSERT(n_read ==
-              pg_ring_try_read_bytes(&r->ring, PG_SLICE_RANGE(dst, 0, n_read)));
-    res.res = cut.left.len;
-    return res;
-  } else {
-    res.err = PG_ERR_EOF;
-    return res;
+    // FIXME: This adds the requirement to have memory to store x2 the ring!
+    PgRing ring = r->ring;
+    (void)pg_ring_try_read_bytes(&ring, dst);
+    PgBytesCut cut = pg_bytes_cut_bytes_excl(dst, needle);
+    if (cut.ok) {
+      // Do the real read out of the real ring.
+      u64 n_read = cut.left.len + needle.len;
+      PG_ASSERT(n_read == pg_ring_try_read_bytes(
+                              &r->ring, PG_SLICE_RANGE(dst, 0, n_read)));
+      res.res = cut.left.len;
+      return res;
+    }
   }
 }
 
