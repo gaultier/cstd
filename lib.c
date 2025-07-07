@@ -7424,6 +7424,8 @@ static PgError pg_http_server_handler(PgFileDescriptor sock, PgLogger *logger,
   PgHttpRequest req = res_req.res;
   __builtin_dump_struct(&req, printf);
 
+  // TODO: Read body depending on the HTTP method.
+
   // Response.
   {
     PgHttpResponse resp = {0};
