@@ -5164,9 +5164,8 @@ pg_http_parse_response_status_line(PgString status_line) {
 
 [[maybe_unused]]
 static void pg_http_push_header(PgStringKeyValueDyn *headers, PgString key,
-                                PgString value, PgArena *arena) {
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(arena);
-  *PG_DYN_PUSH(headers, (PgAllocator *)&arena_allocator) =
+                                PgString value, PgAllocator *allocator) {
+  *PG_DYN_PUSH(headers, allocator) =
       (PgStringKeyValue){.key = key, .value = value};
 }
 
@@ -6062,9 +6061,9 @@ pg_http_request_to_string(PgHttpRequest req, PgAllocator *allocator) {
   return PG_DYN_SLICE(PgString, w.u.bytes);
 }
 
-[[maybe_unused]] static PgError pg_http_write_response(PgWriter *w,
-                                                       PgHttpResponse res,
-                                                       PgAllocator *allocator) {
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_http_write_response(PgWriter *w, PgHttpResponse res,
+                       PgAllocator *allocator) {
   PgError err = 0;
 
   err = pg_http_response_write_status_line(w, res, allocator);
@@ -7399,14 +7398,67 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
 
 // TODO: sendfile on BSD.
 
-[[maybe_unused]]
-static void pg_http_server_handler(PgFileDescriptor sock) {
-  (void)sock;
-  // pg_http_parse_request_status_line();
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_http_server_handler(PgFileDescriptor sock, PgLogger *logger,
+                                      PgAllocator *allocator) {
+  PgReader reader = pg_reader_make_from_file_descriptor(sock);
+  PgBufReader buf_reader = pg_buf_reader_make(reader, 12 * PG_KiB, allocator);
+  PgHttpRequestReadResult res_req =
+      pg_http_read_request(&buf_reader, allocator);
+
+  if (res_req.err) {
+    pg_log(logger, PG_LOG_LEVEL_ERROR,
+           "http handler: failed to parse http request",
+           pg_log_c_err("err", res_req.err));
+    return res_req.err;
+  }
+
+  if (!res_req.done) {
+    pg_log(logger, PG_LOG_LEVEL_ERROR,
+           "http handler: failed to read full http request",
+           pg_log_c_err("done", res_req.done));
+    return PG_ERR_EOF;
+  }
+
+  PgHttpRequest req = res_req.res;
+  __builtin_dump_struct(&req, printf);
+
+  // Response.
+  {
+    PgHttpResponse resp = {0};
+    resp.status = 200;
+    resp.version_major = 1;
+    resp.version_minor = 1;
+
+    pg_http_push_header(&resp.headers, PG_S("Content-Type"),
+                        PG_S("application/html"), allocator);
+
+    PgWriter w = pg_writer_make_from_file_descriptor(sock);
+
+    PgError err = pg_http_write_response(&w, resp, allocator);
+    if (err) {
+      pg_log(logger, PG_LOG_LEVEL_ERROR,
+             "http handler: failed to write http response",
+             pg_log_c_err("err", err));
+      return err;
+    }
+
+    Pgu64Result res_write =
+        pg_writer_write(&w, PG_S("<html>hello</html>"), allocator);
+    if (res_write.err) {
+      pg_log(logger, PG_LOG_LEVEL_ERROR,
+             "http handler: failed to write http response body",
+             pg_log_c_err("err", res_write.err));
+      return res_write.err;
+    }
+  }
+  return 0;
 }
 
 [[maybe_unused]]
-static PgError pg_http_server_start(u16 port, u64 backlog, PgLogger *logger) {
+static PgError pg_http_server_start(u16 port, u64 listen_backlog,
+                                    u64 http_handler_arena_mem,
+                                    PgLogger *logger) {
   PgError err = 0;
   err = pg_process_avoid_child_zombies();
   if (err) {
@@ -7441,7 +7493,7 @@ static PgError pg_http_server_start(u16 port, u64 backlog, PgLogger *logger) {
     goto end;
   }
 
-  err = pg_net_tcp_listen(server_socket, backlog);
+  err = pg_net_tcp_listen(server_socket, listen_backlog);
   if (err) {
     pg_log(logger, PG_LOG_LEVEL_ERROR,
            "http server: failed to listen on tcp socket",
@@ -7471,7 +7523,12 @@ static PgError pg_http_server_start(u16 port, u64 backlog, PgLogger *logger) {
     }
 
     if (0 == res_proc_dup.res) { // Child.
-      pg_http_server_handler(res_accept.socket);
+      PgArena arena = pg_arena_make_from_virtual_mem(http_handler_arena_mem);
+      PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+      PgAllocator *allocator =
+          pg_arena_allocator_as_allocator(&arena_allocator);
+
+      (void)pg_http_server_handler(res_accept.socket, logger, allocator);
       exit(0);
     }
 

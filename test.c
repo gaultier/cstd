@@ -1182,7 +1182,8 @@ static void test_http_request_to_string() {
   {
     PgHttpRequest req = {0};
     req.method = PG_HTTP_METHOD_POST;
-    pg_http_push_header(&req.headers, PG_S("Host"), PG_S("google.com"), &arena);
+    pg_http_push_header(&req.headers, PG_S("Host"), PG_S("google.com"),
+                        allocator);
     *PG_DYN_PUSH(&req.url.path_components, allocator) = PG_S("foobar");
 
     PgString s = pg_http_request_to_string(req, allocator);
