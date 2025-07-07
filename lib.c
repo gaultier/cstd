@@ -5952,6 +5952,7 @@ pg_buf_reader_read_mem_until_bytes_incl(PgBufReader *r, Pgu8Slice dst,
     return res;
   }
 
+  // FIXME: This adds the requirement to have memory to store x2 the ring!
   PgRing ring = r->ring;
   (void)pg_ring_try_read_bytes(&ring, dst);
   PgBytesCut cut = pg_bytes_cut_bytes_excl(dst, needle);
