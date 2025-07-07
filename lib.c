@@ -2302,6 +2302,7 @@ pg_ring_try_read_bytes(PgRing *rg, Pgu8Slice dst) {
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Ok
 pg_ring_index_of_bytes(PgRing rg, Pgu8Slice needle) {
+(void)rg;(void)needle;
   Pgu64Ok res = {0};
   // TODO
   return res;
