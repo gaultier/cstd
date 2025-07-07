@@ -3910,6 +3910,7 @@ pg_net_get_socket_error(PgFileDescriptor socket);
 [[nodiscard]] static PgError pg_process_avoid_child_zombies();
 
 #ifdef PG_OS_UNIX
+#include <signal.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
