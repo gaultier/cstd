@@ -5941,7 +5941,7 @@ pg_buf_reader_try_fill_internal_buffer(PgBufReader *r) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_buf_reader_read_mem_until_bytes_excl(PgBufReader *r, Pgu8Slice dst,
+pg_buf_reader_read_mem_until_bytes_incl(PgBufReader *r, Pgu8Slice dst,
                                         Pgu8Slice needle) {
   PG_ASSERT(dst.data);
 
@@ -5953,21 +5953,20 @@ pg_buf_reader_read_mem_until_bytes_excl(PgBufReader *r, Pgu8Slice dst,
     return res;
   }
 
-  {
-    PgRing ring = r->ring;
-    (void)pg_ring_try_read_bytes(&ring, dst);
-    PgBytesCut cut = pg_bytes_cut_bytes_excl(dst, needle);
-    if (cut.ok) {
-      r->ring = ring; // Commit.
-      res.res = cut.left.len;
-      return res;
-    } else {
-      res.err = PG_ERR_EOF;
-      return res;
-    }
+  PgRing ring = r->ring;
+  (void)pg_ring_try_read_bytes(&ring, dst);
+  PgBytesCut cut = pg_bytes_cut_bytes_excl(dst, needle);
+  if (cut.ok) {
+    // Do the real read out of the real ring.
+    u64 n_read = cut.left.len + needle.len;
+    PG_ASSERT(n_read ==
+              pg_ring_try_read_bytes(&r->ring, PG_SLICE_RANGE(dst, 0, n_read)));
+    res.res = cut.left.len;
+    return res;
+  } else {
+    res.err = PG_ERR_EOF;
+    return res;
   }
-
-  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
@@ -5977,7 +5976,7 @@ pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
 
   Pgu8Slice header_bytes = pg_bytes_make(reader->ring.data.len, allocator);
   Pgu64Result res_read_headers =
-      pg_buf_reader_read_mem_until_bytes_excl(reader, header_bytes, sep);
+      pg_buf_reader_read_mem_until_bytes_incl(reader, header_bytes, sep);
   if (res_read_headers.err) {
     res.err = res_read_headers.err;
     return res;
