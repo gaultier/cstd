@@ -5960,7 +5960,8 @@ pg_buf_reader_read_mem_until_bytes_incl(PgBufReader *r, Pgu8Slice dst,
       return res;
     }
 
-    Pgu64Ok search = pg_ring_index_of_bytes(*r->ring, needle);
+    // NOTE: We want to only read until the `needle`, and not one byte more.
+    Pgu64Ok search = pg_ring_index_of_bytes(r->ring, needle);
     if (!search.ok) {
       return res;
     }
