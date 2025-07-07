@@ -1172,7 +1172,7 @@ static void test_http_request_to_string() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
   {
     PgHttpRequest req = {0};
-    req.method = HTTP_METHOD_GET;
+    req.method = PG_HTTP_METHOD_GET;
 
     PgString s = pg_http_request_to_string(req, allocator);
     PgString expected = PG_S("GET / HTTP/1.1\r\n"
@@ -1181,7 +1181,7 @@ static void test_http_request_to_string() {
   }
   {
     PgHttpRequest req = {0};
-    req.method = HTTP_METHOD_POST;
+    req.method = PG_HTTP_METHOD_POST;
     pg_http_push_header(&req.headers, PG_S("Host"), PG_S("google.com"), &arena);
     *PG_DYN_PUSH(&req.url.path_components, allocator) = PG_S("foobar");
 
@@ -1334,7 +1334,7 @@ static void test_http_parse_request_status_line() {
     PgHttpRequestStatusLineResult res =
         pg_http_parse_request_status_line(PG_S("GET / HTTP/2.0"), allocator);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(HTTP_METHOD_GET == res.res.method);
+    PG_ASSERT(PG_HTTP_METHOD_GET == res.res.method);
     PG_ASSERT(2 == res.res.version_major);
     PG_ASSERT(0 == res.res.version_minor);
     PG_ASSERT(0 == res.res.url.path_components.len);
@@ -1345,7 +1345,7 @@ static void test_http_parse_request_status_line() {
     PgHttpRequestStatusLineResult res = pg_http_parse_request_status_line(
         PG_S("GET /?foo=bar& HTTP/2.0"), allocator);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(HTTP_METHOD_GET == res.res.method);
+    PG_ASSERT(PG_HTTP_METHOD_GET == res.res.method);
     PG_ASSERT(2 == res.res.version_major);
     PG_ASSERT(0 == res.res.version_minor);
     PG_ASSERT(0 == res.res.url.path_components.len);
@@ -1359,7 +1359,7 @@ static void test_http_parse_request_status_line() {
     PgHttpRequestStatusLineResult res =
         pg_http_parse_request_status_line(PG_S("GET / HTTP/0.9"), allocator);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(HTTP_METHOD_GET == res.res.method);
+    PG_ASSERT(PG_HTTP_METHOD_GET == res.res.method);
     PG_ASSERT(0 == res.res.version_major);
     PG_ASSERT(9 == res.res.version_minor);
     PG_ASSERT(0 == res.res.url.path_components.len);
@@ -1370,7 +1370,7 @@ static void test_http_parse_request_status_line() {
     PgHttpRequestStatusLineResult res = pg_http_parse_request_status_line(
         PG_S("GET /foo/bar/baz?hey HTTP/1.1"), allocator);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(HTTP_METHOD_GET == res.res.method);
+    PG_ASSERT(PG_HTTP_METHOD_GET == res.res.method);
     PG_ASSERT(1 == res.res.version_major);
     PG_ASSERT(1 == res.res.version_minor);
     PG_ASSERT(3 == res.res.url.path_components.len);
@@ -1433,7 +1433,9 @@ static void test_http_read_request() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgString req_str = PG_S("GET /info HTTP/1.1\r\n\r\n");
+  PgString req_str =
+      PG_S("PUT /info HTTP/1.1\r\nAccept: application/json\r\nContent-Type: "
+           "text/html\r\n\r\nHello, world!");
   PgReader reader = pg_reader_make_from_bytes(req_str);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
@@ -1441,6 +1443,9 @@ static void test_http_read_request() {
 
   PG_ASSERT(!res_req.err);
   PG_ASSERT(res_req.done);
+
+  PgHttpRequest req = res_req.res;
+  PG_ASSERT(PG_HTTP_METHOD_PUT == req.method);
 }
 
 #if 0
@@ -1589,7 +1594,7 @@ static void test_http_request_response() {
   bool server_send_http_io_done = false;
 
   PgHttpRequest client_req = {0};
-  client_req.method = HTTP_METHOD_GET;
+  client_req.method = PG_HTTP_METHOD_GET;
   pg_http_push_header(&client_req.headers, PG_S("Host"), PG_S("localhost"),
                       &arena);
   *PG_DYN_PUSH(&client_req.url.query_parameters, &arena) = (PgKeyValue){

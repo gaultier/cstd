@@ -459,16 +459,16 @@ typedef struct {
 } PgIpv4AddressAcceptResult;
 
 typedef enum {
-  HTTP_METHOD_UNKNOWN,
-  HTTP_METHOD_OPTIONS,
-  HTTP_METHOD_GET,
-  HTTP_METHOD_HEAD,
-  HTTP_METHOD_POST,
-  HTTP_METHOD_PUT,
-  HTTP_METHOD_DELETE,
-  HTTP_METHOD_TRACE,
-  HTTP_METHOD_CONNECT,
-  HTTP_METHOD_EXTENSION,
+  PG_HTTP_METHOD_UNKNOWN,
+  PG_HTTP_METHOD_OPTIONS,
+  PG_HTTP_METHOD_GET,
+  PG_HTTP_METHOD_HEAD,
+  PG_HTTP_METHOD_POST,
+  PG_HTTP_METHOD_PUT,
+  PG_HTTP_METHOD_DELETE,
+  PG_HTTP_METHOD_TRACE,
+  PG_HTTP_METHOD_CONNECT,
+  PG_HTTP_METHOD_EXTENSION,
 } PgHttpMethod;
 
 typedef struct {
@@ -5058,25 +5058,25 @@ pg_file_open(PgString path, PgFileAccess access, u64 mode,
 [[maybe_unused]]
 PgString static pg_http_method_to_string(PgHttpMethod m) {
   switch (m) {
-  case HTTP_METHOD_UNKNOWN:
+  case PG_HTTP_METHOD_UNKNOWN:
     return PG_S("UNKNOWN");
-  case HTTP_METHOD_OPTIONS:
+  case PG_HTTP_METHOD_OPTIONS:
     return PG_S("OPTIONS");
-  case HTTP_METHOD_GET:
+  case PG_HTTP_METHOD_GET:
     return PG_S("GET");
-  case HTTP_METHOD_HEAD:
+  case PG_HTTP_METHOD_HEAD:
     return PG_S("HEAD");
-  case HTTP_METHOD_POST:
+  case PG_HTTP_METHOD_POST:
     return PG_S("POST");
-  case HTTP_METHOD_PUT:
+  case PG_HTTP_METHOD_PUT:
     return PG_S("PUT");
-  case HTTP_METHOD_DELETE:
+  case PG_HTTP_METHOD_DELETE:
     return PG_S("DELETE");
-  case HTTP_METHOD_TRACE:
+  case PG_HTTP_METHOD_TRACE:
     return PG_S("TRACE");
-  case HTTP_METHOD_CONNECT:
+  case PG_HTTP_METHOD_CONNECT:
     return PG_S("CONNECT");
-  case HTTP_METHOD_EXTENSION:
+  case PG_HTTP_METHOD_EXTENSION:
     return PG_S("EXTENSION");
   default:
     PG_ASSERT(0);
@@ -5697,41 +5697,40 @@ pg_http_parse_request_status_line(PgString status_line,
                                   PgAllocator *allocator) {
   PgHttpRequestStatusLineResult res = {0};
 
-  PgString remaining = status_line;
-  {
-    if (pg_string_starts_with(remaining, PG_S("GET"))) {
-      PgStringOk consume = pg_string_consume_string(remaining, PG_S("GET"));
-      PG_ASSERT(consume.ok);
-      remaining = consume.res;
-      res.res.method = HTTP_METHOD_GET;
-    } else if (pg_string_starts_with(remaining, PG_S("POST"))) {
-      PgStringOk consume = pg_string_consume_string(remaining, PG_S("POST"));
-      PG_ASSERT(consume.ok);
-      remaining = consume.res;
-      res.res.method = HTTP_METHOD_POST;
-    } else {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
-    }
-  }
-
-  {
-    PgStringOk consume = pg_string_consume_rune(remaining, ' ');
-    if (!consume.ok) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
-    }
-    remaining = consume.res;
-  }
-
-  i64 idx_space = pg_string_index_of_rune(remaining, ' ');
-  if (-1 == idx_space) {
+  PgStringCut cut = pg_string_cut_rune(status_line, ' ');
+  if (!cut.ok) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
-  PgString path = PG_SLICE_RANGE(remaining, 0, (u64)idx_space);
-  remaining = PG_SLICE_RANGE_START(remaining, (u64)idx_space + 1);
+
+  // Method.
   {
+    PgString method = pg_string_trim_space(cut.left);
+    if (pg_string_eq(method, PG_S("OPTIONS"))) {
+      res.res.method = PG_HTTP_METHOD_OPTIONS;
+    } else if (pg_string_eq(method, PG_S("GET"))) {
+      res.res.method = PG_HTTP_METHOD_GET;
+    } else if (pg_string_eq(method, PG_S("HEAD"))) {
+      res.res.method = PG_HTTP_METHOD_HEAD;
+    } else if (pg_string_eq(method, PG_S("POST"))) {
+      res.res.method = PG_HTTP_METHOD_POST;
+    } else if (pg_string_eq(method, PG_S("PUT"))) {
+      res.res.method = PG_HTTP_METHOD_PUT;
+    } else if (pg_string_eq(method, PG_S("DELETE"))) {
+      res.res.method = PG_HTTP_METHOD_DELETE;
+    } else if (pg_string_eq(method, PG_S("TRACE"))) {
+      res.res.method = PG_HTTP_METHOD_TRACE;
+    } else if (pg_string_eq(method, PG_S("CONNECT"))) {
+      res.res.method = PG_HTTP_METHOD_CONNECT;
+    } else {
+      res.res.method = PG_HTTP_METHOD_EXTENSION;
+    }
+  }
+
+  // Path.
+  cut = pg_string_cut_rune(cut.right, ' ');
+  {
+    PgString path = pg_string_trim_space(cut.left);
     PgUrlResult res_url = pg_url_parse_after_authority(path, allocator);
     if (res_url.err) {
       res.err = PG_ERR_INVALID_VALUE;
@@ -5741,6 +5740,7 @@ pg_http_parse_request_status_line(PgString status_line,
     res.res.url = res_url.res;
   }
 
+  PgString remaining = pg_string_trim_space(cut.right);
   {
     PgStringOk consume = pg_string_consume_string(remaining, PG_S("HTTP/"));
     if (!consume.ok) {
