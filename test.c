@@ -1452,6 +1452,59 @@ static void test_http_read_request_full() {
   PG_ASSERT(!req.url.password.len);
   PG_ASSERT(!req.url.host.len);
   PG_ASSERT(!req.url.port);
+  PG_ASSERT(1 == req.version_major);
+  PG_ASSERT(1 == req.version_minor);
+  PG_ASSERT(2 == req.headers.len);
+  PG_ASSERT(3 == req.url.path_components.len);
+  PG_ASSERT(2 == req.url.query_parameters.len);
+
+  PgStringKeyValue header0 = PG_SLICE_AT(req.headers, 0);
+  PgStringKeyValue header1 = PG_SLICE_AT(req.headers, 1);
+  PG_ASSERT(pg_string_eq(PG_S("Accept"), header0.key));
+  PG_ASSERT(pg_string_eq(PG_S("application/json"), header0.value));
+  PG_ASSERT(pg_string_eq(PG_S("Content-Type"), header1.key));
+  PG_ASSERT(pg_string_eq(PG_S("text/html"), header1.value));
+
+  PG_ASSERT(
+      pg_string_eq(PG_S("info"), PG_SLICE_AT(req.url.path_components, 0)));
+  PG_ASSERT(
+      pg_string_eq(PG_S("download"), PG_SLICE_AT(req.url.path_components, 1)));
+  PG_ASSERT(
+      pg_string_eq(PG_S("index.mp3"), PG_SLICE_AT(req.url.path_components, 2)));
+
+  PgStringKeyValue query_param0 = PG_SLICE_AT(req.url.query_parameters, 0);
+  PgStringKeyValue query_param1 = PG_SLICE_AT(req.url.query_parameters, 1);
+  PG_ASSERT(pg_string_eq(PG_S("foo"), query_param0.key));
+  PG_ASSERT(pg_string_eq(PG_S("bar"), query_param0.value));
+  PG_ASSERT(pg_string_eq(PG_S("baz"), query_param1.key));
+  PG_ASSERT(pg_string_eq(PG_S(""), query_param1.value));
+}
+
+static void test_http_read_request_full_without_headers() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
+                          "\r\n\r\nHello, world!");
+  PgReader reader = pg_reader_make_from_bytes(req_str);
+  PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
+  PgHttpRequestReadResult res_req =
+      pg_http_read_request(&buf_reader, allocator);
+
+  PG_ASSERT(!res_req.err);
+  PG_ASSERT(res_req.done);
+
+  PgHttpRequest req = res_req.res;
+  PG_ASSERT(PG_HTTP_METHOD_PUT == req.method);
+  PG_ASSERT(!req.url.scheme.len);
+  PG_ASSERT(!req.url.username.len);
+  PG_ASSERT(!req.url.password.len);
+  PG_ASSERT(!req.url.host.len);
+  PG_ASSERT(!req.url.port);
+  PG_ASSERT(1 == req.version_major);
+  PG_ASSERT(1 == req.version_minor);
+  PG_ASSERT(0 == req.headers.len);
   PG_ASSERT(3 == req.url.path_components.len);
   PG_ASSERT(2 == req.url.query_parameters.len);
 
@@ -2534,6 +2587,7 @@ int main() {
   test_http_parse_header();
   test_http_read_request_full();
   test_http_read_request_no_body_separator_yet();
+  test_http_read_request_full_without_headers();
 #if 0
   test_http_read_response();
   test_http_request_response();
