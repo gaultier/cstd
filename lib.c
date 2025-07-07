@@ -7501,6 +7501,9 @@ static PgError pg_http_server_start(u16 port, u64 listen_backlog,
     goto end;
   }
 
+  pg_log(logger, PG_LOG_LEVEL_INFO, "http server: listening",
+         pg_log_c_u16("port", port));
+
   for (;;) {
     PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(server_socket);
     if (res_accept.err) {
