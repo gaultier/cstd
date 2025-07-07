@@ -1428,7 +1428,7 @@ static void test_http_parse_header() {
   }
 }
 
-static void test_http_read_request() {
+static void test_http_read_request_full() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
@@ -1468,6 +1468,23 @@ static void test_http_read_request() {
   PG_ASSERT(pg_string_eq(PG_S("bar"), query_param0.value));
   PG_ASSERT(pg_string_eq(PG_S("baz"), query_param1.key));
   PG_ASSERT(pg_string_eq(PG_S(""), query_param1.value));
+}
+
+static void test_http_read_request_no_body_separator_yet() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgString req_str =
+      PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1\r\nAccept: "
+           "application/json\r\nContent-Type: "
+           "text/html\r\n");
+  PgReader reader = pg_reader_make_from_bytes(req_str);
+  PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
+  PgHttpRequestReadResult res_req =
+      pg_http_read_request(&buf_reader, allocator);
+
+  PG_ASSERT(PG_ERR_EOF == res_req.err);
 }
 
 #if 0
@@ -2515,7 +2532,8 @@ int main() {
   test_http_parse_response_status_line();
   test_http_parse_request_status_line();
   test_http_parse_header();
-  test_http_read_request();
+  test_http_read_request_full();
+  test_http_read_request_no_body_separator_yet();
 #if 0
   test_http_read_response();
   test_http_request_response();

@@ -490,7 +490,6 @@ typedef struct {
 } PgUrl;
 
 typedef struct {
-  PgString id;
   PgUrl url; // Does not have a scheme, domain, port.
   PgHttpMethod method;
   PgStringKeyValueDyn headers;
@@ -5961,6 +5960,9 @@ pg_buf_reader_read_mem_until_bytes_excl(PgBufReader *r, Pgu8Slice dst,
     if (cut.ok) {
       r->ring = ring; // Commit.
       res.res = cut.left.len;
+      return res;
+    } else {
+      res.err = PG_ERR_EOF;
       return res;
     }
   }
