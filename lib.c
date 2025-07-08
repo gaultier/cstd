@@ -3822,7 +3822,7 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
                                         PgAllocator *allocator);
 
 [[nodiscard]] [[maybe_unused]]
-static PgProcessExitResult pg_process_wait(PgProcess process,
+static PgProcessExitResult pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
                                            PgAllocator *allocator);
 
 [[nodiscard]] [[maybe_unused]] static PgError
@@ -4375,17 +4375,18 @@ end:
 // processes.
 [[nodiscard]] [[maybe_unused]]
 static PgProcessCaptureStdResult
-pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
+pg_process_capture_std_io(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint, PgAllocator *allocator) {
   PgProcessCaptureStdResult res = {0};
+
   Pgu8Dyn stdout_sb = {0};
   Pgu8Dyn stderr_sb = {0};
 
   if (process.stdout_pipe.fd) {
-    stdout_sb = pg_string_builder_make(4096, allocator);
+    stdout_sb = pg_string_builder_make(stdio_size_hint == 0 ? 4096 : stdio_size_hint, allocator);
   }
 
   if (process.stderr_pipe.fd) {
-    stderr_sb = pg_string_builder_make(4096, allocator);
+    stderr_sb = pg_string_builder_make(stderr_size_hint == 0 ? 4096 : stderr_size_hint, allocator);
   }
 
   while (process.stdout_pipe.fd || process.stderr_pipe.fd) {
@@ -4476,12 +4477,12 @@ end:
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgProcessExitResult pg_process_wait(PgProcess process,
+static PgProcessExitResult pg_process_wait(PgProcess process,u64 stdio_size_hint, u64 stderr_size_hint, 
                                            PgAllocator *allocator) {
   PgProcessExitResult res = {0};
 
   PgProcessCaptureStdResult res_capture =
-      pg_process_capture_std_io(process, allocator);
+      pg_process_capture_std_io(process, stdio_size_hint, stderr_size_hint, allocator);
   if (res_capture.err) {
     res.err = res_capture.err;
     return res;
@@ -6828,6 +6829,7 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
 [[maybe_unused]] [[nodiscard]] static PgHtmlTokenDynResult
 pg_html_tokenize(PgString s, PgAllocator *allocator) {
   PgHtmlTokenDynResult res = {0};
+  PG_DYN_ENSURE_CAP(&res.res, s.len/8, allocator);
 
   /* PgString comment_start = PG_S("<!--"); */
   /* PgString comment_end = PG_S("-->"); */
