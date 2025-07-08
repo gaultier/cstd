@@ -2302,7 +2302,8 @@ pg_ring_try_read_bytes(PgRing *rg, Pgu8Slice dst) {
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Ok
 pg_ring_index_of_bytes(PgRing rg, Pgu8Slice needle) {
-(void)rg;(void)needle;
+  (void)rg;
+  (void)needle;
   Pgu64Ok res = {0};
   // TODO
   return res;
@@ -3822,8 +3823,9 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
                                         PgAllocator *allocator);
 
 [[nodiscard]] [[maybe_unused]]
-static PgProcessExitResult pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
-                                           PgAllocator *allocator);
+static PgProcessExitResult
+pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
+                PgAllocator *allocator);
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src);
@@ -3911,13 +3913,13 @@ pg_net_get_socket_error(PgFileDescriptor socket);
 [[nodiscard]] static PgError pg_process_avoid_child_zombies();
 
 #ifdef PG_OS_UNIX
-#include <signal.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -4375,18 +4377,21 @@ end:
 // processes.
 [[nodiscard]] [[maybe_unused]]
 static PgProcessCaptureStdResult
-pg_process_capture_std_io(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint, PgAllocator *allocator) {
+pg_process_capture_std_io(PgProcess process, u64 stdio_size_hint,
+                          u64 stderr_size_hint, PgAllocator *allocator) {
   PgProcessCaptureStdResult res = {0};
 
   Pgu8Dyn stdout_sb = {0};
   Pgu8Dyn stderr_sb = {0};
 
   if (process.stdout_pipe.fd) {
-    stdout_sb = pg_string_builder_make(stdio_size_hint == 0 ? 4096 : stdio_size_hint, allocator);
+    stdout_sb = pg_string_builder_make(
+        stdio_size_hint == 0 ? 4096 : stdio_size_hint, allocator);
   }
 
   if (process.stderr_pipe.fd) {
-    stderr_sb = pg_string_builder_make(stderr_size_hint == 0 ? 4096 : stderr_size_hint, allocator);
+    stderr_sb = pg_string_builder_make(
+        stderr_size_hint == 0 ? 4096 : stderr_size_hint, allocator);
   }
 
   while (process.stdout_pipe.fd || process.stderr_pipe.fd) {
@@ -4477,12 +4482,13 @@ end:
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgProcessExitResult pg_process_wait(PgProcess process,u64 stdio_size_hint, u64 stderr_size_hint, 
-                                           PgAllocator *allocator) {
+static PgProcessExitResult
+pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
+                PgAllocator *allocator) {
   PgProcessExitResult res = {0};
 
-  PgProcessCaptureStdResult res_capture =
-      pg_process_capture_std_io(process, stdio_size_hint, stderr_size_hint, allocator);
+  PgProcessCaptureStdResult res_capture = pg_process_capture_std_io(
+      process, stdio_size_hint, stderr_size_hint, allocator);
   if (res_capture.err) {
     res.err = res_capture.err;
     return res;
@@ -6829,7 +6835,7 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
 [[maybe_unused]] [[nodiscard]] static PgHtmlTokenDynResult
 pg_html_tokenize(PgString s, PgAllocator *allocator) {
   PgHtmlTokenDynResult res = {0};
-  PG_DYN_ENSURE_CAP(&res.res, s.len/8, allocator);
+  PG_DYN_ENSURE_CAP(&res.res, s.len / 8, allocator);
 
   /* PgString comment_start = PG_S("<!--"); */
   /* PgString comment_end = PG_S("-->"); */
