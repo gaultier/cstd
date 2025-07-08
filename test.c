@@ -1,7 +1,7 @@
 #include "lib.c"
 
 static void test_rune_bytes_count() {
-  PG_ASSERT(0 == pg_utf8_rune_bytes_count(0));
+  PG_ASSERT(1 == pg_utf8_rune_bytes_count(0));
   PG_ASSERT(1 == pg_utf8_rune_bytes_count('A'));
   PG_ASSERT(3 == pg_utf8_rune_bytes_count(0x30eb /* ル */));
   PG_ASSERT(3 == pg_utf8_rune_bytes_count(0x805e /* 聞 */));
@@ -353,14 +353,15 @@ static void test_utf8_iterator() {
   {
     PgString s = PG_S("\x1\x0");
     Pgu64Result res_count = pg_utf8_count_runes(s);
-    PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
+    PG_ASSERT(0 == res_count.err);
+    PG_ASSERT(2 == res_count.res);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
     PgRuneResult res = {0};
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
     res = pg_utf8_iterator_next(&it);
-    PG_ASSERT(PG_ERR_INVALID_VALUE == res.err);
+    PG_ASSERT(0 == res.err);
   }
   // Forbidden byte.
   {

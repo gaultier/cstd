@@ -230,7 +230,11 @@ static const u64 PG_FILE_ACCESS_ALL =
     PG_FILE_ACCESS_READ | PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE;
 
 typedef u32 PgRune;
-PG_RESULT(PgRune) PgRuneResult;
+typedef struct {
+  PgRune rune;
+  PgError err;
+  bool end;
+} PgRuneUtf8Result;
 
 typedef struct {
   PgString s;
@@ -1029,24 +1033,21 @@ pg_make_utf8_iterator(PgString s) {
 
 // TODO: If this becomes a performance bottleneck there are more optimized ways
 // to implement that.
-[[maybe_unused]] [[nodiscard]] static PgRuneResult
+[[maybe_unused]] [[nodiscard]] static PgRuneUtf8Result
 pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
-  PgRuneResult res = {0};
+  PgRuneUtf8Result res = {0};
 
   PgString s = PG_SLICE_RANGE_START(it.s, it.idx);
   if (pg_string_is_empty(s)) {
+    res.end=true;
     return res;
   }
 
   u8 c0 = PG_SLICE_AT(s, 0);
-  if (0 == c0) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
 
   // One byte.
-  if (0b0000'0000 == (c0 & 0b1000'0000) && c0 != 0) {
-    res.res = c0 & 0x7F;
+  if (0b0000'0000 == (c0 & 0b1000'0000)) {
+    res.res = (c0 << 1) >> 1;
     return res;
   }
 
@@ -1122,10 +1123,6 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
 }
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_utf8_rune_bytes_count(PgRune c) {
-  if (0 == c) {
-    return 0;
-  }
-
   if (c < 0x0080) {
     return 1;
   }
@@ -1141,9 +1138,9 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgRuneResult
+[[maybe_unused]] [[nodiscard]] static PgRuneUtf8Result
 pg_utf8_iterator_next(PgUtf8Iterator *it) {
-  PgRuneResult res = pg_utf8_iterator_peek_next(*it);
+  PgRuneUtf8Result res = pg_utf8_iterator_peek_next(*it);
   it->idx += pg_utf8_rune_bytes_count(res.res);
 
   return res;
@@ -1156,12 +1153,12 @@ pg_utf8_count_runes(PgString s) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
   u64 len = 0;
   for (;; len++) {
-    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     if (res_rune.err) {
       res.err = res_rune.err;
       return res;
     }
-    if (0 == res_rune.res) {
+    if (res_rune.end) {
       break;
     }
   }
@@ -1173,49 +1170,71 @@ pg_utf8_count_runes(PgString s) {
 [[maybe_unused]] [[nodiscard]] static bool
 pg_string_is_ascii_alphabetical(PgString s) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
-  PgRuneResult res_rune = {0};
 
-  for (res_rune = pg_utf8_iterator_next(&it); !res_rune.err && res_rune.res;
-       res_rune = pg_utf8_iterator_next(&it)) {
-    if (!pg_rune_ascii_is_alphabetical(res_rune.res)) {
+  for (;;) {
+   PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
+   if (res_rune.end) {return true;}
+   if (res_rune.err) {return false;}
+
+   PgRune rune = res_rune.rune;
+
+    if (!pg_rune_ascii_is_alphabetical(rune)) {
       return false;
     }
   }
-  PG_ASSERT(0 == res_rune.err);
-  return true;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_left(PgString s,
                                                                    PgRune c) {
-  if (pg_string_is_empty(s)) {
-    return s;
-  }
-
   PgString res = s;
 
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
-  PgRuneResult res_rune = {0};
 
-  u64 bytes_idx = 0;
-  for (res_rune = pg_utf8_iterator_next(&it); !res_rune.err && res_rune.res;
-       res_rune = pg_utf8_iterator_next(&it)) {
-    if (res_rune.res != c) {
+  for (;;) {
+   PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
+   if (res_rune.end) {break;}
+   // TODO: Maybe use the REPLACEMENT CHARACTER here and continue?
+   if (res_rune.err) {return res;}
+
+   PgRune rune = res_rune.rune;
+
+   if (rune.res != c) {
       break;
-    }
-    bytes_idx = it.idx;
+   }
+
   }
 
-  res.data += bytes_idx;
-  res.len -= bytes_idx;
+  res.data += it.idx;
+  res.len -= it.idx;
 
   return res;
 }
 
+[[nodiscard]] static Pgu64Result pg_string_find_last_lead_byte(PgString s) {
+  Pgu64Result res={0};
+  
+  for (i64 i=(i64)s.len-1;i>=0;i--){
+    u8 byte = PG_SLICE_AT(s,i);
+
+    
+    if (0==(byte & (0b1000'000))){// 1 byte.
+      res.res=(u64)i;
+      return res;
+    } else if (0b1100'0000==(byte & (0b1100'000))) { // 2 bytes.
+      if (!(i < s.len-2)){res.err=PG_ERR_INVALID_VALUE;}
+      res.res=(u64)i;
+      return res;
+    }
+  }
+
+} 
+
 [[nodiscard]] static PgRune pg_string_last(PgString s) {
+
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
   PgRune res = 0;
   for (;;) {
-    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     if (res_rune.err || 0 == res_rune.res) {
       return res;
     }
@@ -1223,9 +1242,10 @@ pg_string_is_ascii_alphabetical(PgString s) {
   }
   PG_ASSERT(0);
 }
+
 [[maybe_unused]] [[nodiscard]] static PgRune pg_string_first(PgString s) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
-  PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+  PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
   return res_rune.res;
 }
 
@@ -1299,7 +1319,7 @@ pg_string_index_of_rune(PgString haystack, PgRune needle) {
   u64 idx = 0;
   for (;;) {
     idx = it.idx;
-    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     if (res_rune.err || !res_rune.res) {
       return -1;
     }
@@ -1320,7 +1340,7 @@ pg_string_cut_rune(PgString s, PgRune needle) {
   u64 idx = 0;
   for (;;) {
     idx = it.idx;
-    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     if (res_rune.err || !res_rune.res) {
       return res;
     }
@@ -1622,7 +1642,7 @@ pg_string_consume_until_any_rune_incl(PgString haystack, PgString needles) {
   PgStringPairConsumeAny res = {0};
 
   PgUtf8Iterator it = pg_make_utf8_iterator(needles);
-  PgRuneResult res_rune = {0};
+  PgRuneUtf8Result res_rune = {0};
   for (res_rune = pg_utf8_iterator_next(&it);
        0 == res_rune.err && 0 != res_rune.res;
        res_rune = pg_utf8_iterator_next(&it)) {
@@ -1648,7 +1668,7 @@ pg_string_consume_until_any_rune_excl(PgString haystack, PgString needles) {
   PgStringPairConsumeAny res = {0};
 
   PgUtf8Iterator it = pg_make_utf8_iterator(needles);
-  PgRuneResult res_rune = {0};
+  PgRuneUtf8Result res_rune = {0};
   for (res_rune = pg_utf8_iterator_next(&it);
        0 == res_rune.err && 0 != res_rune.res;
        res_rune = pg_utf8_iterator_next(&it)) {
@@ -1672,7 +1692,7 @@ pg_string_consume_until_any_rune_excl(PgString haystack, PgString needles) {
 [[maybe_unused]] [[nodiscard]] static i64
 pg_string_index_of_any_rune(PgString haystack, PgString needles) {
   PgUtf8Iterator it = pg_make_utf8_iterator(needles);
-  PgRuneResult res_rune = {0};
+  PgRuneUtf8Result res_rune = {0};
   for (res_rune = pg_utf8_iterator_next(&it);
        0 == res_rune.err && 0 != res_rune.res;
        res_rune = pg_utf8_iterator_next(&it)) {
@@ -1709,7 +1729,7 @@ pg_string_consume_rune(PgString haystack, PgRune needle) {
   PgStringOk res = {0};
 
   PgUtf8Iterator it = pg_make_utf8_iterator(haystack);
-  PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+  PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
 
   if (needle != res_rune.res) {
     return res;
@@ -1776,7 +1796,7 @@ pg_string_parse_u64(PgString s) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
   u64 last_idx = 0;
   for (;;) {
-    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     if (0 != res_rune.err || 0 == res_rune.res) {
       break;
     }
@@ -2554,7 +2574,7 @@ pg_string_builder_append_u64_hex(Pgu8Dyn *sb, PgRune rune,
     PgAllocator *allocator) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
   for (;;) {
-    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res_rune.err);
     PgRune rune = res_rune.res;
     if (0 == rune) {
@@ -2573,7 +2593,7 @@ pg_string_builder_append_u64_hex(Pgu8Dyn *sb, PgRune rune,
     PgAllocator *allocator) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
   for (;;) {
-    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res_rune.err);
     PgRune rune = res_rune.res;
     if (0 == rune) {
@@ -2595,7 +2615,7 @@ pg_string_builder_append_js_string_escaped(Pgu8Dyn *sb, PgString s,
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
 
   for (u64 i = 0; i < s.len; i++) {
-    PgRuneResult res_rune = pg_utf8_iterator_next(&it);
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res_rune.err);
     PgRune rune = res_rune.res;
     if (0 == rune) {
@@ -2812,7 +2832,7 @@ pg_string_index_of_unescaped_rune(PgString haystack, PgRune needle,
 pg_string_index_of_any_unescaped_rune(PgString haystack, PgString needles,
                                       PgRune escape) {
   PgUtf8Iterator it = pg_make_utf8_iterator(needles);
-  PgRuneResult res_rune = {0};
+  PgRuneUtf8Result res_rune = {0};
   for (res_rune = pg_utf8_iterator_next(&it);
        0 == res_rune.err && 0 != res_rune.res;
        res_rune = pg_utf8_iterator_next(&it)) {
