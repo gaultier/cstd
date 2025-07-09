@@ -960,6 +960,8 @@ pg_rune_ascii_is_alphanumeric(PgRune c) {
 
 [[maybe_unused]] [[nodiscard]] static PgRune
 pg_rune_ascii_to_lower_case(PgRune c) {
+  PG_ASSERT(c <= 0x7f);
+
   if ('A' <= c && c <= 'Z') {
     return c + ('a' - 'A');
   }
@@ -2302,7 +2304,8 @@ pg_ring_try_read_bytes(PgRing *rg, Pgu8Slice dst) {
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Ok
 pg_ring_index_of_bytes(PgRing rg, Pgu8Slice needle) {
-(void)rg;(void)needle;
+  (void)rg;
+  (void)needle;
   Pgu64Ok res = {0};
   // TODO
   return res;
@@ -3822,8 +3825,9 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
                                         PgAllocator *allocator);
 
 [[nodiscard]] [[maybe_unused]]
-static PgProcessExitResult pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
-                                           PgAllocator *allocator);
+static PgProcessExitResult
+pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
+                PgAllocator *allocator);
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src);
@@ -3911,13 +3915,13 @@ pg_net_get_socket_error(PgFileDescriptor socket);
 [[nodiscard]] static PgError pg_process_avoid_child_zombies();
 
 #ifdef PG_OS_UNIX
-#include <signal.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -4375,18 +4379,21 @@ end:
 // processes.
 [[nodiscard]] [[maybe_unused]]
 static PgProcessCaptureStdResult
-pg_process_capture_std_io(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint, PgAllocator *allocator) {
+pg_process_capture_std_io(PgProcess process, u64 stdio_size_hint,
+                          u64 stderr_size_hint, PgAllocator *allocator) {
   PgProcessCaptureStdResult res = {0};
 
   Pgu8Dyn stdout_sb = {0};
   Pgu8Dyn stderr_sb = {0};
 
   if (process.stdout_pipe.fd) {
-    stdout_sb = pg_string_builder_make(stdio_size_hint == 0 ? 4096 : stdio_size_hint, allocator);
+    stdout_sb = pg_string_builder_make(
+        stdio_size_hint == 0 ? 4096 : stdio_size_hint, allocator);
   }
 
   if (process.stderr_pipe.fd) {
-    stderr_sb = pg_string_builder_make(stderr_size_hint == 0 ? 4096 : stderr_size_hint, allocator);
+    stderr_sb = pg_string_builder_make(
+        stderr_size_hint == 0 ? 4096 : stderr_size_hint, allocator);
   }
 
   while (process.stdout_pipe.fd || process.stderr_pipe.fd) {
@@ -4477,12 +4484,13 @@ end:
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgProcessExitResult pg_process_wait(PgProcess process,u64 stdio_size_hint, u64 stderr_size_hint, 
-                                           PgAllocator *allocator) {
+static PgProcessExitResult
+pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
+                PgAllocator *allocator) {
   PgProcessExitResult res = {0};
 
-  PgProcessCaptureStdResult res_capture =
-      pg_process_capture_std_io(process, stdio_size_hint, stderr_size_hint, allocator);
+  PgProcessCaptureStdResult res_capture = pg_process_capture_std_io(
+      process, stdio_size_hint, stderr_size_hint, allocator);
   if (res_capture.err) {
     res.err = res_capture.err;
     return res;
@@ -5390,6 +5398,43 @@ pg_html_sanitize(PgString s, PgAllocator *allocator) {
   }
 
   return PG_DYN_SLICE(PgString, res);
+}
+
+[[nodiscard]]
+static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, s.len * 2, allocator);
+
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+
+  for (;;) {
+    PgRuneResult res = pg_utf8_iterator_next(&it);
+    // TODO: Use REPLACEMENT CHARACTER?
+    if (res.err) {
+      return (PgString){0};
+    }
+
+    // FIXME: Proper 'end' detection in iterator.
+    if (!res.res) {
+      break;
+    }
+
+    PgRune rune = res.res;
+
+    if (pg_rune_ascii_is_alphanumeric(rune)) {
+      *PG_DYN_PUSH(&sb, allocator) = (u8)pg_rune_ascii_to_lower_case(rune);
+    } else if ('+' == rune) {
+      PG_DYN_APPEND_SLICE(&sb, PG_S("plus"), allocator);
+    } else if ('#' == rune) {
+      PG_DYN_APPEND_SLICE(&sb, PG_S("sharp"), allocator);
+    } else if (PG_SLICE_LAST(sb) != '-') {
+      // Other runes are mapped to `-`, but we avoid consecutive `-`.
+      *PG_DYN_PUSH(&sb, allocator) = '-';
+    }
+  }
+  PgString res = PG_DYN_SLICE(PgString, sb);
+
+  return pg_string_trim(res, '-');
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringDynResult
@@ -6830,7 +6875,7 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
 [[maybe_unused]] [[nodiscard]] static PgHtmlTokenDynResult
 pg_html_tokenize(PgString s, PgAllocator *allocator) {
   PgHtmlTokenDynResult res = {0};
-  PG_DYN_ENSURE_CAP(&res.res, s.len/8, allocator);
+  PG_DYN_ENSURE_CAP(&res.res, s.len / 8, allocator);
 
   /* PgString comment_start = PG_S("<!--"); */
   /* PgString comment_end = PG_S("-->"); */
