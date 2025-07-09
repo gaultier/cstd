@@ -960,6 +960,8 @@ pg_rune_ascii_is_alphanumeric(PgRune c) {
 
 [[maybe_unused]] [[nodiscard]] static PgRune
 pg_rune_ascii_to_lower_case(PgRune c) {
+  PG_ASSERT(c <= 0x7f);
+
   if ('A' <= c && c <= 'Z') {
     return c + ('a' - 'A');
   }
@@ -5395,6 +5397,43 @@ pg_html_sanitize(PgString s, PgAllocator *allocator) {
   }
 
   return PG_DYN_SLICE(PgString, res);
+}
+
+[[nodiscard]]
+static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, s.len * 2, allocator);
+
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+
+  for (;;) {
+    PgRuneResult res = pg_utf8_iterator_next(&it);
+    // TODO: Use REPLACEMENT CHARACTER?
+    if (res.err) {
+      return (PgString){0};
+    }
+
+    // FIXME: Proper 'end' detection in iterator.
+    if (!res.res) {
+      break;
+    }
+
+    PgRune rune = res.res;
+
+    if (pg_rune_ascii_is_alphanumeric(rune)) {
+      *PG_DYN_PUSH(&sb, allocator) = (u8)pg_rune_ascii_to_lower_case(rune);
+    } else if ('+' == rune) {
+      PG_DYN_APPEND_SLICE(&sb, PG_S("plus"), allocator);
+    } else if ('#' == rune) {
+      PG_DYN_APPEND_SLICE(&sb, PG_S("sharp"), allocator);
+    } else if (PG_SLICE_LAST(sb) != '-') {
+      // Other runes are mapped to `-`, but we avoid consecutive `-`.
+      *PG_DYN_PUSH(&sb, allocator) = '-';
+    }
+  }
+  PgString res = PG_DYN_SLICE(PgString, sb);
+
+  return pg_string_trim(res, '-');
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringDynResult
