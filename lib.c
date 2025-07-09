@@ -5365,11 +5365,12 @@ pg_http_write_header(PgWriter *w, PgStringKeyValue header,
 // NOTE: Only sanitation for including the string inside an HTML tag e.g.:
 // `<div>...ESCAPED_STRING..</div>`.
 // To include the string inside other context (e.g. JS, CSS, HTML
-// attributes, etc), more advance sanitation is required.
+// attributes, etc), more advanced sanitation is required.
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_html_sanitize(PgString s, PgAllocator *allocator) {
   Pgu8Dyn res = {0};
-  PG_DYN_ENSURE_CAP(&res, s.len, allocator);
+  PG_DYN_ENSURE_CAP(&res, s.len*2, allocator);
+
   for (u64 i = 0; i < s.len; i++) {
     u8 c = PG_SLICE_AT(s, i);
 
