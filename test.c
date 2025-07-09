@@ -15,7 +15,7 @@ static void test_utf8_count() {
 static void test_string_last() {
   // Empty
   {
-    PG_ASSERT(0 == pg_string_last(PG_S("")));
+    PG_ASSERT(PG_UTF8_REPLACEMENT_CHARACTER == pg_string_last(PG_S("")));
   }
   {
     PG_ASSERT(0x805e /* 聞 */ == pg_string_last(PG_S("朝日新聞デジタル聞")));
@@ -307,10 +307,10 @@ static void test_utf8_iterator() {
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
 
-    PgRuneResult res = {0};
+    PgRuneUtf8Result res = {0};
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(0 == res.res);
+    PG_ASSERT(res.end);
   }
   {
     PgString s = PG_S("2匹の🀅🂣©");
@@ -320,34 +320,41 @@ static void test_utf8_iterator() {
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
 
-    PgRuneResult res = {0};
+    PgRuneUtf8Result res = {0};
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(0x32 == res.res);
+    PG_ASSERT(!res.end);
+    PG_ASSERT(0x32 == res.rune);
 
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(0x5339 == res.res);
+    PG_ASSERT(!res.end);
+    PG_ASSERT(0x5339 == res.rune);
 
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(0x306e == res.res);
+    PG_ASSERT(!res.end);
+    PG_ASSERT(0x306e == res.rune);
 
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(0x1f005 == res.res);
+    PG_ASSERT(!res.end);
+    PG_ASSERT(0x1f005 == res.rune);
 
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(0x1f0a3 == res.res);
+    PG_ASSERT(!res.end);
+    PG_ASSERT(0x1f0a3 == res.rune);
 
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(0x00A9 == res.res);
+    PG_ASSERT(!res.end);
+    PG_ASSERT(0x00A9 == res.rune);
 
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(0 == res.res);
+    PG_ASSERT(res.end);
+    PG_ASSERT(0 == res.rune);
   }
   // Null byte.
   {
@@ -357,11 +364,17 @@ static void test_utf8_iterator() {
     PG_ASSERT(2 == res_count.res);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
-    PgRuneResult res = {0};
+    PgRuneUtf8Result res = {0};
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
+    PG_ASSERT(!res.end);
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
+    PG_ASSERT(!res.end);
+
+    res = pg_utf8_iterator_next(&it);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(res.end);
   }
   // Forbidden byte.
   {
@@ -370,9 +383,10 @@ static void test_utf8_iterator() {
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
-    PgRuneResult res = {0};
+    PgRuneUtf8Result res = {0};
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
+    PG_ASSERT(!res.end);
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res.err);
   }
@@ -383,9 +397,10 @@ static void test_utf8_iterator() {
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
-    PgRuneResult res = {0};
+    PgRuneUtf8Result res = {0};
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
+    PG_ASSERT(!res.end);
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res.err);
   }
@@ -396,9 +411,10 @@ static void test_utf8_iterator() {
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
-    PgRuneResult res = {0};
+    PgRuneUtf8Result res = {0};
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
+    PG_ASSERT(!res.end);
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res.err);
   }
@@ -411,9 +427,10 @@ static void test_utf8_iterator() {
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
-    PgRuneResult res = {0};
+    PgRuneUtf8Result res = {0};
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
+    PG_ASSERT(!res.end);
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res.err);
   }
@@ -425,9 +442,10 @@ static void test_utf8_iterator() {
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
-    PgRuneResult res = {0};
+    PgRuneUtf8Result res = {0};
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
+    PG_ASSERT(!res.end);
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res.err);
   }
@@ -439,9 +457,10 @@ static void test_utf8_iterator() {
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
-    PgRuneResult res = {0};
+    PgRuneUtf8Result res = {0};
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
+    PG_ASSERT(!res.end);
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res.err);
   }
@@ -453,9 +472,10 @@ static void test_utf8_iterator() {
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
-    PgRuneResult res = {0};
+    PgRuneUtf8Result res = {0};
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res.err);
+    PG_ASSERT(!res.end);
     res = pg_utf8_iterator_next(&it);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res.err);
   }
@@ -1981,7 +2001,7 @@ static void test_process_no_capture() {
 
   PgProcess process = res_spawn.res;
 
-  PgProcessExitResult res_wait = pg_process_wait(process, allocator);
+  PgProcessExitResult res_wait = pg_process_wait(process, 0, 0, allocator);
   PG_ASSERT(0 == res_wait.err);
 
   PgProcessStatus status = res_wait.res;
@@ -2015,7 +2035,7 @@ static void test_process_capture() {
 
   PgProcess process = res_spawn.res;
 
-  PgProcessExitResult res_wait = pg_process_wait(process, allocator);
+  PgProcessExitResult res_wait = pg_process_wait(process, 100, 0, allocator);
   PG_ASSERT(0 == res_wait.err);
 
   PgProcessStatus status = res_wait.res;
@@ -2057,7 +2077,7 @@ static void test_process_stdin() {
   PG_ASSERT(0 == pg_file_close(process.stdin_pipe));
   process.stdin_pipe.fd = 0;
 
-  PgProcessExitResult res_wait = pg_process_wait(process, allocator);
+  PgProcessExitResult res_wait = pg_process_wait(process, 0, 0, allocator);
   PG_ASSERT(0 == res_wait.err);
 
   PgProcessStatus status = res_wait.res;

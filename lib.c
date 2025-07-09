@@ -230,6 +230,8 @@ static const u64 PG_FILE_ACCESS_ALL =
     PG_FILE_ACCESS_READ | PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE;
 
 typedef u32 PgRune;
+PG_OK(PgRune) PgRuneOk;
+
 typedef struct {
   PgRune rune;
   PgError err;
@@ -1255,29 +1257,27 @@ pg_string_is_ascii_alphabetical(PgString s) {
   return res;
 }
 
-[[nodiscard]] static PgRune pg_string_last(PgString s) {
-
-  PgUtf8Iterator it = pg_make_utf8_iterator(s);
-  PgRune res = 0;
-  for (;;) {
-    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
-    if (res_rune.err || res_rune.end) {
-      return PG_UTF8_REPLACEMENT_CHARACTER;
-    }
-    res = res_rune.rune;
-  }
-  PG_ASSERT(0);
-}
-
-[[maybe_unused]] [[nodiscard]] static PgRune pg_string_first(PgString s) {
+[[maybe_unused]] [[nodiscard]] static PgRuneOk pg_string_first(PgString s) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
   PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
+  PgRuneOk res = {0};
 
   if (res_rune.err || res_rune.end) {
+    return res;
+  }
+
+  res.ok = true;
+  res.res = res_rune.rune;
+  return res;
+}
+
+[[nodiscard]] static PgRuneOk pg_string_last(PgString s) {
+  Pgu64Result res_find = pg_string_find_last_lead_byte(s);
+  if (res_find.err) {
     return PG_UTF8_REPLACEMENT_CHARACTER;
   }
 
-  return res_rune.rune;
+  return pg_string_first(PG_SLICE_RANGE_START(s, res_find.res));
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_right(PgString s,
@@ -2619,7 +2619,10 @@ pg_string_builder_append_u64_hex(Pgu8Dyn *sb, PgRune rune,
   for (;;) {
     PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res_rune.err);
-    PgRune rune = res_rune.res;
+    if (res_rune.end) {
+      break;
+    }
+    PgRune rune = res_rune.rune;
     if (0 == rune) {
       break;
     }
@@ -2638,10 +2641,10 @@ pg_string_builder_append_u64_hex(Pgu8Dyn *sb, PgRune rune,
   for (;;) {
     PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res_rune.err);
-    PgRune rune = res_rune.res;
-    if (0 == rune) {
+    if (res_rune.end) {
       break;
     }
+    PgRune rune = res_rune.rune;
 
     if (rune_to_escape == rune) {
       pg_string_builder_append_rune(sb, rune_escape, allocator);
@@ -2650,8 +2653,6 @@ pg_string_builder_append_u64_hex(Pgu8Dyn *sb, PgRune rune,
   }
 }
 
-// Should `pg_string_builder` take `PgRune[]` as argument?
-// I.e. UTF32.
 [[maybe_unused]] static void
 pg_string_builder_append_js_string_escaped(Pgu8Dyn *sb, PgString s,
                                            PgAllocator *allocator) {
@@ -2660,7 +2661,10 @@ pg_string_builder_append_js_string_escaped(Pgu8Dyn *sb, PgString s,
   for (u64 i = 0; i < s.len; i++) {
     PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     PG_ASSERT(0 == res_rune.err);
-    PgRune rune = res_rune.res;
+    if (res_rune.end) {
+      break;
+    }
+    PgRune rune = res_rune.rune;
     if (0 == rune) {
       break;
     }
@@ -2875,11 +2879,13 @@ pg_string_index_of_unescaped_rune(PgString haystack, PgRune needle,
 pg_string_index_of_any_unescaped_rune(PgString haystack, PgString needles,
                                       PgRune escape) {
   PgUtf8Iterator it = pg_make_utf8_iterator(needles);
-  PgRuneUtf8Result res_rune = {0};
-  for (res_rune = pg_utf8_iterator_next(&it);
-       0 == res_rune.err && 0 != res_rune.res;
-       res_rune = pg_utf8_iterator_next(&it)) {
-    PgRune needle = res_rune.res;
+  for (;;) {
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
+    if (res_rune.err || res_rune.end) {
+      break;
+    }
+
+    PgRune needle = res_rune.rune;
     i64 idx = pg_string_index_of_unescaped_rune(haystack, needle, escape);
     if (-1 != idx) {
       return idx;
@@ -5460,7 +5466,7 @@ pg_html_sanitize(PgString s, PgAllocator *allocator) {
   return PG_DYN_SLICE(PgString, res);
 }
 
-[[nodiscard]]
+[[nodiscard]] [[maybe_unused]]
 static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
   PG_DYN_ENSURE_CAP(&sb, s.len * 2, allocator);
@@ -5468,18 +5474,17 @@ static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
 
   for (;;) {
-    PgRuneResult res = pg_utf8_iterator_next(&it);
+    PgRuneUtf8Result res = pg_utf8_iterator_next(&it);
     // TODO: Use REPLACEMENT CHARACTER?
     if (res.err) {
       return (PgString){0};
     }
 
-    // FIXME: Proper 'end' detection in iterator.
-    if (!res.res) {
+    if (res.end) {
       break;
     }
 
-    PgRune rune = res.res;
+    PgRune rune = res.rune;
 
     if (pg_rune_ascii_is_alphanumeric(rune)) {
       *PG_DYN_PUSH(&sb, allocator) = (u8)pg_rune_ascii_to_lower_case(rune);
@@ -7538,7 +7543,8 @@ static PgError pg_http_server_handler(PgFileDescriptor sock, PgLogger *logger,
   }
 
   PgHttpRequest req = res_req.res;
-  __builtin_dump_struct(&req, printf);
+  (void)req;
+  // __builtin_dump_struct(&req, printf);
 
   // TODO: Read body depending on the HTTP method.
 
