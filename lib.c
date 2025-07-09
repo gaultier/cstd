@@ -1205,7 +1205,6 @@ pg_string_is_ascii_alphabetical(PgString s) {
     if (res_rune.end) {
       break;
     }
-    // TODO: Maybe use the REPLACEMENT CHARACTER here and continue?
     if (res_rune.err) {
       return res;
     }
@@ -1213,12 +1212,10 @@ pg_string_is_ascii_alphabetical(PgString s) {
     PgRune rune = res_rune.rune;
 
     if (rune != c) {
-      break;
+      return res;
     }
+    res = PG_SLICE_RANGE_START(s, it.idx);
   }
-
-  res.data += it.idx;
-  res.len -= it.idx;
 
   return res;
 }
