@@ -127,6 +127,13 @@ static void test_string_trim() {
   }
 }
 
+static void test_path_stem() {
+  {
+    PgString trimmed = pg_path_stem(PG_S("foo/bar.md"));
+    PG_ASSERT(pg_string_eq(trimmed, PG_S("foo/bar")));
+  }
+}
+
 static void test_string_cut() {
   {
     PgStringCut cut = pg_string_cut_string(PG_S("🍌🍌foo🍌"), PG_S("🍌"));
@@ -2654,6 +2661,7 @@ int main() {
   test_string_split_byte();
   test_string_split_string();
   test_dyn_ensure_cap();
+  test_path_stem();
   test_string_consume();
   test_string_parse_u64();
   test_string_cmp();
