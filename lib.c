@@ -236,6 +236,8 @@ typedef struct {
   bool end;
 } PgRuneUtf8Result;
 
+#define PG_UTF8_REPLACEMENT_CHARACTER ((PgRune)0xfffdU)
+
 typedef struct {
   PgString s;
   u64 idx;
@@ -964,6 +966,8 @@ pg_rune_ascii_is_alphanumeric(PgRune c) {
 
 [[maybe_unused]] [[nodiscard]] static PgRune
 pg_rune_ascii_to_lower_case(PgRune c) {
+  PG_ASSERT(c <= 0x7f);
+
   if ('A' <= c && c <= 'Z') {
     return c + ('a' - 'A');
   }
@@ -1039,7 +1043,7 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
 
   PgString s = PG_SLICE_RANGE_START(it.s, it.idx);
   if (pg_string_is_empty(s)) {
-    res.end=true;
+    res.end = true;
     return res;
   }
 
@@ -1047,7 +1051,7 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
 
   // One byte.
   if (0b0000'0000 == (c0 & 0b1000'0000)) {
-    res.res = (c0 << 1) >> 1;
+    res.rune = c0 & 0x7f;
     return res;
   }
 
@@ -1061,8 +1065,8 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
     u8 c1 = PG_SLICE_AT(s, 1);
     PgRune rune0 = (PgRune)c0 & 0b0001'1111;
     PgRune rune1 = ((PgRune)c1 & 0b0011'1111);
-    res.res = (rune0 << 6) | rune1;
-    if (res.res < 0x80) { // Overlong.
+    res.rune = (rune0 << 6) | rune1;
+    if (res.rune < 0x80) { // Overlong.
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
@@ -1082,8 +1086,8 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
     PgRune rune1 = ((PgRune)c1 & 0b0011'1111);
     PgRune rune2 = ((PgRune)c2 & 0b0011'1111);
 
-    res.res = (rune0 << 12) | (rune1 << 6) | rune2;
-    if (res.res < 0x0800) { // Overlong.
+    res.rune = (rune0 << 12) | (rune1 << 6) | rune2;
+    if (res.rune < 0x0800) { // Overlong.
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
@@ -1104,13 +1108,13 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
     PgRune rune1 = (PgRune)c1 & 0b0011'1111;
     PgRune rune2 = (PgRune)c2 & 0b0011'1111;
     PgRune rune3 = ((PgRune)c3 & 0b0011'1111);
-    res.res = (rune0 << 18) | (rune1 << 12) | (rune2 << 6) | rune3;
-    if (res.res < 0x01'00'00) { // Overlong.
+    res.rune = (rune0 << 18) | (rune1 << 12) | (rune2 << 6) | rune3;
+    if (res.rune < 0x01'00'00) { // Overlong.
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
 
-    if (res.res >= 0x10FFFF) {
+    if (res.rune >= 0x10FFFF) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
@@ -1141,7 +1145,7 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
 [[maybe_unused]] [[nodiscard]] static PgRuneUtf8Result
 pg_utf8_iterator_next(PgUtf8Iterator *it) {
   PgRuneUtf8Result res = pg_utf8_iterator_peek_next(*it);
-  it->idx += pg_utf8_rune_bytes_count(res.res);
+  it->idx += pg_utf8_rune_bytes_count(res.rune);
 
   return res;
 }
@@ -1172,11 +1176,15 @@ pg_string_is_ascii_alphabetical(PgString s) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
 
   for (;;) {
-   PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
-   if (res_rune.end) {return true;}
-   if (res_rune.err) {return false;}
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
+    if (res_rune.end) {
+      return true;
+    }
+    if (res_rune.err) {
+      return false;
+    }
 
-   PgRune rune = res_rune.rune;
+    PgRune rune = res_rune.rune;
 
     if (!pg_rune_ascii_is_alphabetical(rune)) {
       return false;
@@ -1191,17 +1199,20 @@ pg_string_is_ascii_alphabetical(PgString s) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
 
   for (;;) {
-   PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
-   if (res_rune.end) {break;}
-   // TODO: Maybe use the REPLACEMENT CHARACTER here and continue?
-   if (res_rune.err) {return res;}
-
-   PgRune rune = res_rune.rune;
-
-   if (rune.res != c) {
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
+    if (res_rune.end) {
       break;
-   }
+    }
+    // TODO: Maybe use the REPLACEMENT CHARACTER here and continue?
+    if (res_rune.err) {
+      return res;
+    }
 
+    PgRune rune = res_rune.rune;
+
+    if (rune != c) {
+      break;
+    }
   }
 
   res.data += it.idx;
@@ -1211,23 +1222,38 @@ pg_string_is_ascii_alphabetical(PgString s) {
 }
 
 [[nodiscard]] static Pgu64Result pg_string_find_last_lead_byte(PgString s) {
-  Pgu64Result res={0};
-  
-  for (i64 i=(i64)s.len-1;i>=0;i--){
-    u8 byte = PG_SLICE_AT(s,i);
+  Pgu64Result res = {0};
 
-    
-    if (0==(byte & (0b1000'000))){// 1 byte.
-      res.res=(u64)i;
+  for (i64 i = (i64)s.len - 1; i >= 0; i--) {
+    u8 byte = PG_SLICE_AT(s, i);
+
+    if (0 == (byte & (0b1000'000))) { // 1 byte.
+      res.res = (u64)i;
       return res;
-    } else if (0b1100'0000==(byte & (0b1100'000))) { // 2 bytes.
-      if (!(i < s.len-2)){res.err=PG_ERR_INVALID_VALUE;}
-      res.res=(u64)i;
+    } else if (0b1100'0000 == (byte & 0b1110'0000)) {
+      if (!((u64)i < s.len - 2)) {
+        res.err = PG_ERR_INVALID_VALUE;
+      }
+      res.res = (u64)i;
+      return res;
+    } else if (0b1110'0000 == (byte & 0b1111'0000)) {
+      if (!((u64)i < s.len - 3)) {
+        res.err = PG_ERR_INVALID_VALUE;
+      }
+      res.res = (u64)i;
+      return res;
+    } else if (0b1111'0000 == (byte & 0b1111'1000)) {
+      if (!((u64)i < s.len - 4)) {
+        res.err = PG_ERR_INVALID_VALUE;
+      }
+      res.res = (u64)i;
       return res;
     }
   }
 
-} 
+  res.err = PG_ERR_INVALID_VALUE;
+  return res;
+}
 
 [[nodiscard]] static PgRune pg_string_last(PgString s) {
 
@@ -1235,10 +1261,10 @@ pg_string_is_ascii_alphabetical(PgString s) {
   PgRune res = 0;
   for (;;) {
     PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
-    if (res_rune.err || 0 == res_rune.res) {
-      return res;
+    if (res_rune.err || res_rune.end) {
+      return PG_UTF8_REPLACEMENT_CHARACTER;
     }
-    res = res_rune.res;
+    res = res_rune.rune;
   }
   PG_ASSERT(0);
 }
@@ -1246,7 +1272,12 @@ pg_string_is_ascii_alphabetical(PgString s) {
 [[maybe_unused]] [[nodiscard]] static PgRune pg_string_first(PgString s) {
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
   PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
-  return res_rune.res;
+
+  if (res_rune.err || res_rune.end) {
+    return PG_UTF8_REPLACEMENT_CHARACTER;
+  }
+
+  return res_rune.rune;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_right(PgString s,
@@ -1320,11 +1351,11 @@ pg_string_index_of_rune(PgString haystack, PgRune needle) {
   for (;;) {
     idx = it.idx;
     PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
-    if (res_rune.err || !res_rune.res) {
+    if (res_rune.err || res_rune.end) {
       return -1;
     }
 
-    if (needle == res_rune.res) {
+    if (needle == res_rune.rune) {
       return (i64)idx;
     }
   }
@@ -1341,11 +1372,11 @@ pg_string_cut_rune(PgString s, PgRune needle) {
   for (;;) {
     idx = it.idx;
     PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
-    if (res_rune.err || !res_rune.res) {
+    if (res_rune.err || res_rune.end) {
       return res;
     }
 
-    if (needle == res_rune.res) {
+    if (needle == res_rune.rune) {
       res.left = PG_SLICE_RANGE(s, 0, idx);
       res.right = PG_SLICE_RANGE_START(s, it.idx);
       res.ok = true;
@@ -1642,11 +1673,14 @@ pg_string_consume_until_any_rune_incl(PgString haystack, PgString needles) {
   PgStringPairConsumeAny res = {0};
 
   PgUtf8Iterator it = pg_make_utf8_iterator(needles);
-  PgRuneUtf8Result res_rune = {0};
-  for (res_rune = pg_utf8_iterator_next(&it);
-       0 == res_rune.err && 0 != res_rune.res;
-       res_rune = pg_utf8_iterator_next(&it)) {
-    PgRune needle = res_rune.res;
+
+  for (;;) {
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
+    if (res_rune.err || res_rune.end) {
+      break;
+    }
+
+    PgRune needle = res_rune.rune;
     PgStringPairConsume res_consume =
         pg_string_consume_until_rune_incl(haystack, needle);
     if (res_consume.consumed) {
@@ -1668,11 +1702,13 @@ pg_string_consume_until_any_rune_excl(PgString haystack, PgString needles) {
   PgStringPairConsumeAny res = {0};
 
   PgUtf8Iterator it = pg_make_utf8_iterator(needles);
-  PgRuneUtf8Result res_rune = {0};
-  for (res_rune = pg_utf8_iterator_next(&it);
-       0 == res_rune.err && 0 != res_rune.res;
-       res_rune = pg_utf8_iterator_next(&it)) {
-    PgRune needle = res_rune.res;
+  for (;;) {
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
+    if (res_rune.err || res_rune.end) {
+      break;
+    }
+
+    PgRune needle = res_rune.rune;
     PgStringPairConsume res_consume =
         pg_string_consume_until_rune_excl(haystack, needle);
     if (res_consume.consumed) {
@@ -1692,11 +1728,13 @@ pg_string_consume_until_any_rune_excl(PgString haystack, PgString needles) {
 [[maybe_unused]] [[nodiscard]] static i64
 pg_string_index_of_any_rune(PgString haystack, PgString needles) {
   PgUtf8Iterator it = pg_make_utf8_iterator(needles);
-  PgRuneUtf8Result res_rune = {0};
-  for (res_rune = pg_utf8_iterator_next(&it);
-       0 == res_rune.err && 0 != res_rune.res;
-       res_rune = pg_utf8_iterator_next(&it)) {
-    PgRune needle = res_rune.res;
+  for (;;) {
+    PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
+    if (res_rune.err || res_rune.end) {
+      break;
+    }
+
+    PgRune needle = res_rune.rune;
 
     i64 idx = pg_string_index_of_rune(haystack, needle);
     if (-1 != idx) {
@@ -1731,7 +1769,11 @@ pg_string_consume_rune(PgString haystack, PgRune needle) {
   PgUtf8Iterator it = pg_make_utf8_iterator(haystack);
   PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
 
-  if (needle != res_rune.res) {
+  if (res_rune.err || res_rune.end) {
+    return res;
+  }
+
+  if (needle != res_rune.rune) {
     return res;
   }
 
@@ -1797,11 +1839,11 @@ pg_string_parse_u64(PgString s) {
   u64 last_idx = 0;
   for (;;) {
     PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
-    if (0 != res_rune.err || 0 == res_rune.res) {
+    if (res_rune.err || res_rune.end) {
       break;
     }
 
-    PgRune c = res_rune.res;
+    PgRune c = res_rune.rune;
     if (!pg_rune_ascii_is_numeric(c)) { // End of numbers sequence.
       break;
     }
@@ -2322,7 +2364,8 @@ pg_ring_try_read_bytes(PgRing *rg, Pgu8Slice dst) {
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Ok
 pg_ring_index_of_bytes(PgRing rg, Pgu8Slice needle) {
-(void)rg;(void)needle;
+  (void)rg;
+  (void)needle;
   Pgu64Ok res = {0};
   // TODO
   return res;
@@ -3842,8 +3885,9 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
                                         PgAllocator *allocator);
 
 [[nodiscard]] [[maybe_unused]]
-static PgProcessExitResult pg_process_wait(PgProcess process,
-                                           PgAllocator *allocator);
+static PgProcessExitResult
+pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
+                PgAllocator *allocator);
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src);
@@ -3931,13 +3975,13 @@ pg_net_get_socket_error(PgFileDescriptor socket);
 [[nodiscard]] static PgError pg_process_avoid_child_zombies();
 
 #ifdef PG_OS_UNIX
-#include <signal.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -4395,17 +4439,21 @@ end:
 // processes.
 [[nodiscard]] [[maybe_unused]]
 static PgProcessCaptureStdResult
-pg_process_capture_std_io(PgProcess process, PgAllocator *allocator) {
+pg_process_capture_std_io(PgProcess process, u64 stdio_size_hint,
+                          u64 stderr_size_hint, PgAllocator *allocator) {
   PgProcessCaptureStdResult res = {0};
+
   Pgu8Dyn stdout_sb = {0};
   Pgu8Dyn stderr_sb = {0};
 
   if (process.stdout_pipe.fd) {
-    stdout_sb = pg_string_builder_make(4096, allocator);
+    stdout_sb = pg_string_builder_make(
+        stdio_size_hint == 0 ? 4096 : stdio_size_hint, allocator);
   }
 
   if (process.stderr_pipe.fd) {
-    stderr_sb = pg_string_builder_make(4096, allocator);
+    stderr_sb = pg_string_builder_make(
+        stderr_size_hint == 0 ? 4096 : stderr_size_hint, allocator);
   }
 
   while (process.stdout_pipe.fd || process.stderr_pipe.fd) {
@@ -4496,12 +4544,13 @@ end:
 }
 
 [[nodiscard]] [[maybe_unused]]
-static PgProcessExitResult pg_process_wait(PgProcess process,
-                                           PgAllocator *allocator) {
+static PgProcessExitResult
+pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
+                PgAllocator *allocator) {
   PgProcessExitResult res = {0};
 
-  PgProcessCaptureStdResult res_capture =
-      pg_process_capture_std_io(process, allocator);
+  PgProcessCaptureStdResult res_capture = pg_process_capture_std_io(
+      process, stdio_size_hint, stderr_size_hint, allocator);
   if (res_capture.err) {
     res.err = res_capture.err;
     return res;
@@ -5384,11 +5433,12 @@ pg_http_write_header(PgWriter *w, PgStringKeyValue header,
 // NOTE: Only sanitation for including the string inside an HTML tag e.g.:
 // `<div>...ESCAPED_STRING..</div>`.
 // To include the string inside other context (e.g. JS, CSS, HTML
-// attributes, etc), more advance sanitation is required.
+// attributes, etc), more advanced sanitation is required.
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_html_sanitize(PgString s, PgAllocator *allocator) {
   Pgu8Dyn res = {0};
-  PG_DYN_ENSURE_CAP(&res, s.len, allocator);
+  PG_DYN_ENSURE_CAP(&res, s.len * 2, allocator);
+
   for (u64 i = 0; i < s.len; i++) {
     u8 c = PG_SLICE_AT(s, i);
 
@@ -5408,6 +5458,43 @@ pg_html_sanitize(PgString s, PgAllocator *allocator) {
   }
 
   return PG_DYN_SLICE(PgString, res);
+}
+
+[[nodiscard]]
+static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, s.len * 2, allocator);
+
+  PgUtf8Iterator it = pg_make_utf8_iterator(s);
+
+  for (;;) {
+    PgRuneResult res = pg_utf8_iterator_next(&it);
+    // TODO: Use REPLACEMENT CHARACTER?
+    if (res.err) {
+      return (PgString){0};
+    }
+
+    // FIXME: Proper 'end' detection in iterator.
+    if (!res.res) {
+      break;
+    }
+
+    PgRune rune = res.res;
+
+    if (pg_rune_ascii_is_alphanumeric(rune)) {
+      *PG_DYN_PUSH(&sb, allocator) = (u8)pg_rune_ascii_to_lower_case(rune);
+    } else if ('+' == rune) {
+      PG_DYN_APPEND_SLICE(&sb, PG_S("plus"), allocator);
+    } else if ('#' == rune) {
+      PG_DYN_APPEND_SLICE(&sb, PG_S("sharp"), allocator);
+    } else if (PG_SLICE_LAST(sb) != '-') {
+      // Other runes are mapped to `-`, but we avoid consecutive `-`.
+      *PG_DYN_PUSH(&sb, allocator) = '-';
+    }
+  }
+  PgString res = PG_DYN_SLICE(PgString, sb);
+
+  return pg_string_trim(res, '-');
 }
 
 [[maybe_unused]] [[nodiscard]] static PgStringDynResult
@@ -6848,6 +6935,7 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
 [[maybe_unused]] [[nodiscard]] static PgHtmlTokenDynResult
 pg_html_tokenize(PgString s, PgAllocator *allocator) {
   PgHtmlTokenDynResult res = {0};
+  PG_DYN_ENSURE_CAP(&res.res, s.len / 8, allocator);
 
   /* PgString comment_start = PG_S("<!--"); */
   /* PgString comment_end = PG_S("-->"); */
