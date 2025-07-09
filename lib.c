@@ -1223,32 +1223,49 @@ pg_string_is_ascii_alphabetical(PgString s) {
   return res;
 }
 
+[[nodiscard]] static bool pg_utf8_is_continuation_byte(u8 byte) {
+  return 0b1000'0000 == (byte & 0b1100'0000);
+}
+
 [[nodiscard]] static Pgu64Result pg_string_find_last_lead_byte(PgString s) {
   Pgu64Result res = {0};
 
   for (i64 i = (i64)s.len - 1; i >= 0; i--) {
     u8 byte = PG_SLICE_AT(s, i);
+    if (pg_utf8_is_continuation_byte(byte)) {
+      continue;
+    }
 
     if (0 == (byte & (0b1000'000))) { // 1 byte.
+      if ((u64)i + 1 != s.len) {
+        res.err = PG_ERR_INVALID_VALUE;
+        return res;
+      }
       res.res = (u64)i;
       return res;
     } else if (0b1100'0000 == (byte & 0b1110'0000)) {
-      if (!((u64)i < s.len - 2)) {
+      if ((u64)i + 2 != s.len) {
         res.err = PG_ERR_INVALID_VALUE;
+        return res;
       }
       res.res = (u64)i;
       return res;
     } else if (0b1110'0000 == (byte & 0b1111'0000)) {
-      if (!((u64)i < s.len - 3)) {
+      if ((u64)i + 3 != s.len) {
         res.err = PG_ERR_INVALID_VALUE;
+        return res;
       }
       res.res = (u64)i;
       return res;
     } else if (0b1111'0000 == (byte & 0b1111'1000)) {
-      if (!((u64)i < s.len - 4)) {
+      if ((u64)i + 4 != s.len) {
         res.err = PG_ERR_INVALID_VALUE;
+        return res;
       }
       res.res = (u64)i;
+      return res;
+    } else {
+      res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
   }
@@ -1285,7 +1302,12 @@ pg_string_is_ascii_alphabetical(PgString s) {
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_right(PgString s,
                                                                     PgRune c) {
   while (!pg_string_is_empty(s)) {
-    PgRune last = pg_string_last(s);
+    PgRuneOk last_opt = pg_string_last(s);
+    if (!last_opt.ok) {
+      return s;
+    }
+
+    PgRune last = last_opt.res;
     if (last == c) {
       u64 rune_bytes_count = pg_utf8_rune_bytes_count(last);
       PG_ASSERT(s.len >= rune_bytes_count);
@@ -1392,7 +1414,12 @@ pg_string_cut_rune(PgString s, PgRune needle) {
 [[nodiscard]] static i64 pg_string_last_index_of_rune(PgString haystack,
                                                       PgRune needle) {
   while (!pg_string_is_empty(haystack)) {
-    PgRune last = pg_string_last(haystack);
+    PgRuneOk last_opt = pg_string_last(haystack);
+    if (!last_opt.ok) {
+      break;
+    }
+
+    PgRune last = last_opt.res;
     u64 rune_bytes_count = pg_utf8_rune_bytes_count(last);
     PG_ASSERT(haystack.len >= rune_bytes_count);
     haystack.len -= rune_bytes_count;
@@ -2869,7 +2896,12 @@ pg_string_index_of_unescaped_rune(PgString haystack, PgRune needle,
 
     PgString remaining = PG_SLICE_RANGE_START(
         haystack, (u64)idx + pg_utf8_rune_bytes_count(needle));
-    if (escape != pg_string_first(remaining)) {
+
+    PgRuneOk first = pg_string_first(remaining);
+    if (!first.ok) {
+      return -1;
+    }
+    if (escape != first.res) {
       return idx;
     }
     haystack = remaining;
@@ -6675,12 +6707,12 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
   PgRune quote = 0;
 
   for (;;) {
-    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-
-    if (0 == first) { // Early EOF.
+    PgRuneOk first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    if (!first_opt.ok) { // Early EOF.
       return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
     }
 
+    PgRune first = first_opt.res;
     if (pg_rune_ascii_is_space(first)) { // Skip.
       *pos += pg_utf8_rune_bytes_count(first);
       continue;
@@ -6715,10 +6747,12 @@ static PgError pg_html_tokenize_comment(PgString s, u64 *pos,
   u32 start = (u32)*pos;
 
   for (;;) {
-    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-    if (0 == first) {
+    PgRuneOk first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    if (!first_opt.ok) {
       return PG_HTML_PARSE_ERROR_EOF_IN_COMMENT;
     }
+
+    PgRune first = first_opt.res;
 
     // FIXME: More complicated than that in the spec.
     if (pg_string_starts_with(PG_SLICE_RANGE_START(s, *pos), PG_S("-->"))) {
@@ -6750,11 +6784,12 @@ static PgError pg_html_tokenize_doctype_name(PgString s, u64 *pos,
   };
 
   for (;;) {
-    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-
-    if (0 == first) {
+    PgRuneOk first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    if (!first_opt.ok) {
       return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
     }
+
+    PgRune first = first_opt.res;
 
     if (pg_rune_ascii_is_space(first)) {
       *pos += pg_utf8_rune_bytes_count(first);
@@ -6781,18 +6816,24 @@ static PgError pg_html_tokenize_doctype(PgString s, u64 *pos,
                                         PgAllocator *allocator) {
   *pos += PG_S("DOCTYPE").len;
 
-  PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  PgRuneOk first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  if (!first_opt.ok) {
+    return PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME;
+  }
+
+  PgRune first = first_opt.res;
   if (!pg_rune_ascii_is_space(first)) {
     return PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME;
   }
   *pos += pg_utf8_rune_bytes_count(first);
 
   for (;;) {
-    first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-    if (0 == first) {
+    first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    if (!first_opt.ok) {
       return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
     }
 
+    first = first_opt.res;
     if (pg_rune_ascii_is_space(first)) {
       *pos += pg_utf8_rune_bytes_count(first);
       continue;
@@ -6835,10 +6876,13 @@ static PgError pg_html_tokenize_markup(PgString s, u64 *pos,
 static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
                                     PgHtmlTokenDyn *tokens,
                                     PgAllocator *allocator) {
-  PG_ASSERT('<' == pg_string_first(PG_SLICE_RANGE_START(s, *pos)));
+  PgRuneOk first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  PG_ASSERT(first_opt.ok);
+  PG_ASSERT('<' == first_opt.res);
   *pos += pg_utf8_rune_bytes_count('<');
 
-  if ('!' == pg_string_first(PG_SLICE_RANGE_START(s, *pos))) {
+  first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  if (first_opt.ok && ('!' == first_opt.res)) {
     *pos += pg_utf8_rune_bytes_count('!');
     return pg_html_tokenize_markup(s, pos, tokens, allocator);
   }
@@ -6850,26 +6894,31 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
       .tag = {.data = s.data + *pos}, // Length backpatched.
   };
 
-  PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-  if ('/' == first) {
-    *pos += pg_utf8_rune_bytes_count(first);
-    token.start = (u32)*pos;
-    token.kind = PG_HTML_TOKEN_KIND_TAG_CLOSING;
-    token.tag.data += pg_utf8_rune_bytes_count(first);
+  first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  if (first_opt.ok) {
+    PgRune first = first_opt.res;
+    if ('/' == first) {
+      *pos += pg_utf8_rune_bytes_count(first);
+      token.start = (u32)*pos;
+      token.kind = PG_HTML_TOKEN_KIND_TAG_CLOSING;
+      token.tag.data += pg_utf8_rune_bytes_count(first);
+    }
   }
 
-  first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-  if (!pg_rune_ascii_is_alphabetical(first)) {
+  first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+  if (!first_opt.ok || (!pg_rune_ascii_is_alphabetical(first_opt.res))) {
     return PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME;
   }
-  *pos += pg_utf8_rune_bytes_count(first);
+  *pos += pg_utf8_rune_bytes_count(first_opt.res);
 
   for (;;) {
-    first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
 
-    if (0 == first) { // Early EOF.
+    if (!first_opt.ok) { // Early EOF.
       return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
     }
+
+    PgRune first = first_opt.res;
 
     // End of tag name.
     if ('>' == first || pg_rune_ascii_is_space(first)) {
@@ -6916,11 +6965,12 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
   PG_ASSERT(PG_SLICE_LAST(*tokens).end <= start);
 
   for (;;) {
-    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-    // TODO: Check about null byte.
-    if (0 == first) {
+    PgRuneOk first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
+    if (!first_opt.ok) {
       return 0;
     }
+
+    PgRune first = first_opt.res;
     if ('<' == first) { // End of data, start of tag.
       PgHtmlToken token = {
           .start = start,
@@ -6949,10 +6999,12 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
   PgRune tag_start = '<';
   u64 pos = 0;
   for (;;) {
-    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, pos));
-    if (0 == first) { // EOF.
+    PgRuneOk first_opt = pg_string_first(PG_SLICE_RANGE_START(s, pos));
+    if (!first_opt.ok) { // EOF.
       return res;
     }
+
+    PgRune first = first_opt.res;
 
     // TODO: Doctype.
     // TODO: Comment.
@@ -7123,9 +7175,18 @@ pg_html_node_is_title_opening(PgHtmlNode *node) {
 
 [[maybe_unused]] [[nodiscard]] static u8
 pg_html_node_get_title_level(PgHtmlNode *node) {
-  return pg_html_node_is_title_opening(node)
-             ? ((u8)pg_string_last(node->token_start.tag) - '0')
-             : 0;
+  if (!pg_html_node_is_title_opening(node)) {
+    return 0;
+  }
+
+  PgRuneOk last_opt = pg_string_last(node->token_start.tag);
+  if (!last_opt.ok) {
+    return 0;
+  }
+
+  PgRune last = last_opt.res;
+  PG_ASSERT(pg_rune_ascii_is_numeric(last));
+  return (u8)last - '0';
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString

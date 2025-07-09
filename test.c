@@ -30,7 +30,9 @@ static void test_string_first() {
     PG_ASSERT(!pg_string_first(PG_S("")).ok);
   }
   {
-    PG_ASSERT(0x805e /* 聞 */ == pg_string_first(PG_S("聞デジタル")));
+    PgRuneOk res = pg_string_first(PG_S("聞デジタル"));
+    PG_ASSERT(res.ok);
+    PG_ASSERT(0x805e /* 聞 */ == res.res);
   }
 }
 
