@@ -15,17 +15,19 @@ static void test_utf8_count() {
 static void test_string_last() {
   // Empty
   {
-    PG_ASSERT(PG_UTF8_REPLACEMENT_CHARACTER == pg_string_last(PG_S("")));
+    PG_ASSERT(!pg_string_last(PG_S("")).ok);
   }
   {
-    PG_ASSERT(0x805e /* 聞 */ == pg_string_last(PG_S("朝日新聞デジタル聞")));
+    PgRuneOk res = pg_string_last(PG_S("朝日新聞デジタル聞"));
+    PG_ASSERT(res.ok);
+    PG_ASSERT(0x805e /* 聞 */ == res.res);
   }
 }
 
 static void test_string_first() {
   // Empty
   {
-    PG_ASSERT(0 == pg_string_first(PG_S("")));
+    PG_ASSERT(!pg_string_first(PG_S("")).ok);
   }
   {
     PG_ASSERT(0x805e /* 聞 */ == pg_string_first(PG_S("聞デジタル")));

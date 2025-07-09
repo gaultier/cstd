@@ -1272,9 +1272,11 @@ pg_string_is_ascii_alphabetical(PgString s) {
 }
 
 [[nodiscard]] static PgRuneOk pg_string_last(PgString s) {
+  PgRuneOk res = {0};
+
   Pgu64Result res_find = pg_string_find_last_lead_byte(s);
   if (res_find.err) {
-    return PG_UTF8_REPLACEMENT_CHARACTER;
+    return res;
   }
 
   return pg_string_first(PG_SLICE_RANGE_START(s, res_find.res));
