@@ -1052,13 +1052,13 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   u8 c0 = PG_SLICE_AT(s, 0);
 
   // One byte.
-  if (0b0000'0000 == (c0 & 0b1000'0000)) {
-    res.rune = c0 & 0x7f;
+  if (c0 <= 0b0111'1111) {
+    res.rune = c0;
     return res;
   }
 
   // 2 bytes.
-  if (0b1100'0000 == (c0 & 0b1110'0000)) {
+  if (c0 <= 0b1101'1110) {
     if (s.len < 2) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -1076,7 +1076,7 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   }
 
   // 3 bytes.
-  if (0b1110'0000 == (c0 & 0b1111'0000)) {
+  if (c0 <= 0b1110'1111) {
     if (s.len < 3) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -1097,7 +1097,7 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   }
 
   // 4 bytes.
-  if (0b1111'0000 == (c0 & 0b1111'1000)) {
+  if (c0 <= 0b1111'0111) {
     if (s.len < 4) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -1233,38 +1233,41 @@ pg_string_is_ascii_alphabetical(PgString s) {
       continue;
     }
 
-    if (0 == (byte & (0b1000'000))) { // 1 byte.
+    if (byte <= 0b0111'1111) {
       if ((u64)i + 1 != s.len) {
         res.err = PG_ERR_INVALID_VALUE;
         return res;
       }
       res.res = (u64)i;
       return res;
-    } else if (0b1100'0000 == (byte & 0b1110'0000)) {
+    }
+    if (byte <= 0b1101'1110) {
       if ((u64)i + 2 != s.len) {
         res.err = PG_ERR_INVALID_VALUE;
         return res;
       }
       res.res = (u64)i;
       return res;
-    } else if (0b1110'0000 == (byte & 0b1111'0000)) {
+    }
+    if (byte <= 0b1110'1111) {
       if ((u64)i + 3 != s.len) {
         res.err = PG_ERR_INVALID_VALUE;
         return res;
       }
       res.res = (u64)i;
       return res;
-    } else if (0b1111'0000 == (byte & 0b1111'1000)) {
+    }
+
+    if (byte <= 0b1111'0111) {
       if ((u64)i + 4 != s.len) {
         res.err = PG_ERR_INVALID_VALUE;
         return res;
       }
       res.res = (u64)i;
       return res;
-    } else {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
     }
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
   }
 
   res.err = PG_ERR_INVALID_VALUE;
