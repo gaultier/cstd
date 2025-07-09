@@ -1048,76 +1048,76 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
 
   // One byte.
   if (0b0000'0000 == (c0 & 0b1000'0000) && c0 != 0) {
-    res.res = c0 & 0x7F;
-    return res;
-  }
-
-  // 2 bytes.
-  if (0b1100'0000 == (c0 & 0b1110'0000)) {
-    if (s.len < 2) {
-      res.err = PG_ERR_INVALID_VALUE;
+      res.res = c0 & 0x7F;
       return res;
     }
 
-    u8 c1 = PG_SLICE_AT(s, 1);
+  // 2 bytes.
+  if (0b1100'0000 == (c0 & 0b1110'0000)) {
+      if (s.len < 2) {
+        res.err = PG_ERR_INVALID_VALUE;
+        return res;
+      }
+
+      u8 c1 = PG_SLICE_AT(s, 1);
     PgRune rune0 = (PgRune)c0 & 0b0001'1111;
     PgRune rune1 = ((PgRune)c1 & 0b0011'1111);
     res.res = (rune0 << 6) | rune1;
     if (res.res < 0x80) { // Overlong.
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+        res.err = PG_ERR_INVALID_VALUE;
+        return res;
     }
     return res;
-  }
+    }
 
   // 3 bytes.
   if (0b1110'0000 == (c0 & 0b1111'0000)) {
-    if (s.len < 3) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
-    }
+      if (s.len < 3) {
+        res.err = PG_ERR_INVALID_VALUE;
+        return res;
+      }
 
-    u8 c1 = PG_SLICE_AT(s, 1);
-    u8 c2 = PG_SLICE_AT(s, 2);
+      u8 c1 = PG_SLICE_AT(s, 1);
+      u8 c2 = PG_SLICE_AT(s, 2);
     PgRune rune0 = ((PgRune)c0 & 0b0000'1111);
     PgRune rune1 = ((PgRune)c1 & 0b0011'1111);
     PgRune rune2 = ((PgRune)c2 & 0b0011'1111);
 
     res.res = (rune0 << 12) | (rune1 << 6) | rune2;
     if (res.res < 0x0800) { // Overlong.
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+        res.err = PG_ERR_INVALID_VALUE;
+        return res;
     }
     return res;
-  }
+    }
 
   // 4 bytes.
   if (0b1111'0000 == (c0 & 0b1111'1000)) {
-    if (s.len < 4) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
-    }
+      if (s.len < 4) {
+        res.err = PG_ERR_INVALID_VALUE;
+        return res;
+      }
 
-    u8 c1 = PG_SLICE_AT(s, 1);
-    u8 c2 = PG_SLICE_AT(s, 2);
-    u8 c3 = PG_SLICE_AT(s, 3);
+      u8 c1 = PG_SLICE_AT(s, 1);
+      u8 c2 = PG_SLICE_AT(s, 2);
+      u8 c3 = PG_SLICE_AT(s, 3);
     PgRune rune0 = (PgRune)c0 & 0b0000'0111;
     PgRune rune1 = (PgRune)c1 & 0b0011'1111;
     PgRune rune2 = (PgRune)c2 & 0b0011'1111;
     PgRune rune3 = ((PgRune)c3 & 0b0011'1111);
     res.res = (rune0 << 18) | (rune1 << 12) | (rune2 << 6) | rune3;
     if (res.res < 0x01'00'00) { // Overlong.
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+        res.err = PG_ERR_INVALID_VALUE;
+        return res;
     }
 
     if (res.res >= 0x10FFFF) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+        res.err = PG_ERR_INVALID_VALUE;
+        return res;
     }
 
     return res;
-  }
+    }
 
   res.err = PG_ERR_INVALID_VALUE;
   return res;
@@ -5377,7 +5377,7 @@ pg_http_write_header(PgWriter *w, PgStringKeyValue header,
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_html_sanitize(PgString s, PgAllocator *allocator) {
   Pgu8Dyn res = {0};
-  PG_DYN_ENSURE_CAP(&res, s.len*2, allocator);
+  PG_DYN_ENSURE_CAP(&res, s.len * 2, allocator);
 
   for (u64 i = 0; i < s.len; i++) {
     u8 c = PG_SLICE_AT(s, i);
