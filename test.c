@@ -807,63 +807,78 @@ static void test_ring_buffer_read_write() {
 
   // Write to empty ring buffer.
   {
-    PgRing rg = pg_ring_make(PG_S("hello world!").len - 1, allocator);
-    PG_ASSERT(!pg_ring_can_read(rg));
-    PG_ASSERT(pg_ring_can_write(rg));
+    PgString s = PG_S("hello world");
+
+    PgRing rg = pg_ring_make(s.len, allocator);
     PG_ASSERT(pg_ring_is_empty(rg));
+    PG_ASSERT(!pg_ring_is_full(rg));
+    PG_ASSERT(0 == pg_ring_can_read_count(rg));
+    PG_ASSERT(s.len == pg_ring_can_write_count(rg));
 
     // Full write.
-    PG_ASSERT(5 == pg_ring_try_write_bytes(&rg, PG_S("hello")));
-    PG_ASSERT(pg_ring_can_read(rg));
-    PG_ASSERT(pg_ring_can_write(rg));
+    PG_ASSERT(5 == pg_ring_write_bytes(&rg, PG_S("hello")));
     PG_ASSERT(!pg_ring_is_empty(rg));
+    PG_ASSERT(!pg_ring_is_full(rg));
+    PG_ASSERT(5 == pg_ring_can_read_count(rg));
+    PG_ASSERT(s.len - 5 == pg_ring_can_write_count(rg));
 
     // Partial write.
-    PG_ASSERT(6 == pg_ring_try_write_bytes(&rg, PG_S(" world!")));
-    PG_ASSERT(pg_ring_can_read(rg));
-    PG_ASSERT(!pg_ring_can_write(rg));
+    PG_ASSERT(6 == pg_ring_write_bytes(&rg, PG_S(" world!")));
     PG_ASSERT(!pg_ring_is_empty(rg));
+    PG_ASSERT(pg_ring_is_full(rg));
+    PG_ASSERT(s.len == pg_ring_can_read_count(rg));
+    PG_ASSERT(0 == pg_ring_can_write_count(rg));
 
     // Read all.
     {
-      u8 tmp[11] = {0};
+      u8 tmp[12] = {0};
       Pgu8Slice tmp_slice = {.data = tmp, PG_STATIC_ARRAY_LEN(tmp)};
-      PG_ASSERT(tmp_slice.len == pg_ring_try_read_bytes(&rg, tmp_slice));
-      PG_ASSERT(pg_bytes_eq(PG_S("hello world"), tmp_slice));
+      PG_ASSERT(11 == pg_ring_read_bytes(&rg, tmp_slice));
+      PG_ASSERT(
+          pg_bytes_eq(PG_S("hello world"), PG_SLICE_RANGE(tmp_slice, 0, 11)));
 
-      PG_ASSERT(!pg_ring_can_read(rg));
-      PG_ASSERT(pg_ring_can_write(rg));
       PG_ASSERT(pg_ring_is_empty(rg));
+      PG_ASSERT(!pg_ring_is_full(rg));
+      PG_ASSERT(0 == pg_ring_can_read_count(rg));
+      PG_ASSERT(s.len == pg_ring_can_write_count(rg));
     }
   }
   // Read from an empty ring buffer.
   {
     PgRing rg = pg_ring_make(12, allocator);
-    PG_ASSERT(!pg_ring_can_read(rg));
-    PG_ASSERT(pg_ring_can_write(rg));
     PG_ASSERT(pg_ring_is_empty(rg));
+    PG_ASSERT(!pg_ring_is_full(rg));
+    PG_ASSERT(0 == pg_ring_can_read_count(rg));
+    PG_ASSERT(12 == pg_ring_can_write_count(rg));
 
-    PG_ASSERT(!pg_ring_try_read_byte(&rg).ok);
+    u8 tmp[1] = {0};
+    Pgu8Slice tmp_slice = {.data = tmp, 1};
+    PG_ASSERT(0 == pg_ring_read_bytes(&rg, tmp_slice));
   }
   // Write to full ring buffer.
   {
     PgRing rg = pg_ring_make(12, allocator);
-    PG_ASSERT(!pg_ring_can_read(rg));
-    PG_ASSERT(pg_ring_can_write(rg));
     PG_ASSERT(pg_ring_is_empty(rg));
+    PG_ASSERT(!pg_ring_is_full(rg));
+    PG_ASSERT(0 == pg_ring_can_read_count(rg));
+    PG_ASSERT(12 == pg_ring_can_write_count(rg));
+
+    u8 tmp[1] = {99};
+    Pgu8Slice tmp_slice = {.data = tmp, 1};
 
     // Fill.
-    for (u64 i = 0; i < 11; i++) {
-      PG_ASSERT(pg_ring_try_write_byte(&rg, 0x99));
-      PG_ASSERT(pg_ring_can_read(rg));
-      PG_ASSERT(pg_ring_can_write(rg));
+    for (u64 i = 0; i < 12; i++) {
+
+      PG_ASSERT(1 == pg_ring_write_bytes(&rg, tmp_slice));
       PG_ASSERT(!pg_ring_is_empty(rg));
+      PG_ASSERT(pg_ring_can_read_count(rg) > 0);
     }
 
-    PG_ASSERT(pg_ring_try_write_byte(&rg, 0x99));
-    PG_ASSERT(pg_ring_can_read(rg));
-    PG_ASSERT(!pg_ring_can_write(rg));
+    PG_ASSERT(0 == pg_ring_write_bytes(&rg, tmp_slice));
     PG_ASSERT(!pg_ring_is_empty(rg));
+    PG_ASSERT(pg_ring_is_full(rg));
+    PG_ASSERT(12 == pg_ring_can_read_count(rg));
+    PG_ASSERT(0 == pg_ring_can_write_count(rg));
   }
 }
 
@@ -892,16 +907,16 @@ static void test_ring_buffer_read_write_fuzz() {
     PgString to = pg_string_make(len, allocator_strings);
     pg_rand_string_mut(&rng, to);
 
-    bool can_write = pg_ring_can_write(rg);
-    u64 n_write = pg_ring_try_write_bytes(&rg, from);
-    if (can_write && from.len > 0) {
-      PG_ASSERT(n_write > 0);
+    u64 can_write = pg_ring_can_write_count(rg);
+    u64 n_write = pg_ring_write_bytes(&rg, from);
+    if (can_write > 0 && from.len > 0) {
+      PG_ASSERT(n_write == PG_MIN(can_write, from.len));
     }
 
-    bool can_read = pg_ring_can_read(rg);
-    u64 n_read = pg_ring_try_read_bytes(&rg, to);
-    if (can_read && to.len > 0) {
-      PG_ASSERT(n_read > 0);
+    u64 can_read = pg_ring_can_read_count(rg);
+    u64 n_read = pg_ring_read_bytes(&rg, to);
+    if (can_read > 0 && to.len > 0) {
+      PG_ASSERT(n_read == PG_MIN(can_read, to.len));
     }
   }
 }
@@ -1461,7 +1476,7 @@ static void test_http_parse_header() {
   }
 }
 
-static void test_http_read_request_full() {
+static void test_http_read_request_full_no_content_length() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
@@ -2681,7 +2696,7 @@ int main() {
   test_http_parse_response_status_line();
   test_http_parse_request_status_line();
   test_http_parse_header();
-  test_http_read_request_full();
+  test_http_read_request_full_no_content_length();
   test_http_read_request_no_body_separator_yet();
   test_http_read_request_full_without_headers();
   test_http_read_request_full_without_body();
