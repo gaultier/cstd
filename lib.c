@@ -1038,7 +1038,7 @@ pg_make_utf8_iterator(PgString s) {
 }
 
 // TODO: If this becomes a performance bottleneck there are more optimized ways
-// to implement that.
+// to implement that with SIMD.
 [[maybe_unused]] [[nodiscard]] static PgRuneUtf8Result
 pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   PgRuneUtf8Result res = {0};
