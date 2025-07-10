@@ -2395,12 +2395,50 @@ pg_string_builder_make(u64 cap, PgAllocator *allocator) {
   return read_count;
 }
 
+[[maybe_unused]] [[nodiscard]] static Pgu64Ok pg_ring_index_of_byte(PgRing rg,
+                                                                    u8 needle) {
+  PG_ASSERT(rg.data.data);
+  Pgu64Ok res = {0};
+
+  if (rg.idx_read < rg.idx_write) { // 1 memchr.
+    u8 *start = rg.data.data + rg.idx_read;
+    u64 len = rg.idx_write - rg.idx_read;
+    u8 *find = memchr(start, needle, len);
+    if (find) {
+      res.ok = true;
+      res.res = (u64)(find - start);
+    }
+    return res;
+  }
+
+  if (rg.idx_write < rg.idx_read) { // 2 memchr.
+    {
+      u8 *start = rg.data.data + rg.idx_read;
+      u64 len = rg.data.len - rg.idx_read;
+      u8 *find = memchr(start, needle, len);
+      if (find) {
+        res.ok = true;
+        res.res = (u64)(find - start);
+      }
+    }
+
+    {
+      u8 *start = rg.data.data;
+      u64 len = rg.idx_write;
+      u8 *find = memchr(start, needle, len);
+      if (find) {
+        res.ok = true;
+        res.res = (u64)(find - start);
+      }
+    }
+  }
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static Pgu64Ok
 pg_ring_index_of_bytes(PgRing rg, Pgu8Slice needle) {
-  (void)rg;
-  (void)needle;
-  Pgu64Ok res = {0};
-  // TODO
+  PG_ASSERT(rg.data.data);
+  PG_ASSERT(0);
   return res;
 }
 
