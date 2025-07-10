@@ -2456,18 +2456,17 @@ static void pg_ring_read_skip(PgRing *rg, u64 count) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Ok
-pg_ring_index_of_bytes(PgRing rg, Pgu8Slice needle,
-                       PgAllocator *tmp_allocator) {
+pg_ring_index_of_bytes(PgRing rg, u8 needle0, u8 needle1) {
   Pgu64Ok res = {0};
 
-  if (pg_ring_is_empty(rg) || PG_SLICE_IS_EMPTY(needle)) {
+  if (pg_ring_is_empty(rg)) {
     return res;
   }
 
   u64 idx = 0;
 
   for (;;) {
-    Pgu64Ok idx_opt = pg_ring_index_of_byte(rg, PG_SLICE_AT(needle, 0));
+    Pgu64Ok idx_opt = pg_ring_index_of_byte(rg, needle0);
     if (!idx_opt.ok) {
       return res;
     }
@@ -2479,15 +2478,17 @@ pg_ring_index_of_bytes(PgRing rg, Pgu8Slice needle,
 
     {
       PgRing rg_tmp = rg;
-      Pgu8Slice tmp = pg_bytes_make(needle.len, tmp_allocator);
-      tmp.len = pg_ring_read_bytes(&rg_tmp, tmp);
-      if (tmp.len != needle.len) {
+      u8 tmp[2] = {0};
+      Pgu8Slice tmp_slice = {.data = tmp, .len = 2};
+      tmp_slice.len = pg_ring_read_bytes(&rg_tmp, tmp_slice);
+      if (tmp_slice.len != 2) {
         return res;
       }
 
-      PG_ASSERT(PG_SLICE_AT(tmp, 0) == PG_SLICE_AT(needle, 0));
+      PG_ASSERT(PG_SLICE_AT(tmp_slice, 0) == needle0);
 
-      if (pg_bytes_eq(tmp, needle)) {
+      if (PG_SLICE_AT(tmp_slice, 0) == needle0 &&
+          PG_SLICE_AT(tmp_slice, 1) == needle1) {
         PG_ASSERT(idx < rg.data.len);
 
         res.ok = true;
@@ -6200,9 +6201,8 @@ pg_buf_reader_try_fill_internal_buffer(PgBufReader *r) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_buf_reader_read_mem_until_bytes_incl(PgBufReader *r, Pgu8Slice dst,
-                                        Pgu8Slice needle,
-                                        PgAllocator *tmp_allocator) {
+pg_buf_reader_read_mem_until_bytes2_incl(PgBufReader *r, Pgu8Slice dst,
+                                         u8 needle0, u8 needle1) {
   PG_ASSERT(dst.data);
 
   for (;;) {
@@ -6214,13 +6214,13 @@ pg_buf_reader_read_mem_until_bytes_incl(PgBufReader *r, Pgu8Slice dst,
     }
 
     // NOTE: We want to only read until the `needle`, and not one byte more.
-    Pgu64Ok search = pg_ring_index_of_bytes(r->ring, needle, tmp_allocator);
+    Pgu64Ok search = pg_ring_index_of_bytes(r->ring, needle0, needle1);
     if (!search.ok) {
       return res;
     }
 
     // Do the real read out of the real ring.
-    u64 n_read = search.res + needle.len;
+    u64 n_read = search.res + 2;
     PG_ASSERT(n_read ==
               pg_ring_read_bytes(&r->ring, PG_SLICE_RANGE(dst, 0, n_read)));
     res.res = n_read;
@@ -6228,61 +6228,87 @@ pg_buf_reader_read_mem_until_bytes_incl(PgBufReader *r, Pgu8Slice dst,
   }
 }
 
+#define PG_HTTP_HEADER_MAX_LEN 4096
+#define PG_HTTP_HEADERS_MAX 512
+
+typedef enum {
+  PG_HTTP_REQUEST_PARSE_STATE_INITIAL,
+  PG_HTTP_REQUEST_PARSE_STATE_HEADERS,
+  PG_HTTP_REQUEST_PARSE_STATE_AFTER_HEADERS,
+  PG_HTTP_REQUEST_PARSE_STATE_END,
+} PgHttpRequestParseState;
+
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
-pg_http_read_request(PgBufReader *reader, PgAllocator *tmp_allocator,
-                     PgAllocator *allocator) {
+pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
   PgHttpRequestReadResult res = {0};
-  PgString sep = PG_S("\r\n\r\n");
 
-  Pgu8Slice header_bytes = pg_bytes_make(reader->ring.data.len, allocator);
-  Pgu64Result res_read_headers = pg_buf_reader_read_mem_until_bytes_incl(
-      reader, header_bytes, sep, tmp_allocator);
-  if (res_read_headers.err) {
-    res.err = res_read_headers.err;
-    return res;
-  }
+  PgHttpRequestParseState state = PG_HTTP_REQUEST_PARSE_STATE_INITIAL;
 
-  header_bytes.len = res_read_headers.res;
-
-  PgSplitIterator it = pg_string_split_string(header_bytes, PG_S("\r\n"));
-  PgStringOk res_split = pg_string_split_next(&it);
-  if (!res_split.ok) {
-    res.err = PG_ERR_EOF;
-    return res;
-  }
-
-  PgHttpRequestStatusLineResult res_status_line =
-      pg_http_parse_request_status_line(res_split.res, allocator);
-  if (res_status_line.err) {
-    res.err = res_status_line.err;
-    return res;
-  }
-
-  res.res.method = res_status_line.res.method;
-  res.res.url = res_status_line.res.url;
-  res.res.version_major = res_status_line.res.version_major;
-  res.res.version_minor = res_status_line.res.version_minor;
-
-  for (;;) {
-    res_split = pg_string_split_next(&it);
-    if (!res_split.ok) {
-      break;
-    }
-    PgStringKeyValueResult res_kv = pg_http_parse_header(res_split.res);
-    if (res_kv.err) {
-      res.err = res_kv.err;
+  for (u64 i = 0; i < PG_HTTP_HEADERS_MAX; i++) {
+    u8 header_bytes[PG_HTTP_HEADER_MAX_LEN] = {0};
+    Pgu8Slice header_bytes_slice = {
+        .data = header_bytes,
+        .len = PG_HTTP_HEADER_MAX_LEN,
+    };
+    Pgu64Result res_read_header = pg_buf_reader_read_mem_until_bytes2_incl(
+        reader, header_bytes_slice, '\r', '\n');
+    if (res_read_header.err) {
+      res.err = res_read_header.err;
       return res;
     }
 
-    *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.res;
-  }
-  if (!PG_SLICE_IS_EMPTY(it.s)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
+    header_bytes_slice.len = res_read_header.res;
+    if (0 == header_bytes_slice.len) {
+      res.err = PG_ERR_EOF;
+      return res;
+    }
 
-  res.done = true;
+    switch (state) {
+    case PG_HTTP_REQUEST_PARSE_STATE_INITIAL: {
+      PG_ASSERT(0 == i);
+      PgHttpRequestStatusLineResult res_status_line =
+          pg_http_parse_request_status_line(header_bytes_slice, allocator);
+
+      if (res_status_line.err) {
+        res.err = res_status_line.err;
+        return res;
+      }
+
+      res.res.method = res_status_line.res.method;
+      res.res.url = res_status_line.res.url;
+      res.res.version_major = res_status_line.res.version_major;
+      res.res.version_minor = res_status_line.res.version_minor;
+
+      state = PG_HTTP_REQUEST_PARSE_STATE_HEADERS;
+    } break;
+    case PG_HTTP_REQUEST_PARSE_STATE_HEADERS: {
+      if (0 == header_bytes_slice.len) {
+        // FIXME: check `\r\n\r\n`.
+        state = PG_HTTP_REQUEST_PARSE_STATE_AFTER_HEADERS;
+        continue;
+      }
+      PgStringKeyValueResult res_kv = pg_http_parse_header(header_bytes_slice);
+      if (res_kv.err) {
+        res.err = res_kv.err;
+        return res;
+      }
+
+      *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.res;
+
+      state = PG_HTTP_REQUEST_PARSE_STATE_HEADERS;
+    } break;
+    case PG_HTTP_REQUEST_PARSE_STATE_END:
+      break;
+    }
+  }
+}
+if (!PG_SLICE_IS_EMPTY(it.s)) {
+  res.err = PG_ERR_INVALID_VALUE;
   return res;
+}
+
+res.done = true;
+return res;
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
