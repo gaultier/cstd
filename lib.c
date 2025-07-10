@@ -2435,11 +2435,70 @@ pg_string_builder_make(u64 cap, PgAllocator *allocator) {
   return res;
 }
 
+static void pg_ring_read_skip(PgRing *rg, u64 count) {
+  u64 skip = 0;
+  if (rg->idx_read == rg->idx_write) {
+    if (pg_ring_is_empty(*rg)) {
+      return;
+    }
+    skip = PG_MIN(count, rg->count);
+  } else if (rg->idx_read < rg->idx_write) {
+    skip = PG_MIN(rg->idx_write - rg->idx_read, count);
+  } else if (rg->idx_read > rg->idx_write) {
+    skip = PG_MIN(rg->idx_read - rg->idx_write, count);
+  }
+  PG_ASSERT(skip <= count);
+  PG_ASSERT(skip <= rg->count);
+  PG_ASSERT(skip <= rg->data.len);
+
+  rg->idx_read = (rg->idx_read + skip) % rg->data.len;
+  rg->count -= skip;
+}
+
 [[maybe_unused]] [[nodiscard]] static Pgu64Ok
-pg_ring_index_of_bytes(PgRing rg, Pgu8Slice needle) {
-  PG_ASSERT(rg.data.data);
-  PG_ASSERT(0);
-  return res;
+pg_ring_index_of_bytes(PgRing rg, Pgu8Slice needle,
+                       PgAllocator *tmp_allocator) {
+  Pgu64Ok res = {0};
+
+  if (pg_ring_is_empty(rg) || PG_SLICE_IS_EMPTY(needle)) {
+    return res;
+  }
+
+  u64 idx = 0;
+
+  for (;;) {
+    Pgu64Ok idx_opt = pg_ring_index_of_byte(rg, PG_SLICE_AT(needle, 0));
+    if (!idx_opt.ok) {
+      return res;
+    }
+
+    u64 idx_it = idx_opt.res;
+
+    pg_ring_read_skip(&rg, idx_it);
+    idx += idx_it;
+
+    {
+      PgRing rg_tmp = rg;
+      Pgu8Slice tmp = pg_bytes_make(needle.len, tmp_allocator);
+      tmp.len = pg_ring_read_bytes(&rg_tmp, tmp);
+      if (tmp.len != needle.len) {
+        return res;
+      }
+
+      PG_ASSERT(PG_SLICE_AT(tmp, 0) == PG_SLICE_AT(needle, 0));
+
+      if (pg_bytes_eq(tmp, needle)) {
+        PG_ASSERT(idx < rg.data.len);
+
+        res.ok = true;
+        res.res = idx;
+        return res;
+      }
+    }
+
+    pg_ring_read_skip(&rg, 1);
+    idx += 1;
+  }
 }
 
 [[maybe_unused]] [[nodiscard]] static bool pg_ring_try_read_u32(PgRing *rg,
@@ -6142,7 +6201,8 @@ pg_buf_reader_try_fill_internal_buffer(PgBufReader *r) {
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_buf_reader_read_mem_until_bytes_incl(PgBufReader *r, Pgu8Slice dst,
-                                        Pgu8Slice needle) {
+                                        Pgu8Slice needle,
+                                        PgAllocator *tmp_allocator) {
   PG_ASSERT(dst.data);
 
   for (;;) {
@@ -6154,7 +6214,7 @@ pg_buf_reader_read_mem_until_bytes_incl(PgBufReader *r, Pgu8Slice dst,
     }
 
     // NOTE: We want to only read until the `needle`, and not one byte more.
-    Pgu64Ok search = pg_ring_index_of_bytes(r->ring, needle);
+    Pgu64Ok search = pg_ring_index_of_bytes(r->ring, needle, tmp_allocator);
     if (!search.ok) {
       return res;
     }
@@ -6169,13 +6229,14 @@ pg_buf_reader_read_mem_until_bytes_incl(PgBufReader *r, Pgu8Slice dst,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
-pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
+pg_http_read_request(PgBufReader *reader, PgAllocator *tmp_allocator,
+                     PgAllocator *allocator) {
   PgHttpRequestReadResult res = {0};
   PgString sep = PG_S("\r\n\r\n");
 
   Pgu8Slice header_bytes = pg_bytes_make(reader->ring.data.len, allocator);
-  Pgu64Result res_read_headers =
-      pg_buf_reader_read_mem_until_bytes_incl(reader, header_bytes, sep);
+  Pgu64Result res_read_headers = pg_buf_reader_read_mem_until_bytes_incl(
+      reader, header_bytes, sep, tmp_allocator);
   if (res_read_headers.err) {
     res.err = res_read_headers.err;
     return res;
@@ -6186,7 +6247,7 @@ pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
   PgSplitIterator it = pg_string_split_string(header_bytes, PG_S("\r\n"));
   PgStringOk res_split = pg_string_split_next(&it);
   if (!res_split.ok) {
-    res.err = PG_ERR_INVALID_VALUE;
+    res.err = PG_ERR_EOF;
     return res;
   }
 
@@ -7630,11 +7691,12 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
 
 [[maybe_unused]] [[nodiscard]]
 static PgError pg_http_server_handler(PgFileDescriptor sock, PgLogger *logger,
+                                      PgAllocator *tmp_allocator,
                                       PgAllocator *allocator) {
   PgReader reader = pg_reader_make_from_file_descriptor(sock);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 12 * PG_KiB, allocator);
   PgHttpRequestReadResult res_req =
-      pg_http_read_request(&buf_reader, allocator);
+      pg_http_read_request(&buf_reader, tmp_allocator, allocator);
 
   if (res_req.err) {
     pg_log(logger, PG_LOG_LEVEL_ERROR,
@@ -7764,7 +7826,14 @@ static PgError pg_http_server_start(u16 port, u64 listen_backlog,
       PgAllocator *allocator =
           pg_arena_allocator_as_allocator(&arena_allocator);
 
-      (void)pg_http_server_handler(res_accept.socket, logger, allocator);
+      PgArena tmp_arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+      PgArenaAllocator tmp_arena_allocator =
+          pg_make_arena_allocator(&tmp_arena);
+      PgAllocator *tmp_allocator =
+          pg_arena_allocator_as_allocator(&tmp_arena_allocator);
+
+      (void)pg_http_server_handler(res_accept.socket, logger, tmp_allocator,
+                                   allocator);
       exit(0);
     }
 
