@@ -221,9 +221,28 @@ typedef union {
 PG_RESULT(PgFileDescriptor) PgFileDescriptorResult;
 
 typedef struct {
-  PgFileDescriptor read, write;
-} PgPipe;
-PG_RESULT(PgPipe) PgPipeResult;
+  PgFileDescriptor first, second;
+} PgFileDescriptorPair;
+PG_RESULT(PgFileDescriptorPair) PgFileDescriptorPairResult;
+
+typedef enum {
+  PG_NET_SOCKET_DOMAIN_LOCAL,
+  PG_NET_SOCKET_DOMAIN_IPV4,
+  PG_NET_SOCKET_DOMAIN_IPV6
+  // More...
+} PgNetSocketDomain;
+
+typedef enum {
+  PG_NET_SOCKET_TYPE_TCP,
+  PG_NET_SOCKET_TYPE_UDP,
+  // More...
+} PgNetSocketType;
+
+typedef enum {
+  PG_NET_SOCKET_OPTION_NONE,
+  PG_NET_SOCKET_OPTION_NON_BLOCK,
+  PG_NET_SOCKET_OPTION_CLOEXEC,
+} PgNetSocketOption;
 
 typedef enum {
   PG_FILE_ACCESS_NONE = 0,
@@ -844,7 +863,7 @@ PG_RESULT(PgElf) PgElfResult;
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout();
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr();
 
-[[maybe_unused]] [[nodiscard]] static PgPipeResult pg_pipe_make();
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorPairResult pg_pipe_make();
 
 [[maybe_unused]] static Pgu64Result pg_file_read_at(PgFileDescriptor file,
                                                     PgString buf, u64 offset);
@@ -2356,6 +2375,10 @@ pg_net_tcp_accept(PgFileDescriptor sock);
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_get_socket_error(PgFileDescriptor socket);
+
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorPairResult
+pg_net_make_socket_pair(PgNetSocketDomain domain, PgNetSocketType type,
+                        PgNetSocketOption option);
 
 [[maybe_unused]] [[nodiscard]] static Pgu32Result pg_process_dup();
 
@@ -4199,6 +4222,7 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
   }
 }
 
+// ----- Start UNIX implementation ------
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
@@ -4209,6 +4233,7 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -4218,8 +4243,65 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
 
-[[maybe_unused]] [[nodiscard]] static PgPipeResult pg_pipe_make() {
-  PgPipeResult res = {0};
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorPairResult
+pg_net_make_socket_pair(PgNetSocketDomain domain, PgNetSocketType type,
+                        PgNetSocketOption option) {
+  PgFileDescriptorPairResult res = {0};
+
+  i32 unix_domain = 0;
+  switch (domain) {
+  case PG_NET_SOCKET_DOMAIN_LOCAL:
+    unix_domain = AF_LOCAL;
+    break;
+  case PG_NET_SOCKET_DOMAIN_IPV4:
+    unix_domain = AF_INET;
+    break;
+  case PG_NET_SOCKET_DOMAIN_IPV6:
+    unix_domain = AF_INET6;
+    break;
+  default:
+    PG_ASSERT(0);
+  }
+
+  i32 unix_type = 0;
+  switch (type) {
+  case PG_NET_SOCKET_TYPE_TCP:
+    unix_type = SOCK_STREAM;
+    break;
+  case PG_NET_SOCKET_TYPE_UDP:
+    unix_type = SOCK_DGRAM;
+    break;
+  default:
+    PG_ASSERT(0);
+  }
+
+  i32 unix_option = 0;
+  switch (option) {
+  case PG_NET_SOCKET_OPTION_NON_BLOCK:
+    unix_option = SOCK_NONBLOCK;
+    break;
+  case PG_NET_SOCKET_OPTION_CLOEXEC:
+    unix_option = SOCK_CLOEXEC;
+    break;
+  case PG_NET_SOCKET_OPTION_NONE:
+  default:
+  }
+
+  i32 fds[2] = {0};
+  i32 ret = socketpair(unix_domain, unix_type, unix_option, fds);
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res.first.fd = fds[0];
+  res.res.second.fd = fds[1];
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorPairResult
+pg_pipe_make() {
+  PgFileDescriptorPairResult res = {0};
 
   int fds[2] = {0};
   int ret = pipe(fds);
@@ -4228,8 +4310,8 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
     return res;
   }
 
-  res.res.read.fd = fds[PG_PIPE_READ];
-  res.res.write.fd = fds[PG_PIPE_WRITE];
+  res.res.first.fd = fds[PG_PIPE_READ];
+  res.res.second.fd = fds[PG_PIPE_WRITE];
   return res;
 }
 

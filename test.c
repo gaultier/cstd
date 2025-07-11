@@ -1485,7 +1485,15 @@ static void test_http_read_request_full_no_content_length() {
       PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1\r\nAccept: "
            "application/json\r\nContent-Type: "
            "text/html\r\n\r\nHello, world!");
-  PgReader reader = pg_reader_make_from_bytes(req_str);
+  PgFileDescriptorPairResult res_sockets =
+      pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_IPV4, PG_NET_SOCKET_TYPE_TCP,
+                              PG_NET_SOCKET_OPTION_NONE);
+  PG_ASSERT(0 == res_sockets.err);
+
+  PG_ASSERT(0 ==
+            pg_file_write_full_with_descriptor(res_sockets.res.first, req_str));
+
+  PgReader reader = pg_reader_make_from_socket(res_sockets.res.second);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
       pg_http_read_request(&buf_reader, allocator);
@@ -1545,12 +1553,15 @@ static void test_http_read_request_full_without_headers() {
 
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\nHello, world!");
-  PgFileDescriptorResult res_sock = pg_net_create_tcp_socket();
-  PG_ASSERT(!res_sock.err);
-  PgFileDescriptor sock = res_sock.res;
-  PG_ASSERT(0 == pg_file_write_full_with_descriptor(sock, req_str));
+  PgFileDescriptorPairResult res_sockets =
+      pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_IPV4, PG_NET_SOCKET_TYPE_TCP,
+                              PG_NET_SOCKET_OPTION_NONE);
+  PG_ASSERT(0 == res_sockets.err);
 
-  PgReader reader = pg_reader_make_from_socket(sock);
+  PG_ASSERT(0 ==
+            pg_file_write_full_with_descriptor(res_sockets.res.first, req_str));
+
+  PgReader reader = pg_reader_make_from_socket(res_sockets.res.second);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
       pg_http_read_request(&buf_reader, allocator);
@@ -1593,12 +1604,15 @@ static void test_http_read_request_full_without_body() {
 
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\n");
-  PgFileDescriptorResult res_sock = pg_net_create_tcp_socket();
-  PG_ASSERT(!res_sock.err);
-  PgFileDescriptor sock = res_sock.res;
-  PG_ASSERT(0 == pg_file_write_full_with_descriptor(sock, req_str));
+  PgFileDescriptorPairResult res_sockets =
+      pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_IPV4, PG_NET_SOCKET_TYPE_TCP,
+                              PG_NET_SOCKET_OPTION_NONE);
+  PG_ASSERT(0 == res_sockets.err);
 
-  PgReader reader = pg_reader_make_from_socket(sock);
+  PG_ASSERT(0 ==
+            pg_file_write_full_with_descriptor(res_sockets.res.first, req_str));
+
+  PgReader reader = pg_reader_make_from_socket(res_sockets.res.second);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
       pg_http_read_request(&buf_reader, allocator);
@@ -1652,12 +1666,16 @@ static void test_http_read_request_no_body_separator_yet() {
       PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1\r\nAccept: "
            "application/json\r\nContent-Type: "
            "text/html\r\n");
-  PgFileDescriptorResult res_sock = pg_net_create_tcp_socket();
-  PG_ASSERT(!res_sock.err);
-  PgFileDescriptor sock = res_sock.res;
-  PG_ASSERT(0 == pg_file_write_full_with_descriptor(sock, req_str));
 
-  PgReader reader = pg_reader_make_from_socket(sock);
+  PgFileDescriptorPairResult res_sockets =
+      pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_IPV4, PG_NET_SOCKET_TYPE_TCP,
+                              PG_NET_SOCKET_OPTION_NONE);
+  PG_ASSERT(0 == res_sockets.err);
+
+  PG_ASSERT(0 ==
+            pg_file_write_full_with_descriptor(res_sockets.res.first, req_str));
+
+  PgReader reader = pg_reader_make_from_socket(res_sockets.res.second);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
       pg_http_read_request(&buf_reader, allocator);
