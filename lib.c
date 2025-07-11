@@ -5909,6 +5909,65 @@ pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
   return res;
 }
 
+[[nodiscard]] static PgString pg_url_to_string(PgUrl u,
+                                               PgAllocator *allocator) {
+  Pgu8Dyn sb = pg_string_builder_make(256, allocator);
+  PG_DYN_APPEND_SLICE(&sb, u.scheme, allocator);
+  if (u.scheme.len) {
+    PG_DYN_APPEND_SLICE(&sb, PG_S("://"), allocator);
+  }
+
+  if (u.username.len) {
+    PG_DYN_APPEND_SLICE(&sb, u.username, allocator);
+  }
+  if (u.username.len || u.password.len) {
+    PG_DYN_APPEND_SLICE(&sb, PG_S(":"), allocator);
+  }
+
+  if (u.password.len) {
+    PG_DYN_APPEND_SLICE(&sb, u.password, allocator);
+  }
+  if (u.username.len || u.password.len) {
+    PG_DYN_APPEND_SLICE(&sb, PG_S("@"), allocator);
+  }
+
+  if (u.host.len) {
+    PG_DYN_APPEND_SLICE(&sb, u.host, allocator);
+  }
+
+  if (u.port) {
+    PG_DYN_APPEND_SLICE(&sb, PG_S(":"), allocator);
+    pg_string_builder_append_u64(&sb, u.port, allocator);
+  }
+
+  for (u64 i = 0; i < u.path_components.len; i++) {
+    PgString it = PG_SLICE_AT(u.path_components, i);
+    PG_DYN_APPEND_SLICE(&sb, PG_S("/"), allocator);
+    PG_DYN_APPEND_SLICE(&sb, it, allocator);
+  }
+
+  if (u.query_parameters.len) {
+    PG_DYN_APPEND_SLICE(&sb, PG_S("?"), allocator);
+
+    for (u64 i = 0; i < u.query_parameters.len; i++) {
+      PgStringKeyValue it = PG_SLICE_AT(u.query_parameters, i);
+      if (it.key.len) {
+        PG_DYN_APPEND_SLICE(&sb, it.key, allocator);
+      }
+      if (it.key.len && it.value.len) {
+        PG_DYN_APPEND_SLICE(&sb, PG_S("="), allocator);
+      }
+      if (it.value.len) {
+        PG_DYN_APPEND_SLICE(&sb, it.value, allocator);
+      }
+
+      PG_DYN_APPEND_SLICE(&sb, PG_S("&"), allocator);
+    }
+  }
+
+  return PG_DYN_SLICE(PgString, sb);
+}
+
 [[maybe_unused]] [[nodiscard]] static PgStringDynKeyValueResult
 pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
   PgStringDynKeyValueResult res = {0};
