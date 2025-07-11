@@ -902,6 +902,26 @@ static u8 *pg_memcpy(void *restrict dst, void *restrict src, u64 len) {
   return dst;
 }
 
+static u8 *pg_memmove(void *dst, void *src, u64 len) {
+  if (!dst) {
+    return dst;
+  }
+  if (!src) {
+    return dst;
+  }
+  if (0 == len) {
+    return dst;
+  }
+
+  u8 *dst_bytes = dst;
+  u8 *src_bytes = src;
+
+  for (u64 i = 0; i < len; i++) {
+    (*dst_bytes++) = (*src_bytes++);
+  }
+  return dst;
+}
+
 [[maybe_unused]] [[nodiscard]] static u64 pg_div_ceil(u64 a, u64 b) {
   PG_ASSERT(b > 0);
   return a / b + (a % b != 0);
@@ -3855,8 +3875,8 @@ pg_string_concat(PgString left, PgString right, PgAllocator *allocator) {
   PgString res = pg_string_make(left.len + right.len, allocator);
   PG_ASSERT(res.data);
 
-  pg_memcpy(res.data, left.data, left.len);
-  pg_memcpy(res.data + left.len, right.data, right.len);
+  pg_memmove(res.data, left.data, left.len);
+  pg_memmove(res.data + left.len, right.data, right.len);
 
   return res;
 }
