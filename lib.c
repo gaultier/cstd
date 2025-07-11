@@ -858,6 +858,17 @@ typedef struct {
 } PgElf;
 PG_RESULT(PgElf) PgElfResult;
 
+typedef PgHttpResponse (*PgHttpHandler)(PgHttpRequest req, PgLogger *logger,
+                                        PgAllocator *allocator, void *ctx);
+
+typedef struct {
+  u16 port;
+  u64 listen_backlog;
+  u64 http_handler_arena_mem;
+  PgHttpHandler handler;
+  void *ctx;
+} PgHttpServerOptions;
+
 // ---------------- Functions.
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin();
@@ -8002,11 +8013,12 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
 
 #endif
 
-// TODO: sendfile on BSD.
-
 [[maybe_unused]] [[nodiscard]]
-static PgError pg_http_server_handler(PgFileDescriptor sock, PgLogger *logger,
-                                      PgAllocator *allocator) {
+static PgError
+pg_http_server_handler(PgFileDescriptor sock, PgHttpServerOptions options,
+                       PgLogger *logger, PgAllocator *allocator) {
+  // TODO: Timeouts.
+
   PgReader reader = pg_reader_make_from_socket(sock);
   PgBufReader buf_reader =
       pg_buf_reader_make(reader, PG_HTTP_LINE_MAX_LEN, allocator);
@@ -8028,48 +8040,30 @@ static PgError pg_http_server_handler(PgFileDescriptor sock, PgLogger *logger,
   }
 
   PgHttpRequest req = res_req.res;
-  (void)req;
-  __builtin_dump_struct(&req, printf);
-
-  // TODO: Read body depending on the HTTP method.
 
   // Response.
-  {
-    PgHttpResponse resp = {0};
-    resp.status = 200;
-    resp.version_major = 1;
-    resp.version_minor = 1;
-
-    pg_http_push_header(&resp.headers, PG_S("Content-Type"),
-                        PG_S("application/html"), allocator);
-
-    PgWriter w = pg_writer_make_from_file_descriptor(sock);
-
-    PgError err = pg_http_write_response(&w, resp, allocator);
-    if (err) {
-      pg_log(logger, PG_LOG_LEVEL_ERROR,
-             "http handler: failed to write http response",
-             pg_log_c_err("err", err));
-      return err;
-    }
-
-    Pgu64Result res_write =
-        pg_writer_write(&w, PG_S("<html>hello</html>"), allocator);
-    if (res_write.err) {
-      pg_log(logger, PG_LOG_LEVEL_ERROR,
-             "http handler: failed to write http response body",
-             pg_log_c_err("err", res_write.err));
-      return res_write.err;
-    }
+  PgHttpResponse resp = {0};
+  if (options.handler) {
+    resp = options.handler(req, logger, allocator, options.ctx);
   }
+  if (!resp.status) {
+    resp.status = 200;
+  }
+  resp.version_major = 1;
+  resp.version_minor = 1;
+
+  PgWriter w = pg_writer_make_from_file_descriptor(sock);
+
+  PgError err = pg_http_write_response(&w, resp, allocator);
+  if (err) {
+    pg_log(logger, PG_LOG_LEVEL_ERROR,
+           "http handler: failed to write http response",
+           pg_log_c_err("err", err));
+    return err;
+  }
+
   return 0;
 }
-
-typedef struct {
-  u16 port;
-  u64 listen_backlog;
-  u64 http_handler_arena_mem;
-} PgHttpServerOptions;
 
 [[maybe_unused]]
 static PgError pg_http_server_start(PgHttpServerOptions options,
@@ -8148,7 +8142,8 @@ static PgError pg_http_server_start(PgHttpServerOptions options,
       PgAllocator *allocator =
           pg_arena_allocator_as_allocator(&arena_allocator);
 
-      (void)pg_http_server_handler(res_accept.socket, logger, allocator);
+      (void)pg_http_server_handler(res_accept.socket, options, logger,
+                                   allocator);
       exit(0);
     }
 
