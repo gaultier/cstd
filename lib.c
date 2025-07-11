@@ -7870,16 +7870,21 @@ static PgError pg_http_server_handler(PgFileDescriptor sock, PgLogger *logger,
   return 0;
 }
 
+typedef struct {
+  u16 port;
+  u64 listen_backlog;
+  u64 http_handler_arena_mem;
+} PgHttpServerOptions;
+
 [[maybe_unused]]
-static PgError pg_http_server_start(u16 port, u64 listen_backlog,
-                                    u64 http_handler_arena_mem,
+static PgError pg_http_server_start(PgHttpServerOptions options,
                                     PgLogger *logger) {
   PgError err = 0;
   err = pg_process_avoid_child_zombies();
   if (err) {
     pg_log(logger, PG_LOG_LEVEL_ERROR,
            "http server: failed to avoid child zombies",
-           pg_log_c_u16("port", port), pg_log_c_err("err", err));
+           pg_log_c_u16("port", options.port), pg_log_c_err("err", err));
     return err;
   }
 
@@ -7887,7 +7892,7 @@ static PgError pg_http_server_start(u16 port, u64 listen_backlog,
   if (res_create.err) {
     pg_log(logger, PG_LOG_LEVEL_ERROR,
            "http server: failed to create tcp socket",
-           pg_log_c_u16("port", port), pg_log_c_err("err", err));
+           pg_log_c_u16("port", options.port), pg_log_c_err("err", err));
     return res_create.err;
   }
   PgFileDescriptor server_socket = res_create.res;
@@ -7896,28 +7901,28 @@ static PgError pg_http_server_start(u16 port, u64 listen_backlog,
   if (err) {
     pg_log(logger, PG_LOG_LEVEL_ERROR,
            "http server: failed to enable socket reuse",
-           pg_log_c_u16("port", port), pg_log_c_err("err", err));
+           pg_log_c_u16("port", options.port), pg_log_c_err("err", err));
     goto end;
   }
 
-  PgIpv4Address address = {.port = port};
+  PgIpv4Address address = {.port = options.port};
   err = pg_net_tcp_bind_ipv4(server_socket, address);
   if (err) {
     pg_log(logger, PG_LOG_LEVEL_ERROR, "http server: failed to bind tcp socket",
-           pg_log_c_u16("port", port), pg_log_c_err("err", err));
+           pg_log_c_u16("port", options.port), pg_log_c_err("err", err));
     goto end;
   }
 
-  err = pg_net_tcp_listen(server_socket, listen_backlog);
+  err = pg_net_tcp_listen(server_socket, options.listen_backlog);
   if (err) {
     pg_log(logger, PG_LOG_LEVEL_ERROR,
            "http server: failed to listen on tcp socket",
-           pg_log_c_u16("port", port), pg_log_c_err("err", err));
+           pg_log_c_u16("port", options.port), pg_log_c_err("err", err));
     goto end;
   }
 
   pg_log(logger, PG_LOG_LEVEL_INFO, "http server: listening",
-         pg_log_c_u16("port", port));
+         pg_log_c_u16("port", options.port));
 
   for (;;) {
     PgIpv4AddressAcceptResult res_accept = pg_net_tcp_accept(server_socket);
@@ -7926,7 +7931,7 @@ static PgError pg_http_server_start(u16 port, u64 listen_backlog,
       err = res_accept.err;
       pg_log(logger, PG_LOG_LEVEL_ERROR,
              "http server: failed to accept new connection",
-             pg_log_c_u16("port", port), pg_log_c_err("err", err));
+             pg_log_c_u16("port", options.port), pg_log_c_err("err", err));
       goto end;
     }
 
@@ -7935,13 +7940,15 @@ static PgError pg_http_server_start(u16 port, u64 listen_backlog,
       pg_log(
           logger, PG_LOG_LEVEL_ERROR,
           "http server: failed to spawn new process to handle new connection",
-          pg_log_c_u16("port", port), pg_log_c_err("err", res_proc_dup.err));
+          pg_log_c_u16("port", options.port),
+          pg_log_c_err("err", res_proc_dup.err));
       (void)pg_net_socket_close(res_accept.socket);
       continue;
     }
 
     if (0 == res_proc_dup.res) { // Child.
-      PgArena arena = pg_arena_make_from_virtual_mem(http_handler_arena_mem);
+      PgArena arena =
+          pg_arena_make_from_virtual_mem(options.http_handler_arena_mem);
       PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
       PgAllocator *allocator =
           pg_arena_allocator_as_allocator(&arena_allocator);
