@@ -122,6 +122,7 @@ typedef u32 PgError;
 #define PG_ERR_INVALID_VALUE EINVAL
 #define PG_ERR_IO EIO
 #define PG_ERR_TOO_BIG E2BIG
+#define PG_ERR_EAGAIN EAGAIN
 #else
 // Use the x86_64 Linux errno values.
 #define PG_ERR_INVALID_VALUE 22
@@ -2768,6 +2769,32 @@ pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
       return res;
     }
   } while (1); // FIXME: Bounded;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_buf_reader_fill_until_full_or_eof(PgBufReader *r) {
+  for (u64 _i = 0; _i < r->ring.data.len; _i++) {
+    u8 tmp[4096] = {0};
+    Pgu8Slice tmp_slice = {
+        .data = tmp,
+        .len =
+            PG_MIN(PG_STATIC_ARRAY_LEN(tmp), pg_ring_can_write_count(r->ring)),
+    };
+    Pgu64Result read_res = pg_reader_read_non_blocking(&r->reader, tmp_slice);
+    if (PG_ERR_EAGAIN == read_res.err) {
+      return 0;
+    }
+
+    if (read_res.err) {
+      return read_res.err;
+    }
+
+    PG_ASSERT(read_res.res > 0);
+
+    tmp_slice.len = read_res.res;
+    PG_ASSERT(tmp_slice.len == pg_ring_write_bytes(&r->ring, tmp_slice));
+  }
+  return 0;
 }
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
@@ -6381,6 +6408,9 @@ pg_buf_reader_try_fill_internal_buffer_once(PgBufReader *r) {
   }
 
   Pgu64Result res_read = pg_reader_read_non_blocking(&r->reader, tmp_slice);
+  if (PG_ERR_EAGAIN == res_read.err) {
+    return 0;
+  }
   if (res_read.err) {
     return res_read.err;
   }

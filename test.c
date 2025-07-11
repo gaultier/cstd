@@ -1485,9 +1485,9 @@ static void test_http_read_request_full_no_content_length() {
       PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1\r\nAccept: "
            "application/json\r\nContent-Type: "
            "text/html\r\n\r\nHello, world!");
-  PgFileDescriptorPairResult res_sockets =
-      pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_IPV4, PG_NET_SOCKET_TYPE_TCP,
-                              PG_NET_SOCKET_OPTION_NONE);
+  PgFileDescriptorPairResult res_sockets = pg_net_make_socket_pair(
+      PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
+      PG_NET_SOCKET_OPTION_NONE);
   PG_ASSERT(0 == res_sockets.err);
 
   PG_ASSERT(0 ==
@@ -1553,9 +1553,9 @@ static void test_http_read_request_full_without_headers() {
 
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\nHello, world!");
-  PgFileDescriptorPairResult res_sockets =
-      pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_IPV4, PG_NET_SOCKET_TYPE_TCP,
-                              PG_NET_SOCKET_OPTION_NONE);
+  PgFileDescriptorPairResult res_sockets = pg_net_make_socket_pair(
+      PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
+      PG_NET_SOCKET_OPTION_NONE);
   PG_ASSERT(0 == res_sockets.err);
 
   PG_ASSERT(0 ==
@@ -1604,9 +1604,9 @@ static void test_http_read_request_full_without_body() {
 
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\n");
-  PgFileDescriptorPairResult res_sockets =
-      pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_IPV4, PG_NET_SOCKET_TYPE_TCP,
-                              PG_NET_SOCKET_OPTION_NONE);
+  PgFileDescriptorPairResult res_sockets = pg_net_make_socket_pair(
+      PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
+      PG_NET_SOCKET_OPTION_NONE);
   PG_ASSERT(0 == res_sockets.err);
 
   PG_ASSERT(0 ==
@@ -1649,11 +1649,8 @@ static void test_http_read_request_full_without_body() {
 
   // Body.
   {
-    u8 body[128] = {0};
-    Pgu8Slice body_slice = {.data = body, .len = PG_STATIC_ARRAY_LEN(body)};
-    Pgu64Result res_read = pg_buf_reader_read(&buf_reader, body_slice);
-    PG_ASSERT(!res_read.err);
-    PG_ASSERT(0 == res_read.res);
+    PG_ASSERT(0 == pg_buf_reader_fill_until_full_or_eof(&buf_reader));
+    PG_ASSERT(0 == pg_ring_can_read_count(buf_reader.ring));
   }
 }
 
@@ -1667,9 +1664,9 @@ static void test_http_read_request_no_body_separator_yet() {
            "application/json\r\nContent-Type: "
            "text/html\r\n");
 
-  PgFileDescriptorPairResult res_sockets =
-      pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_IPV4, PG_NET_SOCKET_TYPE_TCP,
-                              PG_NET_SOCKET_OPTION_NONE);
+  PgFileDescriptorPairResult res_sockets = pg_net_make_socket_pair(
+      PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
+      PG_NET_SOCKET_OPTION_NONE);
   PG_ASSERT(0 == res_sockets.err);
 
   PG_ASSERT(0 ==
@@ -1680,7 +1677,8 @@ static void test_http_read_request_no_body_separator_yet() {
   PgHttpRequestReadResult res_req =
       pg_http_read_request(&buf_reader, allocator);
 
-  PG_ASSERT(PG_ERR_EOF == res_req.err);
+  PG_ASSERT(0 == res_req.err);
+  PG_ASSERT(res_req.done);
 }
 
 #if 0
