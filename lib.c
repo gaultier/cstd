@@ -882,6 +882,26 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
        : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),               \
           fflush(stdout), fflush(stderr), __builtin_trap(), 0))
 
+static u8 *pg_memcpy(void *restrict dst, void *restrict src, u64 len) {
+  if (!dst) {
+    return dst;
+  }
+  if (!src) {
+    return dst;
+  }
+  if (0 == len) {
+    return dst;
+  }
+
+  u8 *dst_bytes = dst;
+  u8 *src_bytes = src;
+
+  for (u64 i = 0; i < len; i++) {
+    (*dst_bytes++) = (*src_bytes++);
+  }
+  return dst;
+}
+
 [[maybe_unused]] [[nodiscard]] static u64 pg_div_ceil(u64 a, u64 b) {
   PG_ASSERT(b > 0);
   return a / b + (a % b != 0);
@@ -2127,7 +2147,7 @@ pg_bytes_make(u64 len, PgAllocator *allocator) {
 pg_string_to_cstr(PgString s, PgAllocator *allocator) {
   char *res = (char *)pg_alloc(allocator, sizeof(u8), 1, s.len + 1);
   PG_ASSERT(res);
-  memcpy(res, s.data, s.len);
+  pg_memcpy(res, s.data, s.len);
 
   PG_ASSERT(0 == PG_C_ARRAY_AT(res, s.len + 1, s.len));
 
@@ -2179,7 +2199,7 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
     u64 cap;
   } PgReplica;
 
-  memcpy(&PgReplica, slice, sizeof(PgReplica));
+  pg_memcpy(&PgReplica, slice, sizeof(PgReplica));
   PG_ASSERT(PgReplica.cap < count);
 
   u64 new_cap = PgReplica.cap == 0 ? 2 : PgReplica.cap;
@@ -2215,7 +2235,7 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
   PgReplica.cap = new_cap;
 
   PG_ASSERT(nullptr != slice);
-  memcpy(slice, &PgReplica, sizeof(PgReplica));
+  pg_memcpy(slice, &PgReplica, sizeof(PgReplica));
 }
 
 #define PG_DYN_ENSURE_CAP(dyn, new_cap, allocator)                             \
@@ -2334,7 +2354,7 @@ pg_string_builder_make(u64 cap, PgAllocator *allocator) {
   PG_ASSERT(write_count <= rg->data.len);
 
   if (rg->idx_write + write_count <= rg->data.len) { // 1 write.
-    memcpy(rg->data.data + rg->idx_write, src.data, write_count);
+    pg_memcpy(rg->data.data + rg->idx_write, src.data, write_count);
 
     rg->idx_write = (rg->idx_write + write_count) % rg->data.len;
     PG_ASSERT(rg->idx_write < rg->data.len);
@@ -2343,11 +2363,11 @@ pg_string_builder_make(u64 cap, PgAllocator *allocator) {
     u64 write_to_end_count = rg->data.len - rg->idx_write;
     PG_ASSERT(write_to_end_count <= rg->data.len);
     PG_ASSERT(rg->idx_write + write_to_end_count == rg->data.len);
-    memcpy(rg->data.data + rg->idx_write, src.data, write_to_end_count);
+    pg_memcpy(rg->data.data + rg->idx_write, src.data, write_to_end_count);
 
     // Write the rest.
-    memcpy(rg->data.data, src.data + write_to_end_count,
-           write_count - write_to_end_count);
+    pg_memcpy(rg->data.data, src.data + write_to_end_count,
+              write_count - write_to_end_count);
     rg->idx_write = write_count - write_to_end_count;
     PG_ASSERT(rg->idx_write < rg->data.len);
   }
@@ -2374,18 +2394,18 @@ pg_string_builder_make(u64 cap, PgAllocator *allocator) {
   PG_ASSERT(read_count <= rg->count);
 
   if (rg->idx_read + read_count <= rg->data.len) { // 1 read.
-    memcpy(dst.data, rg->data.data + rg->idx_read, read_count);
+    pg_memcpy(dst.data, rg->data.data + rg->idx_read, read_count);
     rg->idx_read = (rg->idx_read + read_count) % rg->data.len;
     PG_ASSERT(rg->idx_read < rg->data.len);
   } else { // 2 reads.
     u64 read_to_end_count = rg->data.len - rg->idx_read;
     PG_ASSERT(read_to_end_count <= rg->data.len);
     PG_ASSERT(rg->idx_read + read_to_end_count == rg->data.len);
-    memcpy(rg->data.data + rg->idx_read, dst.data, read_to_end_count);
+    pg_memcpy(rg->data.data + rg->idx_read, dst.data, read_to_end_count);
 
     // Rest.
-    memcpy(rg->data.data, dst.data + read_to_end_count,
-           read_count - read_to_end_count);
+    pg_memcpy(rg->data.data, dst.data + read_to_end_count,
+              read_count - read_to_end_count);
     rg->idx_read = read_count - read_to_end_count;
   }
 
@@ -2456,7 +2476,7 @@ static void pg_ring_read_skip(PgRing *rg, u64 count) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Ok
-pg_ring_index_of_bytes(PgRing rg, u8 needle0, u8 needle1) {
+pg_ring_index_of_bytes2(PgRing rg, u8 needle0, u8 needle1) {
   Pgu64Ok res = {0};
 
   if (pg_ring_is_empty(rg)) {
@@ -2465,7 +2485,7 @@ pg_ring_index_of_bytes(PgRing rg, u8 needle0, u8 needle1) {
 
   u64 idx = 0;
 
-  for (;;) {
+  for (u64 _i = 0; _i < rg.data.len; _i++) {
     Pgu64Ok idx_opt = pg_ring_index_of_byte(rg, needle0);
     if (!idx_opt.ok) {
       return res;
@@ -2500,6 +2520,7 @@ pg_ring_index_of_bytes(PgRing rg, u8 needle0, u8 needle1) {
     pg_ring_read_skip(&rg, 1);
     idx += 1;
   }
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static bool pg_ring_try_read_u32(PgRing *rg,
@@ -2597,7 +2618,7 @@ pg_reader_read(PgReader *r, Pgu8Slice dst) {
     if (n > 0) {
       PG_ASSERT(dst.data);
       PG_ASSERT(r->u.bytes.data);
-      memcpy(dst.data, r->u.bytes.data, n);
+      pg_memcpy(dst.data, r->u.bytes.data, n);
     }
     res.res = n;
 
@@ -3037,7 +3058,7 @@ pg_string_index_of_any_unescaped_rune(PgString haystack, PgString needles,
 pg_string_clone(PgString s, PgAllocator *allocator) {
   PgString res = pg_string_make(s.len, allocator);
   if (res.data != nullptr) {
-    memcpy(res.data, s.data, s.len);
+    pg_memcpy(res.data, s.data, s.len);
   }
 
   return res;
@@ -3281,7 +3302,7 @@ static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
 
   u64 len_rounded_down_64 = (s.len / 64) * 64;
   u64 rem = s.len % 64;
-  memcpy(ctx.buffer, s.data + len_rounded_down_64, rem);
+  pg_memcpy(ctx.buffer, s.data + len_rounded_down_64, rem);
 
   ctx.count = s.len * 8;
   PgSha1 res = {0};
@@ -3834,8 +3855,8 @@ pg_string_concat(PgString left, PgString right, PgAllocator *allocator) {
   PgString res = pg_string_make(left.len + right.len, allocator);
   PG_ASSERT(res.data);
 
-  memcpy(res.data, left.data, left.len);
-  memcpy(res.data + left.len, right.data, right.len);
+  pg_memcpy(res.data, left.data, left.len);
+  pg_memcpy(res.data + left.len, right.data, right.len);
 
   return res;
 }
@@ -5990,6 +6011,8 @@ pg_http_parse_request_status_line(PgString status_line,
   cut = pg_string_cut_rune(cut.right, ' ');
   {
     PgString path = pg_string_trim_space(cut.left);
+    // Need to clone since the data being parsed is transient.
+    path = pg_string_clone(path, allocator);
     PgUrlResult res_url = pg_url_parse_after_authority(path, allocator);
     if (res_url.err) {
       res.err = PG_ERR_INVALID_VALUE;
@@ -6172,7 +6195,7 @@ pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_buf_reader_try_fill_internal_buffer(PgBufReader *r) {
+pg_buf_reader_try_fill_internal_buffer_once(PgBufReader *r) {
   PG_ASSERT(r);
 
   u64 ring_write_space = pg_ring_can_write_count(r->ring);
@@ -6201,114 +6224,165 @@ pg_buf_reader_try_fill_internal_buffer(PgBufReader *r) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_buf_reader_read_mem_until_bytes2_incl(PgBufReader *r, Pgu8Slice dst,
-                                         u8 needle0, u8 needle1) {
+pg_buf_reader_read_mem_until_bytes1_incl(PgBufReader *r, Pgu8Slice dst,
+                                         u8 needle) {
   PG_ASSERT(dst.data);
 
   for (;;) {
     Pgu64Result res = {0};
-    PgError err = pg_buf_reader_try_fill_internal_buffer(r);
+    PgError err = pg_buf_reader_try_fill_internal_buffer_once(r);
     if (err) {
       res.err = err;
       return res;
     }
 
-    // NOTE: We want to only read until the `needle`, and not one byte more.
-    Pgu64Ok search = pg_ring_index_of_bytes(r->ring, needle0, needle1);
+    Pgu64Ok search = pg_ring_index_of_byte(r->ring, needle);
     if (!search.ok) {
       return res;
     }
 
-    // Do the real read out of the real ring.
-    u64 n_read = search.res + 2;
-    PG_ASSERT(n_read ==
-              pg_ring_read_bytes(&r->ring, PG_SLICE_RANGE(dst, 0, n_read)));
-    res.res = n_read;
+    res.res = search.res;
     return res;
   }
 }
 
-#define PG_HTTP_HEADER_MAX_LEN 4096
-#define PG_HTTP_HEADERS_MAX 512
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_buf_reader_read_mem_until_bytes2_incl(PgBufReader *r, Pgu8Slice dst,
+                                         u8 needle0, u8 needle1) {
+  PG_ASSERT(dst.data);
+
+  Pgu64Result res = {0};
+  PgError err = pg_buf_reader_try_fill_internal_buffer_once(r);
+  // In case of error, the needle could still be in the ring buffer so we keep
+  // going.
+
+  Pgu64Ok search = pg_ring_index_of_bytes2(r->ring, needle0, needle1);
+  if (!search.ok) {
+    // Surface the error.
+    res.err = err;
+    return res;
+  }
+
+  // Do the real read out of the real ring.
+  u64 n_read = search.res + 2;
+  PG_ASSERT(n_read ==
+            pg_ring_read_bytes(&r->ring, PG_SLICE_RANGE(dst, 0, n_read)));
+  res.res = n_read;
+  return res;
+}
 
 typedef enum {
-  PG_HTTP_REQUEST_PARSE_STATE_INITIAL,
-  PG_HTTP_REQUEST_PARSE_STATE_HEADERS,
-  PG_HTTP_REQUEST_PARSE_STATE_AFTER_HEADERS,
-  PG_HTTP_REQUEST_PARSE_STATE_END,
-} PgHttpRequestParseState;
+  PG_NEWLINE_KIND_LF,
+  PG_NEWLINE_KIND_CRLF,
+} PgNewlineKind;
+
+[[nodiscard]] static Pgu64Result
+pg_buf_reader_read_line(PgBufReader *reader, PgNewlineKind newline_kind,
+                        PgString dst) {
+  Pgu64Result res = {0};
+  switch (newline_kind) {
+  case PG_NEWLINE_KIND_LF:
+    res = pg_buf_reader_read_mem_until_bytes1_incl(reader, dst, '\n');
+    break;
+  case PG_NEWLINE_KIND_CRLF:
+    res = pg_buf_reader_read_mem_until_bytes2_incl(reader, dst, '\r', '\n');
+    break;
+  default:
+    PG_ASSERT(0);
+  }
+
+  if (res.err) {
+    return res;
+  }
+
+  switch (newline_kind) {
+  case PG_NEWLINE_KIND_LF: {
+    PG_ASSERT(res.res >= 1);
+    PG_ASSERT('\n' == PG_SLICE_AT(dst, res.res - 1));
+    // Trim.
+    res.res -= 1;
+  } break;
+  case PG_NEWLINE_KIND_CRLF: {
+    PG_ASSERT(res.res >= 2);
+    PG_ASSERT('\r' == PG_SLICE_AT(dst, res.res - 2));
+    PG_ASSERT('\n' == PG_SLICE_AT(dst, res.res - 1));
+    // Trim.
+    res.res -= 2;
+  } break;
+  default:
+    PG_ASSERT(0);
+  }
+
+  return res;
+}
+
+#define PG_HTTP_LINE_MAX_LEN 4096
+#define PG_HTTP_HEADERS_MAX 512
 
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
 pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
   PgHttpRequestReadResult res = {0};
 
-  PgHttpRequestParseState state = PG_HTTP_REQUEST_PARSE_STATE_INITIAL;
-
-  for (u64 i = 0; i < PG_HTTP_HEADERS_MAX; i++) {
-    u8 header_bytes[PG_HTTP_HEADER_MAX_LEN] = {0};
-    Pgu8Slice header_bytes_slice = {
-        .data = header_bytes,
-        .len = PG_HTTP_HEADER_MAX_LEN,
-    };
-    Pgu64Result res_read_header = pg_buf_reader_read_mem_until_bytes2_incl(
-        reader, header_bytes_slice, '\r', '\n');
-    if (res_read_header.err) {
-      res.err = res_read_header.err;
+  u8 recv[PG_HTTP_LINE_MAX_LEN] = {0};
+  Pgu8Slice recv_slice = {
+      .data = recv,
+      .len = PG_HTTP_LINE_MAX_LEN,
+  };
+  // Status line.
+  {
+    Pgu64Result res_read =
+        pg_buf_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
+    if (res_read.err) {
+      res.err = res_read.err;
       return res;
     }
+    PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.res);
 
-    header_bytes_slice.len = res_read_header.res;
-    if (0 == header_bytes_slice.len) {
-      res.err = PG_ERR_EOF;
+    PgHttpRequestStatusLineResult res_status_line =
+        pg_http_parse_request_status_line(line, allocator);
+
+    if (res_status_line.err) {
+      res.err = res_status_line.err;
       return res;
     }
-
-    switch (state) {
-    case PG_HTTP_REQUEST_PARSE_STATE_INITIAL: {
-      PG_ASSERT(0 == i);
-      PgHttpRequestStatusLineResult res_status_line =
-          pg_http_parse_request_status_line(header_bytes_slice, allocator);
-
-      if (res_status_line.err) {
-        res.err = res_status_line.err;
-        return res;
-      }
-
-      res.res.method = res_status_line.res.method;
-      res.res.url = res_status_line.res.url;
-      res.res.version_major = res_status_line.res.version_major;
-      res.res.version_minor = res_status_line.res.version_minor;
-
-      state = PG_HTTP_REQUEST_PARSE_STATE_HEADERS;
-    } break;
-    case PG_HTTP_REQUEST_PARSE_STATE_HEADERS: {
-      if (0 == header_bytes_slice.len) {
-        // FIXME: check `\r\n\r\n`.
-        state = PG_HTTP_REQUEST_PARSE_STATE_AFTER_HEADERS;
-        continue;
-      }
-      PgStringKeyValueResult res_kv = pg_http_parse_header(header_bytes_slice);
-      if (res_kv.err) {
-        res.err = res_kv.err;
-        return res;
-      }
-
-      *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.res;
-
-      state = PG_HTTP_REQUEST_PARSE_STATE_HEADERS;
-    } break;
-    case PG_HTTP_REQUEST_PARSE_STATE_END:
-      break;
-    }
+    res.res.method = res_status_line.res.method;
+    res.res.url = res_status_line.res.url;
+    res.res.version_major = res_status_line.res.version_major;
+    res.res.version_minor = res_status_line.res.version_minor;
   }
-}
-if (!PG_SLICE_IS_EMPTY(it.s)) {
-  res.err = PG_ERR_INVALID_VALUE;
-  return res;
-}
 
-res.done = true;
-return res;
+  // Headers.
+  for (u64 i = 0; i < PG_HTTP_HEADERS_MAX; i++) {
+    recv_slice.len = PG_STATIC_ARRAY_LEN(recv);
+    Pgu64Result res_read =
+        pg_buf_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
+    if (res_read.err) {
+      res.err = res_read.err;
+      return res;
+    }
+    PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.res);
+
+    if (0 == line.len) { // `\r\n\r\n`.
+      goto read_body;
+    }
+
+    PgStringKeyValueResult res_kv =
+        pg_http_parse_header(pg_string_clone(line, allocator));
+    if (res_kv.err) {
+      res.err = res_kv.err;
+      return res;
+    }
+
+    *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.res;
+  }
+
+  // Too many headers.
+  res.err = PG_ERR_TOO_BIG;
+  return res;
+
+read_body:
+  res.done = true;
+  return res;
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
@@ -6694,7 +6768,7 @@ typedef int (*PgCmpFn)(const void *a, const void *b);
   PG_SHA1Final(digest.data, &ctx);
 
   PgUuid res = {.version = 5};
-  memcpy(res.value, digest.data, 16);
+  pg_memcpy(res.value, digest.data, 16);
 
   res.value[6] &= 0x0F;
   res.value[6] |= 0x50;
@@ -7535,7 +7609,7 @@ pg_elf_parse(Pgu8Slice elf_bytes, PgAllocator *allocator) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
-  memcpy(&res.res.header, elf_bytes.data, sizeof(res.res.header));
+  pg_memcpy(&res.res.header, elf_bytes.data, sizeof(res.res.header));
 
   // Section headers.
   {
@@ -7582,7 +7656,7 @@ pg_elf_parse(Pgu8Slice elf_bytes, PgAllocator *allocator) {
         }
 
         PG_DYN_ENSURE_CAP(&res.res.symtab, section.size, allocator);
-        memcpy(res.res.symtab.data, bytes.data, bytes.len);
+        pg_memcpy(res.res.symtab.data, bytes.data, bytes.len);
         res.res.symtab.len = bytes.len / sizeof(PgElfSymbolTableEntry);
       } break;
       case PG_ELF_SECTION_HEADER_KIND_STRTAB: {
@@ -7717,12 +7791,12 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
 
 [[maybe_unused]] [[nodiscard]]
 static PgError pg_http_server_handler(PgFileDescriptor sock, PgLogger *logger,
-                                      PgAllocator *tmp_allocator,
                                       PgAllocator *allocator) {
   PgReader reader = pg_reader_make_from_file_descriptor(sock);
-  PgBufReader buf_reader = pg_buf_reader_make(reader, 12 * PG_KiB, allocator);
+  PgBufReader buf_reader =
+      pg_buf_reader_make(reader, PG_HTTP_LINE_MAX_LEN, allocator);
   PgHttpRequestReadResult res_req =
-      pg_http_read_request(&buf_reader, tmp_allocator, allocator);
+      pg_http_read_request(&buf_reader, allocator);
 
   if (res_req.err) {
     pg_log(logger, PG_LOG_LEVEL_ERROR,
@@ -7852,14 +7926,7 @@ static PgError pg_http_server_start(u16 port, u64 listen_backlog,
       PgAllocator *allocator =
           pg_arena_allocator_as_allocator(&arena_allocator);
 
-      PgArena tmp_arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-      PgArenaAllocator tmp_arena_allocator =
-          pg_make_arena_allocator(&tmp_arena);
-      PgAllocator *tmp_allocator =
-          pg_arena_allocator_as_allocator(&tmp_arena_allocator);
-
-      (void)pg_http_server_handler(res_accept.socket, logger, tmp_allocator,
-                                   allocator);
+      (void)pg_http_server_handler(res_accept.socket, logger, allocator);
       exit(0);
     }
 

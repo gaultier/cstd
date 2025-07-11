@@ -1481,11 +1481,6 @@ static void test_http_read_request_full_no_content_length() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgArena tmp_arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-  PgArenaAllocator tmp_arena_allocator = pg_make_arena_allocator(&tmp_arena);
-  PgAllocator *tmp_allocator =
-      pg_arena_allocator_as_allocator(&tmp_arena_allocator);
-
   PgString req_str =
       PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1\r\nAccept: "
            "application/json\r\nContent-Type: "
@@ -1493,7 +1488,7 @@ static void test_http_read_request_full_no_content_length() {
   PgReader reader = pg_reader_make_from_bytes(req_str);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
-      pg_http_read_request(&buf_reader, tmp_allocator, allocator);
+      pg_http_read_request(&buf_reader, allocator);
 
   PG_ASSERT(!res_req.err);
   PG_ASSERT(res_req.done);
@@ -1548,17 +1543,12 @@ static void test_http_read_request_full_without_headers() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgArena tmp_arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-  PgArenaAllocator tmp_arena_allocator = pg_make_arena_allocator(&tmp_arena);
-  PgAllocator *tmp_allocator =
-      pg_arena_allocator_as_allocator(&tmp_arena_allocator);
-
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\nHello, world!");
   PgReader reader = pg_reader_make_from_bytes(req_str);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
-      pg_http_read_request(&buf_reader, tmp_allocator, allocator);
+      pg_http_read_request(&buf_reader, allocator);
 
   PG_ASSERT(!res_req.err);
   PG_ASSERT(res_req.done);
@@ -1596,17 +1586,12 @@ static void test_http_read_request_full_without_body() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgArena tmp_arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-  PgArenaAllocator tmp_arena_allocator = pg_make_arena_allocator(&tmp_arena);
-  PgAllocator *tmp_allocator =
-      pg_arena_allocator_as_allocator(&tmp_arena_allocator);
-
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\n");
   PgReader reader = pg_reader_make_from_bytes(req_str);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
-      pg_http_read_request(&buf_reader, tmp_allocator, allocator);
+      pg_http_read_request(&buf_reader, allocator);
 
   PG_ASSERT(!res_req.err);
   PG_ASSERT(res_req.done);
@@ -1653,11 +1638,6 @@ static void test_http_read_request_no_body_separator_yet() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgArena tmp_arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-  PgArenaAllocator tmp_arena_allocator = pg_make_arena_allocator(&tmp_arena);
-  PgAllocator *tmp_allocator =
-      pg_arena_allocator_as_allocator(&tmp_arena_allocator);
-
   PgString req_str =
       PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1\r\nAccept: "
            "application/json\r\nContent-Type: "
@@ -1665,7 +1645,7 @@ static void test_http_read_request_no_body_separator_yet() {
   PgReader reader = pg_reader_make_from_bytes(req_str);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
-      pg_http_read_request(&buf_reader, tmp_allocator, allocator);
+      pg_http_read_request(&buf_reader, allocator);
 
   PG_ASSERT(PG_ERR_EOF == res_req.err);
 }
