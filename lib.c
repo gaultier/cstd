@@ -356,6 +356,7 @@ typedef enum {
   PG_WRITER_KIND_NONE, // no-op.
   PG_WRITER_KIND_FILE,
   PG_WRITER_KIND_BYTES,
+  PG_WRITER_KIND_SOCKET,
 } PgWriterKind;
 
 struct PgWriter {
@@ -363,6 +364,7 @@ struct PgWriter {
   union {
     PgFileDescriptor file;
     Pgu8Dyn bytes;
+    PgFileDescriptor socket;
   } u;
 };
 
@@ -592,6 +594,11 @@ typedef struct {
   PgReader reader;
   PgRing ring;
 } PgBufReader;
+
+typedef struct {
+  PgWriter writer;
+  PgRing ring;
+} PgBufWriter;
 
 typedef enum {
   PG_LOG_VALUE_STRING,
@@ -858,7 +865,10 @@ typedef struct {
 } PgElf;
 PG_RESULT(PgElf) PgElfResult;
 
-typedef PgHttpResponse (*PgHttpHandler)(PgHttpRequest req, PgLogger *logger,
+typedef PgHttpResponse (*PgHttpHandler)(PgHttpRequest req,
+                                        PgBufReader *buf_reader,
+                                        PgBufWriter *buf_writer,
+                                        PgLogger *logger,
                                         PgAllocator *allocator, void *ctx);
 
 typedef struct {
@@ -2643,8 +2653,10 @@ pg_ring_index_of_bytes2(PgRing rg, u8 needle0, u8 needle1) {
   PG_ASSERT(w);
 
   switch (w->kind) {
+  case PG_WRITER_KIND_SOCKET:
   case PG_WRITER_KIND_FILE:
     return pg_file_close(w->u.file);
+
   case PG_WRITER_KIND_NONE:
   case PG_WRITER_KIND_BYTES:
     return 0;
@@ -2674,6 +2686,8 @@ pg_writer_write(PgWriter *w, Pgu8Slice src, PgAllocator *allocator) {
     PG_DYN_APPEND_SLICE(&w->u.bytes, src, allocator);
     res.res = src.len;
     return res;
+  case PG_WRITER_KIND_SOCKET:
+    return pg_net_socket_write(w->u.socket, src);
   }
   default:
     PG_ASSERT(0);
@@ -4124,6 +4138,14 @@ pg_reader_make_from_bytes(Pgu8Slice bytes) {
   r.kind = PG_READER_KIND_BYTES;
   r.u.bytes = bytes;
   return r;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgWriter
+pg_writer_make_from_socket(PgFileDescriptor file) {
+  PgWriter w = {0};
+  w.kind = PG_WRITER_KIND_SOCKET;
+  w.u.file = file;
+  return w;
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
@@ -5909,8 +5931,8 @@ pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
   return res;
 }
 
-[[nodiscard]] static PgString pg_url_to_string(PgUrl u,
-                                               PgAllocator *allocator) {
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_url_to_string(PgUrl u, PgAllocator *allocator) {
   Pgu8Dyn sb = pg_string_builder_make(256, allocator);
   PG_DYN_APPEND_SLICE(&sb, u.scheme, allocator);
   if (u.scheme.len) {
@@ -6426,6 +6448,15 @@ pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
 pg_buf_reader_make(PgReader reader, u64 buf_size, PgAllocator *allocator) {
   PgBufReader res = {0};
   res.reader = reader;
+  res.ring = pg_ring_make(buf_size, allocator);
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgBufWriter
+pg_buf_writer_make(PgWriter writer, u64 buf_size, PgAllocator *allocator) {
+  PgBufWriter res = {0};
+  res.writer = writer;
   res.ring = pg_ring_make(buf_size, allocator);
 
   return res;
@@ -8100,10 +8131,15 @@ pg_http_server_handler(PgFileDescriptor sock, PgHttpServerOptions options,
 
   PgHttpRequest req = res_req.res;
 
+  PgWriter writer = pg_writer_make_from_socket(sock);
+  PgBufWriter buf_writer =
+      pg_buf_writer_make(writer, PG_HTTP_LINE_MAX_LEN, allocator);
+
   // Response.
   PgHttpResponse resp = {0};
   if (options.handler) {
-    resp = options.handler(req, logger, allocator, options.ctx);
+    resp = options.handler(req, &buf_reader, &buf_writer, logger, allocator,
+                           options.ctx);
   }
   if (!resp.status) {
     resp.status = 200;
