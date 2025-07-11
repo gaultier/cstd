@@ -183,6 +183,8 @@ PG_DYN(void) PgAnyDyn;
 PG_OK(Pgu8Slice) Pgu8SliceOk;
 PG_RESULT(Pgu8Slice) Pgu8SliceResult;
 
+PG_RESULT(Pgu64Ok) Pgu64OkResult;
+
 #define PG_STATIC_ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
 // Clamp a value in the range `[min, max]`.
@@ -216,8 +218,12 @@ typedef union {
   int fd;
   void *ptr;
 } PgFileDescriptor;
-
 PG_RESULT(PgFileDescriptor) PgFileDescriptorResult;
+
+typedef struct {
+  PgFileDescriptor read, write;
+} PgPipe;
+PG_RESULT(PgPipe) PgPipeResult;
 
 typedef enum {
   PG_FILE_ACCESS_NONE = 0,
@@ -312,13 +318,15 @@ typedef enum {
 typedef enum {
   PG_READER_KIND_BYTES,
   PG_READER_KIND_FILE,
+  PG_READER_KIND_SOCKET,
 } PgReaderKind;
 
 typedef struct {
   PgReaderKind kind;
   union {
-    PgFileDescriptor file;
     Pgu8Slice bytes;
+    PgFileDescriptor file;
+    PgFileDescriptor socket;
   } u;
 } PgReader;
 
@@ -835,6 +843,8 @@ PG_RESULT(PgElf) PgElfResult;
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin();
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout();
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr();
+
+[[maybe_unused]] [[nodiscard]] static PgPipeResult pg_pipe_make();
 
 [[maybe_unused]] static Pgu64Result pg_file_read_at(PgFileDescriptor file,
                                                     PgString buf, u64 offset);
@@ -2309,6 +2319,48 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
     }                                                                          \
   } while (0)
 
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
+pg_net_create_tcp_socket();
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_close(PgFileDescriptor sock);
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_set_nodelay(PgFileDescriptor sock, bool enabled);
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_connect_ipv4(PgFileDescriptor sock, PgIpv4Address address);
+
+[[maybe_unused]] [[nodiscard]] static PgDnsResolveIpv4AddressSocketResult
+pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgAllocator *allocator);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_tcp_listen(PgFileDescriptor sock, u64 backlog);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_tcp_bind_ipv4(PgFileDescriptor sock, PgIpv4Address addr);
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_enable_reuse(PgFileDescriptor sock);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_set_blocking(PgFileDescriptor sock, bool blocking);
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_net_socket_write(PgFileDescriptor sock, PgString data);
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_net_socket_read(PgFileDescriptor sock, PgString data);
+
+[[nodiscard]] static Pgu64Result
+pg_net_socket_read_non_blocking(PgFileDescriptor socket, PgString dst);
+
+[[maybe_unused]] [[nodiscard]] static PgIpv4AddressAcceptResult
+pg_net_tcp_accept(PgFileDescriptor sock);
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_get_socket_error(PgFileDescriptor socket);
+
+[[maybe_unused]] [[nodiscard]] static Pgu32Result pg_process_dup();
+
+[[nodiscard]] static PgError pg_process_avoid_child_zombies();
+
 [[maybe_unused]] [[nodiscard]] static Pgu8Dyn
 pg_string_builder_make(u64 cap, PgAllocator *allocator) {
   Pgu8Dyn res = {0};
@@ -2627,7 +2679,7 @@ pg_writer_write_string_full(PgWriter *w, PgString s, PgAllocator *allocator) {
 }
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_reader_read(PgReader *r, Pgu8Slice dst) {
+pg_reader_read_blocking(PgReader *r, Pgu8Slice dst) {
   PG_ASSERT(dst.data);
 
   switch (r->kind) {
@@ -2646,6 +2698,24 @@ pg_reader_read(PgReader *r, Pgu8Slice dst) {
 
     return res;
   }
+  case PG_READER_KIND_SOCKET:
+    return pg_net_socket_read(r->u.socket, dst);
+  case PG_READER_KIND_FILE:
+    return pg_file_read(r->u.file, dst);
+  default:
+    PG_ASSERT(0);
+  }
+}
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_reader_read_non_blocking(PgReader *r, Pgu8Slice dst) {
+  PG_ASSERT(dst.data);
+
+  switch (r->kind) {
+  case PG_READER_KIND_BYTES:
+    return pg_reader_read_blocking(r, dst);
+  case PG_READER_KIND_SOCKET:
+    return pg_net_socket_read_non_blocking(r->u.socket, dst);
   case PG_READER_KIND_FILE:
     return pg_file_read(r->u.file, dst);
   default:
@@ -2662,7 +2732,7 @@ pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
     PG_ASSERT(idx < buf.len);
 
     Pgu8Slice dst = PG_SLICE_RANGE_START(buf, idx);
-    Pgu64Result read_res = pg_reader_read(r, dst);
+    Pgu64Result read_res = pg_reader_read_blocking(r, dst);
 
     if (read_res.err) {
       res.err = read_res.err;
@@ -2685,7 +2755,7 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r, PgAllocator *allocator) {
   u8 tmp[4096] = {0};
   PgString dst = {.data = tmp, .len = PG_STATIC_ARRAY_LEN(tmp)};
 
-  res = pg_reader_read(r, dst);
+  res = pg_reader_read_blocking(r, dst);
   if (res.err) {
     return res;
   }
@@ -3972,9 +4042,17 @@ end:
 }
 
 [[nodiscard]] [[maybe_unused]] static PgReader
-pg_reader_make_from_file_descriptor(PgFileDescriptor file) {
+pg_reader_make_from_file(PgFileDescriptor file) {
   PgReader r = {0};
   r.kind = PG_READER_KIND_FILE;
+  r.u.file = file;
+  return r;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgReader
+pg_reader_make_from_socket(PgFileDescriptor file) {
+  PgReader r = {0};
+  r.kind = PG_READER_KIND_SOCKET;
   r.u.file = file;
   return r;
 }
@@ -4121,45 +4199,6 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
-pg_net_create_tcp_socket();
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_net_socket_close(PgFileDescriptor sock);
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_net_set_nodelay(PgFileDescriptor sock, bool enabled);
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_net_connect_ipv4(PgFileDescriptor sock, PgIpv4Address address);
-
-[[maybe_unused]] [[nodiscard]] static PgDnsResolveIpv4AddressSocketResult
-pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgAllocator *allocator);
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_net_tcp_listen(PgFileDescriptor sock, u64 backlog);
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_net_tcp_bind_ipv4(PgFileDescriptor sock, PgIpv4Address addr);
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_net_socket_enable_reuse(PgFileDescriptor sock);
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_net_socket_set_blocking(PgFileDescriptor sock, bool blocking);
-
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_net_socket_write(PgFileDescriptor sock, PgString data);
-
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_net_socket_read(PgFileDescriptor sock, PgString data);
-
-[[maybe_unused]] [[nodiscard]] static PgIpv4AddressAcceptResult
-pg_net_tcp_accept(PgFileDescriptor sock);
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_net_get_socket_error(PgFileDescriptor socket);
-
-[[maybe_unused]] [[nodiscard]] static Pgu32Result pg_process_dup();
-
-[[nodiscard]] static PgError pg_process_avoid_child_zombies();
-
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
 #include <errno.h>
@@ -4178,6 +4217,21 @@ pg_net_get_socket_error(PgFileDescriptor socket);
 
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
+
+[[maybe_unused]] [[nodiscard]] static PgPipeResult pg_pipe_make() {
+  PgPipeResult res = {0};
+
+  int fds[2] = {0};
+  int ret = pipe(fds);
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res.read.fd = fds[PG_PIPE_READ];
+  res.res.write.fd = fds[PG_PIPE_WRITE];
+  return res;
+}
 
 [[nodiscard]] static PgError pg_process_avoid_child_zombies() {
   struct sigaction handler = {.sa_handler = SIG_IGN};
@@ -5004,6 +5058,21 @@ pg_file_size(PgFileDescriptor file) {
   }
 
   res.res = (u64)st.st_size;
+  return res;
+}
+
+[[nodiscard]] static Pgu64Result
+pg_net_socket_read_non_blocking(PgFileDescriptor socket, PgString dst) {
+  Pgu64Result res = {0};
+
+  i64 ret = recv(socket.fd, dst.data, dst.len, MSG_DONTWAIT);
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u64)ret;
+
   return res;
 }
 
@@ -6202,7 +6271,7 @@ pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
       .data = tmp,
       .len = PG_MIN(PG_STATIC_ARRAY_LEN(tmp), pg_ring_can_write_count(r->ring)),
   };
-  Pgu64Result res_read = pg_reader_read(&r->reader, tmp_slice);
+  Pgu64Result res_read = pg_reader_read_blocking(&r->reader, tmp_slice);
   if (res_read.err) {
     res.err = res_read.err;
     return res;
@@ -6229,12 +6298,12 @@ pg_buf_reader_try_fill_internal_buffer_once(PgBufReader *r) {
     return 0;
   }
 
-  Pgu64Result res_read = pg_reader_read(&r->reader, tmp_slice);
+  Pgu64Result res_read = pg_reader_read_non_blocking(&r->reader, tmp_slice);
   if (res_read.err) {
     return res_read.err;
   }
   if (0 == res_read.res) {
-    return PG_ERR_EOF;
+    return 0;
   }
 
   Pgu8Slice read_data = PG_SLICE_RANGE(tmp_slice, 0, res_read.res);
@@ -6243,13 +6312,13 @@ pg_buf_reader_try_fill_internal_buffer_once(PgBufReader *r) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static Pgu64OkResult
 pg_buf_reader_read_mem_until_bytes1_incl(PgBufReader *r, Pgu8Slice dst,
                                          u8 needle) {
   PG_ASSERT(dst.data);
 
   for (;;) {
-    Pgu64Result res = {0};
+    Pgu64OkResult res = {0};
     PgError err = pg_buf_reader_try_fill_internal_buffer_once(r);
     if (err) {
       res.err = err;
@@ -6261,17 +6330,18 @@ pg_buf_reader_read_mem_until_bytes1_incl(PgBufReader *r, Pgu8Slice dst,
       return res;
     }
 
-    res.res = search.res;
+    res.res.ok = true;
+    res.res.res = search.res;
     return res;
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
+[[maybe_unused]] [[nodiscard]] static Pgu64OkResult
 pg_buf_reader_read_mem_until_bytes2_incl(PgBufReader *r, Pgu8Slice dst,
                                          u8 needle0, u8 needle1) {
   PG_ASSERT(dst.data);
 
-  Pgu64Result res = {0};
+  Pgu64OkResult res = {0};
   PgError err = pg_buf_reader_try_fill_internal_buffer_once(r);
   // In case of error, the needle could still be in the ring buffer so we keep
   // going.
@@ -6287,7 +6357,8 @@ pg_buf_reader_read_mem_until_bytes2_incl(PgBufReader *r, Pgu8Slice dst,
   u64 n_read = search.res + 2;
   PG_ASSERT(n_read ==
             pg_ring_read_bytes(&r->ring, PG_SLICE_RANGE(dst, 0, n_read)));
-  res.res = n_read;
+  res.res.ok = true;
+  res.res.res = n_read;
   return res;
 }
 
@@ -6296,10 +6367,10 @@ typedef enum {
   PG_NEWLINE_KIND_CRLF,
 } PgNewlineKind;
 
-[[nodiscard]] static Pgu64Result
+[[nodiscard]] static Pgu64OkResult
 pg_buf_reader_read_line(PgBufReader *reader, PgNewlineKind newline_kind,
                         PgString dst) {
-  Pgu64Result res = {0};
+  Pgu64OkResult res = {0};
   switch (newline_kind) {
   case PG_NEWLINE_KIND_LF:
     res = pg_buf_reader_read_mem_until_bytes1_incl(reader, dst, '\n');
@@ -6314,20 +6385,23 @@ pg_buf_reader_read_line(PgBufReader *reader, PgNewlineKind newline_kind,
   if (res.err) {
     return res;
   }
+  if (!res.res.ok) {
+    return res;
+  }
 
   switch (newline_kind) {
   case PG_NEWLINE_KIND_LF: {
-    PG_ASSERT(res.res >= 1);
-    PG_ASSERT('\n' == PG_SLICE_AT(dst, res.res - 1));
+    PG_ASSERT(res.res.res >= 1);
+    PG_ASSERT('\n' == PG_SLICE_AT(dst, res.res.res - 1));
     // Trim.
-    res.res -= 1;
+    res.res.res -= 1;
   } break;
   case PG_NEWLINE_KIND_CRLF: {
-    PG_ASSERT(res.res >= 2);
-    PG_ASSERT('\r' == PG_SLICE_AT(dst, res.res - 2));
-    PG_ASSERT('\n' == PG_SLICE_AT(dst, res.res - 1));
+    PG_ASSERT(res.res.res >= 2);
+    PG_ASSERT('\r' == PG_SLICE_AT(dst, res.res.res - 2));
+    PG_ASSERT('\n' == PG_SLICE_AT(dst, res.res.res - 1));
     // Trim.
-    res.res -= 2;
+    res.res.res -= 2;
   } break;
   default:
     PG_ASSERT(0);
@@ -6350,13 +6424,18 @@ pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
   };
   // Status line.
   {
-    Pgu64Result res_read =
+    Pgu64OkResult res_read =
         pg_buf_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
     if (res_read.err) {
       res.err = res_read.err;
       return res;
     }
-    PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.res);
+    if (!res_read.res.ok) {
+      res.err = PG_ERR_EOF;
+      return res;
+    }
+
+    PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.res.res);
 
     PgHttpRequestStatusLineResult res_status_line =
         pg_http_parse_request_status_line(line, allocator);
@@ -6374,13 +6453,17 @@ pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
   // Headers.
   for (u64 i = 0; i < PG_HTTP_HEADERS_MAX; i++) {
     recv_slice.len = PG_STATIC_ARRAY_LEN(recv);
-    Pgu64Result res_read =
+    Pgu64OkResult res_read =
         pg_buf_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
     if (res_read.err) {
       res.err = res_read.err;
       return res;
     }
-    PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.res);
+    if (!res_read.res.ok) {
+      goto read_body;
+    }
+
+    PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.res.res);
 
     if (0 == line.len) { // `\r\n\r\n`.
       goto read_body;
@@ -7812,7 +7895,7 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
 [[maybe_unused]] [[nodiscard]]
 static PgError pg_http_server_handler(PgFileDescriptor sock, PgLogger *logger,
                                       PgAllocator *allocator) {
-  PgReader reader = pg_reader_make_from_file_descriptor(sock);
+  PgReader reader = pg_reader_make_from_socket(sock);
   PgBufReader buf_reader =
       pg_buf_reader_make(reader, PG_HTTP_LINE_MAX_LEN, allocator);
   PgHttpRequestReadResult res_req =
@@ -7834,7 +7917,7 @@ static PgError pg_http_server_handler(PgFileDescriptor sock, PgLogger *logger,
 
   PgHttpRequest req = res_req.res;
   (void)req;
-  // __builtin_dump_struct(&req, printf);
+  __builtin_dump_struct(&req, printf);
 
   // TODO: Read body depending on the HTTP method.
 

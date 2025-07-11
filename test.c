@@ -1545,7 +1545,13 @@ static void test_http_read_request_full_without_headers() {
 
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\nHello, world!");
-  PgReader reader = pg_reader_make_from_bytes(req_str);
+  PgPipeResult res_pipe = pg_pipe_make();
+  PG_ASSERT(!res_pipe.err);
+  PgFileDescriptor pipe_read = res_pipe.res.read;
+  PgFileDescriptor pipe_write = res_pipe.res.write;
+  PG_ASSERT(0 == pg_file_write_full_with_descriptor(pipe_write, req_str));
+
+  PgReader reader = pg_reader_make_from_file(pipe_read);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
       pg_http_read_request(&buf_reader, allocator);
@@ -1586,9 +1592,16 @@ static void test_http_read_request_full_without_body() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
+  PgPipeResult res_pipe = pg_pipe_make();
+  PG_ASSERT(!res_pipe.err);
+  PgFileDescriptor pipe_read = res_pipe.res.read;
+  PgFileDescriptor pipe_write = res_pipe.res.write;
+
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\n");
-  PgReader reader = pg_reader_make_from_bytes(req_str);
+  PG_ASSERT(0 == pg_file_write_full_with_descriptor(pipe_write, req_str));
+
+  PgReader reader = pg_reader_make_from_file(pipe_read);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
       pg_http_read_request(&buf_reader, allocator);
@@ -1642,7 +1655,13 @@ static void test_http_read_request_no_body_separator_yet() {
       PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1\r\nAccept: "
            "application/json\r\nContent-Type: "
            "text/html\r\n");
-  PgReader reader = pg_reader_make_from_bytes(req_str);
+  PgPipeResult res_pipe = pg_pipe_make();
+  PG_ASSERT(!res_pipe.err);
+  PgFileDescriptor pipe_read = res_pipe.res.read;
+  PgFileDescriptor pipe_write = res_pipe.res.write;
+  PG_ASSERT(0 == pg_file_write_full_with_descriptor(pipe_write, req_str));
+
+  PgReader reader = pg_reader_make_from_file(pipe_read);
   PgBufReader buf_reader = pg_buf_reader_make(reader, 512, allocator);
   PgHttpRequestReadResult res_req =
       pg_http_read_request(&buf_reader, allocator);
