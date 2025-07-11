@@ -1595,6 +1595,24 @@ static void test_http_read_request_full_without_headers() {
   PG_ASSERT(pg_string_eq(PG_S("bar"), query_param0.value));
   PG_ASSERT(pg_string_eq(PG_S("baz"), query_param1.key));
   PG_ASSERT(pg_string_eq(PG_S(""), query_param1.value));
+
+  // Body.
+  {
+    PG_ASSERT(0 == pg_buf_reader_fill_until_full_or_eof(&buf_reader));
+    PgString expected = PG_S("Hello, world!");
+    PG_ASSERT(expected.len == pg_ring_can_read_count(buf_reader.ring));
+
+    u8 tmp[64] = {0};
+    Pgu8Slice tmp_slice = {
+        .data = tmp,
+        .len = PG_STATIC_ARRAY_LEN(tmp),
+    };
+    Pgu64Result res_read = pg_buf_reader_read(&buf_reader, tmp_slice);
+    PG_ASSERT(0 == res_read.err);
+    PG_ASSERT(expected.len == res_read.res);
+    tmp_slice.len = res_read.res;
+    PG_ASSERT(pg_string_eq(tmp_slice, expected));
+  }
 }
 
 static void test_http_read_request_full_without_body() {
