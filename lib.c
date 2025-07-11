@@ -95,10 +95,14 @@ typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
+typedef __uint128_t u128;
+
 typedef int8_t i8;
 typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
+typedef __int128_t i128;
+
 typedef size_t usize;
 typedef ssize_t isize;
 
@@ -3806,6 +3810,15 @@ pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl) {
                              (float)UINT32_MAX);
   PG_ASSERT(min_incl <= res);
   PG_ASSERT(res <= max_incl);
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static u128 pg_rng_make_u128(PgRng *rng) {
+  u128 res = 0;
+
+  for (u64 i = 0; i < 4; i++) {
+    *(((u32 *)&res) + i) = pg_rand_u32_min_incl_max_incl(rng, 0, UINT32_MAX);
+  }
   return res;
 }
 
