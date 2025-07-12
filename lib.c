@@ -341,6 +341,19 @@ typedef enum {
   PG_CMP_GREATER = 1,
 } PgCompare;
 
+// Ring buffer.
+// Invariants:
+// - `idx_read < data.len`
+// - `idx_write < data.len`
+// - `count <= data.len`
+// - Empty <=> `count == 0`.
+// - No empty slot to signal something
+typedef struct {
+  u64 idx_read, idx_write;
+  PgString data;
+  u64 count;
+} PgRing;
+
 typedef enum {
   PG_READER_KIND_BYTES,
   PG_READER_KIND_FILE,
@@ -354,20 +367,8 @@ typedef struct {
     PgFileDescriptor file;
     PgFileDescriptor socket;
   } u;
+  PgRing ring;
 } PgReader;
-
-// Ring buffer.
-// Invariants:
-// - `idx_read < data.len`
-// - `idx_write < data.len`
-// - `count <= data.len`
-// - Empty <=> `count == 0`.
-// - No empty slot to signal something
-typedef struct {
-  u64 idx_read, idx_write;
-  PgString data;
-  u64 count;
-} PgRing;
 
 typedef enum {
   PG_WRITER_KIND_NONE, // no-op.
@@ -595,11 +596,6 @@ typedef struct {
   PgHttpRequest res;
   PgError err;
 } PgHttpRequestReadResult;
-
-typedef struct {
-  PgReader reader;
-  PgRing ring;
-} PgBufReader;
 
 typedef enum {
   PG_LOG_VALUE_STRING,
@@ -866,8 +862,7 @@ typedef struct {
 } PgElf;
 PG_RESULT(PgElf) PgElfResult;
 
-typedef PgHttpResponse (*PgHttpHandler)(PgHttpRequest req,
-                                        PgBufReader *buf_reader,
+typedef PgHttpResponse (*PgHttpHandler)(PgHttpRequest req, PgReader *buf_reader,
                                         PgWriter *writer, PgLogger *logger,
                                         PgAllocator *allocator, void *ctx);
 
@@ -2729,7 +2724,7 @@ pg_writer_write_string_full(PgWriter *w, PgString s, PgAllocator *allocator) {
 }
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_reader_read_blocking(PgReader *r, Pgu8Slice dst) {
+pg_reader_read(PgReader *r, Pgu8Slice dst) {
   PG_ASSERT(dst.data);
 
   switch (r->kind) {
@@ -2763,7 +2758,7 @@ pg_reader_read_non_blocking(PgReader *r, Pgu8Slice dst) {
 
   switch (r->kind) {
   case PG_READER_KIND_BYTES:
-    return pg_reader_read_blocking(r, dst);
+    return pg_reader_read(r, dst);
   case PG_READER_KIND_SOCKET:
     return pg_net_socket_read_non_blocking(r->u.socket, dst);
   case PG_READER_KIND_FILE:
@@ -2782,7 +2777,7 @@ pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
     PG_ASSERT(idx < buf.len);
 
     Pgu8Slice dst = PG_SLICE_RANGE_START(buf, idx);
-    Pgu64Result read_res = pg_reader_read_blocking(r, dst);
+    Pgu64Result read_res = pg_reader_read(r, dst);
 
     if (read_res.err) {
       res.err = read_res.err;
@@ -2797,32 +2792,6 @@ pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
   } while (1); // FIXME: Bounded;
 }
 
-[[nodiscard]] [[maybe_unused]] static PgError
-pg_buf_reader_fill_until_full_or_eof(PgBufReader *r) {
-  for (u64 _i = 0; _i < r->ring.data.len; _i++) {
-    u8 tmp[4096] = {0};
-    Pgu8Slice tmp_slice = {
-        .data = tmp,
-        .len =
-            PG_MIN(PG_STATIC_ARRAY_LEN(tmp), pg_ring_can_write_count(r->ring)),
-    };
-    Pgu64Result read_res = pg_reader_read_non_blocking(&r->reader, tmp_slice);
-    if (PG_ERR_EAGAIN == read_res.err) {
-      return 0;
-    }
-
-    if (read_res.err) {
-      return read_res.err;
-    }
-
-    PG_ASSERT(read_res.res > 0);
-
-    tmp_slice.len = read_res.res;
-    PG_ASSERT(tmp_slice.len == pg_ring_write_bytes(&r->ring, tmp_slice));
-  }
-  return 0;
-}
-
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
 pg_writer_write_from_reader(PgWriter *w, PgReader *r, PgAllocator *allocator) {
   Pgu64Result res = {0};
@@ -2831,7 +2800,7 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r, PgAllocator *allocator) {
   u8 tmp[4096] = {0};
   PgString dst = {.data = tmp, .len = PG_STATIC_ARRAY_LEN(tmp)};
 
-  res = pg_reader_read_blocking(r, dst);
+  res = pg_reader_read(r, dst);
   if (res.err) {
     return res;
   }
@@ -4132,18 +4101,26 @@ end:
 }
 
 [[nodiscard]] [[maybe_unused]] static PgReader
-pg_reader_make_from_file(PgFileDescriptor file) {
+pg_reader_make_from_file(PgFileDescriptor file, u64 buffer_size,
+                         PgAllocator *allocator) {
   PgReader r = {0};
   r.kind = PG_READER_KIND_FILE;
   r.u.file = file;
+  if (buffer_size) {
+    r.ring = pg_ring_make(buffer_size, allocator);
+  }
   return r;
 }
 
 [[nodiscard]] [[maybe_unused]] static PgReader
-pg_reader_make_from_socket(PgFileDescriptor file) {
+pg_reader_make_from_socket(PgFileDescriptor file, u64 buffer_size,
+                           PgAllocator *allocator) {
   PgReader r = {0};
   r.kind = PG_READER_KIND_SOCKET;
   r.u.file = file;
+  if (buffer_size) {
+    r.ring = pg_ring_make(buffer_size, allocator);
+  }
   return r;
 }
 
@@ -6463,49 +6440,15 @@ pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
 }
 #endif
 
-[[maybe_unused]] [[nodiscard]] static PgBufReader
-pg_buf_reader_make(PgReader reader, u64 buf_size, PgAllocator *allocator) {
-  PgBufReader res = {0};
-  res.reader = reader;
-  res.ring = pg_ring_make(buf_size, allocator);
-
-  return res;
-}
-
-[[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
-  PG_ASSERT(r);
-
-  Pgu64Result res = {0};
-
-  u64 n_read = pg_ring_read_bytes(&r->ring, dst);
-  if (n_read > 0) {
-    res.res = n_read;
-    return res;
-  }
-
-  // Time to call the underlying reader.
-
-  u8 tmp[4096] = {0};
-  Pgu8Slice tmp_slice = {
-      .data = tmp,
-      .len = PG_MIN(PG_STATIC_ARRAY_LEN(tmp), pg_ring_can_write_count(r->ring)),
-  };
-  Pgu64Result res_read = pg_reader_read_blocking(&r->reader, tmp_slice);
-  if (res_read.err) {
-    res.err = res_read.err;
-    return res;
-  }
-
-  Pgu8Slice read_data = PG_SLICE_RANGE(tmp_slice, 0, res_read.res);
-  PG_ASSERT(read_data.len == pg_ring_write_bytes(&r->ring, read_data));
-
-  return res;
-}
+typedef enum {
+  PG_NEWLINE_KIND_LF,
+  PG_NEWLINE_KIND_CRLF,
+} PgNewlineKind;
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_buf_reader_try_fill_internal_buffer_once(PgBufReader *r) {
+pg_buf_reader_try_fill_once(PgReader *r) {
   PG_ASSERT(r);
+  PG_ASSERT(r->ring.data.len);
 
   u64 ring_write_space = pg_ring_can_write_count(r->ring);
   u8 tmp[4096] = {0};
@@ -6518,7 +6461,7 @@ pg_buf_reader_try_fill_internal_buffer_once(PgBufReader *r) {
     return 0;
   }
 
-  Pgu64Result res_read = pg_reader_read_non_blocking(&r->reader, tmp_slice);
+  Pgu64Result res_read = pg_reader_read(r, tmp_slice);
   if (PG_ERR_EAGAIN == res_read.err) {
     return 0;
   }
@@ -6536,19 +6479,19 @@ pg_buf_reader_try_fill_internal_buffer_once(PgBufReader *r) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64OkResult
-pg_buf_reader_read_mem_until_bytes1_incl(PgBufReader *r, Pgu8Slice dst,
-                                         u8 needle) {
+pg_reader_read_until_byte_incl(PgReader *r, Pgu8Slice dst, u8 needle) {
   PG_ASSERT(dst.data);
 
-  for (;;) {
+  if (0 == r->ring.data.len) { // Simple reader.
     Pgu64OkResult res = {0};
-    PgError err = pg_buf_reader_try_fill_internal_buffer_once(r);
-    if (err) {
-      res.err = err;
+    Pgu64Result res_read = pg_reader_read(r, dst);
+    if (res_read.err) {
+      res.err = res_read.err;
       return res;
     }
 
-    Pgu64Ok search = pg_ring_index_of_byte(r->ring, needle);
+    Pgu8Slice haystack = PG_SLICE_RANGE(dst, 0, res_read.res);
+    Pgu64Ok search = pg_bytes_index_of_byte(haystack, needle);
     if (!search.ok) {
       return res;
     }
@@ -6556,50 +6499,118 @@ pg_buf_reader_read_mem_until_bytes1_incl(PgBufReader *r, Pgu8Slice dst,
     res.res.ok = true;
     res.res.res = search.res;
     return res;
+  } else { // Buffered reader.
+    PG_ASSERT(dst.len >= r->ring.data.len);
+
+    for (u64 _i = 0; _i <= 1; _i++) {
+      Pgu64OkResult res = {0};
+      Pgu64Ok search = pg_ring_index_of_byte(r->ring, needle);
+      if (search.ok) {
+        search.res += 1; // Incl.
+        PG_ASSERT(
+            pg_ring_read_bytes(&r->ring, PG_SLICE_RANGE(dst, 0, search.res)) ==
+            search.res);
+
+        res.res.ok = true;
+        res.res.res = search.res;
+        return res;
+      }
+
+      // Do not overwrite data.
+      if (pg_ring_is_full(r->ring)) {
+        res.err = PG_ERR_TOO_BIG;
+        return res;
+      }
+
+      // TODO: Should we do multiple reads?
+      PgError err = pg_buf_reader_try_fill_once(r);
+      if (err) {
+        res.err = err;
+        return res;
+      }
+
+      // Fill failed, stop.
+      if (pg_ring_is_empty(r->ring)) {
+        return res;
+      }
+    }
+    PG_ASSERT(0);
   }
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64OkResult
-pg_buf_reader_read_mem_until_bytes2_incl(PgBufReader *r, Pgu8Slice dst,
-                                         u8 needle0, u8 needle1) {
+pg_reader_read_until_bytes2_incl(PgReader *r, Pgu8Slice dst, u8 needle0,
+                                 u8 needle1) {
   PG_ASSERT(dst.data);
 
-  Pgu64OkResult res = {0};
-  PgError err = pg_buf_reader_try_fill_internal_buffer_once(r);
-  // In case of error, the needle could still be in the ring buffer so we keep
-  // going.
+  if (0 == r->ring.data.len) { // Simple reader.
+    Pgu64OkResult res = {0};
+    // TODO: Multiple reads?
+    Pgu64Result res_read = pg_reader_read(r, dst);
+    if (res_read.err) {
+      res.err = res_read.err;
+      return res;
+    }
 
-  Pgu64Ok search = pg_ring_index_of_bytes2(r->ring, needle0, needle1);
-  if (!search.ok) {
-    // Surface the error.
-    res.err = err;
+    u8 needle_data[2] = {needle0, needle1};
+    Pgu8Slice needle = {.data = needle_data, .len = 2};
+    Pgu8Slice haystack = PG_SLICE_RANGE(dst, 0, res_read.res);
+    Pgu64Ok search = pg_bytes_index_of_bytes(haystack, needle);
+    if (!search.ok) {
+      return res;
+    }
+
+    res.res.ok = true;
+    res.res.res = search.res;
     return res;
-  }
+  } else {
+    PG_ASSERT(dst.len >= r->ring.data.len);
 
-  // Do the real read out of the real ring.
-  u64 n_read = search.res + 2;
-  PG_ASSERT(n_read ==
-            pg_ring_read_bytes(&r->ring, PG_SLICE_RANGE(dst, 0, n_read)));
-  res.res.ok = true;
-  res.res.res = n_read;
-  return res;
+    for (u64 _i = 0; _i <= 1; _i++) {
+      Pgu64OkResult res = {0};
+      Pgu64Ok search = pg_ring_index_of_bytes2(r->ring, needle0, needle1);
+      if (search.ok) {
+        search.res += 2; // Incl.
+        PG_ASSERT(
+            pg_ring_read_bytes(&r->ring, PG_SLICE_RANGE(dst, 0, search.res)) ==
+            search.res);
+        res.res.ok = true;
+        res.res.res = search.res;
+        return res;
+      }
+
+      // Do not overwrite data.
+      if (pg_ring_is_full(r->ring)) {
+        res.err = PG_ERR_TOO_BIG;
+        return res;
+      }
+
+      // TODO: Should we do multiple reads?
+      PgError err = pg_buf_reader_try_fill_once(r);
+      if (err) {
+        res.err = err;
+        return res;
+      }
+
+      // Fill failed, stop.
+      if (pg_ring_is_empty(r->ring)) {
+        return res;
+      }
+    }
+    PG_ASSERT(0);
+  }
 }
 
-typedef enum {
-  PG_NEWLINE_KIND_LF,
-  PG_NEWLINE_KIND_CRLF,
-} PgNewlineKind;
-
 [[nodiscard]] static Pgu64OkResult
-pg_buf_reader_read_line(PgBufReader *reader, PgNewlineKind newline_kind,
-                        PgString dst) {
+pg_reader_read_line(PgReader *reader, PgNewlineKind newline_kind,
+                    PgString dst) {
   Pgu64OkResult res = {0};
   switch (newline_kind) {
   case PG_NEWLINE_KIND_LF:
-    res = pg_buf_reader_read_mem_until_bytes1_incl(reader, dst, '\n');
+    res = pg_reader_read_until_byte_incl(reader, dst, '\n');
     break;
   case PG_NEWLINE_KIND_CRLF:
-    res = pg_buf_reader_read_mem_until_bytes2_incl(reader, dst, '\r', '\n');
+    res = pg_reader_read_until_bytes2_incl(reader, dst, '\r', '\n');
     break;
   default:
     PG_ASSERT(0);
@@ -6637,7 +6648,7 @@ pg_buf_reader_read_line(PgBufReader *reader, PgNewlineKind newline_kind,
 #define PG_HTTP_HEADERS_MAX 512
 
 [[maybe_unused]] [[nodiscard]] static PgHttpRequestReadResult
-pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
+pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
   PgHttpRequestReadResult res = {0};
 
   u8 recv[PG_HTTP_LINE_MAX_LEN] = {0};
@@ -6648,7 +6659,7 @@ pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
   // Status line.
   {
     Pgu64OkResult res_read =
-        pg_buf_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
+        pg_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
     if (res_read.err) {
       res.err = res_read.err;
       return res;
@@ -6677,19 +6688,19 @@ pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
   for (u64 i = 0; i < PG_HTTP_HEADERS_MAX; i++) {
     recv_slice.len = PG_STATIC_ARRAY_LEN(recv);
     Pgu64OkResult res_read =
-        pg_buf_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
+        pg_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
     if (res_read.err) {
       res.err = res_read.err;
       return res;
     }
     if (!res_read.res.ok) {
-      goto read_body;
+      goto end;
     }
 
     PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.res.res);
 
     if (0 == line.len) { // `\r\n\r\n`.
-      goto read_body;
+      goto end;
     }
 
     PgStringKeyValueResult res_kv =
@@ -6706,7 +6717,7 @@ pg_http_read_request(PgBufReader *reader, PgAllocator *allocator) {
   res.err = PG_ERR_TOO_BIG;
   return res;
 
-read_body:
+end:
   res.done = true;
   return res;
 }
@@ -8119,11 +8130,9 @@ pg_http_server_handler(PgFileDescriptor sock, PgHttpServerOptions options,
                        PgLogger *logger, PgAllocator *allocator) {
   // TODO: Timeouts.
 
-  PgReader reader = pg_reader_make_from_socket(sock);
-  PgBufReader buf_reader =
-      pg_buf_reader_make(reader, PG_HTTP_LINE_MAX_LEN, allocator);
-  PgHttpRequestReadResult res_req =
-      pg_http_read_request(&buf_reader, allocator);
+  PgReader reader =
+      pg_reader_make_from_socket(sock, PG_HTTP_LINE_MAX_LEN, allocator);
+  PgHttpRequestReadResult res_req = pg_http_read_request(&reader, allocator);
 
   if (res_req.err) {
     pg_log(logger, PG_LOG_LEVEL_ERROR,
@@ -8147,8 +8156,8 @@ pg_http_server_handler(PgFileDescriptor sock, PgHttpServerOptions options,
   // Response.
   PgHttpResponse resp = {0};
   if (options.handler) {
-    resp = options.handler(req, &buf_reader, &writer, logger, allocator,
-                           options.ctx);
+    resp =
+        options.handler(req, &reader, &writer, logger, allocator, options.ctx);
   }
   if (!resp.status) {
     resp.status = 200;
