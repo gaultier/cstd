@@ -874,7 +874,15 @@ typedef struct {
   void *ctx;
 } PgHttpServerOptions;
 
+PG_RESULT(PgString) PgStringResult;
+PG_OK(PgString) PgStringOk;
+PG_SLICE(PgString) PgStringSlice;
+
+PG_RESULT(PgStringSlice) PgStringSliceResult;
+
 // ---------------- Functions.
+
+#define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin();
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout();
@@ -983,8 +991,6 @@ static u8 *pg_memmove(void *dst, void *src, u64 len) {
 
 #define PG_SLICE_AT_PTR(s, idx) (PG_C_ARRAY_AT_PTR((s)->data, (s)->len, idx))
 
-#define PG_SLICE_AT_CAST(T, s, idx) (PG_C_ARRAY_AT((T *)(s).data, (s).len, idx))
-
 #define PG_SLICE_MAKE(T, l, arena)                                             \
   ((T##Slice){.data = pg_arena_new(arena, T, l), .len = l})
 
@@ -1043,8 +1049,10 @@ pg_rune_ascii_is_alphabetical(PgRune c) {
          pg_rune_ascii_is_alphabetical_lowercase(c);
 }
 
+static const PgString PG_ASCII_SPACES = PG_S(" \f\n\r\t");
+
 [[maybe_unused]] [[nodiscard]] static bool pg_rune_ascii_is_space(PgRune c) {
-  return ' ' == c || '\t' == c || '\n' == c || '\f' == c;
+  return ' ' == c || '\t' == c || '\n' == c || '\f' == c || '\r' == c;
 }
 
 [[maybe_unused]] [[nodiscard]] static bool pg_rune_ascii_is_numeric(PgRune c) {
@@ -1092,16 +1100,8 @@ pg_rune_ascii_to_upper_case(PgRune c) {
   PG_ASSERT(false);
 }
 
-PG_RESULT(PgString) PgStringResult;
-PG_OK(PgString) PgStringOk;
-PG_SLICE(PgString) PgStringSlice;
-
-PG_RESULT(PgStringSlice) PgStringSliceResult;
-
 #define PG_SLICE_IS_EMPTY(s)                                                   \
   (((s).len == 0) ? true : (PG_ASSERT(nullptr != (s).data), false))
-
-#define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
 
 #define PG_SLICE_RANGE(s, start, end)                                          \
   ((typeof((s))){                                                              \
@@ -1620,6 +1620,21 @@ static Pgu64Ok pg_bytes_index_of_bytes(Pgu8Slice haystack, Pgu8Slice needle) {
   }
 
   return res;
+}
+
+[[nodiscard]]
+static bool pg_bytes_contains_any_byte(Pgu8Slice haystack, Pgu8Slice needles) {
+  for (u64 i = 0; i < haystack.len; i++) {
+    u8 c = PG_SLICE_AT(haystack, i);
+    for (u64 j = 0; j < needles.len; j++) {
+      u8 n = PG_SLICE_AT(needles, j);
+
+      if (c == n) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 [[maybe_unused]] [[nodiscard]]
@@ -7069,18 +7084,26 @@ pg_log_level_to_string(PgLogLevel level) {
                            PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);       \
   } while (0)
 
-[[nodiscard]] static bool pg_logfmt_byte_needs_escaping(u8 c) {
-  return (c < ' ' || c > 0x7f || '"' == c || '\n' == c);
+[[nodiscard]] static bool pg_logfmt_byte_needs_hex_replacing(u8 c) {
+  return '"' == c;
 }
 
 static PgError pg_logfmt_write_string_escaped(PgWriter *w, PgString entry,
                                               PgAllocator *allocator) {
+  PgError err = 0;
+
+  bool has_spaces = pg_bytes_contains_any_byte(entry, PG_ASCII_SPACES);
+  if (has_spaces) {
+    err = pg_writer_write_u8(w, '"', allocator);
+    if (err) {
+      return err;
+    }
+  }
 
   for (u64 i = 0; i < entry.len; i++) {
     u8 c = PG_SLICE_AT(entry, i);
 
-    PgError err = 0;
-    if (!pg_logfmt_byte_needs_escaping(c)) {
+    if (!pg_logfmt_byte_needs_hex_replacing(c)) {
       err = pg_writer_write_u8(w, c, allocator);
       if (err) {
         return err;
@@ -7102,6 +7125,14 @@ static PgError pg_logfmt_write_string_escaped(PgWriter *w, PgString entry,
       }
     }
   }
+
+  if (has_spaces) {
+    err = pg_writer_write_u8(w, '"', allocator);
+    if (err) {
+      return err;
+    }
+  }
+
   return 0;
 }
 
