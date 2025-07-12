@@ -2,6 +2,7 @@
 #define CSTD_LIB_C
 
 // TODO: Buffered I/O writer.
+// TODO: Threads.
 // TODO: Document all functions.
 // TODO: IPv6.
 // TODO: *Pool allocator?*
@@ -44,7 +45,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #if 0
-#include <threads.h>
+#include <threads.h> // FIXME: Use pthreads on Unix and <xxx> on Windows.
 #endif
 
 // Check that __COUNTER__ is defined and that __COUNTER__ increases by 1
