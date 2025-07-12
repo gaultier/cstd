@@ -4048,6 +4048,11 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
   return w;
 }
 
+[[maybe_unused]] [[nodiscard]] static PgWriter pg_writer_make_noop() {
+  PgWriter w = {0};
+  return w;
+}
+
 [[maybe_unused]] static PgStringResult
 pg_file_read_full_from_descriptor(PgFileDescriptor file, u64 size,
                                   PgAllocator *allocator) {
