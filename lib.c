@@ -356,24 +356,6 @@ typedef struct {
   } u;
 } PgReader;
 
-typedef struct PgWriter PgWriter;
-
-typedef enum {
-  PG_WRITER_KIND_NONE, // no-op.
-  PG_WRITER_KIND_FILE,
-  PG_WRITER_KIND_BYTES,
-  PG_WRITER_KIND_SOCKET,
-} PgWriterKind;
-
-struct PgWriter {
-  PgWriterKind kind;
-  union {
-    PgFileDescriptor file;
-    Pgu8Dyn bytes;
-    PgFileDescriptor socket;
-  } u;
-};
-
 // Ring buffer.
 // Invariants:
 // - `idx_read < data.len`
@@ -386,6 +368,24 @@ typedef struct {
   PgString data;
   u64 count;
 } PgRing;
+
+typedef enum {
+  PG_WRITER_KIND_NONE, // no-op.
+  PG_WRITER_KIND_FILE,
+  PG_WRITER_KIND_BYTES,
+  PG_WRITER_KIND_SOCKET,
+} PgWriterKind;
+
+typedef struct {
+  PgWriterKind kind;
+  union {
+    PgFileDescriptor file;
+    Pgu8Dyn bytes;
+    PgFileDescriptor socket;
+  } u;
+  // In case of buffered writer;
+  PgRing ring;
+} PgWriter;
 
 typedef struct {
   u8 data[PG_SHA1_DIGEST_LENGTH];
@@ -600,11 +600,6 @@ typedef struct {
   PgReader reader;
   PgRing ring;
 } PgBufReader;
-
-typedef struct {
-  PgWriter writer;
-  PgRing ring;
-} PgBufWriter;
 
 typedef enum {
   PG_LOG_VALUE_STRING,
@@ -873,8 +868,7 @@ PG_RESULT(PgElf) PgElfResult;
 
 typedef PgHttpResponse (*PgHttpHandler)(PgHttpRequest req,
                                         PgBufReader *buf_reader,
-                                        PgBufWriter *buf_writer,
-                                        PgLogger *logger,
+                                        PgWriter *writer, PgLogger *logger,
                                         PgAllocator *allocator, void *ctx);
 
 typedef struct {
@@ -4162,10 +4156,14 @@ pg_reader_make_from_bytes(Pgu8Slice bytes) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgWriter
-pg_writer_make_from_socket(PgFileDescriptor file) {
+pg_writer_make_from_socket(PgFileDescriptor file, u64 buffer_size,
+                           PgAllocator *allocator) {
   PgWriter w = {0};
   w.kind = PG_WRITER_KIND_SOCKET;
   w.u.file = file;
+  if (buffer_size) {
+    w.ring = pg_ring_make(buffer_size, allocator);
+  }
   return w;
 }
 
@@ -6474,15 +6472,6 @@ pg_buf_reader_make(PgReader reader, u64 buf_size, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgBufWriter
-pg_buf_writer_make(PgWriter writer, u64 buf_size, PgAllocator *allocator) {
-  PgBufWriter res = {0};
-  res.writer = writer;
-  res.ring = pg_ring_make(buf_size, allocator);
-
-  return res;
-}
-
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_buf_reader_read(PgBufReader *r, Pgu8Slice dst) {
   PG_ASSERT(r);
@@ -8152,14 +8141,13 @@ pg_http_server_handler(PgFileDescriptor sock, PgHttpServerOptions options,
 
   PgHttpRequest req = res_req.res;
 
-  PgWriter writer = pg_writer_make_from_socket(sock);
-  PgBufWriter buf_writer =
-      pg_buf_writer_make(writer, PG_HTTP_LINE_MAX_LEN, allocator);
+  PgWriter writer =
+      pg_writer_make_from_socket(sock, PG_HTTP_LINE_MAX_LEN, allocator);
 
   // Response.
   PgHttpResponse resp = {0};
   if (options.handler) {
-    resp = options.handler(req, &buf_reader, &buf_writer, logger, allocator,
+    resp = options.handler(req, &buf_reader, &writer, logger, allocator,
                            options.ctx);
   }
   if (!resp.status) {
