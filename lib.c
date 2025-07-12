@@ -2364,6 +2364,9 @@ pg_net_set_nodelay(PgFileDescriptor sock, bool enabled);
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_connect_ipv4(PgFileDescriptor sock, PgIpv4Address address);
 
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_set_timeout(PgFileDescriptor sock, u64 seconds, u64 microseconds);
+
 [[maybe_unused]] [[nodiscard]] static PgDnsResolveIpv4AddressSocketResult
 pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port, PgAllocator *allocator);
 
@@ -4393,6 +4396,21 @@ pg_pipe_make() {
 
   res.res = (u32)pid;
   return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_net_socket_set_timeout(PgFileDescriptor sock, u64 seconds,
+                          u64 microseconds) {
+  struct timeval timeout = {0};
+  timeout.tv_sec = (time_t)seconds;
+  timeout.tv_usec = (__suseconds_t)microseconds;
+
+  i32 ret =
+      setsockopt(sock.fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+  return 0;
 }
 
 [[nodiscard]]
@@ -6523,14 +6541,16 @@ pg_reader_read_until_byte_incl(PgReader *r, Pgu8Slice dst, u8 needle) {
       }
 
       // TODO: Should we do multiple reads?
+      u64 ring_size_before = pg_ring_can_read_count(r->ring);
       PgError err = pg_buf_reader_try_fill_once(r);
       if (err) {
         res.err = err;
         return res;
       }
 
-      // Fill failed, stop.
-      if (pg_ring_is_empty(r->ring)) {
+      u64 ring_size_after = pg_ring_can_read_count(r->ring);
+      if (ring_size_before == ring_size_after) {
+        // Fill failed, stop.
         return res;
       }
     }
@@ -6586,14 +6606,16 @@ pg_reader_read_until_bytes2_incl(PgReader *r, Pgu8Slice dst, u8 needle0,
       }
 
       // TODO: Should we do multiple reads?
+      u64 ring_size_before = pg_ring_can_read_count(r->ring);
       PgError err = pg_buf_reader_try_fill_once(r);
       if (err) {
         res.err = err;
         return res;
       }
 
-      // Fill failed, stop.
-      if (pg_ring_is_empty(r->ring)) {
+      u64 ring_size_after = pg_ring_can_read_count(r->ring);
+      if (ring_size_before == ring_size_after) {
+        // Fill failed, stop.
         return res;
       }
     }
@@ -6694,7 +6716,8 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
       return res;
     }
     if (!res_read.res.ok) {
-      goto end;
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
     }
 
     PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.res.res);

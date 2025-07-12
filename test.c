@@ -1695,10 +1695,15 @@ static void test_http_read_request_no_body_separator() {
 
   PgReader reader =
       pg_reader_make_from_socket(res_sockets.res.second, 512, allocator);
+  // HACK: Since reads are blocking, to be able to test a partial request, and
+  // have the parser finish, we set a timeout. In reality the http handler would
+  // timeout. Still, this way we can check that parsing the request yields an
+  // error.
+  PG_ASSERT(0 == pg_net_socket_set_timeout(res_sockets.res.second, 0, 1000));
   PgHttpRequestReadResult res_req = pg_http_read_request(&reader, allocator);
 
-  PG_ASSERT(0 == res_req.err);
-  PG_ASSERT(res_req.done);
+  PG_ASSERT(PG_ERR_INVALID_VALUE == res_req.err);
+  PG_ASSERT(!res_req.done);
 }
 
 #if 0
@@ -2748,7 +2753,7 @@ int main() {
   test_http_parse_request_status_line();
   test_http_parse_header();
   test_http_read_request_full_no_content_length();
-  test_http_read_request_no_body_separator_yet();
+  test_http_read_request_no_body_separator();
   test_http_read_request_full_without_headers();
   test_http_read_request_full_without_body();
 #if 0
