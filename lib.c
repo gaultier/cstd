@@ -2683,6 +2683,7 @@ pg_writer_write(PgWriter *w, Pgu8Slice src, PgAllocator *allocator) {
 
   switch (w->kind) {
   case PG_WRITER_KIND_NONE:
+    res.res = src.len;
     return res;
   case PG_WRITER_KIND_FILE:
     return pg_file_write(w->u.file, src);
