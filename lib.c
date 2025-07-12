@@ -2802,7 +2802,7 @@ pg_writer_write(PgWriter *w, Pgu8Slice src, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_writer_write_bytes_full(PgWriter *w, Pgu8Slice s, PgAllocator *allocator) {
+pg_writer_write_full(PgWriter *w, Pgu8Slice s, PgAllocator *allocator) {
   PgString remaining = s;
   for (u64 _i = 0; _i < s.len; _i++) {
     if (pg_string_is_empty(remaining)) {
@@ -2936,7 +2936,7 @@ pg_writer_write_u64_as_string(PgWriter *w, u64 n, PgAllocator *allocator) {
 
   PgString s = {.data = tmp + idx, .len = PG_STATIC_ARRAY_LEN(tmp) - idx};
 
-  return pg_writer_write_bytes_full(w, s, allocator);
+  return pg_writer_write_full(w, s, allocator);
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
@@ -2960,7 +2960,7 @@ pg_writer_write_i64_as_string(PgWriter *w, i64 n, PgAllocator *allocator) {
 
   PgString s = {.data = tmp + idx, .len = PG_STATIC_ARRAY_LEN(tmp) - idx};
 
-  return pg_writer_write_bytes_full(w, s, allocator);
+  return pg_writer_write_full(w, s, allocator);
 }
 
 [[maybe_unused]] static void pg_u32_to_u8x4_be(u32 n, PgString *dst) {
@@ -5817,26 +5817,26 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
                                   PgAllocator *allocator) {
   PgError err = 0;
 
-  err = pg_writer_write_bytes_full(w, pg_http_method_to_string(req.method),
+  err = pg_writer_write_full(w, pg_http_method_to_string(req.method),
                                    allocator);
   if (err) {
     return err;
   }
 
-  err = pg_writer_write_bytes_full(w, PG_S(" /"), allocator);
+  err = pg_writer_write_full(w, PG_S(" /"), allocator);
   if (err) {
     return err;
   }
 
   for (u64 i = 0; i < req.url.path_components.len; i++) {
     PgString path_component = PG_SLICE_AT(req.url.path_components, i);
-    err = pg_writer_write_bytes_full(w, path_component, allocator);
+    err = pg_writer_write_full(w, path_component, allocator);
     if (err) {
       return err;
     }
 
     if (i < req.url.path_components.len - 1) {
-      err = pg_writer_write_bytes_full(w, PG_S("/"), allocator);
+      err = pg_writer_write_full(w, PG_S("/"), allocator);
       if (err) {
         return err;
       }
@@ -5844,7 +5844,7 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
   }
 
   if (req.url.query_parameters.len > 0) {
-    err = pg_writer_write_bytes_full(w, PG_S("?"), allocator);
+    err = pg_writer_write_full(w, PG_S("?"), allocator);
     if (err) {
       return err;
     }
@@ -5857,7 +5857,7 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
       }
 
       if (i < req.url.query_parameters.len - 1) {
-        err = pg_writer_write_bytes_full(w, PG_S("&"), allocator);
+        err = pg_writer_write_full(w, PG_S("&"), allocator);
         if (err) {
           return err;
         }
@@ -5865,7 +5865,7 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
     }
   }
 
-  err = pg_writer_write_bytes_full(w, PG_S(" HTTP/1.1\r\n"), allocator);
+  err = pg_writer_write_full(w, PG_S(" HTTP/1.1\r\n"), allocator);
   if (err) {
     return err;
   }
@@ -5877,7 +5877,7 @@ pg_http_response_write_status_line(PgWriter *w, PgHttpResponse res,
                                    PgAllocator *allocator) {
   PgError err = 0;
 
-  err = pg_writer_write_bytes_full(w, PG_S("HTTP/"), allocator);
+  err = pg_writer_write_full(w, PG_S("HTTP/"), allocator);
   if (err) {
     return err;
   }
@@ -5907,7 +5907,7 @@ pg_http_response_write_status_line(PgWriter *w, PgHttpResponse res,
     return err;
   }
 
-  err = pg_writer_write_bytes_full(w, PG_S("\r\n"), allocator);
+  err = pg_writer_write_full(w, PG_S("\r\n"), allocator);
   if (err) {
     return err;
   }
@@ -5920,22 +5920,22 @@ pg_http_write_header(PgWriter *w, PgStringKeyValue header,
                      PgAllocator *allocator) {
   PgError err = 0;
 
-  err = pg_writer_write_bytes_full(w, header.key, allocator);
+  err = pg_writer_write_full(w, header.key, allocator);
   if (err) {
     return err;
   }
 
-  err = pg_writer_write_bytes_full(w, PG_S(": "), allocator);
+  err = pg_writer_write_full(w, PG_S(": "), allocator);
   if (err) {
     return err;
   }
 
-  err = pg_writer_write_bytes_full(w, header.value, allocator);
+  err = pg_writer_write_full(w, header.value, allocator);
   if (err) {
     return err;
   }
 
-  err = pg_writer_write_bytes_full(w, PG_S("\r\n"), allocator);
+  err = pg_writer_write_full(w, PG_S("\r\n"), allocator);
   if (err) {
     return err;
   }
@@ -6863,7 +6863,7 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req, PgAllocator *allocator) {
       return err;
     }
   }
-  err = pg_writer_write_bytes_full(w, PG_S("\r\n"), allocator);
+  err = pg_writer_write_full(w, PG_S("\r\n"), allocator);
   if (err) {
     return err;
   }
@@ -6901,7 +6901,7 @@ pg_http_write_response(PgWriter *w, PgHttpResponse res,
       return err;
     }
   }
-  err = pg_writer_write_bytes_full(w, PG_S("\r\n"), allocator);
+  err = pg_writer_write_full(w, PG_S("\r\n"), allocator);
   if (err) {
     return err;
   }
@@ -7085,7 +7085,7 @@ static PgError pg_logfmt_write_string_escaped(PgWriter *w, PgString entry,
     } else {
       u8 c1 = c % 16;
       u8 c2 = c / 16;
-      err = pg_writer_write_bytes_full(w, PG_S("\\x"), allocator);
+      err = pg_writer_write_full(w, PG_S("\\x"), allocator);
       if (err) {
         return err;
       }
@@ -7123,17 +7123,17 @@ pg_logger_do_log(PgLogger *logger, PgLogLevel level, PgString msg,
 
   PgError err = 0;
 
-  err = pg_writer_write_bytes_full(&logger->writer, PG_S("level="), allocator);
+  err = pg_writer_write_full(&logger->writer, PG_S("level="), allocator);
   if (err) {
     return err;
   }
-  err = pg_writer_write_bytes_full(&logger->writer,
+  err = pg_writer_write_full(&logger->writer,
                                    pg_log_level_to_string(level), allocator);
   if (err) {
     return err;
   }
 
-  err = pg_writer_write_bytes_full(&logger->writer, PG_S(" timestamp_ns="),
+  err = pg_writer_write_full(&logger->writer, PG_S(" timestamp_ns="),
                                    allocator);
   if (err) {
     return err;
@@ -7143,7 +7143,7 @@ pg_logger_do_log(PgLogger *logger, PgLogLevel level, PgString msg,
     return err;
   }
 
-  err = pg_writer_write_bytes_full(&logger->writer, PG_S(" monotonic_ns="),
+  err = pg_writer_write_full(&logger->writer, PG_S(" monotonic_ns="),
                                    allocator);
   if (err) {
     return err;
@@ -7154,7 +7154,7 @@ pg_logger_do_log(PgLogger *logger, PgLogLevel level, PgString msg,
   }
 
   err =
-      pg_writer_write_bytes_full(&logger->writer, PG_S(" message="), allocator);
+      pg_writer_write_full(&logger->writer, PG_S(" message="), allocator);
   if (err) {
     return err;
   }
@@ -7171,7 +7171,7 @@ pg_logger_do_log(PgLogger *logger, PgLogLevel level, PgString msg,
     if (err) {
       return err;
     }
-    err = pg_writer_write_bytes_full(&logger->writer, entry.key, allocator);
+    err = pg_writer_write_full(&logger->writer, entry.key, allocator);
     if (err) {
       return err;
     }
@@ -7207,7 +7207,7 @@ pg_logger_do_log(PgLogger *logger, PgLogLevel level, PgString msg,
       PgString ipv4_addr_str =
           pg_net_ipv4_address_to_string(entry.value.ipv4_address, allocator);
       err =
-          pg_writer_write_bytes_full(&logger->writer, ipv4_addr_str, allocator);
+          pg_writer_write_full(&logger->writer, ipv4_addr_str, allocator);
       if (err) {
         return err;
       }
