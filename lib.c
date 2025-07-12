@@ -8,10 +8,11 @@
 // TODO: Randomize arena guard pages.
 // TODO: HTTP compression (gzip, etc)
 // TODO: TLS 1.3
-// TODO: Pprof memory profiling.
+// TODO: Pprof/Chromium Trace Format memory profiling.
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: Get PIE offset for better call stack.
-// TODO: Test untested functions.
+// TODO: Test untested functions (add test coverage to build).
+// TODO: Unix/Windows parity.
 // Low priority:
 // TODO: [Unix] CLI argument parser.
 
