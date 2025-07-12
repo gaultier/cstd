@@ -2193,8 +2193,6 @@ pg_arena_allocator_as_allocator(PgArenaAllocator *allocator) {
 pg_string_make(u64 len, PgAllocator *allocator) {
   PgString res = {0};
   res.len = len;
-  // TODO: Consider always allocating one more byte to make the conversion to c
-  // string non-allocating.
   res.data = pg_alloc(allocator, sizeof(u8), _Alignof(u8), len);
   PG_ASSERT(res.data);
   return res;
@@ -6902,6 +6900,11 @@ pg_http_write_response(PgWriter *w, PgHttpResponse res,
     }
   }
   err = pg_writer_write_full(w, PG_S("\r\n"), allocator);
+  if (err) {
+    return err;
+  }
+
+  err = pg_writer_flush(w, allocator);
   if (err) {
     return err;
   }
