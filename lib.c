@@ -862,7 +862,7 @@ typedef struct {
 } PgElf;
 PG_RESULT(PgElf) PgElfResult;
 
-typedef PgHttpResponse (*PgHttpHandler)(PgHttpRequest req, PgReader *buf_reader,
+typedef PgHttpResponse (*PgHttpHandler)(PgHttpRequest req, PgReader *reader,
                                         PgWriter *writer, PgLogger *logger,
                                         PgAllocator *allocator, void *ctx);
 
@@ -2837,7 +2837,7 @@ pg_writer_write_full(PgWriter *w, Pgu8Slice s, PgAllocator *allocator) {
 }
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_reader_read(PgReader *r, Pgu8Slice dst) {
+pg_reader_do_read(PgReader *r, Pgu8Slice dst) {
   PG_ASSERT(dst.data);
 
   switch (r->kind) {
@@ -2865,13 +2865,74 @@ pg_reader_read(PgReader *r, Pgu8Slice dst) {
   }
 }
 
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_buf_reader_try_fill_once(PgReader *r) {
+  PG_ASSERT(r);
+  PG_ASSERT(r->ring.data.len);
+
+  u64 ring_write_space = pg_ring_can_write_count(r->ring);
+  u8 tmp[4096] = {0};
+  Pgu8Slice tmp_slice = {
+      .data = tmp,
+      .len = PG_MIN(ring_write_space, PG_STATIC_ARRAY_LEN(tmp)),
+  };
+  // No more space.
+  if (0 == tmp_slice.len) {
+    return 0;
+  }
+
+  Pgu64Result res_read = pg_reader_do_read(r, tmp_slice);
+  if (PG_ERR_EAGAIN == res_read.err) {
+    return 0;
+  }
+  if (res_read.err) {
+    return res_read.err;
+  }
+  if (0 == res_read.res) {
+    return 0;
+  }
+
+  Pgu8Slice read_data = PG_SLICE_RANGE(tmp_slice, 0, res_read.res);
+  PG_ASSERT(read_data.len == pg_ring_write_bytes(&r->ring, read_data));
+
+  return 0;
+}
+
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_reader_read_non_blocking(PgReader *r, Pgu8Slice dst) {
+pg_reader_read(PgReader *r, Pgu8Slice dst) {
+  PG_ASSERT(dst.data);
+
+  Pgu64Result res = {0};
+
+  if (PG_SLICE_IS_EMPTY(dst)) {
+    return res;
+  }
+
+  if (0 == r->ring.data.len) { // Simple reader.
+    return pg_reader_do_read(r, dst);
+  }
+
+  // Buffered reader.
+  if (0 == pg_ring_can_read_count(r->ring)) {
+    // Do a real read to re-fill the ring buffer.
+    PgError err = pg_buf_reader_try_fill_once(r);
+    if (err) {
+      res.err = err;
+    }
+  }
+
+  res.res = pg_ring_read_bytes(&r->ring, dst);
+
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_reader_do_read_non_blocking(PgReader *r, Pgu8Slice dst) {
   PG_ASSERT(dst.data);
 
   switch (r->kind) {
   case PG_READER_KIND_BYTES:
-    return pg_reader_read(r, dst);
+    return pg_reader_do_read(r, dst);
   case PG_READER_KIND_SOCKET:
     return pg_net_socket_read_non_blocking(r->u.socket, dst);
   case PG_READER_KIND_FILE:
@@ -2881,6 +2942,7 @@ pg_reader_read_non_blocking(PgReader *r, Pgu8Slice dst) {
   }
 }
 
+// FIXME: Buffering.
 [[nodiscard]] [[maybe_unused]] static PgStringResult
 pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
   PgStringResult res = {.res.data = buf.data};
@@ -3842,6 +3904,7 @@ static u64 pg_adjacency_matrix_count_neighbors(PgAdjacencyMatrix matrix,
   return res;
 }
 
+// FIXME: Should print to a writer.
 [[maybe_unused]] static void
 pg_adjacency_matrix_print(PgAdjacencyMatrix matrix) {
   printf("    | ");
@@ -3889,15 +3952,6 @@ pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl) {
                              (float)UINT32_MAX);
   PG_ASSERT(min_incl <= res);
   PG_ASSERT(res <= max_incl);
-  return res;
-}
-
-[[nodiscard]] [[maybe_unused]] static u128 pg_rng_make_u128(PgRng *rng) {
-  u128 res = 0;
-
-  for (u64 i = 0; i < 4; i++) {
-    *(((u32 *)&res) + i) = pg_rand_u32_min_incl_max_incl(rng, 0, UINT32_MAX);
-  }
   return res;
 }
 
@@ -3997,10 +4051,6 @@ pg_arena_make_from_virtual_mem(u64 size) {
 
   PG_ASSERT(0 == pg_virtual_mem_protect((void *)page_guard_after, page_size,
                                         PG_VIRTUAL_MEM_FLAGS_NONE));
-
-  // Trigger a page fault preemptively to detect invalid virtual memory
-  // mappings.
-  *(u8 *)alloc = 0;
 
   PG_ASSERT(os_alloc_size >= 2 * page_size);
   return (PgArena){
@@ -6577,39 +6627,6 @@ typedef enum {
   PG_NEWLINE_KIND_LF,
   PG_NEWLINE_KIND_CRLF,
 } PgNewlineKind;
-
-[[maybe_unused]] [[nodiscard]] static PgError
-pg_buf_reader_try_fill_once(PgReader *r) {
-  PG_ASSERT(r);
-  PG_ASSERT(r->ring.data.len);
-
-  u64 ring_write_space = pg_ring_can_write_count(r->ring);
-  u8 tmp[4096] = {0};
-  Pgu8Slice tmp_slice = {
-      .data = tmp,
-      .len = PG_MIN(ring_write_space, PG_STATIC_ARRAY_LEN(tmp)),
-  };
-  // No more space.
-  if (0 == tmp_slice.len) {
-    return 0;
-  }
-
-  Pgu64Result res_read = pg_reader_read(r, tmp_slice);
-  if (PG_ERR_EAGAIN == res_read.err) {
-    return 0;
-  }
-  if (res_read.err) {
-    return res_read.err;
-  }
-  if (0 == res_read.res) {
-    return 0;
-  }
-
-  Pgu8Slice read_data = PG_SLICE_RANGE(tmp_slice, 0, res_read.res);
-  PG_ASSERT(read_data.len == pg_ring_write_bytes(&r->ring, read_data));
-
-  return 0;
-}
 
 [[maybe_unused]] [[nodiscard]] static Pgu64OkResult
 pg_reader_read_until_byte_incl(PgReader *r, Pgu8Slice dst, u8 needle) {
