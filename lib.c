@@ -1421,30 +1421,30 @@ pg_string_is_ascii_alphabetical(PgString s) {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_trim_space_left(PgString s) {
   PgString res = s;
-  res = pg_string_trim_left(res, ' ');
-  res = pg_string_trim_left(res, '\n');
-  res = pg_string_trim_left(res, '\t');
-  res = pg_string_trim_left(res, '\r');
+  for (u64 i = 0; i < PG_ASCII_SPACES.len; i++) {
+    u8 space = PG_SLICE_AT(PG_ASCII_SPACES, i);
+    res = pg_string_trim_left(res, space);
+  }
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_trim_space_right(PgString s) {
   PgString res = s;
-  res = pg_string_trim_right(res, ' ');
-  res = pg_string_trim_right(res, '\n');
-  res = pg_string_trim_right(res, '\t');
-  res = pg_string_trim_right(res, '\r');
+  for (u64 i = 0; i < PG_ASCII_SPACES.len; i++) {
+    u8 space = PG_SLICE_AT(PG_ASCII_SPACES, i);
+    res = pg_string_trim_right(res, space);
+  }
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_trim_space(PgString s) {
   PgString res = s;
-  res = pg_string_trim(res, ' ');
-  res = pg_string_trim(res, '\n');
-  res = pg_string_trim(res, '\t');
-  res = pg_string_trim(res, '\r');
+  for (u64 i = 0; i < PG_ASCII_SPACES.len; i++) {
+    u8 space = PG_SLICE_AT(PG_ASCII_SPACES, i);
+    res = pg_string_trim(res, space);
+  }
   return res;
 }
 
