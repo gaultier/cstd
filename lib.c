@@ -7084,8 +7084,8 @@ pg_log_level_to_string(PgLogLevel level) {
                            PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);       \
   } while (0)
 
-[[nodiscard]] static bool pg_logfmt_byte_needs_hex_replacing(u8 c) {
-  return '"' == c;
+[[nodiscard]] static bool pg_logfmt_byte_needs_escaping(u8 c) {
+  return c < ' ' || '\\' == c || '"' == c;
 }
 
 static PgError pg_logfmt_write_string_escaped(PgWriter *w, PgString entry,
@@ -7103,26 +7103,15 @@ static PgError pg_logfmt_write_string_escaped(PgWriter *w, PgString entry,
   for (u64 i = 0; i < entry.len; i++) {
     u8 c = PG_SLICE_AT(entry, i);
 
-    if (!pg_logfmt_byte_needs_hex_replacing(c)) {
-      err = pg_writer_write_u8(w, c, allocator);
+    if (pg_logfmt_byte_needs_escaping(c)) {
+      err = pg_writer_write_u8(w, '\\', allocator);
       if (err) {
         return err;
       }
-    } else {
-      u8 c1 = c % 16;
-      u8 c2 = c / 16;
-      err = pg_writer_write_full(w, PG_S("\\x"), allocator);
-      if (err) {
-        return err;
-      }
-      err = pg_writer_write_u8(w, pg_u8_to_hex_rune(c2), allocator);
-      if (err) {
-        return err;
-      }
-      err = pg_writer_write_u8(w, pg_u8_to_hex_rune(c1), allocator);
-      if (err) {
-        return err;
-      }
+    }
+    err = pg_writer_write_u8(w, c, allocator);
+    if (err) {
+      return err;
     }
   }
 
