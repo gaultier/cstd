@@ -2008,13 +2008,19 @@ end:
 #endif
 
 static void test_log() {
-  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(8 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
   // Simple log.
   {
-    PgLogger logger = pg_log_make_logger_stdout_logfmt(PG_LOG_LEVEL_DEBUG);
-    logger.writer = pg_writer_make_string_builder(256, allocator);
+    PgLogger logger = {
+        .level = PG_LOG_LEVEL_DEBUG,
+        .writer = pg_writer_make_string_builder(4 * PG_KiB, allocator),
+        .format = PG_LOG_FORMAT_LOGFMT,
+        // TODO: Consider using `rtdsc` or such.
+        .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res,
+        .allocator = allocator,
+    };
 
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world",
            pg_log_c_s("foo", PG_S("bar")), pg_log_c_i64("baz", -317));
@@ -2024,8 +2030,14 @@ static void test_log() {
   }
   // PgLog but the logger level is higher.
   {
-    PgLogger logger = pg_log_make_logger_stdout_logfmt(PG_LOG_LEVEL_INFO);
-    logger.writer = pg_writer_make_string_builder(256, allocator);
+    PgLogger logger = {
+        .level = PG_LOG_LEVEL_INFO,
+        .writer = pg_writer_make_string_builder(4 * PG_KiB, allocator),
+        .format = PG_LOG_FORMAT_LOGFMT,
+        // TODO: Consider using `rtdsc` or such.
+        .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res,
+        .allocator = allocator,
+    };
 
     pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world",
            pg_log_s(PG_S("foo"), PG_S("bar")));

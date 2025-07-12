@@ -1,7 +1,6 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
 
-// TODO: Buffered I/O writer.
 // TODO: Threads.
 // TODO: Document all functions.
 // TODO: IPv6.
@@ -204,8 +203,6 @@ PG_RESULT(Pgu64Ok) Pgu64OkResult;
 }
 
 #define PG_STACKTRACE_MAX 64
-#define PG_LOG_STRING_MAX 256
-#define PG_LOG_LINE_MAX_LENGTH 8192
 
 typedef struct PgAllocator PgAllocator;
 
@@ -611,17 +608,20 @@ typedef enum {
   PG_LOG_LEVEL_ERROR,
 } PgLogLevel;
 
-typedef struct PgLogger PgLogger;
-typedef PgString (*PgMakeLogLineFn)(u8 *mem, u64 mem_len, PgLogger *logger,
-                                    PgLogLevel level, PgString msg,
-                                    i32 args_count, ...);
+typedef enum {
+  PG_LOG_FORMAT_LOGFMT,
+} PgLogFormat;
 
-struct PgLogger {
+typedef struct {
   PgLogLevel level;
   PgWriter writer;
-  PgMakeLogLineFn make_log_line;
+  PgLogFormat format;
   u64 monotonic_epoch;
-};
+  // NOTE: Normally we do not store an allocator in a struct,
+  // we prefer to pass it explicitly.
+  // But for conciness when logging, we make an exception.
+  PgAllocator *allocator;
+} PgLogger;
 
 typedef struct {
   PgLogValueKind kind;
@@ -2672,7 +2672,7 @@ pg_writer_make_string_builder(u64 cap, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_writer_write(PgWriter *w, Pgu8Slice src, PgAllocator *allocator) {
+pg_writer_do_write(PgWriter *w, Pgu8Slice src, PgAllocator *allocator) {
   Pgu64Result res = {0};
 
   switch (w->kind) {
@@ -2696,7 +2696,7 @@ pg_writer_write(PgWriter *w, Pgu8Slice src, PgAllocator *allocator) {
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_writer_write_u8(PgWriter *w, u8 c, PgAllocator *allocator) {
   Pgu8Slice src = {.data = &c, .len = 1};
-  Pgu64Result res = pg_writer_write(w, src, allocator);
+  Pgu64Result res = pg_writer_do_write(w, src, allocator);
   if (res.err) {
     return res.err;
   }
@@ -2705,7 +2705,104 @@ pg_writer_write_u8(PgWriter *w, u8 c, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_writer_write_string_full(PgWriter *w, PgString s, PgAllocator *allocator) {
+pg_writer_do_write_full(PgWriter *w, Pgu8Slice s, PgAllocator *allocator) {
+  PgString remaining = s;
+  for (u64 _i = 0; _i < s.len; _i++) {
+    if (pg_string_is_empty(remaining)) {
+      break;
+    }
+
+    Pgu64Result res = pg_writer_do_write(w, remaining, allocator);
+    if (res.err) {
+      return res.err;
+    }
+
+    if (0 == res.res) {
+      return PG_ERR_IO;
+    }
+
+    remaining = PG_SLICE_RANGE_START(remaining, res.res);
+  }
+  return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_writer_flush(PgWriter *w, PgAllocator *allocator) {
+  PG_ASSERT(w);
+
+  // Noop.
+  if (0 == w->ring.data.len) {
+    return 0;
+  }
+
+  for (u64 _i = 0; _i < w->ring.data.len; _i++) {
+    u8 tmp[4096] = {0};
+    Pgu8Slice tmp_slice = {
+        .data = tmp,
+        .len = PG_STATIC_ARRAY_LEN(tmp),
+    };
+    tmp_slice.len = pg_ring_read_bytes(&w->ring, tmp_slice);
+    if (0 == tmp_slice.len) {
+      return 0;
+    }
+
+    PgError err = pg_writer_do_write_full(w, tmp_slice, allocator);
+    if (err) {
+      return err;
+    }
+  }
+  PG_ASSERT(0);
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_writer_write(PgWriter *w, Pgu8Slice src, PgAllocator *allocator) {
+  PG_ASSERT(w);
+
+  Pgu64Result res = {0};
+  if (PG_SLICE_IS_EMPTY(src)) {
+    return res;
+  }
+
+  if (0 == w->ring.data.len) { // Simple reader.
+    return pg_writer_do_write(w, src, allocator);
+  }
+  // Buffered reader.
+  // Could `src` fit in the ring buffer?
+  if (src.len > w->ring.data.len) {
+    // Do not bother going through the ring buffer, just write all we can
+    // directly.
+
+    // TODO: Questionable to use `xxx_write_full` in a function that
+    // is supposed to be able to do partial writes.
+    PgError err = pg_writer_do_write_full(
+        w, PG_SLICE_RANGE(src, 0, src.len - w->ring.data.len), allocator);
+    if (err) {
+      res.err = err;
+      return res;
+    }
+    src = PG_SLICE_RANGE(src, 0, src.len % w->ring.data.len);
+  }
+
+  // `src` fits in the ring buffer.
+  PG_ASSERT(src.len <= w->ring.data.len);
+
+  if (pg_ring_can_write_count(w->ring) < src.len) {
+    // Need to flush the ring buffer to make room.
+    // NOTE: In theory we could do a partial flush and if that freed enough
+    // room in the ring buffer, carry on.
+    PgError err = pg_writer_flush(w, allocator);
+    if (err) {
+      res.err = err;
+      return res;
+    }
+  }
+  PG_ASSERT(src.len == pg_ring_write_bytes(&w->ring, src));
+  res.res = src.len;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_writer_write_bytes_full(PgWriter *w, Pgu8Slice s, PgAllocator *allocator) {
   PgString remaining = s;
   for (u64 _i = 0; _i < s.len; _i++) {
     if (pg_string_is_empty(remaining)) {
@@ -2809,7 +2906,7 @@ pg_writer_write_from_reader(PgWriter *w, PgReader *r, PgAllocator *allocator) {
   }
   dst.len = res.res;
 
-  res = pg_writer_write(w, dst, allocator);
+  res = pg_writer_do_write(w, dst, allocator);
   if (res.err) {
     return res;
   }
@@ -2839,7 +2936,7 @@ pg_writer_write_u64_as_string(PgWriter *w, u64 n, PgAllocator *allocator) {
 
   PgString s = {.data = tmp + idx, .len = PG_STATIC_ARRAY_LEN(tmp) - idx};
 
-  return pg_writer_write_string_full(w, s, allocator);
+  return pg_writer_write_bytes_full(w, s, allocator);
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
@@ -2863,7 +2960,7 @@ pg_writer_write_i64_as_string(PgWriter *w, i64 n, PgAllocator *allocator) {
 
   PgString s = {.data = tmp + idx, .len = PG_STATIC_ARRAY_LEN(tmp) - idx};
 
-  return pg_writer_write_string_full(w, s, allocator);
+  return pg_writer_write_bytes_full(w, s, allocator);
 }
 
 [[maybe_unused]] static void pg_u32_to_u8x4_be(u32 n, PgString *dst) {
@@ -4009,10 +4106,15 @@ pg_string_concat(PgString left, PgString right, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgWriter
-pg_writer_make_from_file_descriptor(PgFileDescriptor file) {
+pg_writer_make_from_file_descriptor(PgFileDescriptor file, u64 buffer_size,
+                                    PgAllocator *allocator) {
   PgWriter w = {0};
   w.kind = PG_WRITER_KIND_FILE;
   w.u.file = file;
+
+  if (buffer_size) {
+    w.ring = pg_ring_make(buffer_size, allocator);
+  }
 
   return w;
 }
@@ -5715,26 +5817,26 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
                                   PgAllocator *allocator) {
   PgError err = 0;
 
-  err = pg_writer_write_string_full(w, pg_http_method_to_string(req.method),
-                                    allocator);
+  err = pg_writer_write_bytes_full(w, pg_http_method_to_string(req.method),
+                                   allocator);
   if (err) {
     return err;
   }
 
-  err = pg_writer_write_string_full(w, PG_S(" /"), allocator);
+  err = pg_writer_write_bytes_full(w, PG_S(" /"), allocator);
   if (err) {
     return err;
   }
 
   for (u64 i = 0; i < req.url.path_components.len; i++) {
     PgString path_component = PG_SLICE_AT(req.url.path_components, i);
-    err = pg_writer_write_string_full(w, path_component, allocator);
+    err = pg_writer_write_bytes_full(w, path_component, allocator);
     if (err) {
       return err;
     }
 
     if (i < req.url.path_components.len - 1) {
-      err = pg_writer_write_string_full(w, PG_S("/"), allocator);
+      err = pg_writer_write_bytes_full(w, PG_S("/"), allocator);
       if (err) {
         return err;
       }
@@ -5742,7 +5844,7 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
   }
 
   if (req.url.query_parameters.len > 0) {
-    err = pg_writer_write_string_full(w, PG_S("?"), allocator);
+    err = pg_writer_write_bytes_full(w, PG_S("?"), allocator);
     if (err) {
       return err;
     }
@@ -5755,7 +5857,7 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
       }
 
       if (i < req.url.query_parameters.len - 1) {
-        err = pg_writer_write_string_full(w, PG_S("&"), allocator);
+        err = pg_writer_write_bytes_full(w, PG_S("&"), allocator);
         if (err) {
           return err;
         }
@@ -5763,7 +5865,7 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
     }
   }
 
-  err = pg_writer_write_string_full(w, PG_S(" HTTP/1.1\r\n"), allocator);
+  err = pg_writer_write_bytes_full(w, PG_S(" HTTP/1.1\r\n"), allocator);
   if (err) {
     return err;
   }
@@ -5775,7 +5877,7 @@ pg_http_response_write_status_line(PgWriter *w, PgHttpResponse res,
                                    PgAllocator *allocator) {
   PgError err = 0;
 
-  err = pg_writer_write_string_full(w, PG_S("HTTP/"), allocator);
+  err = pg_writer_write_bytes_full(w, PG_S("HTTP/"), allocator);
   if (err) {
     return err;
   }
@@ -5805,7 +5907,7 @@ pg_http_response_write_status_line(PgWriter *w, PgHttpResponse res,
     return err;
   }
 
-  err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
+  err = pg_writer_write_bytes_full(w, PG_S("\r\n"), allocator);
   if (err) {
     return err;
   }
@@ -5818,22 +5920,22 @@ pg_http_write_header(PgWriter *w, PgStringKeyValue header,
                      PgAllocator *allocator) {
   PgError err = 0;
 
-  err = pg_writer_write_string_full(w, header.key, allocator);
+  err = pg_writer_write_bytes_full(w, header.key, allocator);
   if (err) {
     return err;
   }
 
-  err = pg_writer_write_string_full(w, PG_S(": "), allocator);
+  err = pg_writer_write_bytes_full(w, PG_S(": "), allocator);
   if (err) {
     return err;
   }
 
-  err = pg_writer_write_string_full(w, header.value, allocator);
+  err = pg_writer_write_bytes_full(w, header.value, allocator);
   if (err) {
     return err;
   }
 
-  err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
+  err = pg_writer_write_bytes_full(w, PG_S("\r\n"), allocator);
   if (err) {
     return err;
   }
@@ -6761,7 +6863,7 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req, PgAllocator *allocator) {
       return err;
     }
   }
-  err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
+  err = pg_writer_write_bytes_full(w, PG_S("\r\n"), allocator);
   if (err) {
     return err;
   }
@@ -6799,7 +6901,7 @@ pg_http_write_response(PgWriter *w, PgHttpResponse res,
       return err;
     }
   }
-  err = pg_writer_write_string_full(w, PG_S("\r\n"), allocator);
+  err = pg_writer_write_bytes_full(w, PG_S("\r\n"), allocator);
   if (err) {
     return err;
   }
@@ -6835,19 +6937,17 @@ pg_http_headers_parse_content_length(PgStringKeyValueSlice headers,
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
-                            PgLogLevel level, PgString msg, i32 args_count,
-                            ...);
-
 [[maybe_unused]] [[nodiscard]] static PgLogger
-pg_log_make_logger_stdout_logfmt(PgLogLevel level) {
+pg_log_make_logger_stdout(PgLogLevel level, PgLogFormat format,
+                          PgAllocator *allocator) {
   PgLogger logger = {
       .level = level,
-      .writer = pg_writer_make_from_file_descriptor(pg_os_stdout()),
-      .make_log_line = pg_log_make_log_line_logfmt,
+      .writer = pg_writer_make_from_file_descriptor(pg_os_stdout(), 4 * PG_KiB,
+                                                    allocator),
+      .format = format,
       // TODO: Consider using `rtdsc` or such.
       .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res,
+      .allocator = allocator,
   };
 
   return logger;
@@ -6959,60 +7059,51 @@ pg_log_level_to_string(PgLogLevel level) {
     if (nullptr == (logger)) {                                                 \
       break;                                                                   \
     }                                                                          \
-    PG_ASSERT(nullptr != (logger)->make_log_line);                             \
     if ((logger)->level > (lvl)) {                                             \
       break;                                                                   \
     };                                                                         \
-    u8 mem[PG_LOG_LINE_MAX_LENGTH] = {0};                                      \
-    PgString xxx_log_line = (logger)->make_log_line(                           \
-        mem, PG_STATIC_ARRAY_LEN(mem), logger, lvl, PG_S(msg),                 \
-        PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);                          \
-    (void)pg_writer_write(&(logger)->writer, xxx_log_line, nullptr);           \
+    (void)pg_logger_do_log(logger, lvl, PG_S(msg), (logger)->allocator,        \
+                           PG_LOG_ARGS_COUNT(__VA_ARGS__), __VA_ARGS__);       \
   } while (0)
 
-[[maybe_unused]] static void pg_logfmt_escape_u8(Pgu8Dyn *sb, u8 c,
-                                                 PgAllocator *allocator) {
-  if (' ' == c || c == '-' || c == '_' || c == ':' || c == ',' || c == '.' ||
-      c == '/' || c == '(' || c == ')' || pg_rune_ascii_is_alphanumeric(c)) {
-    *PG_DYN_PUSH(sb, allocator) = c;
-  } else {
-    u8 c1 = c % 16;
-    u8 c2 = c / 16;
-    PG_DYN_APPEND_SLICE(sb, PG_S("\\x"), allocator);
-    *PG_DYN_PUSH(sb, allocator) = pg_u8_to_hex_rune(c2);
-    *PG_DYN_PUSH(sb, allocator) = pg_u8_to_hex_rune(c1);
-  }
+[[nodiscard]] static bool pg_logfmt_byte_needs_escaping(u8 c) {
+  return (c < ' ' || c > 0x7f || '"' == c || '\n' == c);
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_logfmt_escape_string(PgString entry, PgAllocator *allocator) {
-  Pgu8Dyn sb = {0};
-  PG_DYN_ENSURE_CAP(&sb, 2 + PG_CLAMP(0, entry.len, PG_LOG_STRING_MAX + 4) * 2,
-                    allocator);
-  *PG_DYN_PUSH(&sb, allocator) = '"';
+static PgError pg_logfmt_write_string_escaped(PgWriter *w, PgString entry,
+                                              PgAllocator *allocator) {
 
-  if (entry.len <= PG_LOG_STRING_MAX) {
-    for (u64 i = 0; i < entry.len; i++) {
-      u8 c = PG_SLICE_AT(entry, i);
-      pg_logfmt_escape_u8(&sb, c, allocator);
-    }
-  } else {
-    for (u64 i = 0; i < PG_LOG_STRING_MAX / 2; i++) {
-      u8 c = PG_SLICE_AT(entry, i);
-      pg_logfmt_escape_u8(&sb, c, allocator);
-    }
-    PG_DYN_APPEND_SLICE(&sb, PG_S("[..]"), allocator);
-    for (u64 i = (entry.len - PG_LOG_STRING_MAX / 2); i < entry.len; i++) {
-      u8 c = PG_SLICE_AT(entry, i);
-      pg_logfmt_escape_u8(&sb, c, allocator);
+  for (u64 i = 0; i < entry.len; i++) {
+    u8 c = PG_SLICE_AT(entry, i);
+
+    PgError err = 0;
+    if (!pg_logfmt_byte_needs_escaping(c)) {
+      err = pg_writer_write_u8(w, c, allocator);
+      if (err) {
+        return err;
+      }
+    } else {
+      u8 c1 = c % 16;
+      u8 c2 = c / 16;
+      err = pg_writer_write_bytes_full(w, PG_S("\\x"), allocator);
+      if (err) {
+        return err;
+      }
+      err = pg_writer_write_u8(w, pg_u8_to_hex_rune(c2), allocator);
+      if (err) {
+        return err;
+      }
+      err = pg_writer_write_u8(w, pg_u8_to_hex_rune(c1), allocator);
+      if (err) {
+        return err;
+      }
     }
   }
-  *PG_DYN_PUSH(&sb, allocator) = '"';
-
-  return PG_DYN_SLICE(PgString, sb);
+  return 0;
 }
 
-[[nodiscard]] static PgArena pg_arena_make_from_mem(u8 *data, u64 len) {
+[[maybe_unused]] [[nodiscard]] static PgArena pg_arena_make_from_mem(u8 *data,
+                                                                     u64 len) {
   PgArena arena = {
       .start = data,
       .end = data + len,
@@ -7022,65 +7113,104 @@ pg_logfmt_escape_string(PgString entry, PgAllocator *allocator) {
   return arena;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
-                            PgLogLevel level, PgString msg, i32 args_count,
-                            ...) {
-  PgArena arena = pg_arena_make_from_mem(mem, mem_len);
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
-
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_logger_do_log(PgLogger *logger, PgLogLevel level, PgString msg,
+                 PgAllocator *allocator, i32 args_count, ...) {
   // Ignore clock errors.
   u64 monotonic_ns =
       pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).res - logger->monotonic_epoch;
   u64 timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME).res;
 
-  // FIXME: `try` alloc.
-  PgWriter w = pg_writer_make_string_builder(256, allocator);
+  PgError err = 0;
 
-  PG_ASSERT(0 == pg_writer_write_string_full(&w, PG_S("level="), allocator));
-  PG_ASSERT(0 == pg_writer_write_string_full(&w, pg_log_level_to_string(level),
-                                             allocator));
+  err = pg_writer_write_bytes_full(&logger->writer, PG_S("level="), allocator);
+  if (err) {
+    return err;
+  }
+  err = pg_writer_write_bytes_full(&logger->writer,
+                                   pg_log_level_to_string(level), allocator);
+  if (err) {
+    return err;
+  }
 
-  PG_ASSERT(0 ==
-            pg_writer_write_string_full(&w, PG_S(" timestamp_ns="), allocator));
-  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, timestamp_ns, allocator));
+  err = pg_writer_write_bytes_full(&logger->writer, PG_S(" timestamp_ns="),
+                                   allocator);
+  if (err) {
+    return err;
+  }
+  err = pg_writer_write_u64_as_string(&logger->writer, timestamp_ns, allocator);
+  if (err) {
+    return err;
+  }
 
-  PG_ASSERT(0 ==
-            pg_writer_write_string_full(&w, PG_S(" monotonic_ns="), allocator));
-  PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, monotonic_ns, allocator));
+  err = pg_writer_write_bytes_full(&logger->writer, PG_S(" monotonic_ns="),
+                                   allocator);
+  if (err) {
+    return err;
+  }
+  err = pg_writer_write_u64_as_string(&logger->writer, monotonic_ns, allocator);
+  if (err) {
+    return err;
+  }
 
-  PG_ASSERT(0 == pg_writer_write_string_full(&w, PG_S(" message="), allocator));
-  PG_ASSERT(0 == pg_writer_write_string_full(
-                     &w, pg_logfmt_escape_string(msg, allocator), allocator));
+  err =
+      pg_writer_write_bytes_full(&logger->writer, PG_S(" message="), allocator);
+  if (err) {
+    return err;
+  }
+  err = pg_logfmt_write_string_escaped(&logger->writer, msg, allocator);
+  if (err) {
+    return err;
+  }
 
   va_list argp = {0};
   va_start(argp, args_count);
   for (i32 i = 0; i < args_count; i++) {
     PgLogEntry entry = va_arg(argp, PgLogEntry);
-    PG_ASSERT(0 == pg_writer_write_u8(&w, ' ', allocator));
-    PG_ASSERT(0 == pg_writer_write_string_full(&w, entry.key, allocator));
-    PG_ASSERT(0 == pg_writer_write_u8(&w, '=', allocator));
+    err = pg_writer_write_u8(&logger->writer, ' ', allocator);
+    if (err) {
+      return err;
+    }
+    err = pg_writer_write_bytes_full(&logger->writer, entry.key, allocator);
+    if (err) {
+      return err;
+    }
+    err = pg_writer_write_u8(&logger->writer, '=', allocator);
+    if (err) {
+      return err;
+    }
 
     switch (entry.value.kind) {
     case PG_LOG_VALUE_STRING: {
-      PG_ASSERT(0 == pg_writer_write_string_full(
-                         &w, pg_logfmt_escape_string(entry.value.s, allocator),
-                         allocator));
+      err = pg_logfmt_write_string_escaped(&logger->writer, entry.value.s,
+                                           allocator);
+      if (err) {
+        return err;
+      }
       break;
     }
     case PG_LOG_VALUE_U64:
-      PG_ASSERT(0 ==
-                pg_writer_write_u64_as_string(&w, entry.value.n64, allocator));
+      err = pg_writer_write_u64_as_string(&logger->writer, entry.value.n64,
+                                          allocator);
+      if (err) {
+        return err;
+      }
       break;
     case PG_LOG_VALUE_I64:
-      PG_ASSERT(0 ==
-                pg_writer_write_i64_as_string(&w, entry.value.s64, allocator));
+      err = pg_writer_write_i64_as_string(&logger->writer, entry.value.s64,
+                                          allocator);
+      if (err) {
+        return err;
+      }
       break;
     case PG_LOG_VALUE_IPV4_ADDRESS: {
       PgString ipv4_addr_str =
           pg_net_ipv4_address_to_string(entry.value.ipv4_address, allocator);
-      PG_ASSERT(0 == pg_writer_write_string_full(&w, ipv4_addr_str, allocator));
+      err =
+          pg_writer_write_bytes_full(&logger->writer, ipv4_addr_str, allocator);
+      if (err) {
+        return err;
+      }
     } break;
     default:
       PG_ASSERT(0 && "invalid PgLogValueKind");
@@ -7088,9 +7218,12 @@ pg_log_make_log_line_logfmt(u8 *mem, u64 mem_len, PgLogger *logger,
   }
   va_end(argp);
 
-  PG_ASSERT(0 == pg_writer_write_u8(&w, '\n', allocator));
+  err = pg_writer_write_u8(&logger->writer, '\n', allocator);
+  if (err) {
+    return err;
+  }
 
-  return PG_DYN_SLICE(PgString, w.u.bytes);
+  return pg_writer_flush(&logger->writer, allocator);
 }
 
 typedef int (*PgCmpFn)(const void *a, const void *b);
@@ -8188,9 +8321,7 @@ pg_http_server_handler(PgFileDescriptor sock, PgHttpServerOptions options,
   resp.version_major = 1;
   resp.version_minor = 1;
 
-  PgWriter w = pg_writer_make_from_file_descriptor(sock);
-
-  PgError err = pg_http_write_response(&w, resp, allocator);
+  PgError err = pg_http_write_response(&writer, resp, allocator);
   if (err) {
     pg_log(logger, PG_LOG_LEVEL_ERROR,
            "http handler: failed to write http response",
