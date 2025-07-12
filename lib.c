@@ -8313,6 +8313,10 @@ pg_http_server_handler(PgFileDescriptor sock, PgHttpServerOptions options,
   // Response.
   PgHttpResponse resp = {0};
   if (options.handler) {
+    // FIXME: The handler should probably do its own response writing,
+    // otherwise when the response contains a body, we either have to do buffer
+    // it in memory until the handler is done, or somehow detect in the buffered
+    // writer that the response headers must be written first.
     resp =
         options.handler(req, &reader, &writer, logger, allocator, options.ctx);
   }
