@@ -2926,6 +2926,28 @@ pg_reader_read(PgReader *r, Pgu8Slice dst) {
   return res;
 }
 
+[[maybe_unused]] [[nodiscard]] static PgError pg_reader_read_full(PgReader *r,
+                                                                  Pgu8Slice s) {
+  PgString remaining = s;
+  for (u64 _i = 0; _i < s.len; _i++) {
+    if (pg_string_is_empty(remaining)) {
+      break;
+    }
+
+    Pgu64Result res = pg_reader_read(r, remaining);
+    if (res.err) {
+      return res.err;
+    }
+
+    if (0 == res.res) {
+      return PG_ERR_IO;
+    }
+
+    remaining = PG_SLICE_RANGE_START(remaining, res.res);
+  }
+  return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
+}
+
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
 pg_reader_do_read_non_blocking(PgReader *r, Pgu8Slice dst) {
   PG_ASSERT(dst.data);
@@ -2940,31 +2962,6 @@ pg_reader_do_read_non_blocking(PgReader *r, Pgu8Slice dst) {
   default:
     PG_ASSERT(0);
   }
-}
-
-// FIXME: Buffering.
-[[nodiscard]] [[maybe_unused]] static PgStringResult
-pg_reader_read_until_full_or_eof(PgReader *r, Pgu8Slice buf) {
-  PgStringResult res = {.res.data = buf.data};
-
-  do {
-    u64 idx = res.res.len;
-    PG_ASSERT(idx < buf.len);
-
-    Pgu8Slice dst = PG_SLICE_RANGE_START(buf, idx);
-    Pgu64Result read_res = pg_reader_read(r, dst);
-
-    if (read_res.err) {
-      res.err = read_res.err;
-      return res;
-    }
-
-    res.res.len += read_res.res;
-
-    if (0 == read_res.res) {
-      return res;
-    }
-  } while (1); // FIXME: Bounded;
 }
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
@@ -3374,17 +3371,8 @@ pg_string_clone(PgString s, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] static void pg_string_lowercase_ascii_mut(PgString s) {
-  for (u64 i = 0; i < s.len; i++) {
-    u8 *c = PG_C_ARRAY_AT_PTR(s.data, s.len, i);
-    if ('A' <= *c && *c <= 'Z') {
-      *c += 32;
-    }
-  }
-}
-
-[[maybe_unused]] [[nodiscard]] static bool
-pg_string_ieq_ascii(PgString a, PgString b, PgArena arena) {
+[[maybe_unused]] [[nodiscard]] static bool pg_string_ieq_ascii(PgString a,
+                                                               PgString b) {
   if (a.data == nullptr && b.data == nullptr && a.len == b.len) {
     return true;
   }
@@ -3403,14 +3391,15 @@ pg_string_ieq_ascii(PgString a, PgString b, PgArena arena) {
   PG_ASSERT(b.data != nullptr);
   PG_ASSERT(a.len == b.len);
 
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-  PgString a_clone = pg_string_clone(a, (PgAllocator *)&arena_allocator);
-  PgString b_clone = pg_string_clone(b, (PgAllocator *)&arena_allocator);
+  for (u64 i = 0; i < a.len; i++) {
+    u8 c_a = PG_SLICE_AT(a, i);
+    u8 c_b = PG_SLICE_AT(b, i);
 
-  pg_string_lowercase_ascii_mut(a_clone);
-  pg_string_lowercase_ascii_mut(b_clone);
-
-  return pg_string_eq(a_clone, b_clone);
+    if (pg_rune_ascii_to_lower_case(c_a) != pg_rune_ascii_to_lower_case(c_b)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 #if defined(__x86_64__) && defined(__SSSE3__) && defined(__SHA__)
@@ -6945,14 +6934,13 @@ pg_http_write_response(PgWriter *w, PgHttpResponse res,
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
-pg_http_headers_parse_content_length(PgStringKeyValueSlice headers,
-                                     PgArena arena) {
+pg_http_content_length(PgStringKeyValueSlice headers) {
   Pgu64Result res = {0};
 
   for (u64 i = 0; i < headers.len; i++) {
     PgStringKeyValue h = PG_SLICE_AT(headers, i);
 
-    if (!pg_string_ieq_ascii(PG_S("Content-Length"), h.key, arena)) {
+    if (!pg_string_ieq_ascii(PG_S("Content-Length"), h.key)) {
       continue;
     }
 
