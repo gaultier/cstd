@@ -3950,11 +3950,15 @@ pg_rand_u32_min_incl_max_excl(PgRng *rng, u32 min_incl, u32 max_excl) {
   return pg_rand_u32_min_incl_max_incl(rng, min_incl, max_excl - 1);
 }
 
-[[maybe_unused]] static void pg_rand_string_mut(PgRng *rng, PgString s) {
-  for (u64 i = 0; i < s.len; i++) {
-    *PG_C_ARRAY_AT_PTR(s.data, s.len, i) =
+[[nodiscard]] [[maybe_unused]] static PgString
+pg_rand_string(PgRng *rng, u64 len, PgAllocator *allocator) {
+  PgString res = pg_string_make(len, allocator);
+
+  for (u64 i = 0; i < res.len; i++) {
+    *PG_C_ARRAY_AT_PTR(res.data, res.len, i) =
         (u8)pg_rand_u32_min_incl_max_incl(rng, 0, UINT8_MAX);
   }
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu32Ok

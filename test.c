@@ -901,11 +901,8 @@ static void test_ring_buffer_read_write_fuzz() {
   // TODO: Print seed for reproducability?
   for (u64 i = 0; i < ROUNDS; i++) {
     u32 len = pg_rand_u32_min_incl_max_incl(&rng, 0, (u32)rg.data.len + 1);
-    PgString from = pg_string_make(len, allocator_strings);
-    pg_rand_string_mut(&rng, from);
-
-    PgString to = pg_string_make(len, allocator_strings);
-    pg_rand_string_mut(&rng, to);
+    PgString from = pg_rand_string(&rng, len, allocator_strings);
+    PgString to = pg_rand_string(&rng, len, allocator_strings);
 
     u64 can_write = pg_ring_can_write_count(rg);
     u64 n_write = pg_ring_write_bytes(&rg, from);
