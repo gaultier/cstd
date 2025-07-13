@@ -862,9 +862,9 @@ typedef struct {
 } PgElf;
 PG_RESULT(PgElf) PgElfResult;
 
-typedef PgHttpResponse (*PgHttpHandler)(PgHttpRequest req, PgReader *reader,
-                                        PgWriter *writer, PgLogger *logger,
-                                        PgAllocator *allocator, void *ctx);
+typedef void (*PgHttpHandler)(PgHttpRequest req, PgReader *reader,
+                              PgWriter *writer, PgLogger *logger,
+                              PgAllocator *allocator, void *ctx);
 
 typedef struct {
   u16 port;
@@ -8347,29 +8347,8 @@ pg_http_server_handler(PgFileDescriptor sock, PgHttpServerOptions options,
   PgWriter writer =
       pg_writer_make_from_socket(sock, PG_HTTP_LINE_MAX_LEN, allocator);
 
-  // Response.
-  PgHttpResponse resp = {0};
-  if (options.handler) {
-    // FIXME: The handler should probably do its own response writing,
-    // otherwise when the response contains a body, we either have to do buffer
-    // it in memory until the handler is done, or somehow detect in the buffered
-    // writer that the response headers must be written first.
-    resp =
-        options.handler(req, &reader, &writer, logger, allocator, options.ctx);
-  }
-  if (!resp.status) {
-    resp.status = 200;
-  }
-  resp.version_major = 1;
-  resp.version_minor = 1;
-
-  PgError err = pg_http_write_response(&writer, resp, allocator);
-  if (err) {
-    pg_log(logger, PG_LOG_LEVEL_ERROR,
-           "http handler: failed to write http response",
-           pg_log_c_err("err", err));
-    return err;
-  }
+  PG_ASSERT(options.handler);
+  options.handler(req, &reader, &writer, logger, allocator, options.ctx);
 
   return 0;
 }
