@@ -1,4 +1,5 @@
 #include "lib.c"
+#include <stdatomic.h>
 
 static void test_rune_bytes_count() {
   PG_ASSERT(1 == pg_utf8_rune_bytes_count(0));
@@ -2726,6 +2727,26 @@ static void test_adjacency_matrix() {
   PG_ASSERT(5 == pg_adjacency_matrix_count_neighbors(matrix, 5));
 }
 
+static void *test_thread_fn(void *data) {
+  PG_ASSERT(data);
+
+  u64 *n = data;
+  *n = 42;
+
+  return nullptr;
+}
+
+static void test_thread() {
+  u64 n = 1;
+  PgThreadResult res_thread = pg_thread_create(test_thread_fn, &n);
+  PG_ASSERT(!res_thread.err);
+
+  PgThread thread = res_thread.res;
+
+  PG_ASSERT(0 == pg_thread_join(thread));
+  PG_ASSERT(42 == n);
+}
+
 int main() {
   test_rune_bytes_count();
   test_utf8_count();
@@ -2789,4 +2810,5 @@ int main() {
   test_string_builder_append_u64();
   test_string_buillder_append_u64_hex();
   test_adjacency_matrix();
+  test_thread();
 }
