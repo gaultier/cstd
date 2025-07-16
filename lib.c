@@ -4561,7 +4561,7 @@ pg_net_socket_set_timeout(PgFileDescriptor sock, u64 seconds,
                           u64 microseconds) {
   struct timeval timeout = {0};
   timeout.tv_sec = (time_t)seconds;
-  timeout.tv_usec = (__suseconds_t)microseconds;
+  timeout.tv_usec = (i32)microseconds;
 
   i32 ret =
       setsockopt(sock.fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
