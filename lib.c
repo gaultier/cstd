@@ -244,7 +244,7 @@ typedef enum {
 
 typedef enum {
   PG_NET_SOCKET_OPTION_NONE,
-// More...
+// More..
 } PgNetSocketOption;
 
 typedef enum {
@@ -886,13 +886,6 @@ PG_RESULT(PgThread) PgThreadResult;
 
 typedef void *(*PgThreadFn)(void *data);
 
-// TODO: Thread attributes?
-[[maybe_unused]] [[nodiscard]] static PgThreadResult
-pg_thread_create(PgThreadFn fn, void *fn_data);
-
-// TODO: Can Windows do return values from threads?
-[[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread);
-
 // ---------------- Functions.
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
@@ -923,6 +916,14 @@ pg_file_size(PgFileDescriptor file);
                                               PgString dst);
 [[maybe_unused]] static Pgu64Result pg_file_write(PgFileDescriptor file,
                                                   PgString s);
+
+// TODO: Thread attributes?
+[[maybe_unused]] [[nodiscard]] static PgThreadResult
+pg_thread_create(PgThreadFn fn, void *fn_data);
+
+// TODO: Can Windows do return values from threads?
+[[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread);
+
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
