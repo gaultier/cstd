@@ -4,3 +4,4 @@ a.out
 *.pdb
 *.gz
 *.dSYM
+*_dwo

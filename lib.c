@@ -880,6 +880,20 @@ PG_SLICE(PgString) PgStringSlice;
 
 PG_RESULT(PgStringSlice) PgStringSliceResult;
 
+typedef struct {
+  void *opaque;
+} PgThread;
+PG_RESULT(PgThread) PgThreadResult;
+
+typedef void *(*PgThreadFn)(void *data);
+
+// TODO: Thread attributes?
+[[maybe_unused]] [[nodiscard]] static PgThreadResult
+pg_thread_create(PgThreadFn fn, void *fn_data);
+
+// TODO: Can Windows do return values from threads?
+[[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread);
+
 // ---------------- Functions.
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
@@ -4447,6 +4461,7 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 #include <netdb.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -4459,6 +4474,33 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
+
+[[maybe_unused]] [[nodiscard]] static PgThreadResult
+pg_thread_create(PgThreadFn fn, void *fn_data) {
+  PgThreadResult res = {0};
+  static_assert(sizeof(res.res) >= sizeof(pthread_t));
+
+  pthread_t thread = {0};
+  i32 ret = pthread_create(&thread, nullptr, fn, fn_data);
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  memcpy(&res.res, &thread, sizeof(res.res));
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread) {
+  pthread_t pthread = (pthread_t)thread.opaque;
+  i32 ret = pthread_join(pthread, nullptr);
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  return 0;
+}
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorPairResult
 pg_net_make_socket_pair(PgNetSocketDomain domain, PgNetSocketType type,
