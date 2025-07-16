@@ -244,8 +244,7 @@ typedef enum {
 
 typedef enum {
   PG_NET_SOCKET_OPTION_NONE,
-  PG_NET_SOCKET_OPTION_NON_BLOCK,
-  PG_NET_SOCKET_OPTION_CLOEXEC,
+// More...
 } PgNetSocketOption;
 
 typedef enum {
@@ -4536,12 +4535,6 @@ pg_net_make_socket_pair(PgNetSocketDomain domain, PgNetSocketType type,
 
   i32 unix_option = 0;
   switch (option) {
-  case PG_NET_SOCKET_OPTION_NON_BLOCK:
-    unix_option = SOCK_NONBLOCK;
-    break;
-  case PG_NET_SOCKET_OPTION_CLOEXEC:
-    unix_option = SOCK_CLOEXEC;
-    break;
   case PG_NET_SOCKET_OPTION_NONE:
   default:
   }
