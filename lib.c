@@ -8415,9 +8415,9 @@ pg_aio_fs_register_interest(PgFileDescriptor manager, PgString name,
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_aio_register_interest(PgFileDescriptor manager, PgFileDescriptor fd,
-                         PgAioEventKind interest, u64 user_data) {
+                         PgAioEventKind interest) {
   struct epoll_event event = {0};
-  event.data.u64 = user_data;
+  event.data.fd = fd.fd;
 
   if (interest & PG_AIO_EVENT_KIND_READABLE) {
     event.events |= EPOLLIN;
