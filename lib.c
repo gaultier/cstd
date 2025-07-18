@@ -8483,11 +8483,9 @@ pg_aio_wait(PgFileDescriptor manager, PgAioEventSlice events_out,
 }
 
 [[nodiscard]] [[maybe_unused]] static PgAioEventResult
-pg_aio_fs_wait_one(PgFileDescriptor manager, PgFileDescriptor fd,
-                   Pgu32Ok timeout_ms) {
+pg_aio_fs_wait_one(PgFileDescriptor manager, Pgu32Ok timeout_ms) {
   PgAioEventResult res = {0};
 
-  res.res.fd = fd;
   PgAioEventSlice events_slice = {
       .data = &res.res,
       .len = 1,
@@ -8508,7 +8506,7 @@ pg_aio_fs_wait_one(PgFileDescriptor manager, PgFileDescriptor fd,
       res.err = res_read.err;
       return res;
     }
-    PG_ASSERT(res_read.res == inev_slice.len);
+    PG_ASSERT(res_read.res >= sizeof(struct inotify_event));
 
     struct inotify_event inev = *(struct inotify_event *)inev_data;
     res.res = (PgAioEvent){0};
