@@ -244,7 +244,7 @@ typedef enum {
 
 typedef enum {
   PG_NET_SOCKET_OPTION_NONE,
-// More..
+  // More..
 } PgNetSocketOption;
 
 typedef enum {
@@ -886,6 +886,26 @@ PG_RESULT(PgThread) PgThreadResult;
 
 typedef void *(*PgThreadFn)(void *data);
 
+typedef enum {
+  PG_AIO_EVENT_KIND_NONE = 0,
+  PG_AIO_EVENT_KIND_FILE_MODIFIED = 1 << 1,
+  PG_AIO_EVENT_KIND_FILE_DELETED = 1 << 2,
+  PG_AIO_EVENT_KIND_FILE_CREATED = 1 << 3,
+  PG_AIO_EVENT_KIND_READABLE = 1 << 4,
+  PG_AIO_EVENT_KIND_WRITABLE = 1 << 5,
+  PG_AIO_EVENT_KIND_ERROR = 1 << 6,
+  PG_AIO_EVENT_KIND_HANG_UP = 1 << 7,
+  // More...
+} PgAioEventKind;
+
+typedef struct {
+  PgAioEventKind kind;
+  u64 user_data;
+  PgFileDescriptor fd;
+} PgAioEvent;
+PG_DYN(PgAioEvent) PgAioEventDyn;
+PG_SLICE(PgAioEvent) PgAioEventSlice;
+
 // ---------------- Functions.
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
@@ -923,7 +943,6 @@ pg_thread_create(PgThreadFn fn, void *fn_data);
 
 // TODO: Can Windows do return values from threads?
 [[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread);
-
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
@@ -8314,7 +8333,130 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
 }
 
 #ifdef PG_OS_LINUX
+#include <sys/epoll.h>
+#include <sys/inotify.h>
 #include <sys/sendfile.h>
+
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult pg_aio_fs_init() {
+  PgFileDescriptorResult res = {0};
+
+  i32 ret = inotify_init();
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res.fd = ret;
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
+pg_aio_fs_register_interest(PgFileDescriptor manager, PgString name,
+                            PgAioEventKind interest) {
+  PgFileDescriptorResult res = {0};
+
+  if (0 == name.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  u32 interest_linux = 0;
+  if (interest & PG_AIO_EVENT_KIND_FILE_CREATED) {
+    interest_linux |= IN_CREATE;
+  }
+  if (interest & PG_AIO_EVENT_KIND_FILE_MODIFIED) {
+    interest_linux |= IN_MODIFY;
+  }
+  if (interest & PG_AIO_EVENT_KIND_FILE_DELETED) {
+    interest_linux |= IN_DELETE;
+  }
+
+  u8 name_c[4096] = {0};
+  PG_ASSERT(name.data);
+  PG_ASSERT(name.len < PG_STATIC_ARRAY_LEN(name_c));
+  memcpy(name_c, name.data, name.len);
+
+  i32 ret = inotify_add_watch(manager.fd, (const char *)name_c, interest_linux);
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res.fd = ret;
+
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init() {
+  PgFileDescriptorResult res = {0};
+
+  i32 ret = epoll_create(1 /*Ignored*/);
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res.fd = ret;
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_aio_register_interest(PgFileDescriptor manager, PgFileDescriptor fd,
+                         PgAioEventKind interest) {
+  struct epoll_event event = {0};
+  if (interest & PG_AIO_EVENT_KIND_READABLE) {
+    event.events |= EPOLLIN;
+  }
+  if (interest & PG_AIO_EVENT_KIND_WRITABLE) {
+    event.events |= EPOLLOUT;
+  }
+
+  i32 ret = epoll_ctl(manager.fd, EPOLL_CTL_ADD, fd.fd, &event);
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  return 0;
+}
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_aio_wait(PgFileDescriptor manager, PgAioEventSlice events_out,
+            u32 timeout_ms) {
+  Pgu64Result res = {0};
+
+  struct epoll_event events[1024] = {0};
+  u64 events_len = PG_MIN(events_out.len, PG_STATIC_ARRAY_LEN(events));
+
+  i32 ret = epoll_wait(manager.fd, events, (i32)events_len, (i32)timeout_ms);
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u64)ret;
+
+  for (u64 i = 0; i < (u64)ret; i++) {
+    struct epoll_event e =
+        PG_C_ARRAY_AT(events, PG_STATIC_ARRAY_LEN(events), i);
+
+    PG_SLICE_AT(events_out, i).fd.fd = e.data.fd;
+
+    if (e.events & EPOLLIN) {
+      PG_SLICE_AT(events_out, i).kind |= PG_AIO_EVENT_KIND_READABLE;
+    }
+    if (e.events & EPOLLOUT) {
+      PG_SLICE_AT(events_out, i).kind |= PG_AIO_EVENT_KIND_WRITABLE;
+    }
+    if (e.events & EPOLLERR) {
+      PG_SLICE_AT(events_out, i).kind |= PG_AIO_EVENT_KIND_ERROR;
+    }
+    if (e.events & EPOLLHUP) {
+      PG_SLICE_AT(events_out, i).kind |= PG_AIO_EVENT_KIND_HANG_UP;
+    }
+  }
+
+  return res;
+}
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
