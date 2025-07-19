@@ -2750,15 +2750,16 @@ static void test_thread() {
 typedef enum {
   AIO_PEER_STATE_INITIAL,
   AIO_PEER_STATE_SENT_HELLO,
-  AIO_PEER_STATE_RECEIVED_HELLO,
+  AIO_PEER_STATE_DONE,
 } AioPeerState;
 
-static void test_aio_client(PgFileDescriptor aio, PgWriter *w, PgReader *r,
-                            AioPeerState *state, PgFileDescriptor fd,
-                            PgAllocator *allocator) {
+static void test_aio_peer(PgFileDescriptor aio, PgWriter *w, PgReader *r,
+                          AioPeerState *state, PgFileDescriptor fd,
+                          PgAllocator *allocator) {
   switch (*state) {
   case AIO_PEER_STATE_INITIAL: {
     PG_ASSERT(0 == pg_writer_write_full(w, PG_S("hello world"), allocator));
+    PG_ASSERT(0 == pg_writer_flush(w, allocator));
     PG_ASSERT(0 ==
               pg_aio_unregister_interest(aio, fd, PG_AIO_EVENT_KIND_WRITABLE));
     PG_ASSERT(0 ==
@@ -2767,7 +2768,7 @@ static void test_aio_client(PgFileDescriptor aio, PgWriter *w, PgReader *r,
     *state = AIO_PEER_STATE_SENT_HELLO;
   } break;
   case AIO_PEER_STATE_SENT_HELLO: {
-    u8 recv[1024]{0};
+    u8 recv[1024] = {0};
     Pgu8Slice recv_slice = {
         .data = recv,
         .len = PG_STATIC_ARRAY_LEN(recv),
@@ -2775,10 +2776,11 @@ static void test_aio_client(PgFileDescriptor aio, PgWriter *w, PgReader *r,
     Pgu64Result res = pg_reader_read(r, recv_slice);
     PG_ASSERT(0 == res.err);
 
-    // TODO
+    recv_slice.len = res.res;
+    PG_ASSERT(pg_bytes_eq(recv_slice, PG_S("hello world")));
+
+    *state = AIO_PEER_STATE_DONE;
   } break;
-  case AIO_PEER_STATE_RECEIVED_HELLO:
-    break;
   default:
     PG_ASSERT(0);
   }
@@ -2799,13 +2801,20 @@ static void test_aio() {
       PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
       PG_NET_SOCKET_OPTION_NONE);
   PG_ASSERT(0 == res_sockets.err);
-  PgFileDescriptor client = res_sockets.res.first;
-  PgFileDescriptor server = res_sockets.res.second;
+  PgFileDescriptor client_fd = res_sockets.res.first;
+  PgFileDescriptor server_fd = res_sockets.res.second;
 
-  PG_ASSERT(0 ==
-            pg_aio_register_interest(aio, client, PG_AIO_EVENT_KIND_WRITABLE));
-  PG_ASSERT(0 ==
-            pg_aio_register_interest(aio, server, PG_AIO_EVENT_KIND_READABLE));
+  PG_ASSERT(0 == pg_aio_register_interest(aio, client_fd,
+                                          PG_AIO_EVENT_KIND_WRITABLE));
+  PG_ASSERT(0 == pg_aio_register_interest(aio, server_fd,
+                                          PG_AIO_EVENT_KIND_READABLE));
+
+  AioPeerState client_state = {0};
+  AioPeerState server_state = {0};
+  PgWriter client_writer = pg_writer_make_from_socket(client_fd, 16, allocator);
+  PgWriter server_writer = pg_writer_make_from_socket(server_fd, 16, allocator);
+  PgReader client_reader = pg_reader_make_from_socket(client_fd, 16, allocator);
+  PgReader server_reader = pg_reader_make_from_socket(server_fd, 16, allocator);
 
   for (;;) {
     Pgu32Ok timeout = {0};
@@ -2818,13 +2827,20 @@ static void test_aio() {
       PG_ASSERT(ok_event.ok);
 
       PgAioEvent event = ok_event.res;
-      if (client.fd == event.fd.fd) {
-        pg_aio_test_client();
-      } else if (server.fd == event.fd.fd) {
-        pg_aio_test_server_handle();
+      if (client_fd.fd == event.fd.fd) {
+        test_aio_peer(aio, &client_writer, &client_reader, &client_state,
+                      client_fd, allocator);
+      } else if (server_fd.fd == event.fd.fd) {
+        test_aio_peer(aio, &server_writer, &server_reader, &server_state,
+                      server_fd, allocator);
       } else {
         PG_ASSERT(0);
       }
+    }
+
+    if (AIO_PEER_STATE_DONE == client_state &&
+        AIO_PEER_STATE_DONE == server_state) {
+      return;
     }
   }
 }

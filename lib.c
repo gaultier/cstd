@@ -351,6 +351,7 @@ typedef struct {
 } PgRing;
 
 typedef enum {
+  PG_READER_KIND_NONE,
   PG_READER_KIND_BYTES,
   PG_READER_KIND_FILE,
   PG_READER_KIND_SOCKET,
@@ -2729,6 +2730,22 @@ pg_ring_index_of_bytes2(PgRing rg, u8 needle0, u8 needle1) {
   }
 }
 
+[[maybe_unused]] [[nodiscard]] static PgError pg_reader_close(PgReader *r) {
+  PG_ASSERT(r);
+
+  switch (r->kind) {
+  case PG_READER_KIND_SOCKET:
+  case PG_READER_KIND_FILE:
+    return pg_file_close(r->u.file);
+
+  case PG_READER_KIND_NONE:
+  case PG_READER_KIND_BYTES:
+    return 0;
+  default:
+    PG_ASSERT(0);
+  }
+}
+
 [[nodiscard]] [[maybe_unused]] static PgWriter
 pg_writer_make_string_builder(u64 cap, PgAllocator *allocator) {
   PgWriter w = {0};
@@ -2892,11 +2909,12 @@ pg_writer_write_full(PgWriter *w, Pgu8Slice s, PgAllocator *allocator) {
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
 pg_reader_do_read(PgReader *r, Pgu8Slice dst) {
   PG_ASSERT(dst.data);
+  Pgu64Result res = {0};
 
   switch (r->kind) {
+  case PG_READER_KIND_NONE:
+    return res;
   case PG_READER_KIND_BYTES: {
-    Pgu64Result res = {0};
-
     u64 n = PG_MIN(dst.len, r->u.bytes.len);
     if (n > 0) {
       PG_ASSERT(dst.data);
@@ -3004,8 +3022,11 @@ pg_reader_read(PgReader *r, Pgu8Slice dst) {
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
 pg_reader_do_read_non_blocking(PgReader *r, Pgu8Slice dst) {
   PG_ASSERT(dst.data);
+  Pgu64Result res = {0};
 
   switch (r->kind) {
+  case PG_READER_KIND_NONE:
+    return res;
   case PG_READER_KIND_BYTES:
     return pg_reader_do_read(r, dst);
   case PG_READER_KIND_SOCKET:
