@@ -2747,6 +2747,88 @@ static void test_thread() {
   PG_ASSERT(42 == n);
 }
 
+typedef enum {
+  AIO_PEER_STATE_INITIAL,
+  AIO_PEER_STATE_SENT_HELLO,
+  AIO_PEER_STATE_RECEIVED_HELLO,
+} AioPeerState;
+
+static void test_aio_client(PgFileDescriptor aio, PgWriter *w, PgReader *r,
+                            AioPeerState *state, PgFileDescriptor fd,
+                            PgAllocator *allocator) {
+  switch (*state) {
+  case AIO_PEER_STATE_INITIAL: {
+    PG_ASSERT(0 == pg_writer_write_full(w, PG_S("hello world"), allocator));
+    PG_ASSERT(0 ==
+              pg_aio_unregister_interest(aio, fd, PG_AIO_EVENT_KIND_WRITABLE));
+    PG_ASSERT(0 ==
+              pg_aio_register_interest(aio, fd, PG_AIO_EVENT_KIND_READABLE));
+
+    *state = AIO_PEER_STATE_SENT_HELLO;
+  } break;
+  case AIO_PEER_STATE_SENT_HELLO: {
+    u8 recv[1024]{0};
+    Pgu8Slice recv_slice = {
+        .data = recv,
+        .len = PG_STATIC_ARRAY_LEN(recv),
+    };
+    Pgu64Result res = pg_reader_read(r, recv_slice);
+    PG_ASSERT(0 == res.err);
+
+    // TODO
+  } break;
+  case AIO_PEER_STATE_RECEIVED_HELLO:
+    break;
+  default:
+    PG_ASSERT(0);
+  }
+}
+
+static void test_aio() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgRing cqe = pg_ring_make(sizeof(PgAioEvent) * 16, allocator);
+
+  PgFileDescriptorResult res_aio = pg_aio_init();
+  PG_ASSERT(0 == res_aio.err);
+  PgFileDescriptor aio = res_aio.res;
+
+  PgFileDescriptorPairResult res_sockets = pg_net_make_socket_pair(
+      PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
+      PG_NET_SOCKET_OPTION_NONE);
+  PG_ASSERT(0 == res_sockets.err);
+  PgFileDescriptor client = res_sockets.res.first;
+  PgFileDescriptor server = res_sockets.res.second;
+
+  PG_ASSERT(0 ==
+            pg_aio_register_interest(aio, client, PG_AIO_EVENT_KIND_WRITABLE));
+  PG_ASSERT(0 ==
+            pg_aio_register_interest(aio, server, PG_AIO_EVENT_KIND_READABLE));
+
+  for (;;) {
+    Pgu32Ok timeout = {0};
+    Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout);
+    PG_ASSERT(0 == res_wait.err);
+    PG_ASSERT(0 != res_wait.res);
+
+    for (u64 i = 0; i < res_wait.res; i++) {
+      PgAioEventOk ok_event = pg_aio_cqe_dequeue(&cqe);
+      PG_ASSERT(ok_event.ok);
+
+      PgAioEvent event = ok_event.res;
+      if (client.fd == event.fd.fd) {
+        pg_aio_test_client();
+      } else if (server.fd == event.fd.fd) {
+        pg_aio_test_server_handle();
+      } else {
+        PG_ASSERT(0);
+      }
+    }
+  }
+}
+
 int main() {
   test_rune_bytes_count();
   test_utf8_count();
@@ -2811,4 +2893,5 @@ int main() {
   test_string_buillder_append_u64_hex();
   test_adjacency_matrix();
   test_thread();
+  test_aio();
 }

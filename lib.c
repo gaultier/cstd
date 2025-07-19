@@ -907,6 +907,7 @@ typedef struct {
 PG_DYN(PgAioEvent) PgAioEventDyn;
 PG_SLICE(PgAioEvent) PgAioEventSlice;
 PG_RESULT(PgAioEvent) PgAioEventResult;
+PG_OK(PgAioEvent) PgAioEventOk;
 
 // ---------------- Functions.
 
@@ -942,15 +943,19 @@ pg_file_size(PgFileDescriptor file);
 [[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init();
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_aio_register_interest(PgFileDescriptor manager, PgFileDescriptor fd,
+pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
                          PgAioEventKind interest);
 
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+                           PgAioEventKind interest);
+
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait(PgFileDescriptor manager, PgAioEventSlice events_out,
+pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
             Pgu32Ok timeout_ms);
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait_cqe(PgFileDescriptor manager, PgRing *cqe, Pgu32Ok timeout_ms);
+pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms);
 
 // TODO: Thread attributes?
 [[maybe_unused]] [[nodiscard]] static PgThreadResult
@@ -8370,7 +8375,7 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
-pg_aio_fs_register_interest(PgFileDescriptor manager, PgString name,
+pg_aio_fs_register_interest(PgFileDescriptor aio, PgString name,
                             PgAioEventKind interest) {
   PgFileDescriptorResult res = {0};
 
@@ -8397,7 +8402,7 @@ pg_aio_fs_register_interest(PgFileDescriptor manager, PgString name,
 
   i32 ret = 0;
   do {
-    ret = inotify_add_watch(manager.fd, (const char *)name_c, interest_linux);
+    ret = inotify_add_watch(aio.fd, (const char *)name_c, interest_linux);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
@@ -8428,7 +8433,7 @@ pg_aio_fs_register_interest(PgFileDescriptor manager, PgString name,
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_aio_register_interest(PgFileDescriptor manager, PgFileDescriptor fd,
+pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
                          PgAioEventKind interest) {
   struct epoll_event event = {0};
   event.data.fd = fd.fd;
@@ -8442,7 +8447,32 @@ pg_aio_register_interest(PgFileDescriptor manager, PgFileDescriptor fd,
 
   i32 ret = 0;
   do {
-    ret = epoll_ctl(manager.fd, EPOLL_CTL_ADD, fd.fd, &event);
+    ret = epoll_ctl(aio.fd, EPOLL_CTL_ADD, fd.fd, &event);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  return 0;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+                           PgAioEventKind interest) {
+  struct epoll_event event = {0};
+  event.data.fd = fd.fd;
+
+  if (interest & PG_AIO_EVENT_KIND_READABLE) {
+    event.events |= EPOLLIN;
+  }
+  if (interest & PG_AIO_EVENT_KIND_WRITABLE) {
+    event.events |= EPOLLOUT;
+  }
+
+  i32 ret = 0;
+  do {
+    ret = epoll_ctl(aio.fd, EPOLL_CTL_DEL, fd.fd, &event);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
@@ -8453,7 +8483,7 @@ pg_aio_register_interest(PgFileDescriptor manager, PgFileDescriptor fd,
 }
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait(PgFileDescriptor manager, PgAioEventSlice events_out,
+pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
             Pgu32Ok timeout_ms) {
   Pgu64Result res = {0};
 
@@ -8462,7 +8492,7 @@ pg_aio_wait(PgFileDescriptor manager, PgAioEventSlice events_out,
 
   i32 ret = 0;
   do {
-    ret = epoll_wait(manager.fd, events, (i32)events_len,
+    ret = epoll_wait(aio.fd, events, (i32)events_len,
                      timeout_ms.ok ? (i32)timeout_ms.res : -1);
   } while (-1 == ret && EINTR == errno);
 
@@ -8497,7 +8527,7 @@ pg_aio_wait(PgFileDescriptor manager, PgAioEventSlice events_out,
 }
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait_cqe(PgFileDescriptor manager, PgRing *cqe, Pgu32Ok timeout_ms) {
+pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms) {
   Pgu64Result res = {0};
 
   struct epoll_event events[1024] = {0};
@@ -8506,7 +8536,7 @@ pg_aio_wait_cqe(PgFileDescriptor manager, PgRing *cqe, Pgu32Ok timeout_ms) {
 
   i32 ret = 0;
   do {
-    ret = epoll_wait(manager.fd, events, (i32)events_len,
+    ret = epoll_wait(aio.fd, events, (i32)events_len,
                      timeout_ms.ok ? (i32)timeout_ms.res : -1);
   } while (-1 == ret && EINTR == errno);
 
@@ -8545,7 +8575,7 @@ pg_aio_wait_cqe(PgFileDescriptor manager, PgRing *cqe, Pgu32Ok timeout_ms) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgAioEventResult
-pg_aio_fs_wait_one(PgFileDescriptor manager, Pgu32Ok timeout_ms,
+pg_aio_fs_wait_one(PgFileDescriptor aio, Pgu32Ok timeout_ms,
                    PgAllocator *allocator) {
   PgAioEventResult res = {0};
 
@@ -8554,7 +8584,7 @@ pg_aio_fs_wait_one(PgFileDescriptor manager, Pgu32Ok timeout_ms,
       .len = 1,
   };
 
-  Pgu64Result res_wait = pg_aio_wait(manager, events_slice, timeout_ms);
+  Pgu64Result res_wait = pg_aio_wait(aio, events_slice, timeout_ms);
   PG_ASSERT(0 == res_wait.err);
   events_slice.len = res_wait.res;
 
@@ -8748,4 +8778,19 @@ end:
   (void)pg_net_socket_close(server_socket);
   return err;
 }
+
+[[maybe_unused]] [[nodiscard]] static PgAioEventOk
+pg_aio_cqe_dequeue(PgRing *cqe) {
+  PgAioEventOk res = {0};
+  if (pg_ring_can_read_count(*cqe) < sizeof(PgAioEvent)) {
+    return res;
+  }
+
+  Pgu8Slice bytes = {.data = (u8 *)&res.res, .len = sizeof(PgAioEvent)};
+  PG_ASSERT(sizeof(PgAioEvent) == pg_ring_read_bytes(cqe, bytes));
+
+  res.ok = true;
+  return res;
+}
+
 #endif
