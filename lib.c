@@ -939,6 +939,19 @@ pg_file_size(PgFileDescriptor file);
 [[maybe_unused]] static Pgu64Result pg_file_write(PgFileDescriptor file,
                                                   PgString s);
 
+[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init();
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_aio_register_interest(PgFileDescriptor manager, PgFileDescriptor fd,
+                         PgAioEventKind interest);
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_aio_wait(PgFileDescriptor manager, PgAioEventSlice events_out,
+            Pgu32Ok timeout_ms);
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_aio_wait_cqe(PgFileDescriptor manager, PgRing *cqe, Pgu32Ok timeout_ms);
+
 // TODO: Thread attributes?
 [[maybe_unused]] [[nodiscard]] static PgThreadResult
 pg_thread_create(PgThreadFn fn, void *fn_data);
@@ -8478,6 +8491,54 @@ pg_aio_wait(PgFileDescriptor manager, PgAioEventSlice events_out,
     if (e.events & EPOLLHUP) {
       PG_SLICE_AT(events_out, i).kind |= PG_AIO_EVENT_KIND_HANG_UP;
     }
+  }
+
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_aio_wait_cqe(PgFileDescriptor manager, PgRing *cqe, Pgu32Ok timeout_ms) {
+  Pgu64Result res = {0};
+
+  struct epoll_event events[1024] = {0};
+  u64 can_write_count = pg_ring_can_write_count(*cqe) / sizeof(PgAioEvent);
+  u64 events_len = PG_MIN(can_write_count, PG_STATIC_ARRAY_LEN(events));
+
+  i32 ret = 0;
+  do {
+    ret = epoll_wait(manager.fd, events, (i32)events_len,
+                     timeout_ms.ok ? (i32)timeout_ms.res : -1);
+  } while (-1 == ret && EINTR == errno);
+
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = (u64)ret;
+
+  for (u64 i = 0; i < (u64)ret; i++) {
+    struct epoll_event e =
+        PG_C_ARRAY_AT(events, PG_STATIC_ARRAY_LEN(events), i);
+
+    PgAioEvent ev = {0};
+    ev.fd.fd = e.data.fd;
+
+    if (e.events & EPOLLIN) {
+      ev.kind |= PG_AIO_EVENT_KIND_READABLE;
+    }
+    if (e.events & EPOLLOUT) {
+      ev.kind |= PG_AIO_EVENT_KIND_WRITABLE;
+    }
+    if (e.events & EPOLLERR) {
+      ev.kind |= PG_AIO_EVENT_KIND_ERROR;
+    }
+    if (e.events & EPOLLHUP) {
+      ev.kind |= PG_AIO_EVENT_KIND_HANG_UP;
+    }
+
+    Pgu8Slice ev_bytes = {.data = (u8 *)&ev, .len = sizeof(ev)};
+    PG_ASSERT(sizeof(ev) == pg_ring_write_bytes(cqe, ev_bytes));
   }
 
   return res;
