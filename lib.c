@@ -902,6 +902,7 @@ typedef struct {
   PgAioEventKind kind;
   u64 user_data;
   PgFileDescriptor fd;
+  PgString name;
 } PgAioEvent;
 PG_DYN(PgAioEvent) PgAioEventDyn;
 PG_SLICE(PgAioEvent) PgAioEventSlice;
@@ -8483,7 +8484,8 @@ pg_aio_wait(PgFileDescriptor manager, PgAioEventSlice events_out,
 }
 
 [[nodiscard]] [[maybe_unused]] static PgAioEventResult
-pg_aio_fs_wait_one(PgFileDescriptor manager, Pgu32Ok timeout_ms) {
+pg_aio_fs_wait_one(PgFileDescriptor manager, Pgu32Ok timeout_ms,
+                   PgAllocator *allocator) {
   PgAioEventResult res = {0};
 
   PgAioEventSlice events_slice = {
@@ -8518,6 +8520,11 @@ pg_aio_fs_wait_one(PgFileDescriptor manager, Pgu32Ok timeout_ms) {
     }
     if (inev.mask & IN_DELETE) {
       res.res.kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
+    }
+
+    if (0 != inev.len) {
+      res.res.name = pg_string_make(inev.len, allocator);
+      memcpy(res.res.name.data, inev_data + sizeof(inev), inev.len);
     }
   }
 
