@@ -2763,13 +2763,13 @@ static void test_adjacency_matrix() {
   PG_ASSERT(5 == pg_adjacency_matrix_count_neighbors(matrix, 5));
 }
 
-static void *test_thread_fn(void *data) {
+static i32 test_thread_fn(void *data) {
   PG_ASSERT(data);
 
   u64 *n = data;
   *n = 42;
 
-  return nullptr;
+  return 0;
 }
 
 static void test_thread() {

@@ -12,7 +12,7 @@
 // TODO: [Unix] Human-readable stacktrace.
 // TODO: Get PIE offset for better call stack.
 // TODO: Test untested functions (add test coverage to build).
-// TODO: Unix/Windows parity.
+// TODO: [Windows] Unix/Windows parity.
 // Low priority:
 // TODO: [Unix] CLI argument parser.
 
@@ -23,10 +23,6 @@
 
 #if defined(__linux__)
 #define PG_OS_LINUX
-#endif
-
-#if defined(__FreeBSD__) || defined(__APPLE__) // TODO: More BSDs.
-#define PG_OS_BSD
 #endif
 
 #if defined(__unix__)
@@ -43,9 +39,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#if 0
-#include <threads.h> // FIXME: Use pthreads on Unix and <xxx> on Windows.
-#endif
+#include <threads.h>
 
 // Check that __COUNTER__ is defined and that __COUNTER__ increases by 1
 // every time it is expanded. X + 1 == X + 0 is used in case X is defined to be
@@ -884,8 +878,33 @@ typedef struct {
   void *opaque;
 } PgThread;
 PG_RESULT(PgThread) PgThreadResult;
+PG_SLICE(PgThread) PgThreadSlice;
+PG_DYN(PgThread) PgThreadDyn;
 
-typedef void *(*PgThreadFn)(void *data);
+typedef i32 (*PgThreadFn)(void *data);
+
+typedef struct PgThreadPoolTask PgThreadPoolTask;
+struct PgThreadPoolTask {
+  void *data;
+  PgThreadPoolTask *next;
+  PgThreadFn fn;
+};
+
+typedef struct {
+  PgThreadSlice workers;
+
+  // Linked list.
+  PgThreadPoolTask *tasks;
+  mtx_t tasks_mtx;
+  cnd_t tasks_cnd;
+
+  bool done;
+} PgThreadPool;
+
+typedef struct {
+  PgError err;
+  PgThreadPool *pool;
+} PgThreadPoolResult;
 
 typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_KIND_NONE = 0,
@@ -4541,7 +4560,7 @@ pg_thread_create(PgThreadFn fn, void *fn_data) {
   static_assert(sizeof(res.res) >= sizeof(pthread_t));
 
   pthread_t thread = {0};
-  i32 ret = pthread_create(&thread, nullptr, fn, fn_data);
+  i32 ret = pthread_create(&thread, nullptr, (void *(*)(void *))fn, fn_data);
   if (-1 == ret) {
     res.err = (PgError)errno;
     return res;
@@ -8056,33 +8075,6 @@ pg_html_node_get_simple_title_content(PgHtmlNode *node) {
   return res;
 }
 
-#if 0
-PG_SLICE(thrd_t) PgThreadSlice;
-PG_DYN(thrd_t) PgThreadDyn;
-
-typedef struct PgThreadPoolTask PgThreadPoolTask;
-struct PgThreadPoolTask {
-  void *data;
-  PgThreadPoolTask *next;
-  thrd_start_t fn;
-};
-
-typedef struct {
-  PgThreadSlice workers;
-
-  // Linked list.
-  PgThreadPoolTask *tasks;
-  mtx_t tasks_mtx;
-  cnd_t tasks_cnd;
-
-  bool done;
-} PgThreadPool;
-
-typedef struct {
-  PgError err;
-  PgThreadPool *pool;
-} PgThreadPoolResult;
-
 // Caller is responsible for proper locking.
 [[maybe_unused]] [[nodiscard]]
 static PgThreadPoolTask *pg_thread_pool_dequeue_task(PgThreadPool *pool) {
@@ -8093,7 +8085,7 @@ static PgThreadPoolTask *pg_thread_pool_dequeue_task(PgThreadPool *pool) {
   return res;
 }
 
-[[nodiscard]] static int pg_pool_worker_start_fn(void *data) {
+static i32 pg_pool_worker_start_fn(void *data) {
   PG_ASSERT(data);
   PgThreadPool *pool = data;
 
@@ -8114,10 +8106,7 @@ static PgThreadPoolTask *pg_thread_pool_dequeue_task(PgThreadPool *pool) {
     PG_ASSERT(task);
     PG_ASSERT(task->fn);
 
-    int ret = task->fn(task->data);
-    if (thrd_success != ret) {
-      return ret;
-    }
+    (void)task->fn(task->data);
   }
 }
 
@@ -8141,19 +8130,21 @@ pg_thread_pool_make(u32 size, PgAllocator *allocator) {
       pg_alloc(allocator, sizeof(thrd_t), _Alignof(thrd_t), size);
 
   for (u32 i = 0; i < size; i++) {
-    thrd_t *thread = PG_SLICE_AT_PTR(&res.pool->workers, i);
-    int ret = thrd_create(thread, pg_pool_worker_start_fn, res.pool);
-    if (ret != thrd_success) {
-      res.err = PG_ERR_INVALID_VALUE; // FIXME: return exact error.
+    PgThreadResult res_thread =
+        pg_thread_create(pg_pool_worker_start_fn, res.pool);
+    if (0 != res_thread.err) {
+      res.err = res_thread.err;
       return res;
     }
+
+    PG_SLICE_AT(res.pool->workers, i) = res_thread.res;
   }
 
   return res;
 }
 
 [[maybe_unused]]
-static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
+static void pg_thread_pool_enqueue_task(PgThreadPool *pool, PgThreadFn fn,
                                         void *data, PgAllocator *allocator) {
   PG_ASSERT(pool);
   PG_ASSERT(fn);
@@ -8182,10 +8173,9 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, thrd_start_t fn,
   PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
 
   for (u32 i = 0; i < pool->workers.len; i++) {
-    thrd_join(PG_SLICE_AT(pool->workers, i), nullptr);
+    (void)pg_thread_join(PG_SLICE_AT(pool->workers, i));
   }
 }
-#endif
 
 [[nodiscard]] [[maybe_unused]] static PgElfSymbolType
 pg_elf_symbol_get_type(PgElfSymbolTableEntry sym) {
