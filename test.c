@@ -904,6 +904,11 @@ static void test_ring_buffer_read_write_fuzz() {
       oracle_cap += res_pipe_write.res;
     } while (1);
     PG_ASSERT(0 == pg_fd_set_blocking(oracle.second, true));
+
+    // Empty the pipe.
+    Pgu64Result res_pipe_read = pg_file_read(oracle.first, buf_slice);
+    PG_ASSERT(0 == res_pipe_read.err);
+    PG_ASSERT(oracle_cap == res_pipe_read.res);
   }
 
   PgArena arena_ring = pg_arena_make_from_virtual_mem(oracle_cap);
@@ -925,21 +930,27 @@ static void test_ring_buffer_read_write_fuzz() {
   // TODO: Print seed for reproducability?
   for (u64 i = 0; i < ROUNDS; i++) {
     u32 len = pg_rand_u32_min_incl_max_incl(&rng, 0, (u32)rg.data.len + 1);
-    PgString from = pg_rand_string(&rng, len, allocator_strings);
-    PgString to = pg_rand_string(&rng, len, allocator_strings);
-
-    // TODO: Apply same operations to oracle.
+    PgString src = pg_rand_string(&rng, len, allocator_strings);
+    PgString dst = pg_rand_string(&rng, len, allocator_strings);
 
     u64 can_write = pg_ring_can_write_count(rg);
-    u64 n_write = pg_ring_write_bytes(&rg, from);
-    if (can_write > 0 && from.len > 0) {
-      PG_ASSERT(n_write == PG_MIN(can_write, from.len));
+    u64 n_write = pg_ring_write_bytes(&rg, src);
+    if (can_write > 0 && src.len > 0) {
+      PG_ASSERT(n_write == PG_MIN(can_write, src.len));
+
+      Pgu64Result res_write = pg_file_write(oracle.second, src);
+      PG_ASSERT(0 == res_write.err);
+      PG_ASSERT(res_write.res == n_write);
     }
 
     u64 can_read = pg_ring_can_read_count(rg);
-    u64 n_read = pg_ring_read_bytes(&rg, to);
-    if (can_read > 0 && to.len > 0) {
-      PG_ASSERT(n_read == PG_MIN(can_read, to.len));
+    u64 n_read = pg_ring_read_bytes(&rg, dst);
+    if (can_read > 0 && dst.len > 0) {
+      PG_ASSERT(n_read == PG_MIN(can_read, dst.len));
+
+      Pgu64Result res_read = pg_file_read(oracle.first, dst);
+      PG_ASSERT(0 == res_read.err);
+      PG_ASSERT(res_read.res == n_read);
     }
   }
 }
