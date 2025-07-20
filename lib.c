@@ -5486,6 +5486,33 @@ pg_net_socket_read_non_blocking(PgFileDescriptor socket, PgString dst) {
   return res;
 }
 
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_fd_set_blocking(PgFileDescriptor fd, bool block) {
+  i32 ret = 0;
+  do {
+    ret = fcntl(fd.fd, F_GETFL, O_NONBLOCK);
+  } while (-1 == ret && EINTR == errno);
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  i32 flags = ret;
+  if (block) {
+    flags &= ~O_NONBLOCK;
+  } else {
+    flags |= O_NONBLOCK;
+  }
+
+  do {
+    ret = fcntl(fd.fd, F_SETFL, flags);
+  } while (-1 == ret && EINTR == errno);
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  return 0;
+}
+
 #else
 
 // -- Win32 ---

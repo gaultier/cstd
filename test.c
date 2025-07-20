@@ -884,12 +884,33 @@ static void test_ring_buffer_read_write() {
 }
 
 static void test_ring_buffer_read_write_fuzz() {
-  PgArena arena_ring = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena arena_ring = pg_arena_make_from_virtual_mem(512 * PG_KiB);
   PgArenaAllocator arena_allocator_ring = pg_make_arena_allocator(&arena_ring);
   PgAllocator *allocator_ring =
       pg_arena_allocator_as_allocator(&arena_allocator_ring);
 
-  PgRing rg = {.data = pg_string_make(4 * PG_KiB, allocator_ring)};
+  PgFileDescriptorPairResult res_pipe = pg_pipe_make();
+  PG_ASSERT(0 == res_pipe.err);
+  PgFileDescriptorPair oracle = res_pipe.res;
+
+  u64 oracle_cap = 0;
+  // Get pipe capacity by filling it.
+  {
+    PG_ASSERT(0 == pg_fd_set_blocking(oracle.second, false));
+
+    u8 buf[512 * PG_KiB] = {0};
+    Pgu8Slice buf_slice = {.data = buf, .len = PG_STATIC_ARRAY_LEN(buf)};
+    do {
+      Pgu64Result res_pipe_write = pg_file_write(oracle.second, buf_slice);
+      if (0 == res_pipe_write.res) {
+        break;
+      }
+      oracle_cap += res_pipe_write.res;
+    } while (1);
+    PG_ASSERT(0 == pg_fd_set_blocking(oracle.second, true));
+  }
+
+  PgRing rg = {.data = pg_string_make(oracle_cap, allocator_ring)};
 
   u64 ROUNDS = 1024;
   PgArena arena_strings = pg_arena_make_from_virtual_mem(ROUNDS * 8 * PG_KiB);
