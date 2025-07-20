@@ -884,10 +884,6 @@ static void test_ring_buffer_read_write() {
 }
 
 static void test_ring_buffer_read_write_fuzz() {
-  PgArena arena_ring = pg_arena_make_from_virtual_mem(512 * PG_KiB);
-  PgArenaAllocator arena_allocator_ring = pg_make_arena_allocator(&arena_ring);
-  PgAllocator *allocator_ring =
-      pg_arena_allocator_as_allocator(&arena_allocator_ring);
 
   PgFileDescriptorPairResult res_pipe = pg_pipe_make();
   PG_ASSERT(0 == res_pipe.err);
@@ -910,10 +906,16 @@ static void test_ring_buffer_read_write_fuzz() {
     PG_ASSERT(0 == pg_fd_set_blocking(oracle.second, true));
   }
 
+  PgArena arena_ring = pg_arena_make_from_virtual_mem(oracle_cap);
+  PgArenaAllocator arena_allocator_ring = pg_make_arena_allocator(&arena_ring);
+  PgAllocator *allocator_ring =
+      pg_arena_allocator_as_allocator(&arena_allocator_ring);
+
   PgRing rg = {.data = pg_string_make(oracle_cap, allocator_ring)};
 
   u64 ROUNDS = 1024;
-  PgArena arena_strings = pg_arena_make_from_virtual_mem(ROUNDS * 8 * PG_KiB);
+  PgArena arena_strings =
+      pg_arena_make_from_virtual_mem(ROUNDS * 2 * oracle_cap);
   PgArenaAllocator arena_allocator_strings =
       pg_make_arena_allocator(&arena_strings);
   PgAllocator *allocator_strings =
