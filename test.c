@@ -928,6 +928,8 @@ static void test_ring_buffer_read_write_fuzz() {
     PgString from = pg_rand_string(&rng, len, allocator_strings);
     PgString to = pg_rand_string(&rng, len, allocator_strings);
 
+    // TODO: Apply same operations to oracle.
+
     u64 can_write = pg_ring_can_write_count(rg);
     u64 n_write = pg_ring_write_bytes(&rg, from);
     if (can_write > 0 && from.len > 0) {
