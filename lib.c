@@ -936,6 +936,7 @@ typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_KIND_FILE_CREATED = 1 << 3,
   PG_AIO_EVENT_KIND_READABLE = 1 << 4,
   PG_AIO_EVENT_KIND_WRITABLE = 1 << 5,
+
   PG_AIO_EVENT_KIND_ERROR = 1 << 6,
   PG_AIO_EVENT_KIND_HANG_UP = 1 << 7,
   // More...
@@ -8513,6 +8514,7 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
 }
 
 #if defined(__FreeBSD__) || defined(__APPLE__)
+#include <sys/event.h>
 
 [[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init(){
   PgFileDescriptorResult res={0};
@@ -8529,7 +8531,35 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
-                         PgAioEventKind interest);
+                         PgAioEventKind interest) {
+
+  struct kevent changelist[1]={0};
+  changelist[0].ident = (u64)fd.fd;
+  if (interest & PG_AIO_EVENT_KIND_READABLE){
+  changelist[0].filter |= EVFILT_READ;
+  }
+  if (interest & PG_AIO_EVENT_KIND_WRITABLE){
+  changelist[0].filter |= EVFILT_WRITE;
+  }
+  if (interest & PG_AIO_EVENT_KIND_FILE_CREATED){
+    // TODO
+  }
+  if (interest & PG_AIO_EVENT_KIND_FILE_MODIFIED){
+    changelist[0].filter |= EVFILT_VNODE;
+    changelist[0].fflags |= NOTE_WRITE;
+  }
+  if (interest & PG_AIO_EVENT_KIND_FILE_DELETED){
+    changelist[0].filter |= EVFILT_VNODE;
+    changelist[0].fflags |= NOTE_DELETE | NOTE_REVOKE;
+  }
+
+  i32 ret= kevent(aio.fd, changelist, 1, nullptr, 1, nullptr);
+  if (-1==ret){
+    return (PgError)errno;
+  }
+
+  return 0;
+}
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
