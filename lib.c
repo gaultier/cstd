@@ -8512,6 +8512,38 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
   return res;
 }
 
+#if defined(__FreeBSD__) || defined(__APPLE__)
+
+[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init(){
+  PgFileDescriptorResult res={0};
+
+  i32 ret = kqueue();
+  if (-1==ret){
+    res.err=(PgError)errno;
+    return res;
+  }
+
+  res.res.fd=ret;
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+                         PgAioEventKind interest);
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+                           PgAioEventKind interest);
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
+            Pgu32Ok timeout_ms);
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms);
+
+#endif
+
 #ifdef PG_OS_LINUX
 #include <sys/epoll.h>
 #include <sys/inotify.h>
