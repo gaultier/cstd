@@ -39,7 +39,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <threads.h>
+#ifdef PG_OS_UNIX
+#include <pthread.h>
+#endif
 
 // Check that __COUNTER__ is defined and that __COUNTER__ increases by 1
 // every time it is expanded. X + 1 == X + 0 is used in case X is defined to be
@@ -880,10 +882,10 @@ PG_RESULT(PgStringSlice) PgStringSliceResult;
 
 
 #ifdef PG_OS_UNIX
-typedef PgThread pthread_thread_t;
+typedef pthread_t PgThread;
 #else
 // FIXME
-typedef PgThread bool;
+typedef bool PgThread;
 #endif
 
 PG_RESULT(PgThread) PgThreadResult;
@@ -891,19 +893,19 @@ PG_SLICE(PgThread) PgThreadSlice;
 PG_DYN(PgThread) PgThreadDyn;
 
 #ifdef PG_OS_UNIX
-typedef PgMutex pthread_mutex_t;
+typedef pthread_mutex_t PgMutex;
 #else
 // FIXME
-typedef PgMutex bool;
+typedef bool PgMutex;
 #endif
 
 typedef enum {PG_MUTEX_KIND_PLAIN,PG_MUTEX_KIND_RECURSIVE,}PgMutexKind;
 
 #ifdef PG_OS_UNIX
-typedef PgConditionVar pthread_cond_t;
+typedef pthread_cond_t PgConditionVar;
 #else
 // FIXME
-typedef PgConditionVar bool;
+typedef bool PgConditionVar;
 #endif
 
 typedef i32 (*PgThreadFn)(void *data);
@@ -4573,7 +4575,6 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 #include <netdb.h>
 #include <netinet/tcp.h>
 #include <poll.h>
-#include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -4604,7 +4605,7 @@ if (PG_MUTEX_KIND_RECURSIVE == type) {
     err = pthread_mutex_init(mutex, &attr);
 
 end:
-    fin_err = pthread_mutexattr_destroy(&attr);
+    i32 fin_err = pthread_mutexattr_destroy(&attr);
     if (fin_err) {
       return err ? err : fin_err;
     }
@@ -4612,50 +4613,81 @@ end:
     return (PgError)err ;
 }
 
-[[maybe_unused]][[nodiscard]] void pg_mtx_destroy(PgMutex *mutex){
-  i32 ret = pthread_mutex_destroy((pthread_mutex_t*)mutex);
-  if (0!=ret){return (PgError)ret;}
-
-  return 0;
+[[maybe_unused]] void pg_mtx_destroy(PgMutex *mutex){
+   pthread_mutex_destroy(mutex);
 }
 
 [[maybe_unused]][[nodiscard]] PgError pg_mtx_lock(PgMutex *mutex){
-  i32 ret = pthread_mutex_lock((pthread_mutex_t*)mutex);
+  i32 ret = pthread_mutex_lock(mutex);
   if (0!=ret){return (PgError)ret;}
 
   return 0;
 }
 
-[[maybe_unused]][[nodiscard]] PgError pg_mtx_trylock(PgMutex *mutex);
-[[maybe_unused]][[nodiscard]] PgError pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
-[[maybe_unused]][[nodiscard]] PgError pg_mtx_unlock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_trylock(PgMutex *mutex){
+  i32 ret = pthread_mutex_trylock(mutex);
+  if (0!=ret){return (PgError)ret;}
 
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_init(PgConditionVar *cond);
-[[maybe_unused]][[nodiscard]]void pg_cnd_destroy(PgConditionVar *cond);
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex);
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_broadcast(PgConditionVar *cond);
+  return 0;
+}
+
+#if 0
+// TODO
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
+#endif
+
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_unlock(PgMutex *mutex){
+  i32 ret = pthread_mutex_unlock(mutex);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_init(PgConditionVar *cond){
+  i32 ret = pthread_cond_init(cond, nullptr);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+[[maybe_unused]]void pg_cnd_destroy(PgConditionVar *cond){
+   pthread_cond_destroy(cond);
+}
+
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex){
+  i32 ret = pthread_cond_wait(cond, mutex);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_broadcast(PgConditionVar *cond){
+  i32 ret = pthread_cond_broadcast(cond);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+#if 0
+// TODO
 [[maybe_unused]][[nodiscard]]PgError pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
+#endif
 
 [[maybe_unused]] [[nodiscard]] static PgThreadResult
 pg_thread_create(PgThreadFn fn, void *fn_data) {
   PgThreadResult res = {0};
-  static_assert(sizeof(res.res) >= sizeof(pthread_t));
 
-  pthread_t thread = {0};
-  i32 ret = pthread_create(&thread, nullptr, (void *(*)(void *))fn, fn_data);
+  i32 ret = pthread_create(&res.res, nullptr, (void *(*)(void *))fn, fn_data);
   if (-1 == ret) {
     res.err = (PgError)errno;
     return res;
   }
 
-  memcpy(&res.res, &thread, sizeof(res.res));
-
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread) {
-  pthread_t pthread = (pthread_t)thread.opaque;
-  i32 ret = pthread_join(pthread, nullptr);
+  i32 ret = pthread_join(thread, nullptr);
   if (-1 == ret) {
     return (PgError)errno;
   }
@@ -8172,18 +8204,18 @@ static i32 pg_pool_worker_start_fn(void *data) {
   PgThreadPool *pool = data;
 
   for (;;) {
-    PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
+    PG_ASSERT(0 == pg_mtx_lock(&pool->tasks_mtx));
     while (!pool->tasks) {
       if (pool->done) {
-        PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
-        return thrd_success;
+        PG_ASSERT(0 == pg_mtx_unlock(&pool->tasks_mtx));
+        return 0;
       }
 
-      PG_ASSERT(thrd_success == cnd_wait(&pool->tasks_cnd, &pool->tasks_mtx));
+      PG_ASSERT(0 == pg_cnd_wait(&pool->tasks_cnd, &pool->tasks_mtx));
     }
 
     PgThreadPoolTask *task = pg_thread_pool_dequeue_task(pool);
-    PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+    PG_ASSERT(0 == pg_mtx_unlock(&pool->tasks_mtx));
 
     PG_ASSERT(task);
     PG_ASSERT(task->fn);
@@ -8195,31 +8227,31 @@ static i32 pg_pool_worker_start_fn(void *data) {
 [[nodiscard]] [[maybe_unused]] static PgThreadPoolResult
 pg_thread_pool_make(u32 size, PgAllocator *allocator) {
   PgThreadPoolResult res = {0};
-  res.pool = PG_NEW(PgThreadPool, allocator);
 
-  if (thrd_success != mtx_init(&res.pool->tasks_mtx, mtx_plain)) {
+  if (0 != pg_mtx_init(&res.res.tasks_mtx, PG_MUTEX_KIND_PLAIN)) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  if (thrd_success != cnd_init(&res.pool->tasks_cnd)) {
+  if (0 != pg_cnd_init(&res.res.tasks_cnd)) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  res.pool->workers.len = size;
-  res.pool->workers.data =
-      pg_alloc(allocator, sizeof(thrd_t), _Alignof(thrd_t), size);
+  res.res.workers.len = size;
+  res.res.workers.data =
+      pg_alloc(allocator, sizeof(PgThread), _Alignof(PgThread), size);
 
   for (u32 i = 0; i < size; i++) {
+    PgThread* it = PG_SLICE_AT_PTR(&res.res.workers,i);
     PgThreadResult res_thread =
-        pg_thread_create(pg_pool_worker_start_fn, res.pool);
+        pg_thread_create(pg_pool_worker_start_fn, it);
     if (0 != res_thread.err) {
       res.err = res_thread.err;
       return res;
     }
 
-    PG_SLICE_AT(res.pool->workers, i) = res_thread.res;
+    PG_SLICE_AT(res.res.workers, i) = res_thread.res;
   }
 
   return res;
@@ -8237,22 +8269,22 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, PgThreadFn fn,
   task->data = data;
   task->fn = fn;
 
-  PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
+  PG_ASSERT(0 == pg_mtx_lock(&pool->tasks_mtx));
   if (!pool->tasks) {
     pool->tasks = task;
   } else {
     task->next = pool->tasks;
     pool->tasks = task;
   }
-  PG_ASSERT(thrd_success == cnd_signal(&pool->tasks_cnd));
-  PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+  PG_ASSERT(0 == pg_cnd_signal(&pool->tasks_cnd));
+  PG_ASSERT(0 == pg_mtx_unlock(&pool->tasks_mtx));
 }
 
 [[maybe_unused]] static void pg_thread_pool_wait(PgThreadPool *pool) {
-  PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
+  PG_ASSERT(0 == pg_mtx_lock(&pool->tasks_mtx));
   pool->done = true;
-  PG_ASSERT(thrd_success == cnd_broadcast(&pool->tasks_cnd));
-  PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+  PG_ASSERT(0 == pg_cnd_broadcast(&pool->tasks_cnd));
+  PG_ASSERT(0 == pg_mtx_unlock(&pool->tasks_mtx));
 
   for (u32 i = 0; i < pool->workers.len; i++) {
     (void)pg_thread_join(PG_SLICE_AT(pool->workers, i));
