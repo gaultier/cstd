@@ -4626,13 +4626,11 @@ pg_open_directory(PgString name) {
   u8 name_c[PG_PATH_MAX] = {0};
   memcpy(name_c, name.data, name.len);
 
-  DIR *dir = opendir((char *)name_c);
-  if (!dir) {
+  res.res.dir = opendir((char *)name_c);
+  if (!res.res.dir) {
     res.err = (PgError)errno;
     return res;
   }
-
-  res.res.dir = dir;
 
   return res;
 }
@@ -4650,7 +4648,16 @@ pg_open_directory(PgString name) {
 pg_director_read(PgDirectory *dir) {
   PgDirectoryEntryResult res = {0};
 
-  // TODO
+  errno = 0;
+
+  struct dirent *dirent = readdir(dir->dir);
+  if (!dirent) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res = *dirent;
+
   return res;
 }
 
