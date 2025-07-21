@@ -8609,14 +8609,17 @@ if (EV_ERROR & kevent.flags) {
 if (EV_EOF & kevent.flags) {
   ev->kind |= PG_AIO_EVENT_KIND_EOF;
   }
-if (EVFILT_READ & kevent.fflags) {
+if (EVFILT_READ & kevent.filter) {
   ev->kind |= PG_AIO_EVENT_KIND_READABLE;
   }
-if (EVFILT_WRITE & kevent.fflags) {
+if (EVFILT_WRITE & kevent.filter) {
   ev->kind |= PG_AIO_EVENT_KIND_WRITABLE;
   }
-if ((EVFILT_VNODE & kevent.fflags) && (NOTE_DELETE & kevent.fflags)) {
+if ((EVFILT_VNODE & kevent.filter) && (NOTE_DELETE & kevent.fflags)) {
   ev->kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
+  }
+if ((EVFILT_VNODE & kevent.filter) && (NOTE_WRITE & kevent.fflags)) {
+  ev->kind |= PG_AIO_EVENT_KIND_FILE_MODIFIED;
   }
   }
   
@@ -8627,7 +8630,57 @@ if ((EVFILT_VNODE & kevent.fflags) && (NOTE_DELETE & kevent.fflags)) {
 };
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms);
+pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms){
+Pgu64Result res={0};
+  u64 can_write_count = pg_ring_can_write_count(*cqe) / sizeof(PgAioEvent);
+
+  struct kevent eventlist[1024]={0};
+  u64 eventlist_len = PG_MIN(PG_STATIC_ARRAY_LEN(eventlist), can_write_count);
+
+  struct timespec timeout={0};
+  if (timeout_ms.ok){
+  timeout.tv_sec = timeout_ms.res/1000;
+  timeout.tv_nsec = (timeout_ms.res%1000)*1000*1000;
+  }
+
+  i32 ret = kevent(aio.fd, nullptr, 0, eventlist, eventlist_len,timeout_ms.ok? &timeout: nullptr);
+  if (-1==ret){res.err=(PgError)errno;return res;}
+
+  for (u64 i=0;i<(u64)ret;i++){
+    struct kevent kevent = PG_C_ARRAY_AT(eventlist,eventlist_len, i);
+    PgAioEvent ev = {0};
+    ev.fd.fd=kevent.ident;
+
+if (EV_ERROR & kevent.flags) {
+  ev.kind |= PG_AIO_EVENT_KIND_ERROR;
+  }
+if (EV_EOF & kevent.flags) {
+  ev.kind |= PG_AIO_EVENT_KIND_EOF;
+  }
+if (EVFILT_READ & kevent.filter) {
+  ev.kind |= PG_AIO_EVENT_KIND_READABLE;
+  }
+if (EVFILT_WRITE & kevent.filter) {
+  ev.kind |= PG_AIO_EVENT_KIND_WRITABLE;
+  }
+if ((EVFILT_VNODE & kevent.filter) && (NOTE_DELETE & kevent.fflags)) {
+  ev.kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
+  }
+if ((EVFILT_VNODE & kevent.filter) && (NOTE_WRITE & kevent.fflags)) {
+  ev.kind |= PG_AIO_EVENT_KIND_FILE_MODIFIED;
+  }
+
+  
+
+    Pgu8Slice ev_bytes = {.data = (u8 *)&ev, .len = sizeof(ev)};
+    PG_ASSERT(sizeof(ev) == pg_ring_write_bytes(cqe, ev_bytes));
+  }
+  
+
+
+  res.res=(u64)ret;
+  return res;
+}
 
 #endif
 
