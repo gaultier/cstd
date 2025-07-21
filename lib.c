@@ -989,6 +989,13 @@ typedef struct {
 } PgDirectory;
 PG_RESULT(PgDirectory) PgDirectoryResult;
 
+#ifdef PG_OS_UNIX
+typedef struct dirent PgDirectoryEntry;
+#else
+// TODO
+#endif
+PG_RESULT(PgDirectoryEntry) PgDirectoryEntryResult;
+
 // ---------------- Functions.
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
@@ -4637,6 +4644,14 @@ pg_open_directory(PgString name) {
   }
 
   return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] PgDirectoryEntryResult
+pg_director_read(PgDirectory *dir) {
+  PgDirectoryEntryResult res = {0};
+
+  // TODO
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] PgError pg_mtx_init(PgMutex *mutex,
