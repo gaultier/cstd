@@ -15,18 +15,32 @@
 // Low priority:
 // TODO: [Unix] CLI argument parser.
 
-#if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__) ||        \
-    defined(__unix__)
-#define PG_OS_UNIX
-#endif
-
 #if defined(__linux__)
 #define PG_OS_LINUX
+#endif
+
+#if defined((__FreeBSD__)
+#define PG_OS_FREEBSD
+#endif
+
+#if defined(__APPLE__)
+#define PG_OS_APPLE
+#endif
+
+#if defined(PG_OS_LINUX) || defined(PG_OS_FREEBSD) || defined(PG_OS_APPLE) ||  \
+    defined(__unix__)
+#define PG_OS_UNIX
 #endif
 
 #if defined(PG_OS_UNIX)
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE 1
+#endif
+
+#if defined(PG_OS_LINUX)
+#include <sys/epoll.h>
+#include <sys/inotify.h>
+#include <sys/sendfile.h>
 #endif
 
 #include "sha1.c"
@@ -981,6 +995,14 @@ PG_RESULT(PgAioEvent) PgAioEventResult;
 PG_OK(PgAioEvent) PgAioEventOk;
 
 typedef struct {
+  PgFileDescriptor aio;
+#ifdef PG_OS_LINUX
+  PgFileDescriptor inotify;
+#endif
+} PgAio;
+PG_RESULT(PgAio) PgAioResult;
+
+typedef struct {
 #ifdef PG_OS_UNIX
   DIR *dir;
 #else
@@ -1049,25 +1071,25 @@ pg_file_size(PgFileDescriptor file);
 
 [[nodiscard]] static Pgu64Result pg_file_read(PgFileDescriptor file,
                                               PgString dst);
+
 [[maybe_unused]] static Pgu64Result pg_file_write(PgFileDescriptor file,
                                                   PgString s);
 
 [[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init();
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+pg_aio_register_interest(PgAio aio, PgFileDescriptor fd,
                          PgAioEventKind interest);
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
                            PgAioEventKind interest);
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
-            Pgu32Ok timeout_ms);
+pg_aio_wait(PgAio aio, PgAioEventSlice events_out, Pgu32Ok timeout_ms);
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms);
+pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Ok timeout_ms);
 
 // TODO: Thread attributes?
 [[maybe_unused]] [[nodiscard]] static PgThreadResult
@@ -4706,7 +4728,7 @@ pg_dirent_name(PgDirectoryEntry dirent) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_aio_register_watch_directory(PgFileDescriptor aio, PgString name,
+pg_aio_register_watch_directory(PgAio aio, PgString name,
                                 PgWalkDirectoryOption options,
                                 PgAllocator *allocator) {
   bool ignore_errors = options & PG_WALK_DIRECTORY_KIND_IGNORE_ERRORS;
@@ -8737,7 +8759,7 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+pg_aio_register_interest(PgAio aio, PgFileDescriptor fd,
                          PgAioEventKind interest) {
 
   struct kevent changelist[1] = {0};
@@ -8916,10 +8938,6 @@ pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms) {
 #endif
 
 #ifdef PG_OS_LINUX
-#include <sys/epoll.h>
-#include <sys/inotify.h>
-#include <sys/sendfile.h>
-
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult pg_aio_fs_init() {
   PgFileDescriptorResult res = {0};
 
