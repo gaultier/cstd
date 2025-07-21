@@ -13,6 +13,10 @@ TEST_C_FILES = $(wildcard *.c)
 
 SANITIZERS = address,undefined
 
+.PHONY: test
+test: test_debug.bin
+	./$<
+
 compile_flags.txt: 
 	echo $(CFLAGS) | tr ' ' '\n' > $@
 
@@ -29,10 +33,6 @@ test_release_sanitizer.bin: $(TEST_C_FILES)
 	$(CC) $(CFLAGS) $(LDFLAGS) test.c -o $@ -O2 -flto -fsanitize=$(SANITIZERS) -Wno-unused
 
 all: test_debug.bin test_debug_sanitizer.bin test_release.bin test_release_sanitizer.bin
-
-.PHONY: test
-test: test_debug.bin
-	./$<
 
 
 .PHONY: clean
