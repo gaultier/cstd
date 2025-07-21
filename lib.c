@@ -5349,7 +5349,10 @@ pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
   }
 
   int status = 0;
-  int ret = waitpid((pid_t)process.pid, &status, 0);
+  int ret = 0;
+  do {
+   ret= waitpid((pid_t)process.pid, &status, 0);
+  }while(-1==ret && EINTR==errno);
 
   if (-1 == ret) {
     res.err = (PgError)errno;
@@ -8552,7 +8555,7 @@ pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
   }
   if (interest & PG_AIO_EVENT_KIND_FILE_DELETED){
     changelist[0].filter |= EVFILT_VNODE;
-    changelist[0].fflags |= NOTE_DELETE | NOTE_REVOKE;
+    changelist[0].fflags |= NOTE_DELETE;
   }
 
   i32 ret= kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
