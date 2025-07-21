@@ -1017,6 +1017,7 @@ pg_thread_create(PgThreadFn fn, void *fn_data);
 [[maybe_unused]]void pg_cnd_destroy(PgConditionVar *cond);
 [[maybe_unused]][[nodiscard]]PgError pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex);
 [[maybe_unused]][[nodiscard]]PgError pg_cnd_broadcast(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_signal(PgConditionVar *cond);
 [[maybe_unused]][[nodiscard]]PgError pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
 
 [[maybe_unused]] static u64
@@ -4663,6 +4664,13 @@ end:
 
 [[maybe_unused]][[nodiscard]]PgError pg_cnd_broadcast(PgConditionVar *cond){
   i32 ret = pthread_cond_broadcast(cond);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_signal(PgConditionVar *cond){
+  i32 ret = pthread_cond_signal(cond);
   if (0!=ret){return (PgError)ret;}
 
   return 0;
