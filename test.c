@@ -2852,7 +2852,7 @@ static void test_aio() {
   PgReader client_reader = pg_reader_make_from_socket(client_fd, 16, allocator);
   PgReader server_reader = pg_reader_make_from_socket(server_fd, 16, allocator);
 
-  for (;;) {
+  for (u64 _i = 0; _i < 32; _i++) {
     Pgu32Ok timeout = {0};
     Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout);
     PG_ASSERT(0 == res_wait.err);
@@ -2879,6 +2879,7 @@ static void test_aio() {
       return;
     }
   }
+  PG_ASSERT(0);
 }
 
 int main() {

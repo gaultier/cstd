@@ -8572,12 +8572,28 @@ pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
   struct kevent changelist[1]={0};
   changelist[0].ident = (u64)fd.fd;
   changelist[0].flags = EV_DELETE;
-  // FIXME: This will unregister all interests for this fd.
-  // We should only unregister the particular passed-in interest.
-  (void)interest;
+
+  if (PG_AIO_EVENT_KIND_FILE_MODIFIED & interest){
+    changelist[0].filter=EVFILT_VNODE;
+    changelist[0].fflags =NOTE_WRITE;
+  }
+  if (PG_AIO_EVENT_KIND_FILE_DELETED & interest){
+    changelist[0].filter=EVFILT_VNODE;
+    changelist[0].fflags =NOTE_DELETE;
+  }
+  if (PG_AIO_EVENT_KIND_FILE_CREATED & interest){
+    // TODO
+  }
+  if (PG_AIO_EVENT_KIND_READABLE & interest  ){
+    changelist[0].filter=EVFILT_READ;
+  }
+  if (PG_AIO_EVENT_KIND_WRITABLE & interest  ){
+    changelist[0].filter=EVFILT_WRITE;
+  }
+
 
   i32 ret= kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
-  if (-1==ret){
+  if (-1==ret && ENOENT!=errno){
     return (PgError)errno;
   }
 
