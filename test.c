@@ -2822,7 +2822,7 @@ static void test_aio_peer(PgFileDescriptor aio, PgWriter *w, PgReader *r,
   }
 }
 
-static void test_aio() {
+static void test_aio_tcp_sockets() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
@@ -2946,5 +2946,5 @@ int main() {
   test_string_buillder_append_u64_hex();
   test_adjacency_matrix();
   test_thread();
-  test_aio();
+  test_aio_tcp_sockets();
 }
