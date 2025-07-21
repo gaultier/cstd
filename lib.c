@@ -38,7 +38,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <threads.h>
+#ifdef PG_OS_UNIX
+#include <pthread.h>
+#endif
 
 // Check that __COUNTER__ is defined and that __COUNTER__ increases by 1
 // every time it is expanded. X + 1 == X + 0 is used in case X is defined to be
@@ -69,6 +71,10 @@
 #define PG_Microseconds (1000ULL * PG_Nanoseconds)
 #define PG_Milliseconds (1000ULL * PG_Microseconds)
 #define PG_Seconds (1000ULL * PG_Milliseconds)
+
+#define PG_BIT_CLEAR(n, idx) (n & ~(1 << (idx)))
+#define PG_BIT_SET(n, idx) (n | (1 << (idx)))
+#define PG_BIT_TOGGLE(n, idx) (n ^ (1 << (idx)))
 
 #define PG_CONTAINER_OF(ptr, type, member)                                     \
   ((type *)(void *)((char *)(ptr) - offsetof(type, member)))
@@ -873,12 +879,33 @@ PG_SLICE(PgString) PgStringSlice;
 
 PG_RESULT(PgStringSlice) PgStringSliceResult;
 
-typedef struct {
-  void *opaque;
-} PgThread;
+
+#ifdef PG_OS_UNIX
+typedef pthread_t PgThread;
+#else
+// FIXME
+typedef bool PgThread;
+#endif
+
 PG_RESULT(PgThread) PgThreadResult;
 PG_SLICE(PgThread) PgThreadSlice;
 PG_DYN(PgThread) PgThreadDyn;
+
+#ifdef PG_OS_UNIX
+typedef pthread_mutex_t PgMutex;
+#else
+// FIXME
+typedef bool PgMutex;
+#endif
+
+typedef enum {PG_MUTEX_KIND_PLAIN,PG_MUTEX_KIND_RECURSIVE,}PgMutexKind;
+
+#ifdef PG_OS_UNIX
+typedef pthread_cond_t PgConditionVar;
+#else
+// FIXME
+typedef bool PgConditionVar;
+#endif
 
 typedef i32 (*PgThreadFn)(void *data);
 
@@ -894,16 +921,12 @@ typedef struct {
 
   // Linked list.
   PgThreadPoolTask *tasks;
-  mtx_t tasks_mtx;
-  cnd_t tasks_cnd;
+  PgMutex tasks_mtx;
+  PgConditionVar tasks_cnd;
 
   bool done;
 } PgThreadPool;
-
-typedef struct {
-  PgError err;
-  PgThreadPool *pool;
-} PgThreadPoolResult;
+PG_RESULT(PgThreadPool) PgThreadPoolResult;
 
 typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_KIND_NONE = 0,
@@ -912,8 +935,9 @@ typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_KIND_FILE_CREATED = 1 << 3,
   PG_AIO_EVENT_KIND_READABLE = 1 << 4,
   PG_AIO_EVENT_KIND_WRITABLE = 1 << 5,
+
   PG_AIO_EVENT_KIND_ERROR = 1 << 6,
-  PG_AIO_EVENT_KIND_HANG_UP = 1 << 7,
+  PG_AIO_EVENT_KIND_EOF = 1 << 7,
   // More...
 } PgAioEventKind;
 
@@ -980,13 +1004,26 @@ pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms);
 [[maybe_unused]] [[nodiscard]] static PgThreadResult
 pg_thread_create(PgThreadFn fn, void *fn_data);
 
-// TODO: Can Windows do return values from threads?
 [[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread);
+
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_init(PgMutex *mutex, PgMutexKind type);
+[[maybe_unused]] void pg_mtx_destroy(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_lock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_trylock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_unlock(PgMutex *mutex);
+
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_init(PgConditionVar *cond);
+[[maybe_unused]]void pg_cnd_destroy(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_broadcast(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_signal(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 
-[[maybe_unused]] static void pg_stacktrace_print(const char *file, int line,
+[[maybe_unused]] inline static void pg_stacktrace_print(const char *file, int line,
                                                  const char *function) {
   fprintf(stderr, "ASSERT: %s:%d:%s\n", file, line, function);
 
@@ -4539,7 +4576,6 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 #include <netdb.h>
 #include <netinet/tcp.h>
 #include <poll.h>
-#include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -4553,26 +4589,113 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
 
+[[maybe_unused]][[nodiscard]]  PgError pg_mtx_init(PgMutex *mutex, PgMutexKind type){
+  pthread_mutexattr_t attr={0};
+i32 err = pthread_mutexattr_init(&attr);
+  if (err){
+    return err;
+  }
+
+if (PG_MUTEX_KIND_RECURSIVE == type) {
+        err = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+        if (err) {
+            goto end;
+        }
+    }
+    
+    err = pthread_mutex_init(mutex, &attr);
+
+end:
+    i32 fin_err = pthread_mutexattr_destroy(&attr);
+    if (fin_err) {
+      return err ? err : fin_err;
+    }
+    
+    return (PgError)err ;
+}
+
+[[maybe_unused]] void pg_mtx_destroy(PgMutex *mutex){
+   pthread_mutex_destroy(mutex);
+}
+
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_lock(PgMutex *mutex){
+  i32 ret = pthread_mutex_lock(mutex);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_trylock(PgMutex *mutex){
+  i32 ret = pthread_mutex_trylock(mutex);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+#if 0
+// TODO
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
+#endif
+
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_unlock(PgMutex *mutex){
+  i32 ret = pthread_mutex_unlock(mutex);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_init(PgConditionVar *cond){
+  i32 ret = pthread_cond_init(cond, nullptr);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+[[maybe_unused]]void pg_cnd_destroy(PgConditionVar *cond){
+   pthread_cond_destroy(cond);
+}
+
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex){
+  i32 ret = pthread_cond_wait(cond, mutex);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_broadcast(PgConditionVar *cond){
+  i32 ret = pthread_cond_broadcast(cond);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_signal(PgConditionVar *cond){
+  i32 ret = pthread_cond_signal(cond);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+#if 0
+// TODO
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
+#endif
+
 [[maybe_unused]] [[nodiscard]] static PgThreadResult
 pg_thread_create(PgThreadFn fn, void *fn_data) {
   PgThreadResult res = {0};
-  static_assert(sizeof(res.res) >= sizeof(pthread_t));
 
-  pthread_t thread = {0};
-  i32 ret = pthread_create(&thread, nullptr, (void *(*)(void *))fn, fn_data);
+  i32 ret = pthread_create(&res.res, nullptr, (void *(*)(void *))fn, fn_data);
   if (-1 == ret) {
     res.err = (PgError)errno;
     return res;
   }
 
-  memcpy(&res.res, &thread, sizeof(res.res));
-
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread) {
-  pthread_t pthread = (pthread_t)thread.opaque;
-  i32 ret = pthread_join(pthread, nullptr);
+  i32 ret = pthread_join(thread, nullptr);
   if (-1 == ret) {
     return (PgError)errno;
   }
@@ -5225,7 +5348,10 @@ pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
   }
 
   int status = 0;
-  int ret = waitpid((pid_t)process.pid, &status, 0);
+  int ret = 0;
+  do {
+   ret= waitpid((pid_t)process.pid, &status, 0);
+  }while(-1==ret && EINTR==errno);
 
   if (-1 == ret) {
     res.err = (PgError)errno;
@@ -8089,18 +8215,18 @@ static i32 pg_pool_worker_start_fn(void *data) {
   PgThreadPool *pool = data;
 
   for (;;) {
-    PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
+    PG_ASSERT(0 == pg_mtx_lock(&pool->tasks_mtx));
     while (!pool->tasks) {
       if (pool->done) {
-        PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
-        return thrd_success;
+        PG_ASSERT(0 == pg_mtx_unlock(&pool->tasks_mtx));
+        return 0;
       }
 
-      PG_ASSERT(thrd_success == cnd_wait(&pool->tasks_cnd, &pool->tasks_mtx));
+      PG_ASSERT(0 == pg_cnd_wait(&pool->tasks_cnd, &pool->tasks_mtx));
     }
 
     PgThreadPoolTask *task = pg_thread_pool_dequeue_task(pool);
-    PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+    PG_ASSERT(0 == pg_mtx_unlock(&pool->tasks_mtx));
 
     PG_ASSERT(task);
     PG_ASSERT(task->fn);
@@ -8112,31 +8238,31 @@ static i32 pg_pool_worker_start_fn(void *data) {
 [[nodiscard]] [[maybe_unused]] static PgThreadPoolResult
 pg_thread_pool_make(u32 size, PgAllocator *allocator) {
   PgThreadPoolResult res = {0};
-  res.pool = PG_NEW(PgThreadPool, allocator);
 
-  if (thrd_success != mtx_init(&res.pool->tasks_mtx, mtx_plain)) {
+  if (0 != pg_mtx_init(&res.res.tasks_mtx, PG_MUTEX_KIND_PLAIN)) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  if (thrd_success != cnd_init(&res.pool->tasks_cnd)) {
+  if (0 != pg_cnd_init(&res.res.tasks_cnd)) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  res.pool->workers.len = size;
-  res.pool->workers.data =
-      pg_alloc(allocator, sizeof(thrd_t), _Alignof(thrd_t), size);
+  res.res.workers.len = size;
+  res.res.workers.data =
+      pg_alloc(allocator, sizeof(PgThread), _Alignof(PgThread), size);
 
   for (u32 i = 0; i < size; i++) {
+    PgThread* it = PG_SLICE_AT_PTR(&res.res.workers,i);
     PgThreadResult res_thread =
-        pg_thread_create(pg_pool_worker_start_fn, res.pool);
+        pg_thread_create(pg_pool_worker_start_fn, it);
     if (0 != res_thread.err) {
       res.err = res_thread.err;
       return res;
     }
 
-    PG_SLICE_AT(res.pool->workers, i) = res_thread.res;
+    PG_SLICE_AT(res.res.workers, i) = res_thread.res;
   }
 
   return res;
@@ -8154,22 +8280,22 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, PgThreadFn fn,
   task->data = data;
   task->fn = fn;
 
-  PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
+  PG_ASSERT(0 == pg_mtx_lock(&pool->tasks_mtx));
   if (!pool->tasks) {
     pool->tasks = task;
   } else {
     task->next = pool->tasks;
     pool->tasks = task;
   }
-  PG_ASSERT(thrd_success == cnd_signal(&pool->tasks_cnd));
-  PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+  PG_ASSERT(0 == pg_cnd_signal(&pool->tasks_cnd));
+  PG_ASSERT(0 == pg_mtx_unlock(&pool->tasks_mtx));
 }
 
 [[maybe_unused]] static void pg_thread_pool_wait(PgThreadPool *pool) {
-  PG_ASSERT(thrd_success == mtx_lock(&pool->tasks_mtx));
+  PG_ASSERT(0 == pg_mtx_lock(&pool->tasks_mtx));
   pool->done = true;
-  PG_ASSERT(thrd_success == cnd_broadcast(&pool->tasks_cnd));
-  PG_ASSERT(thrd_success == mtx_unlock(&pool->tasks_mtx));
+  PG_ASSERT(0 == pg_cnd_broadcast(&pool->tasks_cnd));
+  PG_ASSERT(0 == pg_mtx_unlock(&pool->tasks_mtx));
 
   for (u32 i = 0; i < pool->workers.len; i++) {
     (void)pg_thread_join(PG_SLICE_AT(pool->workers, i));
@@ -8389,6 +8515,195 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
   return res;
 }
 
+#if defined(__FreeBSD__) || defined(__APPLE__)
+#include <sys/event.h>
+
+[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init(){
+  PgFileDescriptorResult res={0};
+
+  i32 ret = kqueue();
+  if (-1==ret){
+    res.err=(PgError)errno;
+    return res;
+  }
+
+  res.res.fd=ret;
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+                         PgAioEventKind interest) {
+
+  struct kevent changelist[1]={0};
+  changelist[0].ident = (u64)fd.fd;
+  changelist[0].flags = EV_ADD;
+  
+  if (interest & PG_AIO_EVENT_KIND_READABLE){
+  changelist[0].filter |= EVFILT_READ;
+  }
+  if (interest & PG_AIO_EVENT_KIND_WRITABLE){
+  changelist[0].filter |= EVFILT_WRITE;
+  }
+  if (interest & PG_AIO_EVENT_KIND_FILE_CREATED){
+    // TODO
+  }
+  if (interest & PG_AIO_EVENT_KIND_FILE_MODIFIED){
+    changelist[0].filter |= EVFILT_VNODE;
+    changelist[0].fflags |= NOTE_WRITE;
+  }
+  if (interest & PG_AIO_EVENT_KIND_FILE_DELETED){
+    changelist[0].filter |= EVFILT_VNODE;
+    changelist[0].fflags |= NOTE_DELETE;
+  }
+
+  i32 ret= kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
+  if (-1==ret){
+    return (PgError)errno;
+  }
+
+  return 0;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+                           PgAioEventKind interest){
+  struct kevent changelist[1]={0};
+  changelist[0].ident = (u64)fd.fd;
+  changelist[0].flags = EV_DELETE;
+
+  if (PG_AIO_EVENT_KIND_FILE_MODIFIED & interest){
+    changelist[0].filter=EVFILT_VNODE;
+    changelist[0].fflags =NOTE_WRITE;
+  }
+  if (PG_AIO_EVENT_KIND_FILE_DELETED & interest){
+    changelist[0].filter=EVFILT_VNODE;
+    changelist[0].fflags =NOTE_DELETE;
+  }
+  if (PG_AIO_EVENT_KIND_FILE_CREATED & interest){
+    // TODO
+  }
+  if (PG_AIO_EVENT_KIND_READABLE & interest  ){
+    changelist[0].filter=EVFILT_READ;
+  }
+  if (PG_AIO_EVENT_KIND_WRITABLE & interest  ){
+    changelist[0].filter=EVFILT_WRITE;
+  }
+
+
+  i32 ret= kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
+  if (-1==ret && ENOENT!=errno){
+    return (PgError)errno;
+  }
+
+  return 0;
+}
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
+            Pgu32Ok timeout_ms){
+Pgu64Result res={0};
+
+  struct kevent eventlist[1024]={0};
+  u64 eventlist_len = PG_MIN(PG_STATIC_ARRAY_LEN(eventlist), events_out.len);
+  if (0==eventlist_len){return res;}
+
+  struct timespec timeout={0};
+  if (timeout_ms.ok){
+  timeout.tv_sec = timeout_ms.res/1000;
+  timeout.tv_nsec = (timeout_ms.res%1000)*1000*1000;
+  }
+
+  i32 ret = kevent(aio.fd, nullptr, 0, eventlist, eventlist_len,timeout_ms.ok? &timeout: nullptr);
+  if (-1==ret){res.err=(PgError)errno;return res;}
+
+  for (u64 i=0;i<(u64)ret;i++){
+    struct kevent kevent = PG_C_ARRAY_AT(eventlist,eventlist_len, i);
+    PgAioEvent* ev = PG_SLICE_AT_PTR(&events_out, i);
+    ev->fd.fd=kevent.ident;
+
+if (EV_ERROR & kevent.flags) {
+  ev->kind |= PG_AIO_EVENT_KIND_ERROR;
+  }
+if (EV_EOF & kevent.flags) {
+  ev->kind |= PG_AIO_EVENT_KIND_EOF;
+  }
+if (EVFILT_READ & kevent.filter) {
+  ev->kind |= PG_AIO_EVENT_KIND_READABLE;
+  }
+if (EVFILT_WRITE & kevent.filter) {
+  ev->kind |= PG_AIO_EVENT_KIND_WRITABLE;
+  }
+if ((EVFILT_VNODE & kevent.filter) && (NOTE_DELETE & kevent.fflags)) {
+  ev->kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
+  }
+if ((EVFILT_VNODE & kevent.filter) && (NOTE_WRITE & kevent.fflags)) {
+  ev->kind |= PG_AIO_EVENT_KIND_FILE_MODIFIED;
+  }
+  }
+  
+
+
+  res.res=(u64)ret;
+  return res;
+};
+
+[[nodiscard]] [[maybe_unused]] static Pgu64Result
+pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms){
+Pgu64Result res={0};
+  u64 can_write_count = pg_ring_can_write_count(*cqe) / sizeof(PgAioEvent);
+
+  struct kevent eventlist[1024]={0};
+  u64 eventlist_len = PG_MIN(PG_STATIC_ARRAY_LEN(eventlist), can_write_count);
+  if (0==eventlist_len){return res;}
+
+  struct timespec timeout={0};
+  if (timeout_ms.ok){
+  timeout.tv_sec = timeout_ms.res/1000;
+  timeout.tv_nsec = (timeout_ms.res%1000)*1000*1000;
+  }
+
+  i32 ret = kevent(aio.fd, nullptr, 0, eventlist, eventlist_len,timeout_ms.ok? &timeout: nullptr);
+  if (-1==ret){res.err=(PgError)errno;return res;}
+
+  for (u64 i=0;i<(u64)ret;i++){
+    struct kevent kevent = PG_C_ARRAY_AT(eventlist,eventlist_len, i);
+    PgAioEvent ev = {0};
+    ev.fd.fd=kevent.ident;
+
+if (EV_ERROR & kevent.flags) {
+  ev.kind |= PG_AIO_EVENT_KIND_ERROR;
+  }
+if (EV_EOF & kevent.flags) {
+  ev.kind |= PG_AIO_EVENT_KIND_EOF;
+  }
+if (EVFILT_READ & kevent.filter) {
+  ev.kind |= PG_AIO_EVENT_KIND_READABLE;
+  }
+if (EVFILT_WRITE & kevent.filter) {
+  ev.kind |= PG_AIO_EVENT_KIND_WRITABLE;
+  }
+if ((EVFILT_VNODE & kevent.filter) && (NOTE_DELETE & kevent.fflags)) {
+  ev.kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
+  }
+if ((EVFILT_VNODE & kevent.filter) && (NOTE_WRITE & kevent.fflags)) {
+  ev.kind |= PG_AIO_EVENT_KIND_FILE_MODIFIED;
+  }
+
+  
+
+    Pgu8Slice ev_bytes = {.data = (u8 *)&ev, .len = sizeof(ev)};
+    PG_ASSERT(sizeof(ev) == pg_ring_write_bytes(cqe, ev_bytes));
+  }
+  
+
+
+  res.res=(u64)ret;
+  return res;
+}
+
+#endif
+
 #ifdef PG_OS_LINUX
 #include <sys/epoll.h>
 #include <sys/inotify.h>
@@ -8556,7 +8871,7 @@ pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
       PG_SLICE_AT(events_out, i).kind |= PG_AIO_EVENT_KIND_ERROR;
     }
     if (e.events & EPOLLHUP) {
-      PG_SLICE_AT(events_out, i).kind |= PG_AIO_EVENT_KIND_HANG_UP;
+      PG_SLICE_AT(events_out, i).kind |= PG_AIO_EVENT_KIND_EOF;
     }
   }
 
@@ -8601,7 +8916,7 @@ pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms) {
       ev.kind |= PG_AIO_EVENT_KIND_ERROR;
     }
     if (e.events & EPOLLHUP) {
-      ev.kind |= PG_AIO_EVENT_KIND_HANG_UP;
+      ev.kind |= PG_AIO_EVENT_KIND_EOF;
     }
 
     Pgu8Slice ev_bytes = {.data = (u8 *)&ev, .len = sizeof(ev)};
