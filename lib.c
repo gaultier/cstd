@@ -881,6 +881,14 @@ PG_RESULT(PgThread) PgThreadResult;
 PG_SLICE(PgThread) PgThreadSlice;
 PG_DYN(PgThread) PgThreadDyn;
 
+typedef struct {
+  void *opaque;
+} PgMutex;
+
+typedef struct {
+  void *opaque;
+} PgCondition;
+
 typedef i32 (*PgThreadFn)(void *data);
 
 typedef struct PgThreadPoolTask PgThreadPoolTask;
@@ -895,8 +903,8 @@ typedef struct {
 
   // Linked list.
   PgThreadPoolTask *tasks;
-  mtx_t tasks_mtx;
-  cnd_t tasks_cnd;
+  PgMutex tasks_mtx;
+  PgConditionVar tasks_cnd;
 
   bool done;
 } PgThreadPool;
@@ -981,13 +989,28 @@ pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms);
 [[maybe_unused]] [[nodiscard]] static PgThreadResult
 pg_thread_create(PgThreadFn fn, void *fn_data);
 
-// TODO: Can Windows do return values from threads?
 [[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread);
+
+#define mtx_plain (1 << 0)
+#define mtx_recursive (1 << 1)
+
+[[maybe_unused]][[nodiscard]] int pg_mtx_init(PgMutex *mutex, int type);
+[[maybe_unused]][[nodiscard]] void pg_mtx_destroy(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] int pg_mtx_lock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] int pg_mtx_trylock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] int pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
+[[maybe_unused]][[nodiscard]] int pg_mtx_unlock(PgMutex *mutex);
+
+[[maybe_unused]][[nodiscard]]int pg_cnd_init(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]void pg_cnd_destroy(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]int pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex);
+[[maybe_unused]][[nodiscard]]int pg_cnd_broadcast(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]int pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 
-[[maybe_unused]] static void pg_stacktrace_print(const char *file, int line,
+[[maybe_unused]] inline static void pg_stacktrace_print(const char *file, int line,
                                                  const char *function) {
   fprintf(stderr, "ASSERT: %s:%d:%s\n", file, line, function);
 
@@ -4553,6 +4576,23 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
+
+[[maybe_unused]][[nodiscard]] int pg_mtx_init(PgMutex *mutex, int type){
+  pthread_mutexattr_t attr={0};
+
+}
+
+[[maybe_unused]][[nodiscard]] void pg_mtx_destroy(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] int pg_mtx_lock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] int pg_mtx_trylock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] int pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
+[[maybe_unused]][[nodiscard]] int pg_mtx_unlock(PgMutex *mutex);
+
+[[maybe_unused]][[nodiscard]]int pg_cnd_init(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]void pg_cnd_destroy(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]int pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex);
+[[maybe_unused]][[nodiscard]]int pg_cnd_broadcast(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]int pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
 
 [[maybe_unused]] [[nodiscard]] static PgThreadResult
 pg_thread_create(PgThreadFn fn, void *fn_data) {
