@@ -997,6 +997,13 @@ typedef struct dirent PgDirectoryEntry;
 PG_OK(PgDirectoryEntry) PgDirectoryEntryOk;
 PG_RESULT(PgDirectoryEntryOk) PgDirectoryEntryOkResult;
 
+typedef enum {
+  PG_WALK_DIRECTORY_KIND_FILE = 0,
+  PG_WALK_DIRECTORY_KIND_DIRECTORY = 1 << 0,
+  PG_WALK_DIRECTORY_KIND_RECURSE = 1 << 1,
+  PG_WALK_DIRECTORY_KIND_IGNORE_ERRORS = 1 << 2,
+} PgWalkDirectoryOption;
+
 // ---------------- Functions.
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
@@ -4696,6 +4703,80 @@ pg_dirent_is_directory(PgDirectoryEntry dirent) {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_dirent_name(PgDirectoryEntry dirent) {
   return pg_cstr_to_string(dirent.d_name);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_aio_register_watch_directory(PgFileDescriptor aio, PgString name,
+                                PgWalkDirectoryOption options,
+                                PgAllocator *allocator) {
+  bool ignore_errors = options & PG_WALK_DIRECTORY_KIND_IGNORE_ERRORS;
+  bool recurse = options & PG_WALK_DIRECTORY_KIND_RECURSE;
+
+  PgDirectoryResult res_dir = pg_directory_open(name);
+  if (0 != res_dir.err) {
+    return res_dir.err;
+  }
+
+  PgDirectory dir = res_dir.res;
+
+  for (;;) {
+    PgDirectoryEntryOkResult res_dirent = pg_directory_read(&dir);
+    if (0 != res_dirent.err) {
+      return res_dir.err;
+    }
+
+    if (!res_dirent.res.ok) {
+      break; // EOF.
+    }
+
+    PgDirectoryEntry dirent = res_dirent.res.res;
+
+    if (pg_dirent_is_file(dirent) && (PG_WALK_DIRECTORY_KIND_FILE & options)) {
+      PgFileDescriptorResult res_open = pg_file_open(
+          pg_dirent_name(dirent), PG_FILE_ACCESS_READ, 0666, false, allocator);
+      if (0 != res_open.err && !ignore_errors) {
+        return res_open.err;
+      }
+
+      PgError err = pg_aio_register_interest(
+          aio, res_open.res,
+          PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED);
+      if (0 != err && !ignore_errors) {
+        return err;
+      }
+    }
+
+    if (pg_dirent_is_directory(dirent) &&
+        (PG_WALK_DIRECTORY_KIND_DIRECTORY & options)) {
+      PgFileDescriptorResult res_open = pg_file_open(
+          pg_dirent_name(dirent), PG_FILE_ACCESS_READ, 0666, false, allocator);
+      if (0 != res_open.err && !ignore_errors) {
+        return res_open.err;
+      }
+
+      PgError err = pg_aio_register_interest(
+          aio, res_open.res,
+          PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED |
+              PG_AIO_EVENT_KIND_FILE_CREATED);
+      if (0 != err && !ignore_errors) {
+        return err;
+      }
+
+      if (recurse) {
+        PgError err = pg_aio_register_watch_directory(
+            aio, pg_dirent_name(dirent), options, allocator);
+        if (0 != err && !ignore_errors) {
+          return err;
+        }
+      }
+    }
+  }
+
+  if (0 != pg_directory_close(dir)) {
+    return res_dir.err;
+  }
+
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] PgError pg_mtx_init(PgMutex *mutex,

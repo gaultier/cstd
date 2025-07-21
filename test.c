@@ -2883,28 +2883,17 @@ static void test_aio_tcp_sockets() {
 }
 
 static void test_watch_directory() {
-  PgDirectoryResult res_dir = pg_directory_open(PG_S("."));
-  PG_ASSERT(0 == res_dir.err);
-  PgDirectory dir = res_dir.res;
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  u64 file_count = 0;
+  PgFileDescriptorResult res_aio = pg_aio_init();
+  PG_ASSERT(0 == res_aio.err);
+  PgFileDescriptor aio = res_aio.res;
 
-  for (;;) {
-    PgDirectoryEntryOkResult res_dirent = pg_directory_read(&dir);
-    PG_ASSERT(0 == res_dirent.err);
-    if (!res_dirent.res.ok) {
-      break;
-    }
-
-    PgDirectoryEntry dirent = res_dirent.res.res;
-
-    if (pg_dirent_is_file(dirent)) {
-      file_count += 1;
-    }
-  }
-
-  PG_ASSERT(13 == file_count);
-  PG_ASSERT(0 == pg_directory_close(dir));
+  PgError err = pg_aio_register_watch_directory(
+      aio, PG_S("."), PG_WALK_DIRECTORY_KIND_FILE, allocator);
+  PG_ASSERT(0 == err);
 }
 
 int main() {
