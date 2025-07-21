@@ -878,20 +878,33 @@ PG_SLICE(PgString) PgStringSlice;
 
 PG_RESULT(PgStringSlice) PgStringSliceResult;
 
-typedef struct {
-  void *opaque;
-} PgThread;
+
+#ifdef PG_OS_UNIX
+typedef PgThread pthread_thread_t;
+#else
+// FIXME
+typedef PgThread bool;
+#endif
+
 PG_RESULT(PgThread) PgThreadResult;
 PG_SLICE(PgThread) PgThreadSlice;
 PG_DYN(PgThread) PgThreadDyn;
 
-typedef struct {
-  void *opaque;
-} PgMutex;
+#ifdef PG_OS_UNIX
+typedef PgMutex pthread_mutex_t;
+#else
+// FIXME
+typedef PgMutex bool;
+#endif
 
-typedef struct {
-  void *opaque;
-} PgConditionVar;
+typedef enum {PG_MUTEX_KIND_PLAIN,PG_MUTEX_KIND_RECURSIVE,}PgMutexKind;
+
+#ifdef PG_OS_UNIX
+typedef PgConditionVar pthread_cond_t;
+#else
+// FIXME
+typedef PgConditionVar bool;
+#endif
 
 typedef i32 (*PgThreadFn)(void *data);
 
@@ -912,11 +925,7 @@ typedef struct {
 
   bool done;
 } PgThreadPool;
-
-typedef struct {
-  PgError err;
-  PgThreadPool *pool;
-} PgThreadPoolResult;
+PG_RESULT(PgThreadPool) PgThreadPoolResult;
 
 typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_KIND_NONE = 0,
@@ -995,21 +1004,18 @@ pg_thread_create(PgThreadFn fn, void *fn_data);
 
 [[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread);
 
-#define mtx_plain (1 << 0)
-#define mtx_recursive (1 << 1)
-
-[[maybe_unused]][[nodiscard]] int pg_mtx_init(PgMutex *mutex, int type);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_init(PgMutex *mutex, PgMutexKind type);
 [[maybe_unused]] void pg_mtx_destroy(PgMutex *mutex);
-[[maybe_unused]][[nodiscard]] int pg_mtx_lock(PgMutex *mutex);
-[[maybe_unused]][[nodiscard]] int pg_mtx_trylock(PgMutex *mutex);
-[[maybe_unused]][[nodiscard]] int pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
-[[maybe_unused]][[nodiscard]] int pg_mtx_unlock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_lock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_trylock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_unlock(PgMutex *mutex);
 
-[[maybe_unused]][[nodiscard]]int pg_cnd_init(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_init(PgConditionVar *cond);
 [[maybe_unused]]void pg_cnd_destroy(PgConditionVar *cond);
-[[maybe_unused]][[nodiscard]]int pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex);
-[[maybe_unused]][[nodiscard]]int pg_cnd_broadcast(PgConditionVar *cond);
-[[maybe_unused]][[nodiscard]]int pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_broadcast(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
@@ -4581,22 +4587,54 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
 
-[[maybe_unused]][[nodiscard]] int pg_mtx_init(PgMutex *mutex, int type){
+[[maybe_unused]][[nodiscard]]  PgError pg_mtx_init(PgMutex *mutex, PgMutexKind type){
   pthread_mutexattr_t attr={0};
+i32 err = pthread_mutexattr_init(&attr);
+  if (err){
+    return err;
+  }
 
+if (PG_MUTEX_KIND_RECURSIVE == type) {
+        err = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+        if (err) {
+            goto end;
+        }
+    }
+    
+    err = pthread_mutex_init(mutex, &attr);
+
+end:
+    fin_err = pthread_mutexattr_destroy(&attr);
+    if (fin_err) {
+      return err ? err : fin_err;
+    }
+    
+    return (PgError)err ;
 }
 
-[[maybe_unused]][[nodiscard]] void pg_mtx_destroy(PgMutex *mutex);
-[[maybe_unused]][[nodiscard]] int pg_mtx_lock(PgMutex *mutex);
-[[maybe_unused]][[nodiscard]] int pg_mtx_trylock(PgMutex *mutex);
-[[maybe_unused]][[nodiscard]] int pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
-[[maybe_unused]][[nodiscard]] int pg_mtx_unlock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] void pg_mtx_destroy(PgMutex *mutex){
+  i32 ret = pthread_mutex_destroy((pthread_mutex_t*)mutex);
+  if (0!=ret){return (PgError)ret;}
 
-[[maybe_unused]][[nodiscard]]int pg_cnd_init(PgConditionVar *cond);
+  return 0;
+}
+
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_lock(PgMutex *mutex){
+  i32 ret = pthread_mutex_lock((pthread_mutex_t*)mutex);
+  if (0!=ret){return (PgError)ret;}
+
+  return 0;
+}
+
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_trylock(PgMutex *mutex);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
+[[maybe_unused]][[nodiscard]] PgError pg_mtx_unlock(PgMutex *mutex);
+
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_init(PgConditionVar *cond);
 [[maybe_unused]][[nodiscard]]void pg_cnd_destroy(PgConditionVar *cond);
-[[maybe_unused]][[nodiscard]]int pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex);
-[[maybe_unused]][[nodiscard]]int pg_cnd_broadcast(PgConditionVar *cond);
-[[maybe_unused]][[nodiscard]]int pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_broadcast(PgConditionVar *cond);
+[[maybe_unused]][[nodiscard]]PgError pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
 
 [[maybe_unused]] [[nodiscard]] static PgThreadResult
 pg_thread_create(PgThreadFn fn, void *fn_data) {
