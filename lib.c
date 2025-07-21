@@ -938,7 +938,7 @@ typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_KIND_WRITABLE = 1 << 5,
 
   PG_AIO_EVENT_KIND_ERROR = 1 << 6,
-  PG_AIO_EVENT_KIND_HANG_UP = 1 << 7,
+  PG_AIO_EVENT_KIND_EOF = 1 << 7,
   // More...
 } PgAioEventKind;
 
@@ -8601,9 +8601,23 @@ Pgu64Result res={0};
   for (u64 i=0;i<(u64)ret;i++){
     struct kevent kevent = PG_C_ARRAY_AT(eventlist,eventlist_len, i);
     PgAioEvent* ev = PG_SLICE_AT_PTR(&events_out, i);
+    ev->fd.fd=kevent.ident;
 
-
-    // TODO
+if (EV_ERROR & kevent.flags) {
+  ev->kind |= PG_AIO_EVENT_KIND_ERROR;
+  }
+if (EV_EOF & kevent.flags) {
+  ev->kind |= PG_AIO_EVENT_KIND_EOF;
+  }
+if (EVFILT_READ & kevent.fflags) {
+  ev->kind |= PG_AIO_EVENT_KIND_READABLE;
+  }
+if (EVFILT_WRITE & kevent.fflags) {
+  ev->kind |= PG_AIO_EVENT_KIND_WRITABLE;
+  }
+if ((EVFILT_VNODE & kevent.fflags) && (NOTE_DELETE & kevent.fflags)) {
+  ev->kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
+  }
   }
   
 
@@ -8784,7 +8798,7 @@ pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
       PG_SLICE_AT(events_out, i).kind |= PG_AIO_EVENT_KIND_ERROR;
     }
     if (e.events & EPOLLHUP) {
-      PG_SLICE_AT(events_out, i).kind |= PG_AIO_EVENT_KIND_HANG_UP;
+      PG_SLICE_AT(events_out, i).kind |= PG_AIO_EVENT_KIND_EOF;
     }
   }
 
@@ -8829,7 +8843,7 @@ pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms) {
       ev.kind |= PG_AIO_EVENT_KIND_ERROR;
     }
     if (e.events & EPOLLHUP) {
-      ev.kind |= PG_AIO_EVENT_KIND_HANG_UP;
+      ev.kind |= PG_AIO_EVENT_KIND_EOF;
     }
 
     Pgu8Slice ev_bytes = {.data = (u8 *)&ev, .len = sizeof(ev)};
