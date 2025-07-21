@@ -880,7 +880,6 @@ PG_SLICE(PgString) PgStringSlice;
 
 PG_RESULT(PgStringSlice) PgStringSliceResult;
 
-
 #ifdef PG_OS_UNIX
 typedef pthread_t PgThread;
 #else
@@ -899,7 +898,10 @@ typedef pthread_mutex_t PgMutex;
 typedef bool PgMutex;
 #endif
 
-typedef enum {PG_MUTEX_KIND_PLAIN,PG_MUTEX_KIND_RECURSIVE,}PgMutexKind;
+typedef enum {
+  PG_MUTEX_KIND_PLAIN,
+  PG_MUTEX_KIND_RECURSIVE,
+} PgMutexKind;
 
 #ifdef PG_OS_UNIX
 typedef pthread_cond_t PgConditionVar;
@@ -1007,25 +1009,30 @@ pg_thread_create(PgThreadFn fn, void *fn_data);
 
 [[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread);
 
-[[maybe_unused]][[nodiscard]] PgError pg_mtx_init(PgMutex *mutex, PgMutexKind type);
+[[maybe_unused]] [[nodiscard]] PgError pg_mtx_init(PgMutex *mutex,
+                                                   PgMutexKind type);
 [[maybe_unused]] void pg_mtx_destroy(PgMutex *mutex);
-[[maybe_unused]][[nodiscard]] PgError pg_mtx_lock(PgMutex *mutex);
-[[maybe_unused]][[nodiscard]] PgError pg_mtx_trylock(PgMutex *mutex);
-[[maybe_unused]][[nodiscard]] PgError pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
-[[maybe_unused]][[nodiscard]] PgError pg_mtx_unlock(PgMutex *mutex);
+[[maybe_unused]] [[nodiscard]] PgError pg_mtx_lock(PgMutex *mutex);
+[[maybe_unused]] [[nodiscard]] PgError pg_mtx_trylock(PgMutex *mutex);
+[[maybe_unused]] [[nodiscard]] PgError
+pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
+[[maybe_unused]] [[nodiscard]] PgError pg_mtx_unlock(PgMutex *mutex);
 
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_init(PgConditionVar *cond);
-[[maybe_unused]]void pg_cnd_destroy(PgConditionVar *cond);
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex);
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_broadcast(PgConditionVar *cond);
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_signal(PgConditionVar *cond);
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
+[[maybe_unused]] [[nodiscard]] PgError pg_cnd_init(PgConditionVar *cond);
+[[maybe_unused]] void pg_cnd_destroy(PgConditionVar *cond);
+[[maybe_unused]] [[nodiscard]] PgError pg_cnd_wait(PgConditionVar *cond,
+                                                   PgMutex *mutex);
+[[maybe_unused]] [[nodiscard]] PgError pg_cnd_broadcast(PgConditionVar *cond);
+[[maybe_unused]] [[nodiscard]] PgError pg_cnd_signal(PgConditionVar *cond);
+[[maybe_unused]] [[nodiscard]] PgError
+pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex,
+                 const struct timespec *time_point);
 
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 
-[[maybe_unused]] inline static void pg_stacktrace_print(const char *file, int line,
-                                                 const char *function) {
+[[maybe_unused]] inline static void
+pg_stacktrace_print(const char *file, int line, const char *function) {
   fprintf(stderr, "ASSERT: %s:%d:%s\n", file, line, function);
 
   // TODO
@@ -4590,45 +4597,50 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
 
-[[maybe_unused]][[nodiscard]]  PgError pg_mtx_init(PgMutex *mutex, PgMutexKind type){
-  pthread_mutexattr_t attr={0};
-i32 err = pthread_mutexattr_init(&attr);
-  if (err){
+[[maybe_unused]] [[nodiscard]] PgError pg_mtx_init(PgMutex *mutex,
+                                                   PgMutexKind type) {
+  pthread_mutexattr_t attr = {0};
+  i32 err = pthread_mutexattr_init(&attr);
+  if (err) {
     return err;
   }
 
-if (PG_MUTEX_KIND_RECURSIVE == type) {
-        err = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-        if (err) {
-            goto end;
-        }
+  if (PG_MUTEX_KIND_RECURSIVE == type) {
+    err = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    if (err) {
+      goto end;
     }
-    
-    err = pthread_mutex_init(mutex, &attr);
+  }
+
+  err = pthread_mutex_init(mutex, &attr);
 
 end:
-    i32 fin_err = pthread_mutexattr_destroy(&attr);
-    if (fin_err) {
-      return err ? err : fin_err;
-    }
-    
-    return (PgError)err ;
+  i32 fin_err = pthread_mutexattr_destroy(&attr);
+  if (fin_err) {
+    return err ? err : fin_err;
+  }
+
+  return (PgError)err;
 }
 
-[[maybe_unused]] void pg_mtx_destroy(PgMutex *mutex){
-   pthread_mutex_destroy(mutex);
+[[maybe_unused]] void pg_mtx_destroy(PgMutex *mutex) {
+  pthread_mutex_destroy(mutex);
 }
 
-[[maybe_unused]][[nodiscard]] PgError pg_mtx_lock(PgMutex *mutex){
+[[maybe_unused]] [[nodiscard]] PgError pg_mtx_lock(PgMutex *mutex) {
   i32 ret = pthread_mutex_lock(mutex);
-  if (0!=ret){return (PgError)ret;}
+  if (0 != ret) {
+    return (PgError)ret;
+  }
 
   return 0;
 }
 
-[[maybe_unused]][[nodiscard]] PgError pg_mtx_trylock(PgMutex *mutex){
+[[maybe_unused]] [[nodiscard]] PgError pg_mtx_trylock(PgMutex *mutex) {
   i32 ret = pthread_mutex_trylock(mutex);
-  if (0!=ret){return (PgError)ret;}
+  if (0 != ret) {
+    return (PgError)ret;
+  }
 
   return 0;
 }
@@ -4638,41 +4650,52 @@ end:
 [[maybe_unused]][[nodiscard]] PgError pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
 #endif
 
-[[maybe_unused]][[nodiscard]] PgError pg_mtx_unlock(PgMutex *mutex){
+[[maybe_unused]] [[nodiscard]] PgError pg_mtx_unlock(PgMutex *mutex) {
   i32 ret = pthread_mutex_unlock(mutex);
-  if (0!=ret){return (PgError)ret;}
+  if (0 != ret) {
+    return (PgError)ret;
+  }
 
   return 0;
 }
 
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_init(PgConditionVar *cond){
+[[maybe_unused]] [[nodiscard]] PgError pg_cnd_init(PgConditionVar *cond) {
   i32 ret = pthread_cond_init(cond, nullptr);
-  if (0!=ret){return (PgError)ret;}
+  if (0 != ret) {
+    return (PgError)ret;
+  }
 
   return 0;
 }
 
-[[maybe_unused]]void pg_cnd_destroy(PgConditionVar *cond){
-   pthread_cond_destroy(cond);
+[[maybe_unused]] void pg_cnd_destroy(PgConditionVar *cond) {
+  pthread_cond_destroy(cond);
 }
 
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex){
+[[maybe_unused]] [[nodiscard]] PgError pg_cnd_wait(PgConditionVar *cond,
+                                                   PgMutex *mutex) {
   i32 ret = pthread_cond_wait(cond, mutex);
-  if (0!=ret){return (PgError)ret;}
+  if (0 != ret) {
+    return (PgError)ret;
+  }
 
   return 0;
 }
 
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_broadcast(PgConditionVar *cond){
+[[maybe_unused]] [[nodiscard]] PgError pg_cnd_broadcast(PgConditionVar *cond) {
   i32 ret = pthread_cond_broadcast(cond);
-  if (0!=ret){return (PgError)ret;}
+  if (0 != ret) {
+    return (PgError)ret;
+  }
 
   return 0;
 }
 
-[[maybe_unused]][[nodiscard]]PgError pg_cnd_signal(PgConditionVar *cond){
+[[maybe_unused]] [[nodiscard]] PgError pg_cnd_signal(PgConditionVar *cond) {
   i32 ret = pthread_cond_signal(cond);
-  if (0!=ret){return (PgError)ret;}
+  if (0 != ret) {
+    return (PgError)ret;
+  }
 
   return 0;
 }
@@ -5351,8 +5374,8 @@ pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
   int status = 0;
   int ret = 0;
   do {
-   ret= waitpid((pid_t)process.pid, &status, 0);
-  }while(-1==ret && EINTR==errno);
+    ret = waitpid((pid_t)process.pid, &status, 0);
+  } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
     res.err = (PgError)errno;
@@ -8255,9 +8278,8 @@ pg_thread_pool_make(u32 size, PgAllocator *allocator) {
       pg_alloc(allocator, sizeof(PgThread), _Alignof(PgThread), size);
 
   for (u32 i = 0; i < size; i++) {
-    PgThread* it = PG_SLICE_AT_PTR(&res.res.workers,i);
-    PgThreadResult res_thread =
-        pg_thread_create(pg_pool_worker_start_fn, it);
+    PgThread *it = PG_SLICE_AT_PTR(&res.res.workers, i);
+    PgThreadResult res_thread = pg_thread_create(pg_pool_worker_start_fn, it);
     if (0 != res_thread.err) {
       res.err = res_thread.err;
       return res;
@@ -8519,16 +8541,16 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
 #if defined(__FreeBSD__) || defined(__APPLE__)
 #include <sys/event.h>
 
-[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init(){
-  PgFileDescriptorResult res={0};
+[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init() {
+  PgFileDescriptorResult res = {0};
 
   i32 ret = kqueue();
-  if (-1==ret){
-    res.err=(PgError)errno;
+  if (-1 == ret) {
+    res.err = (PgError)errno;
     return res;
   }
 
-  res.res.fd=ret;
+  res.res.fd = ret;
   return res;
 }
 
@@ -8536,30 +8558,30 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
 pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
                          PgAioEventKind interest) {
 
-  struct kevent changelist[1]={0};
+  struct kevent changelist[1] = {0};
   changelist[0].ident = (u64)fd.fd;
   changelist[0].flags = EV_ADD;
-  
-  if (interest & PG_AIO_EVENT_KIND_READABLE){
-  changelist[0].filter |= EVFILT_READ;
+
+  if (interest & PG_AIO_EVENT_KIND_READABLE) {
+    changelist[0].filter |= EVFILT_READ;
   }
-  if (interest & PG_AIO_EVENT_KIND_WRITABLE){
-  changelist[0].filter |= EVFILT_WRITE;
+  if (interest & PG_AIO_EVENT_KIND_WRITABLE) {
+    changelist[0].filter |= EVFILT_WRITE;
   }
-  if (interest & PG_AIO_EVENT_KIND_FILE_CREATED){
+  if (interest & PG_AIO_EVENT_KIND_FILE_CREATED) {
     // TODO
   }
-  if (interest & PG_AIO_EVENT_KIND_FILE_MODIFIED){
+  if (interest & PG_AIO_EVENT_KIND_FILE_MODIFIED) {
     changelist[0].filter |= EVFILT_VNODE;
     changelist[0].fflags |= NOTE_WRITE;
   }
-  if (interest & PG_AIO_EVENT_KIND_FILE_DELETED){
+  if (interest & PG_AIO_EVENT_KIND_FILE_DELETED) {
     changelist[0].filter |= EVFILT_VNODE;
     changelist[0].fflags |= NOTE_DELETE;
   }
 
-  i32 ret= kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
-  if (-1==ret){
+  i32 ret = kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
+  if (-1 == ret) {
     return (PgError)errno;
   }
 
@@ -8568,32 +8590,31 @@ pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
-                           PgAioEventKind interest){
-  struct kevent changelist[1]={0};
+                           PgAioEventKind interest) {
+  struct kevent changelist[1] = {0};
   changelist[0].ident = (u64)fd.fd;
   changelist[0].flags = EV_DELETE;
 
-  if (PG_AIO_EVENT_KIND_FILE_MODIFIED & interest){
-    changelist[0].filter=EVFILT_VNODE;
-    changelist[0].fflags =NOTE_WRITE;
+  if (PG_AIO_EVENT_KIND_FILE_MODIFIED & interest) {
+    changelist[0].filter = EVFILT_VNODE;
+    changelist[0].fflags = NOTE_WRITE;
   }
-  if (PG_AIO_EVENT_KIND_FILE_DELETED & interest){
-    changelist[0].filter=EVFILT_VNODE;
-    changelist[0].fflags =NOTE_DELETE;
+  if (PG_AIO_EVENT_KIND_FILE_DELETED & interest) {
+    changelist[0].filter = EVFILT_VNODE;
+    changelist[0].fflags = NOTE_DELETE;
   }
-  if (PG_AIO_EVENT_KIND_FILE_CREATED & interest){
+  if (PG_AIO_EVENT_KIND_FILE_CREATED & interest) {
     // TODO
   }
-  if (PG_AIO_EVENT_KIND_READABLE & interest  ){
-    changelist[0].filter=EVFILT_READ;
+  if (PG_AIO_EVENT_KIND_READABLE & interest) {
+    changelist[0].filter = EVFILT_READ;
   }
-  if (PG_AIO_EVENT_KIND_WRITABLE & interest  ){
-    changelist[0].filter=EVFILT_WRITE;
+  if (PG_AIO_EVENT_KIND_WRITABLE & interest) {
+    changelist[0].filter = EVFILT_WRITE;
   }
 
-
-  i32 ret= kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
-  if (-1==ret && ENOENT!=errno){
+  i32 ret = kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
+  if (-1 == ret && ENOENT != errno) {
     return (PgError)errno;
   }
 
@@ -8602,104 +8623,110 @@ pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
 pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
-            Pgu32Ok timeout_ms){
-Pgu64Result res={0};
+            Pgu32Ok timeout_ms) {
+  Pgu64Result res = {0};
 
-  struct kevent eventlist[1024]={0};
+  struct kevent eventlist[1024] = {0};
   u64 eventlist_len = PG_MIN(PG_STATIC_ARRAY_LEN(eventlist), events_out.len);
-  if (0==eventlist_len){return res;}
-
-  struct timespec timeout={0};
-  if (timeout_ms.ok){
-  timeout.tv_sec = timeout_ms.res/1000;
-  timeout.tv_nsec = (timeout_ms.res%1000)*1000*1000;
+  if (0 == eventlist_len) {
+    return res;
   }
 
-  i32 ret = kevent(aio.fd, nullptr, 0, eventlist, eventlist_len,timeout_ms.ok? &timeout: nullptr);
-  if (-1==ret){res.err=(PgError)errno;return res;}
+  struct timespec timeout = {0};
+  if (timeout_ms.ok) {
+    timeout.tv_sec = timeout_ms.res / 1000;
+    timeout.tv_nsec = (timeout_ms.res % 1000) * 1000 * 1000;
+  }
 
-  for (u64 i=0;i<(u64)ret;i++){
-    struct kevent kevent = PG_C_ARRAY_AT(eventlist,eventlist_len, i);
-    PgAioEvent* ev = PG_SLICE_AT_PTR(&events_out, i);
-    ev->fd.fd=kevent.ident;
+  i32 ret = kevent(aio.fd, nullptr, 0, eventlist, eventlist_len,
+                   timeout_ms.ok ? &timeout : nullptr);
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
 
-if (EV_ERROR & kevent.flags) {
-  ev->kind |= PG_AIO_EVENT_KIND_ERROR;
-  }
-if (EV_EOF & kevent.flags) {
-  ev->kind |= PG_AIO_EVENT_KIND_EOF;
-  }
-if (EVFILT_READ & kevent.filter) {
-  ev->kind |= PG_AIO_EVENT_KIND_READABLE;
-  }
-if (EVFILT_WRITE & kevent.filter) {
-  ev->kind |= PG_AIO_EVENT_KIND_WRITABLE;
-  }
-if ((EVFILT_VNODE & kevent.filter) && (NOTE_DELETE & kevent.fflags)) {
-  ev->kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
-  }
-if ((EVFILT_VNODE & kevent.filter) && (NOTE_WRITE & kevent.fflags)) {
-  ev->kind |= PG_AIO_EVENT_KIND_FILE_MODIFIED;
-  }
-  }
-  
+  for (u64 i = 0; i < (u64)ret; i++) {
+    struct kevent kevent = PG_C_ARRAY_AT(eventlist, eventlist_len, i);
+    PgAioEvent *ev = PG_SLICE_AT_PTR(&events_out, i);
+    ev->fd.fd = kevent.ident;
 
+    if (EV_ERROR & kevent.flags) {
+      ev->kind |= PG_AIO_EVENT_KIND_ERROR;
+    }
+    if (EV_EOF & kevent.flags) {
+      ev->kind |= PG_AIO_EVENT_KIND_EOF;
+    }
+    if (EVFILT_READ & kevent.filter) {
+      ev->kind |= PG_AIO_EVENT_KIND_READABLE;
+    }
+    if (EVFILT_WRITE & kevent.filter) {
+      ev->kind |= PG_AIO_EVENT_KIND_WRITABLE;
+    }
+    if ((EVFILT_VNODE & kevent.filter) && (NOTE_DELETE & kevent.fflags)) {
+      ev->kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
+    }
+    if ((EVFILT_VNODE & kevent.filter) && (NOTE_WRITE & kevent.fflags)) {
+      ev->kind |= PG_AIO_EVENT_KIND_FILE_MODIFIED;
+    }
+  }
 
-  res.res=(u64)ret;
+  res.res = (u64)ret;
   return res;
 };
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms){
-Pgu64Result res={0};
+pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms) {
+  Pgu64Result res = {0};
   u64 can_write_count = pg_ring_can_write_count(*cqe) / sizeof(PgAioEvent);
 
-  struct kevent eventlist[1024]={0};
+  struct kevent eventlist[1024] = {0};
   u64 eventlist_len = PG_MIN(PG_STATIC_ARRAY_LEN(eventlist), can_write_count);
-  if (0==eventlist_len){return res;}
-
-  struct timespec timeout={0};
-  if (timeout_ms.ok){
-  timeout.tv_sec = timeout_ms.res/1000;
-  timeout.tv_nsec = (timeout_ms.res%1000)*1000*1000;
+  if (0 == eventlist_len) {
+    return res;
   }
 
-  i32 ret = kevent(aio.fd, nullptr, 0, eventlist, eventlist_len,timeout_ms.ok? &timeout: nullptr);
-  if (-1==ret){res.err=(PgError)errno;return res;}
+  struct timespec timeout = {0};
+  if (timeout_ms.ok) {
+    timeout.tv_sec = timeout_ms.res / 1000;
+    timeout.tv_nsec = (timeout_ms.res % 1000) * 1000 * 1000;
+  }
 
-  for (u64 i=0;i<(u64)ret;i++){
-    struct kevent kevent = PG_C_ARRAY_AT(eventlist,eventlist_len, i);
+  i32 ret = kevent(aio.fd, nullptr, 0, eventlist, eventlist_len,
+                   timeout_ms.ok ? &timeout : nullptr);
+  if (-1 == ret) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  for (u64 i = 0; i < (u64)ret; i++) {
+    struct kevent kevent = PG_C_ARRAY_AT(eventlist, eventlist_len, i);
     PgAioEvent ev = {0};
-    ev.fd.fd=kevent.ident;
+    ev.fd.fd = kevent.ident;
 
-if (EV_ERROR & kevent.flags) {
-  ev.kind |= PG_AIO_EVENT_KIND_ERROR;
-  }
-if (EV_EOF & kevent.flags) {
-  ev.kind |= PG_AIO_EVENT_KIND_EOF;
-  }
-if (EVFILT_READ & kevent.filter) {
-  ev.kind |= PG_AIO_EVENT_KIND_READABLE;
-  }
-if (EVFILT_WRITE & kevent.filter) {
-  ev.kind |= PG_AIO_EVENT_KIND_WRITABLE;
-  }
-if ((EVFILT_VNODE & kevent.filter) && (NOTE_DELETE & kevent.fflags)) {
-  ev.kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
-  }
-if ((EVFILT_VNODE & kevent.filter) && (NOTE_WRITE & kevent.fflags)) {
-  ev.kind |= PG_AIO_EVENT_KIND_FILE_MODIFIED;
-  }
-
-  
+    if (EV_ERROR & kevent.flags) {
+      ev.kind |= PG_AIO_EVENT_KIND_ERROR;
+    }
+    if (EV_EOF & kevent.flags) {
+      ev.kind |= PG_AIO_EVENT_KIND_EOF;
+    }
+    if (EVFILT_READ & kevent.filter) {
+      ev.kind |= PG_AIO_EVENT_KIND_READABLE;
+    }
+    if (EVFILT_WRITE & kevent.filter) {
+      ev.kind |= PG_AIO_EVENT_KIND_WRITABLE;
+    }
+    if ((EVFILT_VNODE & kevent.filter) && (NOTE_DELETE & kevent.fflags)) {
+      ev.kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
+    }
+    if ((EVFILT_VNODE & kevent.filter) && (NOTE_WRITE & kevent.fflags)) {
+      ev.kind |= PG_AIO_EVENT_KIND_FILE_MODIFIED;
+    }
 
     Pgu8Slice ev_bytes = {.data = (u8 *)&ev, .len = sizeof(ev)};
     PG_ASSERT(sizeof(ev) == pg_ring_write_bytes(cqe, ev_bytes));
   }
-  
 
-
-  res.res=(u64)ret;
+  res.res = (u64)ret;
   return res;
 }
 
