@@ -71,6 +71,10 @@
 #define PG_Milliseconds (1000ULL * PG_Microseconds)
 #define PG_Seconds (1000ULL * PG_Milliseconds)
 
+#define PG_BIT_CLEAR(n, idx) (n & ~(1 << (idx)))
+#define PG_BIT_SET(n, idx) (n | (1 << (idx)))
+#define PG_BIT_TOGGLE(n, idx) (n ^ (1 << (idx)))
+
 #define PG_CONTAINER_OF(ptr, type, member)                                     \
   ((type *)(void *)((char *)(ptr) - offsetof(type, member)))
 
