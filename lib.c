@@ -24,7 +24,7 @@
 #define PG_OS_LINUX
 #endif
 
-#if defined(__unix__)
+#if defined(PG_OS_UNIX)
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE 1
 #endif
@@ -38,8 +38,33 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #ifdef PG_OS_UNIX
+#include <arpa/inet.h>
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <netinet/tcp.h>
+#include <poll.h>
 #include <pthread.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
+#endif
+
+#ifdef PG_OS_UNIX
+#define PG_PATH_SEPARATOR '/'
+#define PG_PATH_SEPARATOR_S "/"
+#else
+#define PG_PATH_SEPARATOR '\\'
+#define PG_PATH_SEPARATOR_S "\\"
 #endif
 
 // Check that __COUNTER__ is defined and that __COUNTER__ increases by 1
@@ -122,7 +147,6 @@ typedef ssize_t isize;
 typedef u32 PgError;
 #define PG_ERR_EOF 4095
 #ifdef PG_OS_UNIX
-#include <errno.h>
 #define PG_ERR_INVALID_VALUE EINVAL
 #define PG_ERR_IO EIO
 #define PG_ERR_TOO_BIG E2BIG
@@ -191,6 +215,8 @@ PG_RESULT(Pgu8Slice) Pgu8SliceResult;
 PG_RESULT(Pgu64Ok) Pgu64OkResult;
 
 #define PG_STATIC_ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
+
+#define PG_SLICE_FROM_C(arr) {.data = arr, .len = PG_STATIC_ARRAY_LEN(arr)}
 
 // Clamp a value in the range `[min, max]`.
 #define PG_CLAMP(min, n, max) ((n) < (min) ? (min) : (n) > (max) ? (max) : n)
@@ -953,6 +979,15 @@ PG_DYN(PgAioEvent) PgAioEventDyn;
 PG_SLICE(PgAioEvent) PgAioEventSlice;
 PG_RESULT(PgAioEvent) PgAioEventResult;
 PG_OK(PgAioEvent) PgAioEventOk;
+
+typedef struct {
+#ifdef PG_OS_UNIX
+  DIR *dir;
+#else
+  // TODO
+#endif
+} PgDirectory;
+PG_RESULT(PgDirectory) PgDirectoryResult;
 
 // ---------------- Functions.
 
@@ -4227,14 +4262,6 @@ pg_u64_range_search(Pgu64Slice haystack, u64 needle) {
   return res;
 }
 
-#ifdef PG_OS_UNIX
-#define PG_PATH_SEPARATOR '/'
-#define PG_PATH_SEPARATOR_S "/"
-#else
-#define PG_PATH_SEPARATOR '\\'
-#define PG_PATH_SEPARATOR_S "\\"
-#endif
-
 // TODO: Trim separators in `a` and `b`?
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_path_join(PgString a, PgString b, PgAllocator *allocator) {
@@ -4577,24 +4604,40 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 
 // ----- Start UNIX implementation ------
 #ifdef PG_OS_UNIX
-#include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <netinet/tcp.h>
-#include <poll.h>
-#include <signal.h>
-#include <stdlib.h>
-#include <sys/mman.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <time.h>
-#include <unistd.h>
 
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
+
+[[maybe_unused]] [[nodiscard]] PgDirectoryResult
+pg_open_directory(PgString name) {
+  PgDirectoryResult res = {0};
+  if (name.len > PG_PATH_MAX - 1) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  u8 name_c[PG_PATH_MAX] = {0};
+  memcpy(name_c, name.data, name.len);
+
+  DIR *dir = opendir((char *)name_c);
+  if (!dir) {
+    res.err = (PgError)errno;
+    return res;
+  }
+
+  res.res.dir = dir;
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] PgError pg_close_directory(PgDirectory dir) {
+  i32 ret = closedir(dir.dir);
+  if (-1 == ret) {
+    return (PgError)errno;
+  }
+
+  return 0;
+}
 
 [[maybe_unused]] [[nodiscard]] PgError pg_mtx_init(PgMutex *mutex,
                                                    PgMutexKind type) {
