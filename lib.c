@@ -8555,7 +8555,7 @@ pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
     changelist[0].fflags |= NOTE_DELETE | NOTE_REVOKE;
   }
 
-  i32 ret= kevent(aio.fd, changelist, 1, nullptr, 1, nullptr);
+  i32 ret= kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
   if (-1==ret){
     return (PgError)errno;
   }
@@ -8573,7 +8573,7 @@ pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
   // We should only unregister the particular passed-in interest.
   (void)interest;
 
-  i32 ret= kevent(aio.fd, changelist, 1, nullptr, 1, nullptr);
+  i32 ret= kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
   if (-1==ret){
     return (PgError)errno;
   }
