@@ -994,7 +994,8 @@ typedef struct dirent PgDirectoryEntry;
 #else
 // TODO
 #endif
-PG_RESULT(PgDirectoryEntry) PgDirectoryEntryResult;
+PG_OK(PgDirectoryEntry) PgDirectoryEntryOk;
+PG_RESULT(PgDirectoryEntryOk) PgDirectoryEntryOkResult;
 
 // ---------------- Functions.
 
@@ -1008,6 +1009,20 @@ PG_RESULT(PgDirectoryEntry) PgDirectoryEntryResult;
 
 [[maybe_unused]] static Pgu64Result pg_file_read_at(PgFileDescriptor file,
                                                     PgString buf, u64 offset);
+
+[[maybe_unused]] [[nodiscard]] PgDirectoryResult
+pg_directory_open(PgString name);
+
+[[maybe_unused]] [[nodiscard]] PgError pg_directory_close(PgDirectory dir);
+
+[[maybe_unused]] [[nodiscard]] PgDirectoryEntryOkResult
+pg_directory_read(PgDirectory *dir);
+
+[[maybe_unused]] [[nodiscard]] static bool
+pg_dirent_is_file(PgDirectoryEntry dirent);
+
+[[maybe_unused]] [[nodiscard]] static bool
+pg_dirent_is_directory(PgDirectoryEntry dirent);
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
 pg_file_open(PgString path, PgFileAccess access, u64 mode,
@@ -4616,7 +4631,7 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 #define PG_PIPE_WRITE 1
 
 [[maybe_unused]] [[nodiscard]] PgDirectoryResult
-pg_open_directory(PgString name) {
+pg_directory_open(PgString name) {
   PgDirectoryResult res = {0};
   if (name.len > PG_PATH_MAX - 1) {
     res.err = PG_ERR_INVALID_VALUE;
@@ -4635,7 +4650,7 @@ pg_open_directory(PgString name) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] PgError pg_close_directory(PgDirectory dir) {
+[[maybe_unused]] [[nodiscard]] PgError pg_directory_close(PgDirectory dir) {
   i32 ret = closedir(dir.dir);
   if (-1 == ret) {
     return (PgError)errno;
@@ -4644,21 +4659,35 @@ pg_open_directory(PgString name) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] PgDirectoryEntryResult
-pg_director_read(PgDirectory *dir) {
-  PgDirectoryEntryResult res = {0};
+[[maybe_unused]] [[nodiscard]] PgDirectoryEntryOkResult
+pg_directory_read(PgDirectory *dir) {
+  PgDirectoryEntryOkResult res = {0};
 
   errno = 0;
 
   struct dirent *dirent = readdir(dir->dir);
+  if (!dirent && 0 == errno) {
+    return res; // EOF
+  }
   if (!dirent) {
     res.err = (PgError)errno;
     return res;
   }
 
-  res.res = *dirent;
+  res.res.ok = true;
+  res.res.res = *dirent;
 
   return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool
+pg_dirent_is_file(PgDirectoryEntry dirent) {
+  return DT_REG == dirent.d_type;
+}
+
+[[maybe_unused]] [[nodiscard]] static bool
+pg_dirent_is_directory(PgDirectoryEntry dirent) {
+  return DT_DIR == dirent.d_type;
 }
 
 [[maybe_unused]] [[nodiscard]] PgError pg_mtx_init(PgMutex *mutex,

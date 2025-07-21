@@ -2882,6 +2882,31 @@ static void test_aio_tcp_sockets() {
   PG_ASSERT(0);
 }
 
+static void test_watch_directory() {
+  PgDirectoryResult res_dir = pg_directory_open(PG_S("."));
+  PG_ASSERT(0 == res_dir.err);
+  PgDirectory dir = res_dir.res;
+
+  u64 file_count = 0;
+
+  for (;;) {
+    PgDirectoryEntryOkResult res_dirent = pg_directory_read(&dir);
+    PG_ASSERT(0 == res_dirent.err);
+    if (!res_dirent.res.ok) {
+      break;
+    }
+
+    PgDirectoryEntry dirent = res_dirent.res.res;
+
+    if (pg_dirent_is_file(dirent)) {
+      file_count += 1;
+    }
+  }
+
+  PG_ASSERT(13 == file_count);
+  PG_ASSERT(0 == pg_directory_close(dir));
+}
+
 int main() {
   test_rune_bytes_count();
   test_utf8_count();
@@ -2947,4 +2972,5 @@ int main() {
   test_adjacency_matrix();
   test_thread();
   test_aio_tcp_sockets();
+  test_watch_directory();
 }
