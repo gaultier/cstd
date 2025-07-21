@@ -8535,6 +8535,8 @@ pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
 
   struct kevent changelist[1]={0};
   changelist[0].ident = (u64)fd.fd;
+  changelist[0].flags = EV_ADD;
+  
   if (interest & PG_AIO_EVENT_KIND_READABLE){
   changelist[0].filter |= EVFILT_READ;
   }
@@ -8563,7 +8565,21 @@ pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
-                           PgAioEventKind interest);
+                           PgAioEventKind interest){
+  struct kevent changelist[1]={0};
+  changelist[0].ident = (u64)fd.fd;
+  changelist[0].flags = EV_DELETE;
+  // FIXME: This will unregister all interests for this fd.
+  // We should only unregister the particular passed-in interest.
+  (void)interest;
+
+  i32 ret= kevent(aio.fd, changelist, 1, nullptr, 1, nullptr);
+  if (-1==ret){
+    return (PgError)errno;
+  }
+
+  return 0;
+}
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
 pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
