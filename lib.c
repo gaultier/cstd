@@ -8583,7 +8583,34 @@ pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
 pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
-            Pgu32Ok timeout_ms);
+            Pgu32Ok timeout_ms){
+Pgu64Result res={0};
+
+  struct kevent eventlist[1024]={0};
+  u64 eventlist_len = PG_MIN(PG_STATIC_ARRAY_LEN(eventlist), events_out.len);
+
+  struct timespec timeout={0};
+  if (timeout_ms.ok){
+  timeout.tv_sec = timeout_ms.res/1000;
+  timeout.tv_nsec = (timeout_ms.res%1000)*1000*1000;
+  }
+
+  i32 ret = kevent(aio.fd, nullptr, 0, eventlist, eventlist_len,timeout_ms.ok? &timeout: nullptr);
+  if (-1==ret){res.err=(PgError)errno;return res;}
+
+  for (u64 i=0;i<(u64)ret;i++){
+    struct kevent kevent = PG_C_ARRAY_AT(eventlist,eventlist_len, i);
+    PgAioEvent* ev = PG_SLICE_AT_PTR(&events_out, i);
+
+
+    // TODO
+  }
+  
+
+
+  res.res=(u64)ret;
+  return res;
+};
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
 pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms);
