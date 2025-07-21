@@ -1024,6 +1024,9 @@ pg_dirent_is_file(PgDirectoryEntry dirent);
 [[maybe_unused]] [[nodiscard]] static bool
 pg_dirent_is_directory(PgDirectoryEntry dirent);
 
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_dirent_name(PgDirectoryEntry dirent);
+
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
 pg_file_open(PgString path, PgFileAccess access, u64 mode,
              bool create_if_not_exists, PgAllocator *allocator);
@@ -4688,6 +4691,11 @@ pg_dirent_is_file(PgDirectoryEntry dirent) {
 [[maybe_unused]] [[nodiscard]] static bool
 pg_dirent_is_directory(PgDirectoryEntry dirent) {
   return DT_DIR == dirent.d_type;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_dirent_name(PgDirectoryEntry dirent) {
+  return pg_cstr_to_string(dirent.d_name);
 }
 
 [[maybe_unused]] [[nodiscard]] PgError pg_mtx_init(PgMutex *mutex,
