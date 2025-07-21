@@ -1,7 +1,6 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
 
-// TODO: Threads.
 // TODO: Document all functions.
 // TODO: IPv6.
 // TODO: *Pool allocator?*
