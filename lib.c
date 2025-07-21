@@ -891,7 +891,7 @@ typedef struct {
 
 typedef struct {
   void *opaque;
-} PgCondition;
+} PgConditionVar;
 
 typedef i32 (*PgThreadFn)(void *data);
 
@@ -999,14 +999,14 @@ pg_thread_create(PgThreadFn fn, void *fn_data);
 #define mtx_recursive (1 << 1)
 
 [[maybe_unused]][[nodiscard]] int pg_mtx_init(PgMutex *mutex, int type);
-[[maybe_unused]][[nodiscard]] void pg_mtx_destroy(PgMutex *mutex);
+[[maybe_unused]] void pg_mtx_destroy(PgMutex *mutex);
 [[maybe_unused]][[nodiscard]] int pg_mtx_lock(PgMutex *mutex);
 [[maybe_unused]][[nodiscard]] int pg_mtx_trylock(PgMutex *mutex);
 [[maybe_unused]][[nodiscard]] int pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
 [[maybe_unused]][[nodiscard]] int pg_mtx_unlock(PgMutex *mutex);
 
 [[maybe_unused]][[nodiscard]]int pg_cnd_init(PgConditionVar *cond);
-[[maybe_unused]][[nodiscard]]void pg_cnd_destroy(PgConditionVar *cond);
+[[maybe_unused]]void pg_cnd_destroy(PgConditionVar *cond);
 [[maybe_unused]][[nodiscard]]int pg_cnd_wait(PgConditionVar *cond, PgMutex *mutex);
 [[maybe_unused]][[nodiscard]]int pg_cnd_broadcast(PgConditionVar *cond);
 [[maybe_unused]][[nodiscard]]int pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
