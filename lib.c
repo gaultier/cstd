@@ -8607,6 +8607,7 @@ Pgu64Result res={0};
 
   struct kevent eventlist[1024]={0};
   u64 eventlist_len = PG_MIN(PG_STATIC_ARRAY_LEN(eventlist), events_out.len);
+  if (0==eventlist_len){return res;}
 
   struct timespec timeout={0};
   if (timeout_ms.ok){
@@ -8655,6 +8656,7 @@ Pgu64Result res={0};
 
   struct kevent eventlist[1024]={0};
   u64 eventlist_len = PG_MIN(PG_STATIC_ARRAY_LEN(eventlist), can_write_count);
+  if (0==eventlist_len){return res;}
 
   struct timespec timeout={0};
   if (timeout_ms.ok){
