@@ -13,6 +13,9 @@ TEST_C_FILES = $(wildcard *.c)
 
 SANITIZERS = address,undefined
 
+compile_flags.txt: 
+	echo $(CFLAGS) | tr ' ' '\n' > $@
+
 test_debug.bin: $(TEST_C_FILES)
 	$(CC) $(CFLAGS) $(LDFLAGS) test.c -o $@ -Wno-unused
 
