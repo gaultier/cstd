@@ -1013,12 +1013,11 @@ typedef struct {
 PG_RESULT(PgDirectory) PgDirectoryResult;
 
 #ifdef PG_OS_UNIX
-typedef struct dirent PgDirectoryEntry;
+typedef struct dirent *PgDirectoryEntry;
 #else
 // TODO
 #endif
-PG_OK(PgDirectoryEntry) PgDirectoryEntryOk;
-PG_RESULT(PgDirectoryEntryOk) PgDirectoryEntryOkResult;
+PG_RESULT(PgDirectoryEntry) PgDirectoryEntryResult;
 
 typedef enum {
   PG_WALK_DIRECTORY_KIND_NONE = 0,
@@ -1046,7 +1045,7 @@ pg_directory_open(PgString name);
 
 [[maybe_unused]] [[nodiscard]] PgError pg_directory_close(PgDirectory dir);
 
-[[maybe_unused]] [[nodiscard]] PgDirectoryEntryOkResult
+[[maybe_unused]] [[nodiscard]] PgDirectoryEntryResult
 pg_directory_read(PgDirectory *dir);
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -4697,40 +4696,37 @@ pg_directory_open(PgString name) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] PgDirectoryEntryOkResult
+[[maybe_unused]] [[nodiscard]] PgDirectoryEntryResult
 pg_directory_read(PgDirectory *dir) {
-  PgDirectoryEntryOkResult res = {0};
+  PgDirectoryEntryResult res = {0};
 
   errno = 0;
 
-  struct dirent *dirent = readdir(dir->dir);
-  if (!dirent && 0 == errno) {
+  res.res = readdir(dir->dir);
+  if (!res.res && 0 == errno) {
     return res; // EOF
   }
-  if (!dirent) {
+  if (!res.res) {
     res.err = (PgError)errno;
     return res;
   }
-
-  res.res.ok = true;
-  res.res.res = *dirent;
 
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
 pg_dirent_is_file(PgDirectoryEntry dirent) {
-  return DT_REG == dirent.d_type;
+  return DT_REG == dirent->d_type;
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
 pg_dirent_is_directory(PgDirectoryEntry dirent) {
-  return DT_DIR == dirent.d_type;
+  return DT_DIR == dirent->d_type;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_dirent_name(PgDirectoryEntry dirent) {
-  return pg_cstr_to_string(dirent.d_name);
+  return pg_cstr_to_string(dirent->d_name);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -4748,16 +4744,16 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
   PgDirectory dir = res_dir.res;
 
   for (;;) {
-    PgDirectoryEntryOkResult res_dirent = pg_directory_read(&dir);
+    PgDirectoryEntryResult res_dirent = pg_directory_read(&dir);
     if (0 != res_dirent.err) {
       return res_dir.err;
     }
 
-    if (!res_dirent.res.ok) {
+    if (!res_dirent.res) {
       break; // EOF.
     }
 
-    PgDirectoryEntry dirent = res_dirent.res.res;
+    PgDirectoryEntry dirent = res_dirent.res;
     PgString name = pg_dirent_name(dirent);
 
     // Do not visit parent.
