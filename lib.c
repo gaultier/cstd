@@ -25,6 +25,7 @@
 
 #if defined(__APPLE__)
 #define PG_OS_APPLE
+#define _DARWIN_C_SOURCE
 #endif
 
 #if defined(PG_OS_LINUX) || defined(PG_OS_FREEBSD) || defined(PG_OS_APPLE) ||  \
