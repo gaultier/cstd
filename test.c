@@ -2894,6 +2894,25 @@ static void test_watch_directory() {
   PgError err = pg_aio_register_watch_directory(
       &aio, PG_S("."), PG_WALK_DIRECTORY_KIND_FILE, allocator);
   PG_ASSERT(0 == err);
+
+  PgRing cqe = pg_ring_make(sizeof(PgAioEvent) * 16, allocator);
+
+  for (u64 _i = 0; _i < 4; _i++) {
+    Pgu32Ok timeout = {.res = 1, .ok = false};
+    Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout);
+    PG_ASSERT(0 == res_wait.err);
+    if (0 == res_wait.res) {
+      continue;
+    }
+
+    for (u64 i = 0; i < res_wait.res; i++) {
+      PgAioEventOk ok_event = pg_aio_cqe_dequeue(&cqe);
+      PG_ASSERT(ok_event.ok);
+
+      PgAioEvent event = ok_event.res;
+      __builtin_dump_struct(&event, &printf);
+    }
+  }
 }
 
 int main() {

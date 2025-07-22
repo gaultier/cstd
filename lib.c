@@ -1021,10 +1021,11 @@ PG_OK(PgDirectoryEntry) PgDirectoryEntryOk;
 PG_RESULT(PgDirectoryEntryOk) PgDirectoryEntryOkResult;
 
 typedef enum {
-  PG_WALK_DIRECTORY_KIND_FILE = 0,
-  PG_WALK_DIRECTORY_KIND_DIRECTORY = 1 << 0,
-  PG_WALK_DIRECTORY_KIND_RECURSE = 1 << 1,
-  PG_WALK_DIRECTORY_KIND_IGNORE_ERRORS = 1 << 2,
+  PG_WALK_DIRECTORY_KIND_NONE = 0,
+  PG_WALK_DIRECTORY_KIND_FILE = 1 << 0,
+  PG_WALK_DIRECTORY_KIND_DIRECTORY = 1 << 1,
+  PG_WALK_DIRECTORY_KIND_RECURSE = 1 << 2,
+  PG_WALK_DIRECTORY_KIND_IGNORE_ERRORS = 1 << 3,
 } PgWalkDirectoryOption;
 
 // ---------------- Functions.
@@ -4759,6 +4760,11 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
     PgDirectoryEntry dirent = res_dirent.res.res;
     PgString name = pg_dirent_name(dirent);
 
+    // Do not visit parent.
+    if (pg_bytes_eq(name, PG_S(".."))) {
+      continue;
+    }
+
     if (pg_dirent_is_file(dirent) && (PG_WALK_DIRECTORY_KIND_FILE & options)) {
       PgFileDescriptorResult res_fs = pg_aio_register_interest_fs_name(
           aio, name,
@@ -4777,13 +4783,13 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
       if (0 != res_fs.err && !ignore_errors) {
         return res_fs.err;
       }
+    }
 
-      if (recurse) {
-        PgError err =
-            pg_aio_register_watch_directory(aio, name, options, allocator);
-        if (0 != err && !ignore_errors) {
-          return err;
-        }
+    if (pg_dirent_is_directory(dirent) && recurse) {
+      PgError err =
+          pg_aio_register_watch_directory(aio, name, options, allocator);
+      if (0 != err && !ignore_errors) {
+        return err;
       }
     }
   }
