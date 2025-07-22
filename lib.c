@@ -1081,7 +1081,8 @@ pg_file_size(PgFileDescriptor file);
 
 [[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult
 pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
-                                 PgAioEventKind interest);
+                                 PgAioEventKind interest,
+                                 PgAllocator *allocator);
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_aio_register_interest_fd(PgAio aio, PgFileDescriptor fd,
@@ -4765,7 +4766,8 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
     if (pg_dirent_is_file(dirent) && (PG_WALK_DIRECTORY_KIND_FILE & options)) {
       PgFileDescriptorResult res_fs = pg_aio_register_interest_fs_name(
           aio, name,
-          PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED);
+          PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED,
+          allocator);
       if (0 != res_fs.err && !ignore_errors) {
         return res_fs.err;
       }
@@ -4776,7 +4778,8 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
       PgFileDescriptorResult res_fs = pg_aio_register_interest_fs_name(
           aio, name,
           PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED |
-              PG_AIO_EVENT_KIND_FILE_CREATED);
+              PG_AIO_EVENT_KIND_FILE_CREATED,
+          allocator);
       if (0 != res_fs.err && !ignore_errors) {
         return res_fs.err;
       }
@@ -8757,9 +8760,10 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
 
 [[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult
 pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
-                                 PgAioEventKind interest) {
+                                 PgAioEventKind interest,
+                                 PgAllocator *allocator) {
   PgFileDescriptorResult res =
-      pg_file_open(name, PG_FILE_ACCESS_READ, 0666, false, nullptr);
+      pg_file_open(name, PG_FILE_ACCESS_READ, 0666, false, allocator);
   if (res.err) {
     return res;
   }
@@ -9069,7 +9073,8 @@ pg_aio_ensure_inotify(PgAio *aio) {
 
 [[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult
 pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
-                                 PgAioEventKind interest) {
+                                 PgAioEventKind interest,
+                                 PgAllocator *allocator) {
 
   PgFileDescriptorResult res = {0};
 
