@@ -9016,7 +9016,8 @@ pg_aio_inotify_register_interest(PgAio aio, PgString name,
 
   i32 ret = 0;
   do {
-    ret = inotify_add_watch(aio.aio.fd, (const char *)name_c, interest_linux);
+    ret = inotify_add_watch(aio.inotify.res.fd, (const char *)name_c,
+                            interest_linux);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
