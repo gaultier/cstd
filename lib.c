@@ -1078,9 +1078,13 @@ pg_file_size(PgFileDescriptor file);
 
 [[nodiscard]] [[maybe_unused]] static PgAioResult pg_aio_init();
 
+[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult
+pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
+                                 PgAioEventKind interest);
+
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_aio_register_interest(PgAio aio, PgFileDescriptor fd,
-                         PgAioEventKind interest);
+pg_aio_register_interest_fd(PgAio aio, PgFileDescriptor fd,
+                            PgAioEventKind interest);
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
@@ -4729,7 +4733,7 @@ pg_dirent_name(PgDirectoryEntry dirent) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_aio_register_watch_directory(PgAio aio, PgString name,
+pg_aio_register_watch_directory(PgAio *aio, PgString name,
                                 PgWalkDirectoryOption options,
                                 PgAllocator *allocator) {
   bool ignore_errors = options & PG_WALK_DIRECTORY_KIND_IGNORE_ERRORS;
@@ -4753,41 +4757,30 @@ pg_aio_register_watch_directory(PgAio aio, PgString name,
     }
 
     PgDirectoryEntry dirent = res_dirent.res.res;
+    PgString name = pg_dirent_name(dirent);
 
     if (pg_dirent_is_file(dirent) && (PG_WALK_DIRECTORY_KIND_FILE & options)) {
-      PgFileDescriptorResult res_open = pg_file_open(
-          pg_dirent_name(dirent), PG_FILE_ACCESS_READ, 0666, false, allocator);
-      if (0 != res_open.err && !ignore_errors) {
-        return res_open.err;
-      }
-
-      PgError err = pg_aio_register_interest(
-          aio, res_open.res,
+      PgFileDescriptorResult res_fs = pg_aio_register_interest_fs_name(
+          aio, name,
           PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED);
-      if (0 != err && !ignore_errors) {
-        return err;
+      if (0 != res_fs.err && !ignore_errors) {
+        return res_fs.err;
       }
     }
 
     if (pg_dirent_is_directory(dirent) &&
         (PG_WALK_DIRECTORY_KIND_DIRECTORY & options)) {
-      PgFileDescriptorResult res_open = pg_file_open(
-          pg_dirent_name(dirent), PG_FILE_ACCESS_READ, 0666, false, allocator);
-      if (0 != res_open.err && !ignore_errors) {
-        return res_open.err;
-      }
-
-      PgError err = pg_aio_register_interest(
-          aio, res_open.res,
+      PgFileDescriptorResult res_fs = pg_aio_register_interest_fs_name(
+          aio, name,
           PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED |
               PG_AIO_EVENT_KIND_FILE_CREATED);
-      if (0 != err && !ignore_errors) {
-        return err;
+      if (0 != res_fs.err && !ignore_errors) {
+        return res_fs.err;
       }
 
       if (recurse) {
-        PgError err = pg_aio_register_watch_directory(
-            aio, pg_dirent_name(dirent), options, allocator);
+        PgError err =
+            pg_aio_register_watch_directory(aio, name, options, allocator);
         if (0 != err && !ignore_errors) {
           return err;
         }
@@ -8759,9 +8752,26 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
   return res;
 }
 
+[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult
+pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
+                                 PgAioEventKind interest) {
+  PgFileDescriptorResult res =
+      pg_file_open(name, PG_FILE_ACCESS_READ, 0666, false, nullptr);
+  if (res.err) {
+    return res;
+  }
+
+  res.err = pg_aio_register_interest_fd(*aio, res.res, interest);
+  if (res.err) {
+    return res;
+  }
+
+  return res;
+}
+
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_aio_register_interest(PgAio aio, PgFileDescriptor fd,
-                         PgAioEventKind interest) {
+pg_aio_register_interest_fd(PgAio aio, PgFileDescriptor fd,
+                            PgAioEventKind interest) {
 
   struct kevent changelist[1] = {0};
   changelist[0].ident = (u64)fd.fd;
@@ -8937,8 +8947,29 @@ pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Ok timeout_ms) {
 
 #endif
 
+[[maybe_unused]] [[nodiscard]] static bool
+pg_aio_is_fs_event_kind(PgAioEventKind kind) {
+  switch (kind) {
+  case PG_AIO_EVENT_KIND_FILE_MODIFIED:
+  case PG_AIO_EVENT_KIND_FILE_DELETED:
+  case PG_AIO_EVENT_KIND_FILE_CREATED:
+    return true;
+
+  case PG_AIO_EVENT_KIND_READABLE:
+  case PG_AIO_EVENT_KIND_WRITABLE:
+  case PG_AIO_EVENT_KIND_NONE:
+  case PG_AIO_EVENT_KIND_ERROR:
+  case PG_AIO_EVENT_KIND_EOF:
+    return false;
+
+  default:
+    PG_ASSERT(0);
+  }
+}
+
 #ifdef PG_OS_LINUX
-[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult pg_aio_fs_init() {
+[[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
+pg_aio_inotify_init() {
   PgFileDescriptorResult res = {0};
 
   i32 ret = 0;
@@ -8956,7 +8987,8 @@ pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Ok timeout_ms) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
-pg_aio_fs_register_interest(PgAio aio, PgString name, PgAioEventKind interest) {
+pg_aio_inotify_register_interest(PgAio aio, PgString name,
+                                 PgAioEventKind interest) {
   PgFileDescriptorResult res = {0};
 
   if (0 == name.len) {
@@ -9013,8 +9045,53 @@ pg_aio_fs_register_interest(PgAio aio, PgString name, PgAioEventKind interest) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_aio_register_interest(PgAio aio, PgFileDescriptor fd,
-                         PgAioEventKind interest) {
+pg_aio_ensure_inotify(PgAio *aio) {
+  PG_ASSERT(aio);
+
+  if (aio->inotify.ok) {
+    return 0;
+  }
+
+  PgFileDescriptorResult res = pg_aio_inotify_init();
+  if (0 != res.err) {
+    return res.err;
+  }
+
+  aio->inotify.ok = true;
+  aio->inotify.res = res.res;
+
+  return 0;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult
+pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
+                                 PgAioEventKind interest) {
+
+  PgFileDescriptorResult res = {0};
+
+  PgError err = pg_aio_ensure_inotify(aio);
+  if (err) {
+    res.err = err;
+    return res;
+  }
+
+  res = pg_aio_inotify_register_interest(*aio, name, interest);
+  if (res.err) {
+    return res;
+  }
+
+  err = pg_aio_register_interest_fd(*aio, res.res, interest);
+  if (err) {
+    res.err = err;
+    return res;
+  }
+
+  return res;
+}
+
+[[nodiscard]] [[maybe_unused]] static PgError
+pg_aio_register_interest_fd(PgAio aio, PgFileDescriptor fd,
+                            PgAioEventKind interest) {
   struct epoll_event event = {0};
   event.data.fd = fd.fd;
 

@@ -2799,7 +2799,7 @@ static void test_aio_peer(PgAio aio, PgWriter *w, PgReader *r,
     PG_ASSERT(0 ==
               pg_aio_unregister_interest(aio, fd, PG_AIO_EVENT_KIND_WRITABLE));
     PG_ASSERT(0 ==
-              pg_aio_register_interest(aio, fd, PG_AIO_EVENT_KIND_READABLE));
+              pg_aio_register_interest_fd(aio, fd, PG_AIO_EVENT_KIND_READABLE));
 
     *state = AIO_PEER_STATE_SENT_HELLO;
   } break;
@@ -2840,10 +2840,10 @@ static void test_aio_tcp_sockets() {
   PgFileDescriptor client_fd = res_sockets.res.first;
   PgFileDescriptor server_fd = res_sockets.res.second;
 
-  PG_ASSERT(0 == pg_aio_register_interest(aio, client_fd,
-                                          PG_AIO_EVENT_KIND_WRITABLE));
-  PG_ASSERT(0 == pg_aio_register_interest(aio, server_fd,
-                                          PG_AIO_EVENT_KIND_READABLE));
+  PG_ASSERT(0 == pg_aio_register_interest_fd(aio, client_fd,
+                                             PG_AIO_EVENT_KIND_WRITABLE));
+  PG_ASSERT(0 == pg_aio_register_interest_fd(aio, server_fd,
+                                             PG_AIO_EVENT_KIND_READABLE));
 
   AioPeerState client_state = {0};
   AioPeerState server_state = {0};
@@ -2892,7 +2892,7 @@ static void test_watch_directory() {
   PgAio aio = res_aio.res;
 
   PgError err = pg_aio_register_watch_directory(
-      aio, PG_S("."), PG_WALK_DIRECTORY_KIND_FILE, allocator);
+      &aio, PG_S("."), PG_WALK_DIRECTORY_KIND_FILE, allocator);
   PG_ASSERT(0 == err);
 }
 
