@@ -2789,7 +2789,7 @@ typedef enum {
   AIO_PEER_STATE_DONE,
 } AioPeerState;
 
-static void test_aio_peer(PgFileDescriptor aio, PgWriter *w, PgReader *r,
+static void test_aio_peer(PgAio aio, PgWriter *w, PgReader *r,
                           AioPeerState *state, PgFileDescriptor fd,
                           PgAllocator *allocator) {
   switch (*state) {
@@ -2829,9 +2829,9 @@ static void test_aio_tcp_sockets() {
 
   PgRing cqe = pg_ring_make(sizeof(PgAioEvent) * 16, allocator);
 
-  PgFileDescriptorResult res_aio = pg_aio_init();
+  PgAioResult res_aio = pg_aio_init();
   PG_ASSERT(0 == res_aio.err);
-  PgFileDescriptor aio = res_aio.res;
+  PgAio aio = res_aio.res;
 
   PgFileDescriptorPairResult res_sockets = pg_net_make_socket_pair(
       PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
@@ -2887,9 +2887,9 @@ static void test_watch_directory() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgFileDescriptorResult res_aio = pg_aio_init();
+  PgAioResult res_aio = pg_aio_init();
   PG_ASSERT(0 == res_aio.err);
-  PgFileDescriptor aio = res_aio.res;
+  PgAio aio = res_aio.res;
 
   PgError err = pg_aio_register_watch_directory(
       aio, PG_S("."), PG_WALK_DIRECTORY_KIND_FILE, allocator);

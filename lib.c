@@ -19,7 +19,7 @@
 #define PG_OS_LINUX
 #endif
 
-#if defined((__FreeBSD__)
+#if defined(__FreeBSD__)
 #define PG_OS_FREEBSD
 #endif
 
@@ -262,6 +262,7 @@ typedef union {
   void *ptr;
 } PgFileDescriptor;
 PG_RESULT(PgFileDescriptor) PgFileDescriptorResult;
+PG_OK(PgFileDescriptor) PgFileDescriptorOk;
 
 typedef struct {
   PgFileDescriptor first, second;
@@ -997,7 +998,7 @@ PG_OK(PgAioEvent) PgAioEventOk;
 typedef struct {
   PgFileDescriptor aio;
 #ifdef PG_OS_LINUX
-  PgFileDescriptor inotify;
+  PgFileDescriptorOk inotify;
 #endif
 } PgAio;
 PG_RESULT(PgAio) PgAioResult;
@@ -1075,7 +1076,7 @@ pg_file_size(PgFileDescriptor file);
 [[maybe_unused]] static Pgu64Result pg_file_write(PgFileDescriptor file,
                                                   PgString s);
 
-[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init();
+[[nodiscard]] [[maybe_unused]] static PgAioResult pg_aio_init();
 
 [[nodiscard]] [[maybe_unused]] static PgError
 pg_aio_register_interest(PgAio aio, PgFileDescriptor fd,
@@ -8745,8 +8746,8 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
 #if defined(__FreeBSD__) || defined(__APPLE__)
 #include <sys/event.h>
 
-[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init() {
-  PgFileDescriptorResult res = {0};
+[[nodiscard]] [[maybe_unused]] static PgAioResult pg_aio_init() {
+  PgAioResult res = {0};
 
   i32 ret = kqueue();
   if (-1 == ret) {
@@ -8754,7 +8755,7 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
     return res;
   }
 
-  res.res.fd = ret;
+  res.res.aio.fd = ret;
   return res;
 }
 
@@ -8784,7 +8785,7 @@ pg_aio_register_interest(PgAio aio, PgFileDescriptor fd,
     changelist[0].fflags |= NOTE_DELETE;
   }
 
-  i32 ret = kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
+  i32 ret = kevent(aio.aio.fd, changelist, 1, nullptr, 0, nullptr);
   if (-1 == ret) {
     return (PgError)errno;
   }
@@ -8793,7 +8794,7 @@ pg_aio_register_interest(PgAio aio, PgFileDescriptor fd,
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
                            PgAioEventKind interest) {
   struct kevent changelist[1] = {0};
   changelist[0].ident = (u64)fd.fd;
@@ -8817,7 +8818,7 @@ pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
     changelist[0].filter = EVFILT_WRITE;
   }
 
-  i32 ret = kevent(aio.fd, changelist, 1, nullptr, 0, nullptr);
+  i32 ret = kevent(aio.aio.fd, changelist, 1, nullptr, 0, nullptr);
   if (-1 == ret && ENOENT != errno) {
     return (PgError)errno;
   }
@@ -8826,8 +8827,7 @@ pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
 }
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
-            Pgu32Ok timeout_ms) {
+pg_aio_wait(PgAio aio, PgAioEventSlice events_out, Pgu32Ok timeout_ms) {
   Pgu64Result res = {0};
 
   struct kevent eventlist[1024] = {0};
@@ -8842,7 +8842,7 @@ pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
     timeout.tv_nsec = (timeout_ms.res % 1000) * 1000 * 1000;
   }
 
-  i32 ret = kevent(aio.fd, nullptr, 0, eventlist, eventlist_len,
+  i32 ret = kevent(aio.aio.fd, nullptr, 0, eventlist, eventlist_len,
                    timeout_ms.ok ? &timeout : nullptr);
   if (-1 == ret) {
     res.err = (PgError)errno;
@@ -8880,7 +8880,7 @@ pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
 
 // TODO: Use `pg_aio_wait` ?
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms) {
+pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Ok timeout_ms) {
   Pgu64Result res = {0};
   u64 can_write_count = pg_ring_can_write_count(*cqe) / sizeof(PgAioEvent);
 
@@ -8896,7 +8896,7 @@ pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms) {
     timeout.tv_nsec = (timeout_ms.res % 1000) * 1000 * 1000;
   }
 
-  i32 ret = kevent(aio.fd, nullptr, 0, eventlist, eventlist_len,
+  i32 ret = kevent(aio.aio.fd, nullptr, 0, eventlist, eventlist_len,
                    timeout_ms.ok ? &timeout : nullptr);
   if (-1 == ret) {
     res.err = (PgError)errno;
@@ -8956,8 +8956,7 @@ pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
-pg_aio_fs_register_interest(PgFileDescriptor aio, PgString name,
-                            PgAioEventKind interest) {
+pg_aio_fs_register_interest(PgAio aio, PgString name, PgAioEventKind interest) {
   PgFileDescriptorResult res = {0};
 
   if (0 == name.len) {
@@ -8983,7 +8982,7 @@ pg_aio_fs_register_interest(PgFileDescriptor aio, PgString name,
 
   i32 ret = 0;
   do {
-    ret = inotify_add_watch(aio.fd, (const char *)name_c, interest_linux);
+    ret = inotify_add_watch(aio.aio.fd, (const char *)name_c, interest_linux);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
@@ -8996,8 +8995,8 @@ pg_aio_fs_register_interest(PgFileDescriptor aio, PgString name,
   return res;
 }
 
-[[nodiscard]] [[maybe_unused]] static PgFileDescriptorResult pg_aio_init() {
-  PgFileDescriptorResult res = {0};
+[[nodiscard]] [[maybe_unused]] static PgAioResult pg_aio_init() {
+  PgAioResult res = {0};
 
   i32 ret = 0;
   do {
@@ -9009,12 +9008,12 @@ pg_aio_fs_register_interest(PgFileDescriptor aio, PgString name,
     return res;
   }
 
-  res.res.fd = ret;
+  res.res.aio.fd = ret;
   return res;
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+pg_aio_register_interest(PgAio aio, PgFileDescriptor fd,
                          PgAioEventKind interest) {
   struct epoll_event event = {0};
   event.data.fd = fd.fd;
@@ -9028,7 +9027,7 @@ pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
 
   i32 ret = 0;
   do {
-    ret = epoll_ctl(aio.fd, EPOLL_CTL_ADD, fd.fd, &event);
+    ret = epoll_ctl(aio.aio.fd, EPOLL_CTL_ADD, fd.fd, &event);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
@@ -9039,7 +9038,7 @@ pg_aio_register_interest(PgFileDescriptor aio, PgFileDescriptor fd,
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
-pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
+pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
                            PgAioEventKind interest) {
   struct epoll_event event = {0};
   event.data.fd = fd.fd;
@@ -9053,7 +9052,7 @@ pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
 
   i32 ret = 0;
   do {
-    ret = epoll_ctl(aio.fd, EPOLL_CTL_DEL, fd.fd, &event);
+    ret = epoll_ctl(aio.aio.fd, EPOLL_CTL_DEL, fd.fd, &event);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
@@ -9064,8 +9063,7 @@ pg_aio_unregister_interest(PgFileDescriptor aio, PgFileDescriptor fd,
 }
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
-            Pgu32Ok timeout_ms) {
+pg_aio_wait(PgAio aio, PgAioEventSlice events_out, Pgu32Ok timeout_ms) {
   Pgu64Result res = {0};
 
   struct epoll_event events[1024] = {0};
@@ -9073,7 +9071,7 @@ pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
 
   i32 ret = 0;
   do {
-    ret = epoll_wait(aio.fd, events, (i32)events_len,
+    ret = epoll_wait(aio.aio.fd, events, (i32)events_len,
                      timeout_ms.ok ? (i32)timeout_ms.res : -1);
   } while (-1 == ret && EINTR == errno);
 
@@ -9108,7 +9106,7 @@ pg_aio_wait(PgFileDescriptor aio, PgAioEventSlice events_out,
 }
 
 [[nodiscard]] [[maybe_unused]] static Pgu64Result
-pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms) {
+pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Ok timeout_ms) {
   Pgu64Result res = {0};
 
   struct epoll_event events[1024] = {0};
@@ -9117,7 +9115,7 @@ pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms) {
 
   i32 ret = 0;
   do {
-    ret = epoll_wait(aio.fd, events, (i32)events_len,
+    ret = epoll_wait(aio.aio.fd, events, (i32)events_len,
                      timeout_ms.ok ? (i32)timeout_ms.res : -1);
   } while (-1 == ret && EINTR == errno);
 
@@ -9156,8 +9154,7 @@ pg_aio_wait_cqe(PgFileDescriptor aio, PgRing *cqe, Pgu32Ok timeout_ms) {
 }
 
 [[nodiscard]] [[maybe_unused]] static PgAioEventResult
-pg_aio_fs_wait_one(PgFileDescriptor aio, Pgu32Ok timeout_ms,
-                   PgAllocator *allocator) {
+pg_aio_fs_wait_one(PgAio aio, Pgu32Ok timeout_ms, PgAllocator *allocator) {
   PgAioEventResult res = {0};
 
   PgAioEventSlice events_slice = {
