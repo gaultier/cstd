@@ -9519,14 +9519,12 @@ typedef struct {
 }
 
 [[nodiscard]] static PgCliOptionDescriptionOk
-pg_cli_desc_find_by_name(PgCliOptionDescriptionSlice descs, PgString name,
-                         bool is_long) {
+pg_cli_desc_find_by_name(PgCliOptionDescriptionSlice descs, PgString name) {
   PgCliOptionDescriptionOk res = {0};
 
   for (u64 i = 0; i < descs.len; i++) {
     PgCliOptionDescription it = PG_SLICE_AT(descs, i);
-    if ((is_long && pg_string_eq(it.name_long, name)) ||
-        (!is_long && pg_string_eq(it.name_short, name))) {
+    if (pg_string_eq(it.name_long, name) || pg_string_eq(it.name_short, name)) {
       res.ok = true;
       res.res = it;
       return res;
@@ -9556,8 +9554,7 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
                                PgCliOptionDescriptionSlice descs, char **argv,
                                u64 *argv_idx, PgAllocator *allocator) {
 
-  PgCliOptionDescriptionOk desc_ok =
-      pg_cli_desc_find_by_name(descs, opt_name, false);
+  PgCliOptionDescriptionOk desc_ok = pg_cli_desc_find_by_name(descs, opt_name);
   if (!desc_ok.ok) {
     return PG_ERR_CLI_UNKNOWN_OPTION;
   }
@@ -9608,23 +9605,22 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
 pg_cli_handle_one_long_option(PgString opt_name, PgCliOptionDyn *options,
                               PgCliOptionDescriptionSlice descs,
                               PgAllocator *allocator) {
+  PgString opt_value = {0};
+  PgStringCut cut = pg_string_cut_rune(opt_name, '=');
+  if (cut.ok) {
+    opt_name = cut.left;
+    opt_value = cut.right;
+  }
 
-  PgCliOptionDescriptionOk desc_ok =
-      pg_cli_desc_find_by_name(descs, opt_name, false);
+  PgCliOptionDescriptionOk desc_ok = pg_cli_desc_find_by_name(descs, opt_name);
   if (!desc_ok.ok) {
     return PG_ERR_CLI_UNKNOWN_OPTION;
   }
   PgCliOptionDescription desc = desc_ok.res;
 
-  PgString opt_value = {0};
-  if (!pg_string_is_empty(desc.value_name)) {
-    // A value is expected in the same `argv` slot after `=`.
-    PgStringCut cut = pg_string_cut_rune(opt_name, '=');
-    if (!cut.ok || pg_string_is_empty(cut.right)) {
-      return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
-    }
-    opt_name = cut.left;
-    opt_value = cut.right;
+  // A value is expected in the same `argv` slot after `=`.
+  if (!pg_string_is_empty(desc.value_name) && pg_string_is_empty(opt_value)) {
+    return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
   }
 
   // Find by the long name.
