@@ -9478,9 +9478,9 @@ typedef enum {
 } PgCliOptionKind;
 
 typedef struct {
-  PgCliOptionKind kind;
   bool required;
   bool repeated;
+  bool with_argument;
   PgString name_short;
   PgString name_long;
   PgString description;
@@ -9490,21 +9490,11 @@ PG_DYN(PgCliOptionDescription) PgCliOptionDescriptionDyn;
 PG_SLICE(PgCliOptionDescription) PgCliOptionDescriptionSlice;
 
 typedef struct {
-  PgCliOptionKind kind;
   bool repeated;
   PgString name_short;
   PgString name_long;
   PgString description;
-  union {
-    bool b;
-    i64 i64;
-    f64 f64;
-    PgString s;
-    PgBoolDyn bool_dyn;
-    Pgi64Dyn i64_dyn;
-    Pgf64Dyn f64_dyn;
-    PgStringDyn s_dyn;
-  } u;
+  PgString value;
   PgError err;
 } PgCliOption;
 PG_DYN(PgCliOption) PgCliOptionDyn;
@@ -9618,7 +9608,6 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       opt.name_short = desc.name_short;
       opt.name_long = desc.name_long;
       opt.description = desc.description;
-      opt.kind = desc.kind;
 
       // TODO: Repeated options.
 

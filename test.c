@@ -2917,6 +2917,37 @@ static void test_watch_directory() {
 }
 #endif
 
+static void test_cli_options_parse() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  {
+    PgCliOptionDescription descs[] = {
+        {.name_short = PG_S("f"),
+         .name_long = PG_S("file"),
+         .description = PG_S("Provide a file")},
+        {.name_short = PG_S("o"),
+         .name_long = PG_S("output"),
+         .description = PG_S("Specify an output")},
+    };
+    PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
+
+    char *argv[] = {
+        "main.bin",
+        "-o",
+        "out.txt",
+        "some_argument",
+    };
+    int argc = PG_STATIC_ARRAY_LEN(argv);
+
+    PgCliParseResult res = pg_cli_parse(desc_slice, argc, argv, allocator);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(1 == res.args.len);
+    PG_ASSERT(1 == res.options.len);
+  }
+}
+
 int main() {
   test_rune_bytes_count();
   test_utf8_count();
@@ -2985,4 +3016,5 @@ int main() {
 #if 0
   test_watch_directory();
 #endif
+  test_cli_options_parse();
 }
