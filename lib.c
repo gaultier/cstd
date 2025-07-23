@@ -9569,6 +9569,7 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
 
   PgString opt_value = {0};
   if (!pg_string_is_empty(desc.value_name)) {
+    // A value is expected in the next `argv` slot.
     *argv_idx += 1;
     opt_value = pg_cstr_to_string(argv[*argv_idx]);
   }
@@ -9578,8 +9579,57 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
     return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
   }
 
+  // Find by the short name.
   PgCliOption *opt_existing =
-      pg_cli_options_find_by_name(*options, desc.name_short, desc.name_long);
+      pg_cli_options_find_by_name(*options, desc.name_short, PG_S(""));
+  if (opt_existing) {
+    if (pg_string_is_empty(desc.value_name)) {
+      // Option already exists (without value), do not add it again.
+      return 0;
+    }
+
+    // With value.
+
+    *PG_DYN_PUSH(&opt_existing->values, allocator) = opt_value;
+    return 0;
+  }
+
+  // Add the new option.
+  PgCliOption opt = {.description = desc};
+  if (!pg_string_is_empty(desc.value_name)) {
+    *PG_DYN_PUSH(&opt.values, allocator) = opt_value;
+  }
+
+  *PG_DYN_PUSH(options, allocator) = opt;
+  return 0;
+}
+
+[[nodiscard]] static PgError
+pg_cli_handle_one_long_option(PgString opt_name, PgCliOptionDyn *options,
+                              PgCliOptionDescriptionSlice descs,
+                              PgAllocator *allocator) {
+
+  PgCliOptionDescriptionOk desc_ok =
+      pg_cli_desc_find_by_name(descs, opt_name, false);
+  if (!desc_ok.ok) {
+    return PG_ERR_CLI_UNKNOWN_OPTION;
+  }
+  PgCliOptionDescription desc = desc_ok.res;
+
+  PgString opt_value = {0};
+  if (!pg_string_is_empty(desc.value_name)) {
+    // A value is expected in the same `argv` slot after `=`.
+    PgStringCut cut = pg_string_cut_rune(opt_name, '=');
+    if (!cut.ok || pg_string_is_empty(cut.right)) {
+      return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
+    }
+    opt_name = cut.left;
+    opt_value = cut.right;
+  }
+
+  // Find by the long name.
+  PgCliOption *opt_existing =
+      pg_cli_options_find_by_name(*options, PG_S(""), desc.name_long);
   if (opt_existing) {
     if (pg_string_is_empty(desc.value_name)) {
       // Option already exists (without value), do not add it again.
@@ -9695,9 +9745,15 @@ pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
 
     // Long option from there.
 
-    arg = pg_string_trim_left(arg, '-');
-    PG_ASSERT(arg.len > 0);
-    PG_ASSERT(0 && "todo");
+    PgString opt_name = pg_string_trim_left(arg, '-');
+    PG_ASSERT(opt_name.len > 0);
+    PgError err = pg_cli_handle_one_long_option(opt_name, &res.options,
+                                                desc_slice, allocator);
+    if (0 != err) {
+      res.err = err;
+      res.err_argv = arg;
+      return res;
+    }
   }
 
   // Check that all required options are present.
@@ -9707,6 +9763,7 @@ pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
       continue;
     }
 
+    // Find by either the short or long name.
     if (!pg_cli_options_find_by_name(res.options, desc.name_short,
                                      desc.name_long)) {
       res.err = PG_ERR_CLI_MISSING_REQUIRED_OPTION;
