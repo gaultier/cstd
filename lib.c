@@ -9499,6 +9499,7 @@ PG_DYN(PgCliOption) PgCliOptionDyn;
 PG_SLICE(PgCliOption) PgCliOptionSlice;
 PG_RESULT(PgCliOption) PgCliOptionResult;
 PG_OK(PgCliOption) PgCliOptionOk;
+PG_RESULT(PgCliOptionOk) PgCliOptionOkResult;
 
 typedef struct {
   PgStringDyn plain_arguments;
@@ -9568,42 +9569,59 @@ pg_cli_options_find_by_name(PgCliOptionDyn options, PgString name_short,
   return nullptr;
 }
 
-[[nodiscard]] static PgCliOptionResult
+[[nodiscard]] static PgError
 pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
-                               PgCliOptionDescriptionSlice descs,
-                               PgString opt_value) {
-  PgCliOptionResult res = {0};
+                               PgCliOptionDyn *options,
+                               PgCliOptionDescriptionSlice descs, char **argv,
+                               u64 *argv_idx, PgAllocator *allocator) {
 
   PgCliOptionDescriptionOk desc_ok =
       pg_cli_desc_find_by_name(descs, opt_name, false);
   if (!desc_ok.ok) {
-    res.err = PG_ERR_CLI_UNKNOWN_OPTION;
-    return res;
+    return PG_ERR_CLI_UNKNOWN_OPTION;
   }
   PgCliOptionDescription desc = desc_ok.res;
 
   if (desc.with_value && !with_opt_value_allowed) {
-    res.err = PG_ERR_CLI_FORBIDEN_OPTION_VALUE;
-    return res;
+    return PG_ERR_CLI_FORBIDEN_OPTION_VALUE;
   }
 
-  res.res.desc = desc;
-
-  if (!desc.with_value) { // No value expected, finished.
-    return res;
+  PgString opt_value = pg_cstr_to_string(argv[*argv_idx]);
+  if (desc.with_value &&
+      (0 == opt_value.len || !pg_cli_is_no_option(opt_value))) {
+    return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
   }
 
-  // With option value.
+  PgCliOption *opt_existing =
+      pg_cli_options_find_by_name(*options, desc.name_short, desc.name_long);
+  if (opt_existing) {
+    if (!desc.with_value) {
+      // Option already exists (without value), do not add it again.
+      return 0;
+    }
 
-  if (0 == opt_value.len || !pg_cli_is_no_option(opt_value)) {
-    res.err = PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
-    return res;
+    // With value.
+
+    // Move the `u.value` into `u.values` (once).
+    if (opt_existing->u.value.len > 0) {
+      PG_ASSERT(0 == opt_existing->u.values.len);
+
+      *PG_DYN_PUSH(&opt_existing->u.values, allocator) = opt_existing->u.value;
+      opt_existing->u.value.len = 0;
+    }
+    *PG_DYN_PUSH(&opt_existing->u.values, allocator) = opt_value;
+    return 0;
   }
 
-  // TODO: Repeated options.
+  // Add the new option.
+  PgCliOption opt = {.desc = desc};
+  if (desc.with_value) {
+    *argv_idx += 1;
+    opt.u.value = opt_value;
+  }
 
-  res.res.u.value = opt_value;
-  return res;
+  *PG_DYN_PUSH(options, allocator) = opt;
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgCliParseResult
@@ -9636,18 +9654,12 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       PG_ASSERT(opt_name.len > 0);
 
       if (1 == opt_name.len) {
-        PgCliOptionResult res_opt = pg_cli_handle_one_short_option(
-            opt_name, true, descs, pg_cstr_to_string(argv[i + 1]));
-        if (0 != res_opt.err) {
-          res.err = res_opt.err;
+        PgError err = pg_cli_handle_one_short_option(
+            opt_name, true, &res.options, descs, argv, &i, allocator);
+        if (0 != err) {
+          res.err = err;
           res.err_argv = opt_name;
           return res;
-        }
-
-        *PG_DYN_PUSH(&res.options, allocator) = res_opt.res;
-        // Skip next item in `argv` since this is the option value.
-        if (0 != res_opt.res.u.value.len) {
-          i += 1;
         }
       } else {
         // Handle coalesced short options, forbid option values.
@@ -9656,14 +9668,13 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
         // Assume ASCII.
         for (u64 j = 1; j < arg.len; j++) {
           PgString opt_name = {.data = PG_SLICE_AT_PTR(&arg, j), .len = 1};
-          PgCliOptionResult res_opt =
-              pg_cli_handle_one_short_option(opt_name, false, descs, PG_S(""));
-          if (0 != res_opt.err) {
-            res.err = res_opt.err;
+          PgError err = pg_cli_handle_one_short_option(
+              opt_name, false, &res.options, descs, argv, &i, allocator);
+          if (0 != err) {
+            res.err = err;
             res.err_argv = opt_name;
             return res;
           }
-          *PG_DYN_PUSH(&res.options, allocator) = res_opt.res;
         }
       }
 
