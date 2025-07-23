@@ -9516,18 +9516,6 @@ typedef struct {
   return !s_ok.ok;
 }
 
-[[nodiscard]] static bool pg_cli_is_long_option(PgString s) {
-  PgStringOk s_ok = pg_string_consume_rune(s, '-');
-  if (!s_ok.ok) {
-    return false;
-  }
-
-  // Is long?
-  s = s_ok.res;
-  s_ok = pg_string_consume_rune(s, '-');
-  return s_ok.ok;
-}
-
 [[nodiscard]] static bool pg_cli_is_no_option(PgString s) {
   PgStringOk s_ok = pg_string_consume_rune(s, '-');
   return !s_ok.ok;
