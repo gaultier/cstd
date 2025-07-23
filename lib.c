@@ -9570,17 +9570,31 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       return res;
     }
 
-    bool is_long_option = pg_cli_is_long_option(arg);
+    if (pg_cli_is_short_option(arg)) {
+      arg = pg_string_trim_left(arg, '-');
+      PG_ASSERT(arg.len > 0);
+      opt.name_short = arg;
+
+      if (!pg_string_contains(arg, PG_S("="))) {
+        res.err = PG_ERR_INVALID_VALUE;
+
+        opt.err = PG_ERR_INVALID_VALUE;
+        *PG_DYN_PUSH(&res.options, allocator) = opt;
+        return res;
+      }
+
+      // TODO: Find opt in `descs` and check type.
+
+      continue;
+    }
+
+    // Long option from now on.
     arg = pg_string_trim_left(arg, '-');
     PG_ASSERT(arg.len > 0);
 
     PgStringCut cut = pg_string_cut_rune(arg, '=');
-    if (!cut.ok) {
-      if (is_long_option) {
-        opt.name_long = arg;
-      } else {
-        opt.name_short = arg;
-      }
+    if (!cut.ok) { // Form `--foo`
+      opt.name_long = arg;
 
       // TODO: Find option name in `descs` & validate that this is the right
       // type (`bool`).
@@ -9589,15 +9603,16 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       continue;
     }
 
-    if (is_long_option) {
-      opt.name_long = cut.left;
-    } else {
-      opt.name_short = cut.left;
-    }
+    // Form `--foo=bar`.
+    opt.name_long = cut.left;
 
     PgString opt_value = cut.right;
-    if (0 == opt_value.len) {
-      // TODO
+    if (0 == opt_value.len || pg_string_contains(opt_value, PG_S("="))) {
+      res.err = PG_ERR_INVALID_VALUE;
+
+      opt.err = PG_ERR_INVALID_VALUE;
+      *PG_DYN_PUSH(&res.options, allocator) = opt;
+      return res;
     }
   }
 
