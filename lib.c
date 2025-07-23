@@ -9611,10 +9611,25 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
   return 0;
 }
 
+static void pg_cli_inject_help_option(PgCliOptionDescriptionDyn *descs,
+                                      PgAllocator *allocator) {
+  PgCliOptionDescription desc = {
+      .name_short = PG_S("h"),
+      .name_long = PG_S("help"),
+      .description = PG_S("Print this help message"),
+  };
+
+  *PG_DYN_PUSH(descs, allocator) = desc;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgCliParseResult
-pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
+pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
              PgAllocator *allocator) {
   PgCliParseResult res = {0};
+
+  pg_cli_inject_help_option(descs, allocator);
+  PgCliOptionDescriptionSlice desc_slice =
+      PG_DYN_SLICE(PgCliOptionDescriptionSlice, *descs);
 
   for (u64 i = 1 /* Skip exe name */; i < (u64)argc; i++) {
     PgString arg = pg_cstr_to_string(argv[i]);
@@ -9642,7 +9657,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
 
       if (1 == opt_name.len) {
         PgError err = pg_cli_handle_one_short_option(
-            opt_name, true, &res.options, descs, argv, &i, allocator);
+            opt_name, true, &res.options, desc_slice, argv, &i, allocator);
         if (0 != err) {
           res.err = err;
           res.err_argv = opt_name;
@@ -9656,7 +9671,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
         for (u64 j = 1; j < arg.len; j++) {
           PgString opt_name = {.data = PG_SLICE_AT_PTR(&arg, j), .len = 1};
           PgError err = pg_cli_handle_one_short_option(
-              opt_name, false, &res.options, descs, argv, &i, allocator);
+              opt_name, false, &res.options, desc_slice, argv, &i, allocator);
           if (0 != err) {
             res.err = err;
             res.err_argv = opt_name;
@@ -9701,8 +9716,8 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
   }
 
   // Check that all required options are present.
-  for (u64 i = 0; i < descs.len; i++) {
-    PgCliOptionDescription desc = PG_SLICE_AT(descs, i);
+  for (u64 i = 0; i < desc_slice.len; i++) {
+    PgCliOptionDescription desc = PG_SLICE_AT(desc_slice, i);
     if (!desc.required) {
       continue;
     }
@@ -9720,7 +9735,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_cli_generate_help(PgCliOptionDescriptionSlice descs, PgString exe_name,
+pg_cli_generate_help(PgCliOptionDescriptionDyn descs, PgString exe_name,
                      PgString description, PgString plain_arguments_description,
                      PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
