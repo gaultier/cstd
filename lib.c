@@ -9491,6 +9491,7 @@ typedef struct {
 } PgCliOption;
 PG_DYN(PgCliOption) PgCliOptionDyn;
 PG_SLICE(PgCliOption) PgCliOptionSlice;
+PG_RESULT(PgCliOption) PgCliOptionResult;
 
 typedef struct {
   PgStringDyn args;
@@ -9545,6 +9546,43 @@ pg_cli_desc_find_by_name(PgCliOptionDescriptionSlice descs, PgString name,
   return res;
 }
 
+[[nodiscard]] static PgCliOptionResult
+pg_cli_handle_one_short_option(PgString opt_name, bool with_argument_allowed,
+                               PgCliOptionDescriptionSlice descs,
+                               PgString opt_value) {
+  PgCliOptionResult res = {0};
+
+  PgCliOptionDescriptionOk desc_ok =
+      pg_cli_desc_find_by_name(descs, opt_name, false);
+  if (!desc_ok.ok) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  PgCliOptionDescription desc = desc_ok.res;
+
+  if (desc.with_argument && !with_argument_allowed) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  res.res.desc = desc;
+
+  if (!desc.with_argument) {
+    return res;
+  }
+
+  // With argument.
+  if (0 == opt_value.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  // TODO: Repeated options.
+
+  res.res.u.value = opt_value;
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgCliParseResult
 pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
              PgAllocator *allocator) {
@@ -9552,60 +9590,53 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
 
   for (u64 i = 1 /* Skip exe name */; i < (u64)argc; i++) {
     PgString arg = pg_cstr_to_string(argv[i]);
+    // Plain argument.
     if (pg_cli_is_no_option(arg)) {
       *PG_DYN_PUSH(&res.args, allocator) = arg;
       continue;
     }
-
-    PgCliOption opt = {0};
 
     // Error if the option name starts with more than 2 `-` e.g. `---a` or it
     // only contains `-` e.g. `-`, `--`.
     if (pg_string_starts_with(arg, PG_S("---")) ||
         pg_string_eq(arg, PG_S("-")) || pg_string_eq(arg, PG_S("--"))) {
       res.err = PG_ERR_INVALID_VALUE;
-
-      opt.err = PG_ERR_INVALID_VALUE;
-      opt.u.value = arg;
-      *PG_DYN_PUSH(&res.options, allocator) = opt;
       return res;
     }
 
     if (pg_cli_is_short_option(arg)) {
-      arg = pg_string_trim_left(arg, '-');
-      PG_ASSERT(arg.len > 0);
+      PgString opt_name = pg_string_trim_left(arg, '-');
+      PG_ASSERT(opt_name.len > 0);
 
-      // TODO: Handle coalesced short options.
-
-      PgCliOptionDescriptionOk desc_ok =
-          pg_cli_desc_find_by_name(descs, arg, false);
-      if (!desc_ok.ok) {
-        res.err = PG_ERR_INVALID_VALUE;
-
-        opt.err = PG_ERR_INVALID_VALUE;
-        *PG_DYN_PUSH(&res.options, allocator) = opt;
-        return res;
-      }
-
-      opt.desc = desc_ok.res;
-
-      if (opt.desc.with_argument) {
-        i += 1;
-        PgString value = pg_cstr_to_string(argv[i]);
-        if (0 == value.len) {
-          res.err = PG_ERR_INVALID_VALUE;
-
-          opt.err = PG_ERR_INVALID_VALUE;
-          *PG_DYN_PUSH(&res.options, allocator) = opt;
+      if (1 == opt_name.len) {
+        PgCliOptionResult res_opt = pg_cli_handle_one_short_option(
+            opt_name, true, descs, pg_cstr_to_string(argv[i + 1]));
+        if (0 != res_opt.err) {
+          res.err = res_opt.err;
           return res;
         }
 
-        opt.u.value = value;
+        *PG_DYN_PUSH(&res.options, allocator) = res_opt.res;
+        // Skip next item in `argv` since this is the option value.
+        if (0 != res_opt.res.u.value.len) {
+          i += 1;
+        }
+      } else {
+        // Handle coalesced short options, forbid option values.
+        // This means that `./a.out -vH foo` will be parsed as
+        // options: `-v`, `-H`, plain arguments: `foo`.
+        // Assume ASCII.
+        for (u64 j = 1; j < arg.len; j++) {
+          PgString opt_name = {.data = PG_SLICE_AT_PTR(&arg, j), .len = 1};
+          PgCliOptionResult res_opt =
+              pg_cli_handle_one_short_option(opt_name, false, descs, PG_S(""));
+          if (0 != res_opt.err) {
+            res.err = res_opt.err;
+            return res;
+          }
+          *PG_DYN_PUSH(&res.options, allocator) = res_opt.res;
+        }
       }
-
-      // TODO: Repeated options.
-
-      *PG_DYN_PUSH(&res.options, allocator) = opt;
 
       continue;
     }
@@ -9613,6 +9644,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
     // Long option from now on.
     arg = pg_string_trim_left(arg, '-');
     PG_ASSERT(arg.len > 0);
+    PG_ASSERT(0 && "todo");
 
 #if 0
     PgStringCut cut = pg_string_cut_rune(arg, '=');
