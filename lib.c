@@ -9487,11 +9487,7 @@ PG_DYN(PgCliOptionDescription) PgCliOptionDescriptionDyn;
 PG_SLICE(PgCliOptionDescription) PgCliOptionDescriptionSlice;
 
 typedef struct {
-  u32 value;
-} PgCliIndex;
-
-typedef struct {
-  PgCliOptionDescription desc;
+  PgCliOptionDescription description;
   PgStringDyn values;
   PgError err;
 } PgCliOption;
@@ -9504,6 +9500,8 @@ PG_RESULT(PgCliOptionOk) PgCliOptionOkResult;
 typedef struct {
   PgStringDyn plain_arguments;
   PgCliOptionDyn options;
+
+  // Error reporting.
   PgError err;
   PgString err_argv;
 } PgCliParseResult;
@@ -9548,8 +9546,8 @@ pg_cli_options_find_by_name(PgCliOptionDyn options, PgString name_short,
                             PgString name_long) {
   for (u64 i = 0; i < options.len; i++) {
     PgCliOption *it = PG_SLICE_AT_PTR(&options, i);
-    if (pg_string_eq(it->desc.name_long, name_long) ||
-        pg_string_eq(it->desc.name_short, name_short)) {
+    if (pg_string_eq(it->description.name_long, name_long) ||
+        pg_string_eq(it->description.name_short, name_short)) {
       return it;
     }
   }
@@ -9600,7 +9598,7 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
   }
 
   // Add the new option.
-  PgCliOption opt = {.desc = desc};
+  PgCliOption opt = {.description = desc};
   if (!pg_string_is_empty(desc.value_name)) {
     *PG_DYN_PUSH(&opt.values, allocator) = opt_value;
   }
@@ -9696,31 +9694,6 @@ pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
     arg = pg_string_trim_left(arg, '-');
     PG_ASSERT(arg.len > 0);
     PG_ASSERT(0 && "todo");
-
-#if 0
-    PgStringCut cut = pg_string_cut_rune(arg, '=');
-    if (!cut.ok) { // Form `--foo`
-      opt.name_long = arg;
-
-      // TODO: Find option name in `descs` & validate that this is the right
-      // type (`bool`).
-
-      *PG_DYN_PUSH(&res.options, allocator) = opt;
-      continue;
-    }
-
-    // Form `--foo=bar`.
-    opt.name_long = cut.left;
-
-    PgString opt_value = cut.right;
-    if (0 == opt_value.len || pg_string_contains(opt_value, PG_S("="))) {
-      res.err = PG_ERR_INVALID_VALUE;
-
-      opt.err = PG_ERR_INVALID_VALUE;
-      *PG_DYN_PUSH(&res.options, allocator) = opt;
-      return res;
-    }
-#endif
   }
 
   // Check that all required options are present.

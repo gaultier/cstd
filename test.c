@@ -2987,7 +2987,7 @@ static void test_cli_options_parse() {
 
     PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
     PG_ASSERT(0 == opt0.err);
-    PG_ASSERT(pg_string_eq(opt0.desc.name_short, PG_S("o")));
+    PG_ASSERT(pg_string_eq(opt0.description.name_short, PG_S("o")));
     PG_ASSERT(1 == opt0.values.len);
     PG_ASSERT(pg_string_eq(PG_SLICE_AT(opt0.values, 0), PG_S("out.txt")));
   }
@@ -3022,13 +3022,13 @@ static void test_cli_options_parse() {
 
     PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
     PG_ASSERT(0 == opt0.err);
-    PG_ASSERT(pg_string_eq(opt0.desc.name_short, PG_S("o")));
+    PG_ASSERT(pg_string_eq(opt0.description.name_short, PG_S("o")));
     PG_ASSERT(1 == opt0.values.len);
     PG_ASSERT(pg_string_eq(PG_SLICE_AT(opt0.values, 0), PG_S("out.txt")));
 
     PgCliOption opt1 = PG_SLICE_AT(res.options, 1);
     PG_ASSERT(0 == opt1.err);
-    PG_ASSERT(pg_string_eq(opt1.desc.name_short, PG_S("v")));
+    PG_ASSERT(pg_string_eq(opt1.description.name_short, PG_S("v")));
     PG_ASSERT(0 == opt1.values.len);
   }
 
@@ -3067,19 +3067,19 @@ static void test_cli_options_parse() {
 
     PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
     PG_ASSERT(0 == opt0.err);
-    PG_ASSERT(pg_string_eq(opt0.desc.name_short, PG_S("o")));
+    PG_ASSERT(pg_string_eq(opt0.description.name_short, PG_S("o")));
     PG_ASSERT(1 == opt0.values.len);
     PG_ASSERT(pg_string_eq(PG_SLICE_AT(opt0.values, 0), PG_S("out.txt")));
 
     PgCliOption opt1 = PG_SLICE_AT(res.options, 1);
     PG_ASSERT(0 == opt1.err);
     PG_ASSERT(0 == opt1.values.len);
-    PG_ASSERT(pg_string_eq(opt1.desc.name_short, PG_S("v")));
+    PG_ASSERT(pg_string_eq(opt1.description.name_short, PG_S("v")));
 
     PgCliOption opt2 = PG_SLICE_AT(res.options, 2);
     PG_ASSERT(0 == opt2.err);
     PG_ASSERT(0 == opt2.values.len);
-    PG_ASSERT(pg_string_eq(opt2.desc.name_short, PG_S("H")));
+    PG_ASSERT(pg_string_eq(opt2.description.name_short, PG_S("H")));
   }
 
   // Short option given without argument but one was expected.
@@ -3240,7 +3240,7 @@ static void test_cli_options_parse() {
 
     PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
     PG_ASSERT(0 == opt0.err);
-    PG_ASSERT(pg_string_eq(opt0.desc.name_short, PG_S("o")));
+    PG_ASSERT(pg_string_eq(opt0.description.name_short, PG_S("o")));
     PG_ASSERT(2 == opt0.values.len);
     PgString opt0_value0 = PG_SLICE_AT(opt0.values, 0);
     PgString opt0_value1 = PG_SLICE_AT(opt0.values, 1);
@@ -3249,12 +3249,12 @@ static void test_cli_options_parse() {
 
     PgCliOption opt1 = PG_SLICE_AT(res.options, 1);
     PG_ASSERT(0 == opt1.err);
-    PG_ASSERT(pg_string_eq(opt1.desc.name_short, PG_S("v")));
+    PG_ASSERT(pg_string_eq(opt1.description.name_short, PG_S("v")));
     PG_ASSERT(0 == opt1.values.len);
 
     PgCliOption opt2 = PG_SLICE_AT(res.options, 2);
     PG_ASSERT(0 == opt2.err);
-    PG_ASSERT(pg_string_eq(opt2.desc.name_short, PG_S("H")));
+    PG_ASSERT(pg_string_eq(opt2.description.name_short, PG_S("H")));
     PG_ASSERT(0 == opt2.values.len);
   }
 
@@ -3290,12 +3290,12 @@ static void test_cli_options_parse() {
 
     PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
     PG_ASSERT(0 == opt0.err);
-    PG_ASSERT(pg_string_eq(opt0.desc.name_short, PG_S("v")));
+    PG_ASSERT(pg_string_eq(opt0.description.name_short, PG_S("v")));
     PG_ASSERT(0 == opt0.values.len);
 
     PgCliOption opt1 = PG_SLICE_AT(res.options, 1);
     PG_ASSERT(0 == opt1.err);
-    PG_ASSERT(pg_string_eq(opt1.desc.name_short, PG_S("H")));
+    PG_ASSERT(pg_string_eq(opt1.description.name_short, PG_S("H")));
     PG_ASSERT(0 == opt1.values.len);
   }
 
