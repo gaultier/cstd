@@ -12,8 +12,6 @@
 // TODO: Get PIE offset for better call stack.
 // TODO: Test untested functions (add test coverage to build).
 // TODO: [Windows] Unix/Windows parity.
-// Low priority:
-// TODO: [Unix] CLI argument parser.
 
 #if defined(__linux__)
 #define PG_OS_LINUX
