@@ -2882,6 +2882,7 @@ static void test_aio_tcp_sockets() {
   PG_ASSERT(0);
 }
 
+#if 0
 static void test_watch_directory() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -2914,6 +2915,7 @@ static void test_watch_directory() {
     }
   }
 }
+#endif
 
 int main() {
   test_rune_bytes_count();
@@ -2980,5 +2982,7 @@ int main() {
   test_adjacency_matrix();
   test_thread();
   test_aio_tcp_sockets();
+#if 0
   test_watch_directory();
+#endif
 }

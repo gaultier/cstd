@@ -9594,6 +9594,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       PG_ASSERT(arg.len > 0);
       opt.name_short = arg;
 
+      // Cannot have argument.
       if (!pg_string_contains(arg, PG_S("="))) {
         res.err = PG_ERR_INVALID_VALUE;
 
@@ -9602,7 +9603,26 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
         return res;
       }
 
-      // TODO: Find opt in `descs` and check type.
+      PgCliOptionDescriptionOk desc_ok =
+          pg_cli_desc_find_by_name(descs, arg, false);
+      if (!desc_ok.ok) {
+        res.err = PG_ERR_INVALID_VALUE;
+
+        opt.err = PG_ERR_INVALID_VALUE;
+        *PG_DYN_PUSH(&res.options, allocator) = opt;
+        return res;
+      }
+
+      PgCliOptionDescription desc = desc_ok.res;
+
+      opt.name_short = desc.name_short;
+      opt.name_long = desc.name_long;
+      opt.description = desc.description;
+      opt.kind = desc.kind;
+
+      // TODO: Repeated options.
+
+      *PG_DYN_PUSH(&res.options, allocator) = opt;
 
       continue;
     }
