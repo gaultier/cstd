@@ -31,9 +31,9 @@ static void test_string_first() {
     PG_ASSERT(!pg_string_first(PG_S("")).has_value);
   }
   {
-    PgRuneOption res = pg_string_first(PG_S("聞デジタル"));
-    PG_ASSERT(res.has_value);
-    PG_ASSERT(0x805e /* 聞 */ == res.value);
+    PgRuneOption first_opt = pg_string_first(PG_S("聞デジタル"));
+    PG_ASSERT(first_opt.has_value);
+    PG_ASSERT(0x805e /* 聞 */ == first_opt.value);
   }
 }
 
@@ -159,21 +159,21 @@ static void test_string_split_byte() {
   PgSplitIterator it = pg_string_split_string(s, PG_S("."));
 
   {
-    PgStringOption elem = pg_string_split_next(&it);
-    PG_ASSERT(true == elem.has_value);
-    PG_ASSERT(pg_string_eq(elem.value, PG_S("hello")));
+    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_ASSERT(true == split_opt.has_value);
+    PG_ASSERT(pg_string_eq(split_opt.value, PG_S("hello")));
   }
 
   {
-    PgStringOption elem = pg_string_split_next(&it);
-    PG_ASSERT(true == elem.has_value);
-    PG_ASSERT(pg_string_eq(elem.value, PG_S("world")));
+    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_ASSERT(true == split_opt.has_value);
+    PG_ASSERT(pg_string_eq(split_opt.value, PG_S("world")));
   }
 
   {
-    PgStringOption elem = pg_string_split_next(&it);
-    PG_ASSERT(true == elem.has_value);
-    PG_ASSERT(pg_string_eq(elem.value, PG_S("foobar")));
+    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_ASSERT(true == split_opt.has_value);
+    PG_ASSERT(pg_string_eq(split_opt.value, PG_S("foobar")));
   }
 
   PG_ASSERT(false == pg_string_split_next(&it).has_value);
@@ -185,21 +185,21 @@ static void test_string_split_string() {
   PgSplitIterator it = pg_string_split_string(s, PG_S("🚀🛸"));
 
   {
-    PgStringOption elem = pg_string_split_next(&it);
-    PG_ASSERT(true == elem.has_value);
-    PG_ASSERT(pg_string_eq(elem.value, PG_S("hello")));
+    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_ASSERT(true == split_opt.has_value);
+    PG_ASSERT(pg_string_eq(split_opt.value, PG_S("hello")));
   }
 
   {
-    PgStringOption elem = pg_string_split_next(&it);
-    PG_ASSERT(true == elem.has_value);
-    PG_ASSERT(pg_string_eq(elem.value, PG_S("world🚀little")));
+    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_ASSERT(true == split_opt.has_value);
+    PG_ASSERT(pg_string_eq(split_opt.value, PG_S("world🚀little")));
   }
 
   {
-    PgStringOption elem = pg_string_split_next(&it);
-    PG_ASSERT(true == elem.has_value);
-    PG_ASSERT(pg_string_eq(elem.value, PG_S("thing !")));
+    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_ASSERT(true == split_opt.has_value);
+    PG_ASSERT(pg_string_eq(split_opt.value, PG_S("thing !")));
   }
 
   PG_ASSERT(false == pg_string_split_next(&it).has_value);
@@ -495,12 +495,12 @@ static void test_utf8_iterator() {
 
 static void test_string_consume() {
   {
-    PgStringOption res = pg_string_consume_rune(PG_S(""), '{');
-    PG_ASSERT(!res.has_value);
+    PgStringOption consume_opt = pg_string_consume_rune(PG_S(""), '{');
+    PG_ASSERT(!consume_opt.has_value);
   }
   {
-    PgStringOption res = pg_string_consume_rune(PG_S("[1,2]"), '{');
-    PG_ASSERT(!res.has_value);
+    PgStringOption consume_opt = pg_string_consume_rune(PG_S("[1,2]"), '{');
+    PG_ASSERT(!consume_opt.has_value);
   }
   {
     PgStringOption res =
@@ -2854,16 +2854,16 @@ static void test_aio_tcp_sockets() {
   PgReader server_reader = pg_reader_make_from_socket(server_fd, 16, allocator);
 
   for (u64 _i = 0; _i < 32; _i++) {
-    Pgu32Option timeout = {0};
-    Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout);
+    Pgu32Option timeout_opt = {0};
+    Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
     PG_ASSERT(0 == res_wait.err);
     PG_ASSERT(0 != res_wait.res);
 
     for (u64 i = 0; i < res_wait.res; i++) {
-      PgAioEventOption ok_event = pg_aio_cqe_dequeue(&cqe);
-      PG_ASSERT(ok_event.has_value);
+      PgAioEventOption event_opt = pg_aio_cqe_dequeue(&cqe);
+      PG_ASSERT(event_opt.has_value);
 
-      PgAioEvent event = ok_event.value;
+      PgAioEvent event = event_opt.value;
       if (client_fd.fd == event.fd.fd) {
         test_aio_peer(aio, &client_writer, &client_reader, &client_state,
                       client_fd, allocator);
@@ -2900,18 +2900,18 @@ static void test_watch_directory() {
   PgRing cqe = pg_ring_make(sizeof(PgAioEvent) * 16, allocator);
 
   for (u64 _i = 0; _i < 4; _i++) {
-    Pgu32Option timeout = {.res = 1, .has_value = false};
-    Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout);
+    Pgu32Option timeout_opt = {0};
+    Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
     PG_ASSERT(0 == res_wait.err);
     if (0 == res_wait.res) {
       continue;
     }
 
     for (u64 i = 0; i < res_wait.res; i++) {
-      PgAioEventOption ok_event = pg_aio_cqe_dequeue(&cqe);
-      PG_ASSERT(ok_event.has_value);
+      PgAioEventOption event_opt = pg_aio_cqe_dequeue(&cqe);
+      PG_ASSERT(event_opt.has_value);
 
-      PgAioEvent event = ok_event.res;
+      PgAioEvent event = event_opt.res;
       __builtin_dump_struct(&event, &printf);
     }
   }
