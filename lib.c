@@ -9631,7 +9631,7 @@ pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
       continue;
     }
 
-    // Treat all remaining arguments as plain.
+    // Treat all remaining arguments as plain after `--`.
     if (pg_string_eq(arg, PG_S("--"))) {
       for (u64 j = i + 1; j < (u64)argc; j++) {
         PgString arg = pg_cstr_to_string(argv[j]);
