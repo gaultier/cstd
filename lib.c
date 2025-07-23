@@ -176,6 +176,12 @@ typedef u32 PgError;
 #define PG_ERR_TOO_BIG 7
 #endif
 
+#define PG_ERR_CLI_MISSING_REQUIRED_OPTION 0xff'00'00
+#define PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE 0xff'00'01
+#define PG_ERR_CLI_UNKNOWN_OPTION 0xff'00'02
+#define PG_ERR_CLI_FORBIDEN_OPTION_VALUE 0xff'00'03
+#define PG_ERR_CLI_MALFORMED_OPTION 0xff'00'04
+
 PG_RESULT(u8) Pgu8Result;
 PG_RESULT(u16) Pgu16Result;
 PG_RESULT(u32) Pgu32Result;
@@ -9468,7 +9474,7 @@ typedef enum {
 typedef struct {
   bool required;
   bool repeated;
-  bool with_argument;
+  bool with_value;
   PgString name_short;
   PgString name_long;
   PgString description;
@@ -9497,6 +9503,7 @@ typedef struct {
   PgStringDyn args;
   PgCliOptionDyn options;
   PgError err;
+  PgString err_argv;
 } PgCliParseResult;
 
 [[nodiscard]] static bool pg_cli_is_short_option(PgString s) {
@@ -9547,7 +9554,7 @@ pg_cli_desc_find_by_name(PgCliOptionDescriptionSlice descs, PgString name,
 }
 
 [[nodiscard]] static PgCliOptionResult
-pg_cli_handle_one_short_option(PgString opt_name, bool with_argument_allowed,
+pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
                                PgCliOptionDescriptionSlice descs,
                                PgString opt_value) {
   PgCliOptionResult res = {0};
@@ -9555,25 +9562,26 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_argument_allowed,
   PgCliOptionDescriptionOk desc_ok =
       pg_cli_desc_find_by_name(descs, opt_name, false);
   if (!desc_ok.ok) {
-    res.err = PG_ERR_INVALID_VALUE;
+    res.err = PG_ERR_CLI_UNKNOWN_OPTION;
     return res;
   }
   PgCliOptionDescription desc = desc_ok.res;
 
-  if (desc.with_argument && !with_argument_allowed) {
-    res.err = PG_ERR_INVALID_VALUE;
+  if (desc.with_value && !with_opt_value_allowed) {
+    res.err = PG_ERR_CLI_FORBIDEN_OPTION_VALUE;
     return res;
   }
 
   res.res.desc = desc;
 
-  if (!desc.with_argument) {
+  if (!desc.with_value) { // No value expected, finished.
     return res;
   }
 
-  // With argument.
-  if (0 == opt_value.len) {
-    res.err = PG_ERR_INVALID_VALUE;
+  // With option value.
+
+  if (0 == opt_value.len || !pg_cli_is_no_option(opt_value)) {
+    res.err = PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
     return res;
   }
 
@@ -9590,6 +9598,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
 
   for (u64 i = 1 /* Skip exe name */; i < (u64)argc; i++) {
     PgString arg = pg_cstr_to_string(argv[i]);
+
     // Plain argument.
     if (pg_cli_is_no_option(arg)) {
       *PG_DYN_PUSH(&res.args, allocator) = arg;
@@ -9600,7 +9609,8 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
     // only contains `-` e.g. `-`, `--`.
     if (pg_string_starts_with(arg, PG_S("---")) ||
         pg_string_eq(arg, PG_S("-")) || pg_string_eq(arg, PG_S("--"))) {
-      res.err = PG_ERR_INVALID_VALUE;
+      res.err = PG_ERR_CLI_MALFORMED_OPTION;
+      res.err_argv = arg;
       return res;
     }
 
@@ -9613,6 +9623,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
             opt_name, true, descs, pg_cstr_to_string(argv[i + 1]));
         if (0 != res_opt.err) {
           res.err = res_opt.err;
+          res.err_argv = opt_name;
           return res;
         }
 
@@ -9632,6 +9643,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
               pg_cli_handle_one_short_option(opt_name, false, descs, PG_S(""));
           if (0 != res_opt.err) {
             res.err = res_opt.err;
+            res.err_argv = opt_name;
             return res;
           }
           *PG_DYN_PUSH(&res.options, allocator) = res_opt.res;
@@ -9670,6 +9682,31 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       return res;
     }
 #endif
+  }
+
+  // Check that all required options are present.
+  for (u64 i = 0; i < descs.len; i++) {
+    PgCliOptionDescription desc = PG_SLICE_AT(descs, i);
+    if (!desc.required) {
+      continue;
+    }
+
+    bool found = false;
+    for (u64 j = 0; j < res.options.len; j++) {
+      PgCliOption opt = PG_SLICE_AT(res.options, j);
+      if (pg_string_eq(opt.desc.name_short, desc.name_short) ||
+          pg_string_eq(opt.desc.name_long, desc.name_long)) {
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      res.err = PG_ERR_CLI_MISSING_REQUIRED_OPTION;
+      res.err_argv = pg_string_is_empty(desc.name_short) ? desc.name_long
+                                                         : desc.name_short;
+      return res;
+    }
   }
 
   return res;
