@@ -3396,6 +3396,56 @@ static void test_cli_options_parse() {
     PgString opt0_value0 = PG_SLICE_AT(opt0.values, 0);
     PG_ASSERT(pg_string_eq(opt0_value0, PG_S("out1.txt")));
   }
+  // Long & short options given.
+  {
+    PgCliOptionDescriptionDyn descs = {0};
+    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
+        .name_short = PG_S("v"),
+        .name_long = PG_S("verbose"),
+        .description = PG_S("Verbose mode"),
+    };
+    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
+        .name_short = PG_S("H"),
+        .name_long = PG_S("hidden"),
+        .description = PG_S("scan hidden files"),
+    };
+    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
+        .name_short = PG_S("o"),
+        .name_long = PG_S("output"),
+        .description = PG_S("Specify an output"),
+        .value_name = PG_S("file"),
+    };
+
+    char *argv[] = {
+        "main.bin", "-v", "--output=out1.txt", "some_argument", "--hidden",
+    };
+    int argc = PG_STATIC_ARRAY_LEN(argv);
+
+    PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(1 == res.plain_arguments.len);
+    PG_ASSERT(3 == res.options.len);
+
+    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.plain_arguments, 0),
+                           PG_S("some_argument")));
+
+    PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
+    PG_ASSERT(0 == opt0.err);
+    PG_ASSERT(pg_string_eq(opt0.description.name_long, PG_S("verbose")));
+    PG_ASSERT(0 == opt0.values.len);
+
+    PgCliOption opt1 = PG_SLICE_AT(res.options, 1);
+    PG_ASSERT(0 == opt1.err);
+    PG_ASSERT(pg_string_eq(opt1.description.name_long, PG_S("output")));
+    PG_ASSERT(1 == opt1.values.len);
+    PgString opt1_value0 = PG_SLICE_AT(opt1.values, 0);
+    PG_ASSERT(pg_string_eq(opt1_value0, PG_S("out1.txt")));
+
+    PgCliOption opt2 = PG_SLICE_AT(res.options, 2);
+    PG_ASSERT(0 == opt2.err);
+    PG_ASSERT(pg_string_eq(opt2.description.name_long, PG_S("hidden")));
+    PG_ASSERT(0 == opt2.values.len);
+  }
 }
 
 static void test_cli_options_help() {
