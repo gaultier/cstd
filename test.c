@@ -2933,8 +2933,8 @@ static void test_cli_options_parse() {
         {
             .name_short = PG_S("o"),
             .name_long = PG_S("output"),
-            .description = PG_S("Specify an output"),
-            .with_value = true,
+            .description = PG_S("Specify an output file"),
+            .value_name = PG_S("file"),
         },
     };
     PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
@@ -2968,7 +2968,7 @@ static void test_cli_options_parse() {
             .name_short = PG_S("o"),
             .name_long = PG_S("output"),
             .description = PG_S("Specify an output"),
-            .with_value = true,
+            .value_name = PG_S("file"),
         },
     };
     PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
@@ -3008,7 +3008,7 @@ static void test_cli_options_parse() {
             .name_short = PG_S("o"),
             .name_long = PG_S("output"),
             .description = PG_S("Specify an output"),
-            .with_value = true,
+            .value_name = PG_S("file"),
         },
     };
     PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
@@ -3055,7 +3055,7 @@ static void test_cli_options_parse() {
             .name_short = PG_S("o"),
             .name_long = PG_S("output"),
             .description = PG_S("Specify an output"),
-            .with_value = true,
+            .value_name = PG_S("file"),
         },
     };
     PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
@@ -3107,7 +3107,7 @@ static void test_cli_options_parse() {
             .name_short = PG_S("o"),
             .name_long = PG_S("output"),
             .description = PG_S("Specify an output"),
-            .with_value = true,
+            .value_name = PG_S("file"),
         },
     };
     PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
@@ -3240,7 +3240,7 @@ static void test_cli_options_parse() {
             .name_short = PG_S("o"),
             .name_long = PG_S("output"),
             .description = PG_S("Specify an output"),
-            .with_value = true,
+            .value_name = PG_S("file"),
         },
     };
     PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
@@ -3322,6 +3322,42 @@ static void test_cli_options_parse() {
   }
 }
 
+static void test_cli_options_help() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgCliOptionDescription descs[] = {
+      {
+          .name_short = PG_S("v"),
+          .description = PG_S("Verbose mode"),
+      },
+      {
+          .name_long = PG_S("hidden"),
+          .description = PG_S("Scan hidden files"),
+      },
+      {
+          .name_short = PG_S("o"),
+          .name_long = PG_S("output"),
+          .description = PG_S("Specify an output file"),
+          .value_name = PG_S("file"),
+          .required = true,
+      },
+  };
+  PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
+
+  PgString help = pg_cli_generate_help(
+      desc_slice, PG_S("a.out"),
+      PG_S("This is an example program. It helps fooizing bars."),
+      PG_S("<file1> <file2> <file3>"), allocator);
+
+  PgString expected = PG_S("a.out [-v] [--hidden] (-o|--output file) <file1> "
+                           "<file2> <file3>\nThis is "
+                           "an example program. It helps fooizing bars.\n");
+  printf("%.*s", (i32)help.len, help.data);
+  PG_ASSERT(pg_string_eq(expected, help));
+}
+
 int main() {
   test_rune_bytes_count();
   test_utf8_count();
@@ -3391,4 +3427,5 @@ int main() {
   test_watch_directory();
 #endif
   test_cli_options_parse();
+  test_cli_options_help();
 }

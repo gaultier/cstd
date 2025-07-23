@@ -3334,6 +3334,12 @@ pg_string_builder_append_u64_hex(Pgu8Dyn *sb, PgRune rune,
   }
 }
 
+[[maybe_unused]] static void
+pg_string_builder_append_string(Pgu8Dyn *sb, PgString s,
+                                PgAllocator *allocator) {
+  PG_DYN_APPEND_SLICE(sb, s, allocator);
+}
+
 [[maybe_unused]] static void pg_string_builder_append_string_escaped(
     Pgu8Dyn *sb, PgString s, PgRune rune_to_escape, PgRune rune_escape,
     PgAllocator *allocator) {
@@ -9473,7 +9479,7 @@ typedef enum {
 
 typedef struct {
   bool required;
-  bool with_value;
+  PgString value_name;
   PgString name_short;
   PgString name_long;
   PgString description;
@@ -9566,17 +9572,17 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
   }
   PgCliOptionDescription desc = desc_ok.res;
 
-  if (desc.with_value && !with_opt_value_allowed) {
+  if (!pg_string_is_empty(desc.value_name) && !with_opt_value_allowed) {
     return PG_ERR_CLI_FORBIDEN_OPTION_VALUE;
   }
 
   PgString opt_value = {0};
-  if (desc.with_value) {
+  if (!pg_string_is_empty(desc.value_name)) {
     *argv_idx += 1;
     opt_value = pg_cstr_to_string(argv[*argv_idx]);
   }
 
-  if (desc.with_value &&
+  if (!pg_string_is_empty(desc.value_name) &&
       (0 == opt_value.len || !pg_cli_is_no_option(opt_value))) {
     return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
   }
@@ -9584,7 +9590,7 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
   PgCliOption *opt_existing =
       pg_cli_options_find_by_name(*options, desc.name_short, desc.name_long);
   if (opt_existing) {
-    if (!desc.with_value) {
+    if (pg_string_is_empty(desc.value_name)) {
       // Option already exists (without value), do not add it again.
       return 0;
     }
@@ -9597,7 +9603,7 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
 
   // Add the new option.
   PgCliOption opt = {.desc = desc};
-  if (desc.with_value) {
+  if (!pg_string_is_empty(desc.value_name)) {
     *PG_DYN_PUSH(&opt.values, allocator) = opt_value;
   }
 
@@ -9711,6 +9717,110 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
   }
 
   return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_cli_generate_help(PgCliOptionDescriptionSlice descs, PgString exe_name,
+                     PgString description, PgString plain_arguments_description,
+                     PgAllocator *allocator) {
+  Pgu8Dyn sb = {0};
+  PG_DYN_ENSURE_CAP(&sb, 1024 + exe_name.len + description.len, allocator);
+
+  pg_string_builder_append_string(&sb, exe_name, allocator);
+
+  for (u64 i = 0; i < descs.len; i++) {
+    PgCliOptionDescription desc = PG_SLICE_AT(descs, i);
+
+    pg_string_builder_append_string(&sb, PG_S(" "), allocator);
+
+    pg_string_builder_append_string(&sb, desc.required ? PG_S("(") : PG_S("["),
+                                    allocator);
+
+    if (!pg_string_is_empty(desc.name_short)) {
+      pg_string_builder_append_string(&sb, PG_S("-"), allocator);
+      pg_string_builder_append_string(&sb, desc.name_short, allocator);
+    }
+    if (!pg_string_is_empty(desc.name_long)) {
+      if (!pg_string_is_empty(desc.name_short)) {
+        pg_string_builder_append_string(&sb, PG_S("|"), allocator);
+      }
+
+      pg_string_builder_append_string(&sb, PG_S("--"), allocator);
+      pg_string_builder_append_string(&sb, desc.name_long, allocator);
+    }
+
+    if (!pg_string_is_empty(desc.value_name)) {
+      pg_string_builder_append_string(&sb, PG_S(" "), allocator);
+      pg_string_builder_append_string(&sb, desc.value_name, allocator);
+    }
+
+    pg_string_builder_append_string(&sb, desc.required ? PG_S(")") : PG_S("]"),
+                                    allocator);
+  }
+
+  if (!pg_string_is_empty(plain_arguments_description)) {
+    pg_string_builder_append_string(&sb, PG_S(" "), allocator);
+    pg_string_builder_append_string(&sb, plain_arguments_description,
+                                    allocator);
+  }
+
+  pg_string_builder_append_string(&sb, PG_S("\n"), allocator);
+  pg_string_builder_append_string(&sb, description, allocator);
+  if (!pg_string_ends_with(description, PG_S("."))) {
+    pg_string_builder_append_string(&sb, PG_S("."), allocator);
+  }
+  pg_string_builder_append_string(&sb, PG_S("\n"), allocator);
+
+  if (!PG_SLICE_IS_EMPTY(descs)) {
+    pg_string_builder_append_string(&sb, PG_S("\nOPTIONS:\n"), allocator);
+
+    for (u64 i = 0; i < descs.len; i++) {
+      PgCliOptionDescription desc = PG_SLICE_AT(descs, i);
+
+      pg_string_builder_append_string(&sb, PG_S("    "), allocator);
+      if (!pg_string_is_empty(desc.name_short)) {
+        pg_string_builder_append_string(&sb, PG_S("-"), allocator);
+        pg_string_builder_append_string(&sb, desc.name_short, allocator);
+
+        if (!pg_string_is_empty(desc.value_name)) {
+          pg_string_builder_append_string(&sb, PG_S(" "), allocator);
+          pg_string_builder_append_string(&sb, desc.value_name, allocator);
+        }
+      }
+      if (!pg_string_is_empty(desc.name_long)) {
+        if (!pg_string_is_empty(desc.name_short)) {
+          pg_string_builder_append_string(&sb, PG_S(", "), allocator);
+        }
+
+        pg_string_builder_append_string(&sb, PG_S("--"), allocator);
+        pg_string_builder_append_string(&sb, desc.name_long, allocator);
+
+        if (!pg_string_is_empty(desc.value_name)) {
+          pg_string_builder_append_string(&sb, PG_S("="), allocator);
+          pg_string_builder_append_string(&sb, desc.value_name, allocator);
+        }
+      }
+
+      if (desc.required) {
+        pg_string_builder_append_string(&sb, PG_S("    [required]"), allocator);
+      }
+
+      if (!pg_string_is_empty(desc.description)) {
+        pg_string_builder_append_string(&sb, PG_S("\n        "), allocator);
+        pg_string_builder_append_string(&sb, desc.description, allocator);
+        if (!pg_string_ends_with(desc.description, PG_S("."))) {
+          pg_string_builder_append_string(&sb, PG_S("."), allocator);
+        }
+        pg_string_builder_append_string(&sb, PG_S("\n"), allocator);
+      }
+
+      pg_string_builder_append_string(&sb, PG_S("\n"), allocator);
+    }
+
+    pg_string_builder_append_string(&sb, PG_S("\n"), allocator);
+  }
+
+  return PG_DYN_SLICE(PgString, sb);
 }
 
 #endif
