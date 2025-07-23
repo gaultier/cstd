@@ -1171,13 +1171,7 @@ static u8 *pg_memcpy(void *restrict dst, void *restrict src, u64 len) {
     return dst;
   }
 
-  u8 *dst_bytes = dst;
-  u8 *src_bytes = src;
-
-  for (u64 i = 0; i < len; i++) {
-    (*dst_bytes++) = (*src_bytes++);
-  }
-  return dst;
+  return memcpy(dst, src, len);
 }
 
 static u8 *pg_memmove(void *dst, void *src, u64 len) {
@@ -1191,13 +1185,7 @@ static u8 *pg_memmove(void *dst, void *src, u64 len) {
     return dst;
   }
 
-  u8 *dst_bytes = dst;
-  u8 *src_bytes = src;
-
-  for (u64 i = 0; i < len; i++) {
-    (*dst_bytes++) = (*src_bytes++);
-  }
-  return dst;
+  return memmove(dst, src, len);
 }
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_div_ceil(u64 a, u64 b) {
