@@ -9482,7 +9482,7 @@ typedef struct {
 } PgCliIndex;
 
 typedef struct {
-  PgCliIndex desc_idx;
+  PgCliOptionDescription desc;
   union {
     PgString value;
     PgStringDyn values;
@@ -9527,19 +9527,22 @@ typedef struct {
   return !s_ok.ok;
 }
 
-[[nodiscard]] static PgCliOptionDescription *
+[[nodiscard]] static PgCliOptionDescriptionOk
 pg_cli_desc_find_by_name(PgCliOptionDescriptionSlice descs, PgString name,
                          bool is_long) {
+  PgCliOptionDescriptionOk res = {0};
 
   for (u64 i = 0; i < descs.len; i++) {
-    PgCliOptionDescription *it = PG_SLICE_AT_PTR(&descs, i);
-    if ((is_long && pg_string_eq(it->name_long, name)) ||
-        (!is_long && pg_string_eq(it->name_short, name))) {
-      return it;
+    PgCliOptionDescription it = PG_SLICE_AT(descs, i);
+    if ((is_long && pg_string_eq(it.name_long, name)) ||
+        (!is_long && pg_string_eq(it.name_short, name))) {
+      res.ok = true;
+      res.res = it;
+      return res;
     }
   }
 
-  return nullptr;
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgCliParseResult
@@ -9572,9 +9575,11 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       arg = pg_string_trim_left(arg, '-');
       PG_ASSERT(arg.len > 0);
 
-      PgCliOptionDescription *desc =
+      // TODO: Handle coalesced short options.
+
+      PgCliOptionDescriptionOk desc_ok =
           pg_cli_desc_find_by_name(descs, arg, false);
-      if (!desc) {
+      if (!desc_ok.ok) {
         res.err = PG_ERR_INVALID_VALUE;
 
         opt.err = PG_ERR_INVALID_VALUE;
@@ -9582,9 +9587,9 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
         return res;
       }
 
-      opt.desc_idx.value = desc - descs.data;
+      opt.desc = desc_ok.res;
 
-      if (desc->with_argument) {
+      if (opt.desc.with_argument) {
         i += 1;
         PgString value = pg_cstr_to_string(argv[i]);
         if (0 == value.len) {
