@@ -159,7 +159,7 @@ typedef double f64;
     bool has_value;                                                            \
   }
 
-// TODO: Separate error type.
+// TODO: Separate error type?
 typedef u32 PgError;
 #define PG_ERR_EOF 4095
 #ifdef PG_OS_UNIX
@@ -490,7 +490,6 @@ typedef struct {
 typedef enum {
   PG_CLOCK_KIND_MONOTONIC,
   PG_CLOCK_KIND_REALTIME,
-  // TODO: More?
 } PgClockKind;
 
 typedef struct {
@@ -1024,7 +1023,7 @@ typedef struct {
 #ifdef PG_OS_UNIX
   DIR *dir;
 #else
-  // TODO
+  // TODO: Windows.
 #endif
 } PgDirectory;
 PG_RESULT(PgDirectory) PgDirectoryResult;
@@ -1032,7 +1031,7 @@ PG_RESULT(PgDirectory) PgDirectoryResult;
 #ifdef PG_OS_UNIX
 typedef struct dirent *PgDirectoryEntry;
 #else
-// TODO
+// TODO: Windows.
 #endif
 PG_RESULT(PgDirectoryEntry) PgDirectoryEntryResult;
 
@@ -3950,7 +3949,6 @@ pg_bitfield_get_first_zero(PgString bitfield) {
 
     u64 bit_idx = 0;
     u8 bit_pattern = 1;
-    // TODO: Check correctness.
     for (u64 j = 0; j < 8; j++) {
       if (0 == (c & bit_pattern)) {
         bit_idx = j;
@@ -7076,58 +7074,6 @@ pg_http_parse_header(PgString s) {
   return res;
 }
 
-#if 0
-[[maybe_unused]] [[nodiscard]] static PgHttpResponseReadResult
-pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
-  PgHttpResponseReadResult res = {0};
-  PgString sep = PG_S("\r\n\r\n");
-
-  PgStringOption s = pg_ring_read_until_excl(rg, sep, allocator);
-  if (!s.has_value) { // In progress.
-    return res;
-  }
-
-  PgSplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
-  PgStringOption res_split = pg_string_split_next(&it);
-  if (!res_split.has_value) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-
-  PgHttpResponseStatusLineResult res_status_line =
-      pg_http_parse_response_status_line(res_split.res);
-  if (res_status_line.err) {
-    res.err = res_status_line.err;
-    return res;
-  }
-
-  res.res.status = res_status_line.res.status;
-  res.res.version_major = res_status_line.res.version_major;
-  res.res.version_minor = res_status_line.res.version_minor;
-
-  for (;;) {
-    res_split = pg_string_split_next(&it);
-    if (!res_split.has_value) {
-      break;
-    }
-    PgStringKeyValueResult res_kv = pg_http_parse_header(res_split.res);
-    if (res_kv.err) {
-      res.err = res_kv.err;
-      return res;
-    }
-
-    *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.res;
-  }
-  if (!PG_SLICE_IS_EMPTY(it.s)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-
-  res.done = true;
-  return res;
-}
-#endif
-
 typedef enum {
   PG_NEWLINE_KIND_LF,
   PG_NEWLINE_KIND_CRLF,
@@ -7861,62 +7807,6 @@ pg_uuid_to_string(PgUuid uuid, PgAllocator *allocator) {
 
   return res;
 }
-
-#if 0
-[[maybe_unused]] [[nodiscard]]
-static PgHtmlTokenResult pg_html_tokenize_attribute_key_value(PgString s,
-                                                              u64 *pos) {
-  PgHtmlTokenResult res = {0};
-
-  for (;;) {
-    PgRune first = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-    if (pg_rune_is_space(first)) {
-      *pos += 1;
-      continue;
-    }
-
-    if ('/' == first) {
-      *pos += 1;
-      if ('>' != pg_string_first(PG_SLICE_RANGE_START(s, *pos))) {
-        res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
-        return res;
-      }
-      *pos += 1;
-      return res;
-    }
-
-    if ('=' == first) {
-      // TODO
-    }
-
-    res.res.kind = PG_HTML_TOKEN_KIND_ATTRIBUTE;
-    res.res.start = (u32)*pos;
-    res.res.attribute.key.data = s.data + *pos;
-
-    if ('=' != pg_string_first(PG_SLICE_RANGE_START(s, *pos))) {
-      return res;
-    }
-
-    *pos += 1;
-
-    PgRune quote = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-    if (!quote) {
-      res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
-      return res;
-    }
-
-    idx = pg_string_index_of_rune(PG_SLICE_RANGE_START(s, *pos), quote);
-    if (-1 == idx) {
-      res.err = PG_HTML_PARSE_ERROR_EOF_IN_TAG;
-      return res;
-    }
-
-    res.res.attribute.value = PG_SLICE_RANGE(s, *pos, *pos + (u64)idx);
-
-    return res;
-  }
-}
-#endif
 
 [[nodiscard]] static bool pg_html_tag_is_self_closing(PgString tag) {
   return pg_string_eq(tag, PG_S("area")) || pg_string_eq(tag, PG_S("base")) ||
@@ -9319,7 +9209,11 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
   u64 size = res_size.value;
 
   for (u64 _i = 0; _i < size; _i++) {
-    i64 ret = sendfile(dst.fd, src.fd, &offset, size);
+    i64 ret = 0;
+    do {
+      ret = sendfile(dst.fd, src.fd, &offset, size);
+    } while (-1 == ret && EINTR == errno);
+
     if (-1 == ret) {
       // TODO: Perhaps fallback to `read(2)` + `write(2)` in case of
       // `EINVAL` or `ENOSYS`.
@@ -9702,8 +9596,6 @@ pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
 
     // Error if the option name starts with more than 2 `-` e.g. `---a` or it
     // only contains `-` e.g. `-`, `--`.
-    // TODO: Treat `--` as a valid separator between options and plain
-    // arguments.
     if (pg_string_starts_with(arg, PG_S("---")) ||
         pg_string_eq(arg, PG_S("-"))) {
       res.err = PG_ERR_CLI_MALFORMED_OPTION;
