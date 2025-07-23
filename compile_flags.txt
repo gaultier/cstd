@@ -8,4 +8,5 @@
 -Wextra
 -Wno-cast-function-type-mismatch
 -Werror
+-Wpadded
 -g3
