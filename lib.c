@@ -9479,6 +9479,7 @@ typedef struct {
   bool required;
   // Name of the value e.g. `linker` for `-fuse-ld`.
   // If non-empty: the option expects 1 or more value(s).
+  // It appears in the help message.
   PgString value_name;
   PgString name_short;
   PgString name_long;
