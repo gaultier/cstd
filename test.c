@@ -1535,7 +1535,7 @@ static void test_http_read_request_full_no_content_length() {
   PG_ASSERT(!res_req.err);
   PG_ASSERT(res_req.done);
 
-  PgHttpRequest req = res_req.res;
+  PgHttpRequest req = res_req.req;
   PG_ASSERT(PG_HTTP_METHOD_PUT == req.method);
   PG_ASSERT(!req.url.scheme.len);
   PG_ASSERT(!req.url.username.len);
@@ -1604,7 +1604,7 @@ static void test_http_read_request_full_without_headers() {
   PG_ASSERT(!res_req.err);
   PG_ASSERT(res_req.done);
 
-  PgHttpRequest req = res_req.res;
+  PgHttpRequest req = res_req.req;
   PG_ASSERT(PG_HTTP_METHOD_PUT == req.method);
   PG_ASSERT(!req.url.scheme.len);
   PG_ASSERT(!req.url.username.len);
@@ -1674,7 +1674,7 @@ static void test_http_read_request_full_without_body() {
   PG_ASSERT(!res_req.err);
   PG_ASSERT(res_req.done);
 
-  PgHttpRequest req = res_req.res;
+  PgHttpRequest req = res_req.req;
   PG_ASSERT(PG_HTTP_METHOD_PUT == req.method);
   PG_ASSERT(!req.url.scheme.len);
   PG_ASSERT(!req.url.username.len);

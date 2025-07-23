@@ -641,13 +641,13 @@ PG_RESULT(PgUrl) PgUrlResult;
 
 typedef struct {
   bool done;
-  PgHttpResponse res;
+  PgHttpResponse resp;
   PgError err;
 } PgHttpResponseReadResult;
 
 typedef struct {
   bool done;
-  PgHttpRequest res;
+  PgHttpRequest req;
   PgError err;
 } PgHttpRequestReadResult;
 
@@ -7335,10 +7335,10 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
       res.err = res_status_line.err;
       return res;
     }
-    res.res.method = res_status_line.value.method;
-    res.res.url = res_status_line.value.url;
-    res.res.version_major = res_status_line.value.version_major;
-    res.res.version_minor = res_status_line.value.version_minor;
+    res.req.method = res_status_line.value.method;
+    res.req.url = res_status_line.value.url;
+    res.req.version_major = res_status_line.value.version_major;
+    res.req.version_minor = res_status_line.value.version_minor;
   }
 
   // Headers.
@@ -7368,7 +7368,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
       return res;
     }
 
-    *PG_DYN_PUSH(&res.res.headers, allocator) = res_kv.value;
+    *PG_DYN_PUSH(&res.req.headers, allocator) = res_kv.value;
   }
 
   // Too many headers.
@@ -9359,7 +9359,7 @@ pg_http_server_handler(PgFileDescriptor sock, PgHttpServerOptions options,
     return PG_ERR_EOF;
   }
 
-  PgHttpRequest req = res_req.res;
+  PgHttpRequest req = res_req.req;
 
   PgWriter writer =
       pg_writer_make_from_socket(sock, PG_HTTP_LINE_MAX_LEN, allocator);
