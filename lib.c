@@ -9485,6 +9485,7 @@ typedef struct {
   PgString name_long;
   PgString description;
 } PgCliOptionDescription;
+PG_OK(PgCliOptionDescription) PgCliOptionDescriptionOk;
 PG_DYN(PgCliOptionDescription) PgCliOptionDescriptionDyn;
 PG_SLICE(PgCliOptionDescription) PgCliOptionDescriptionSlice;
 
@@ -9542,6 +9543,24 @@ typedef struct {
 [[nodiscard]] static bool pg_cli_is_no_option(PgString s) {
   PgStringOk s_ok = pg_string_consume_rune(s, '-');
   return !s_ok.ok;
+}
+
+[[nodiscard]] static PgCliOptionDescriptionOk
+pg_cli_desc_find_by_name(PgCliOptionDescriptionSlice descs, PgString name,
+                         bool is_long) {
+  PgCliOptionDescriptionOk res = {0};
+
+  for (u64 i = 0; i < descs.len; i++) {
+    PgCliOptionDescription it = PG_SLICE_AT(descs, i);
+    if ((is_long && pg_string_eq(it.name_long, name)) ||
+        (!is_long && pg_string_eq(it.name_short, name))) {
+      res.ok = true;
+      res.res = it;
+      return res;
+    }
+  }
+
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgCliParseResult
