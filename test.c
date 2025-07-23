@@ -3298,6 +3298,48 @@ static void test_cli_options_parse() {
     PG_ASSERT(pg_string_eq(opt1.desc.name_short, PG_S("H")));
     PG_ASSERT(0 == opt1.values.len);
   }
+
+  // Unknown option passed, coalesced.
+  {
+    PgCliOptionDescriptionDyn descs = {0};
+    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
+        .name_short = PG_S("v"),
+        .name_long = PG_S("verbose"),
+        .description = PG_S("Verbose mode"),
+    };
+
+    char *argv[] = {
+        "main.bin",
+        "-vx",
+        "some_argument",
+    };
+    int argc = PG_STATIC_ARRAY_LEN(argv);
+
+    PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
+    PG_ASSERT(PG_ERR_CLI_UNKNOWN_OPTION == res.err);
+    PG_ASSERT(pg_string_eq(res.err_argv, PG_S("x")));
+  }
+
+  // Unknown option passed.
+  {
+    PgCliOptionDescriptionDyn descs = {0};
+    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
+        .name_short = PG_S("v"),
+        .name_long = PG_S("verbose"),
+        .description = PG_S("Verbose mode"),
+    };
+
+    char *argv[] = {
+        "main.bin",
+        "-x",
+        "some_argument",
+    };
+    int argc = PG_STATIC_ARRAY_LEN(argv);
+
+    PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
+    PG_ASSERT(PG_ERR_CLI_UNKNOWN_OPTION == res.err);
+    PG_ASSERT(pg_string_eq(res.err_argv, PG_S("-x")));
+  }
 }
 
 static void test_cli_options_help() {

@@ -9660,7 +9660,8 @@ pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
             opt_name, true, &res.options, desc_slice, argv, &i, allocator);
         if (0 != err) {
           res.err = err;
-          res.err_argv = opt_name;
+          // Best effort reporting.
+          res.err_argv = (PG_ERR_CLI_UNKNOWN_OPTION == err) ? arg : opt_name;
           return res;
         }
       } else {
