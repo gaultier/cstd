@@ -95,7 +95,7 @@
 #define PG_PRIVATE_NAME(n) PG_PRIVATE_CONCAT(n, PG_PRIVATE_UNIQUE_ID)
 #define PG_PRIVATE_CONCAT(a, b) PG_PRIVATE_CONCAT2(a, b)
 #define PG_PRIVATE_CONCAT2(a, b) a##b
-#define PG_PAD(n) uint8_t PG_PRIVATE_NAME(_padding)[n]
+#define PG_PAD(n) u8 PG_PRIVATE_NAME(_padding)[n]
 
 #define PG_PATH_MAX 4096
 
@@ -146,6 +146,9 @@ typedef __int128_t i128;
 typedef size_t usize;
 typedef ssize_t isize;
 
+typedef float f32;
+typedef double f64;
+
 #define PG_RESULT(T)                                                           \
   typedef struct {                                                             \
     PgError err;                                                               \
@@ -184,6 +187,10 @@ PG_RESULT(i32) Pgi32Result;
 PG_RESULT(i64) Pgi64Result;
 
 PG_RESULT(bool) PgBoolResult;
+PG_OK(bool) PgBoolOk;
+PG_SLICE(bool) PgBoolSlice;
+PG_DYN(bool) PgBoolDyn;
+
 PG_RESULT(void *) PgVoidPtrResult;
 
 PG_OK(u8) Pgu8Ok;
@@ -228,6 +235,11 @@ PG_OK(Pgu8Slice) Pgu8SliceOk;
 PG_RESULT(Pgu8Slice) Pgu8SliceResult;
 
 PG_RESULT(Pgu64Ok) Pgu64OkResult;
+
+PG_RESULT(f64) Pgf64Result;
+PG_OK(f64) Pgf64Ok;
+PG_SLICE(f64) Pgf64Slice;
+PG_DYN(f64) Pgf64Dyn;
 
 #define PG_STATIC_ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -3637,8 +3649,7 @@ pg_string_clone(PgString s, PgAllocator *allocator) {
 #if defined(__x86_64__) && defined(__SSSE3__) && defined(__SHA__)
 #include <immintrin.h>
 // Process as many 64 bytes chunks as possible.
-static void pg_sha1_process_x86(uint32_t state[5], const uint8_t data[],
-                                uint32_t length) {
+static void pg_sha1_process_x86(u32 state[5], const u8 data[], u32 length) {
   __m128i ABCD, ABCD_SAVE, E0, E0_SAVE, E1;
   __m128i MSG0, MSG1, MSG2, MSG3;
   const __m128i MASK =
@@ -4163,14 +4174,14 @@ pg_rand_u32_min_incl_max_incl(PgRng *rng, u32 min_incl, u32 max_incl) {
   PG_ASSERT(rng);
   PG_ASSERT(min_incl <= max_incl);
 
-  uint64_t m = 0x9b60933458e17d7d;
-  uint64_t a = 0xd737232eeccdf7ed;
+  u64 m = 0x9b60933458e17d7d;
+  u64 a = 0xd737232eeccdf7ed;
   rng->state = rng->state * m + a;
   int shift = 29 - (rng->state >> 61);
   u32 rand = (u32)(rng->state >> shift);
 
-  u32 res = min_incl + (u32)((float)rand * ((float)max_incl - (float)min_incl) /
-                             (float)UINT32_MAX);
+  u32 res = min_incl + (u32)((f32)rand * ((f32)max_incl - (f32)min_incl) /
+                             (f32)UINT32_MAX);
   PG_ASSERT(min_incl <= res);
   PG_ASSERT(res <= max_incl);
   return res;
@@ -5690,7 +5701,7 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
   u64 res = 0;
 
   while (res < PG_STACKTRACE_MAX && frame_pointer != 0 &&
-         ((uint64_t)frame_pointer & 7) == 0 && *frame_pointer != 0) {
+         ((u64)frame_pointer & 7) == 0 && *frame_pointer != 0) {
     u64 instruction_pointer = *(frame_pointer + 1);
     frame_pointer = (u64 *)*frame_pointer;
 
@@ -5961,7 +5972,7 @@ pg_time_ns_now(PgClockKind clock_kind) {
     }
     LARGE_INTEGER counter = {0};
     PG_ASSERT(QueryPerformanceCounter(&counter));
-    double seconds = (double)counter.QuadPart / (double)frequency.QuadPart;
+    f64 seconds = (f64)counter.QuadPart / (f64)frequency.QuadPart;
 
     res.res = (u64)(PG_Seconds * seconds);
     return res;
@@ -9075,6 +9086,7 @@ pg_aio_ensure_inotify(PgAio *aio) {
 pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
                                  PgAioEventKind interest,
                                  PgAllocator *allocator) {
+  (void)allocator; // Unused on Linux.
 
   PgFileDescriptorResult res = {0};
 
@@ -9454,6 +9466,141 @@ pg_aio_cqe_dequeue(PgRing *cqe) {
   PG_ASSERT(sizeof(PgAioEvent) == pg_ring_read_bytes(cqe, bytes));
 
   res.ok = true;
+  return res;
+}
+
+typedef enum {
+  PG_CLI_OPTION_KIND_NONE,
+  PG_CLI_OPTION_KIND_BOOL,
+  PG_CLI_OPTION_KIND_I64,
+  PG_CLI_OPTION_KIND_F64,
+  PG_CLI_OPTION_KIND_STRING,
+} PgCliOptionKind;
+
+typedef struct {
+  PgCliOptionKind kind;
+  bool required;
+  bool repeated;
+  PgString name_short;
+  PgString name_long;
+  PgString description;
+} PgCliOptionDescription;
+PG_DYN(PgCliOptionDescription) PgCliOptionDescriptionDyn;
+PG_SLICE(PgCliOptionDescription) PgCliOptionDescriptionSlice;
+
+typedef struct {
+  PgCliOptionKind kind;
+  bool repeated;
+  PgString name_short;
+  PgString name_long;
+  PgString description;
+  union {
+    bool b;
+    i64 i64;
+    f64 f64;
+    PgString s;
+    PgBoolDyn bool_dyn;
+    Pgi64Dyn i64_dyn;
+    Pgf64Dyn f64_dyn;
+    PgStringDyn s_dyn;
+  } u;
+  PgError err;
+} PgCliOption;
+PG_DYN(PgCliOption) PgCliOptionDyn;
+PG_SLICE(PgCliOption) PgCliOptionSlice;
+
+typedef struct {
+  PgStringDyn args;
+  PgCliOptionDyn options;
+  PgError err;
+} PgCliParseResult;
+
+[[nodiscard]] static bool pg_cli_is_short_option(PgString s) {
+  PgStringOk s_ok = pg_string_consume_rune(s, '-');
+  if (!s_ok.ok) {
+    return false;
+  }
+
+  // Is long?
+  s = s_ok.res;
+  s_ok = pg_string_consume_rune(s, '-');
+  return !s_ok.ok;
+}
+
+[[nodiscard]] static bool pg_cli_is_long_option(PgString s) {
+  PgStringOk s_ok = pg_string_consume_rune(s, '-');
+  if (!s_ok.ok) {
+    return false;
+  }
+
+  // Is long?
+  s = s_ok.res;
+  s_ok = pg_string_consume_rune(s, '-');
+  return s_ok.ok;
+}
+
+[[nodiscard]] static bool pg_cli_is_no_option(PgString s) {
+  PgStringOk s_ok = pg_string_consume_rune(s, '-');
+  return !s_ok.ok;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgCliParseResult
+pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
+             PgAllocator *allocator) {
+  PgCliParseResult res = {0};
+
+  for (u64 i = 0; i < (u64)argc; i++) {
+    PgString arg = pg_cstr_to_string(argv[i]);
+    if (pg_cli_is_no_option(arg)) {
+      *PG_DYN_PUSH(&res.args, allocator) = arg;
+      continue;
+    }
+
+    PgCliOption opt = {0};
+
+    // Error if the option name starts with more than 2 `-` e.g. `---a` or it
+    // only contains `-` e.g. `-`, `--`.
+    if (pg_string_starts_with(arg, PG_S("---")) ||
+        pg_string_eq(arg, PG_S("-")) || pg_string_eq(arg, PG_S("--"))) {
+      res.err = PG_ERR_INVALID_VALUE;
+
+      opt.err = PG_ERR_INVALID_VALUE;
+      opt.name_long = opt.name_short = arg;
+      *PG_DYN_PUSH(&res.options, allocator) = opt;
+      return res;
+    }
+
+    bool is_long_option = pg_cli_is_long_option(arg);
+    arg = pg_string_trim_left(arg, '-');
+    PG_ASSERT(arg.len > 0);
+
+    PgStringCut cut = pg_string_cut_rune(arg, '=');
+    if (!cut.ok) {
+      if (is_long_option) {
+        opt.name_long = arg;
+      } else {
+        opt.name_short = arg;
+      }
+
+      // TODO: Find option name in `descs` & validate that this is the right
+      // type (`bool`).
+
+      *PG_DYN_PUSH(&res.options, allocator) = opt;
+      continue;
+    }
+
+    if (is_long_option) {
+      opt.name_long = cut.left;
+    } else {
+      opt.name_short = cut.left;
+    }
+
+    PgString opt_value = cut.right;
+    if (0 == opt_value.len) {
+      // TODO
+    }
+  }
+
   return res;
 }
 
