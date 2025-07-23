@@ -9490,11 +9490,15 @@ PG_DYN(PgCliOptionDescription) PgCliOptionDescriptionDyn;
 PG_SLICE(PgCliOptionDescription) PgCliOptionDescriptionSlice;
 
 typedef struct {
-  bool repeated;
-  PgString name_short;
-  PgString name_long;
-  PgString description;
-  PgString value;
+  u32 value;
+} PgCliIndex;
+
+typedef struct {
+  PgCliIndex desc_idx;
+  union {
+    PgString value;
+    PgStringDyn values;
+  } u;
   PgError err;
 } PgCliOption;
 PG_DYN(PgCliOption) PgCliOptionDyn;
@@ -9535,22 +9539,19 @@ typedef struct {
   return !s_ok.ok;
 }
 
-[[nodiscard]] static PgCliOptionDescriptionOk
+[[nodiscard]] static PgCliOptionDescription *
 pg_cli_desc_find_by_name(PgCliOptionDescriptionSlice descs, PgString name,
                          bool is_long) {
-  PgCliOptionDescriptionOk res = {0};
 
   for (u64 i = 0; i < descs.len; i++) {
-    PgCliOptionDescription it = PG_SLICE_AT(descs, i);
-    if ((is_long && pg_string_eq(it.name_long, name)) ||
-        (!is_long && pg_string_eq(it.name_short, name))) {
-      res.ok = true;
-      res.res = it;
-      return res;
+    PgCliOptionDescription *it = PG_SLICE_AT_PTR(&descs, i);
+    if ((is_long && pg_string_eq(it->name_long, name)) ||
+        (!is_long && pg_string_eq(it->name_short, name))) {
+      return it;
     }
   }
 
-  return res;
+  return nullptr;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgCliParseResult
@@ -9558,7 +9559,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
              PgAllocator *allocator) {
   PgCliParseResult res = {0};
 
-  for (u64 i = 0; i < (u64)argc; i++) {
+  for (u64 i = 1 /* Skip exe name */; i < (u64)argc; i++) {
     PgString arg = pg_cstr_to_string(argv[i]);
     if (pg_cli_is_no_option(arg)) {
       *PG_DYN_PUSH(&res.args, allocator) = arg;
@@ -9574,7 +9575,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       res.err = PG_ERR_INVALID_VALUE;
 
       opt.err = PG_ERR_INVALID_VALUE;
-      opt.name_long = opt.name_short = arg;
+      opt.u.value = arg;
       *PG_DYN_PUSH(&res.options, allocator) = opt;
       return res;
     }
@@ -9583,9 +9584,9 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       arg = pg_string_trim_left(arg, '-');
       PG_ASSERT(arg.len > 0);
 
-      PgCliOptionDescriptionOk desc_ok =
+      PgCliOptionDescription *desc =
           pg_cli_desc_find_by_name(descs, arg, false);
-      if (!desc_ok.ok) {
+      if (!desc) {
         res.err = PG_ERR_INVALID_VALUE;
 
         opt.err = PG_ERR_INVALID_VALUE;
@@ -9593,12 +9594,9 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
         return res;
       }
 
-      PgCliOptionDescription desc = desc_ok.res;
-      opt.name_short = desc.name_short;
-      opt.name_long = desc.name_long;
-      opt.description = desc.description;
+      opt.desc_idx.value = desc - descs.data;
 
-      if (desc.with_argument) {
+      if (desc->with_argument) {
         i += 1;
         PgString value = pg_cstr_to_string(argv[i]);
         if (0 == value.len) {
@@ -9609,7 +9607,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
           return res;
         }
 
-        opt.value = value;
+        opt.u.value = value;
       }
 
       // TODO: Repeated options.
@@ -9623,6 +9621,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
     arg = pg_string_trim_left(arg, '-');
     PG_ASSERT(arg.len > 0);
 
+#if 0
     PgStringCut cut = pg_string_cut_rune(arg, '=');
     if (!cut.ok) { // Form `--foo`
       opt.name_long = arg;
@@ -9645,6 +9644,7 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       *PG_DYN_PUSH(&res.options, allocator) = opt;
       return res;
     }
+#endif
   }
 
   return res;

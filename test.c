@@ -2922,14 +2922,20 @@ static void test_cli_options_parse() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
+  // 1/2 Short option with value.
   {
     PgCliOptionDescription descs[] = {
-        {.name_short = PG_S("f"),
-         .name_long = PG_S("file"),
-         .description = PG_S("Provide a file")},
-        {.name_short = PG_S("o"),
-         .name_long = PG_S("output"),
-         .description = PG_S("Specify an output")},
+        {
+            .name_short = PG_S("f"),
+            .name_long = PG_S("file"),
+            .description = PG_S("Provide a file"),
+        },
+        {
+            .name_short = PG_S("o"),
+            .name_long = PG_S("output"),
+            .description = PG_S("Specify an output"),
+            .with_argument = true,
+        },
     };
     PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
 
@@ -2945,6 +2951,13 @@ static void test_cli_options_parse() {
     PG_ASSERT(0 == res.err);
     PG_ASSERT(1 == res.args.len);
     PG_ASSERT(1 == res.options.len);
+
+    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.args, 0), PG_S("some_argument")));
+
+    PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
+    PG_ASSERT(0 == opt0.err);
+    PG_ASSERT(1 == opt0.desc_idx.value);
+    PG_ASSERT(pg_string_eq(opt0.u.value, PG_S("out.txt")));
   }
 }
 
