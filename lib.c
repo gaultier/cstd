@@ -9764,7 +9764,7 @@ pg_cli_generate_help(PgCliOptionDescriptionSlice descs, PgString exe_name,
                                     allocator);
   }
 
-  pg_string_builder_append_string(&sb, PG_S("\n"), allocator);
+  pg_string_builder_append_string(&sb, PG_S("\n\n"), allocator);
   pg_string_builder_append_string(&sb, description, allocator);
   if (!pg_string_ends_with(description, PG_S("."))) {
     pg_string_builder_append_string(&sb, PG_S("."), allocator);

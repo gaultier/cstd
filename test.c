@@ -3353,7 +3353,7 @@ static void test_cli_options_help() {
 
   PgString expected = PG_S(
       "a.out [-v] [--hidden] (-o|--output file) <file1> "
-      "<file2> <file3>\nThis is "
+      "<file2> <file3>\n\nThis is "
       "an example program. It helps fooizing bars.\n\nOPTIONS:\n    -v\n       "
       " Verbose mode.\n\n    --hidden\n        Scan hidden files.\n\n    -o "
       "file, --output=file    [required]\n        Specify an output "
