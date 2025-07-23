@@ -2948,11 +2948,13 @@ static void test_cli_options_parse() {
 
     PgCliParseResult res = pg_cli_parse(desc_slice, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(2 == res.args.len);
+    PG_ASSERT(2 == res.plain_arguments.len);
     PG_ASSERT(0 == res.options.len);
 
-    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.args, 0), PG_S("out.txt")));
-    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.args, 1), PG_S("some_argument")));
+    PG_ASSERT(
+        pg_string_eq(PG_SLICE_AT(res.plain_arguments, 0), PG_S("out.txt")));
+    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.plain_arguments, 1),
+                           PG_S("some_argument")));
   }
   // Some short option with value given.
   {
@@ -2981,10 +2983,11 @@ static void test_cli_options_parse() {
 
     PgCliParseResult res = pg_cli_parse(desc_slice, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(1 == res.args.len);
+    PG_ASSERT(1 == res.plain_arguments.len);
     PG_ASSERT(1 == res.options.len);
 
-    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.args, 0), PG_S("some_argument")));
+    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.plain_arguments, 0),
+                           PG_S("some_argument")));
 
     PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
     PG_ASSERT(0 == opt0.err);
@@ -3016,10 +3019,11 @@ static void test_cli_options_parse() {
 
     PgCliParseResult res = pg_cli_parse(desc_slice, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(1 == res.args.len);
+    PG_ASSERT(1 == res.plain_arguments.len);
     PG_ASSERT(2 == res.options.len);
 
-    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.args, 0), PG_S("some_argument")));
+    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.plain_arguments, 0),
+                           PG_S("some_argument")));
 
     PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
     PG_ASSERT(0 == opt0.err);
@@ -3060,10 +3064,11 @@ static void test_cli_options_parse() {
 
     PgCliParseResult res = pg_cli_parse(desc_slice, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
-    PG_ASSERT(1 == res.args.len);
+    PG_ASSERT(1 == res.plain_arguments.len);
     PG_ASSERT(3 == res.options.len);
 
-    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.args, 0), PG_S("some_argument")));
+    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.plain_arguments, 0),
+                           PG_S("some_argument")));
 
     PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
     PG_ASSERT(0 == opt0.err);
@@ -3141,6 +3146,29 @@ static void test_cli_options_parse() {
     PgCliParseResult res = pg_cli_parse(desc_slice, argc, argv, allocator);
     PG_ASSERT(PG_ERR_CLI_MISSING_REQUIRED_OPTION == res.err);
     PG_ASSERT(pg_string_eq(res.err_argv, PG_S("v")));
+  }
+
+  // Malformed option.
+  {
+    PgCliOptionDescription descs[] = {
+        {
+            .name_short = PG_S("v"),
+            .name_long = PG_S("verbose"),
+            .description = PG_S("Verbose mode"),
+        },
+    };
+    PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
+
+    char *argv[] = {
+        "main.bin",
+        "---foo",
+        "some_argument",
+    };
+    int argc = PG_STATIC_ARRAY_LEN(argv);
+
+    PgCliParseResult res = pg_cli_parse(desc_slice, argc, argv, allocator);
+    PG_ASSERT(PG_ERR_CLI_MALFORMED_OPTION == res.err);
+    PG_ASSERT(pg_string_eq(res.err_argv, PG_S("---foo")));
   }
 }
 

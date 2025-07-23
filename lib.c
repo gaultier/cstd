@@ -9500,7 +9500,7 @@ PG_SLICE(PgCliOption) PgCliOptionSlice;
 PG_RESULT(PgCliOption) PgCliOptionResult;
 
 typedef struct {
-  PgStringDyn args;
+  PgStringDyn plain_arguments;
   PgCliOptionDyn options;
   PgError err;
   PgString err_argv;
@@ -9601,12 +9601,13 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
 
     // Plain argument.
     if (pg_cli_is_no_option(arg)) {
-      *PG_DYN_PUSH(&res.args, allocator) = arg;
+      *PG_DYN_PUSH(&res.plain_arguments, allocator) = arg;
       continue;
     }
 
     // Error if the option name starts with more than 2 `-` e.g. `---a` or it
     // only contains `-` e.g. `-`, `--`.
+    // TODO: Treat `---` as a separator between options and plain arguments.
     if (pg_string_starts_with(arg, PG_S("---")) ||
         pg_string_eq(arg, PG_S("-")) || pg_string_eq(arg, PG_S("--"))) {
       res.err = PG_ERR_CLI_MALFORMED_OPTION;
