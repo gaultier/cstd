@@ -156,7 +156,7 @@ typedef double f64;
 #define PG_OPTION(T)                                                           \
   typedef struct {                                                             \
     T res;                                                                     \
-    bool ok;                                                                   \
+    bool has_value;                                                                   \
   }
 
 // TODO: Separate error type.
@@ -337,12 +337,12 @@ typedef struct {
 
 typedef struct {
   PgString left, right;
-  bool ok;
+  bool has_value;
 } PgStringCut;
 
 typedef struct {
   Pgu8Slice left, right;
-  bool ok;
+  bool has_value;
 } PgBytesCut;
 
 typedef struct {
@@ -1589,7 +1589,7 @@ pg_string_is_ascii_alphabetical(PgString s) {
     return res;
   }
 
-  res.ok = true;
+  res.has_value = true;
   res.res = res_rune.rune;
   return res;
 }
@@ -1609,7 +1609,7 @@ pg_string_is_ascii_alphabetical(PgString s) {
                                                                     PgRune c) {
   while (!pg_string_is_empty(s)) {
     PgRuneOption last_opt = pg_string_last(s);
-    if (!last_opt.ok) {
+    if (!last_opt.has_value) {
       return s;
     }
 
@@ -1709,7 +1709,7 @@ pg_string_cut_rune(PgString s, PgRune needle) {
     if (needle == res_rune.rune) {
       res.left = PG_SLICE_RANGE(s, 0, idx);
       res.right = PG_SLICE_RANGE_START(s, it.idx);
-      res.ok = true;
+      res.has_value = true;
       return res;
     }
   }
@@ -1721,7 +1721,7 @@ pg_string_cut_rune(PgString s, PgRune needle) {
                                                       PgRune needle) {
   while (!pg_string_is_empty(haystack)) {
     PgRuneOption last_opt = pg_string_last(haystack);
-    if (!last_opt.ok) {
+    if (!last_opt.has_value) {
       break;
     }
 
@@ -1772,7 +1772,7 @@ static Pgu64Option pg_bytes_index_of_byte(Pgu8Slice haystack, u8 needle) {
     u8 it = PG_SLICE_AT(haystack, i);
     if (needle == it) {
       res.res = i;
-      res.ok = true;
+      res.has_value = true;
       return res;
     }
   }
@@ -1788,7 +1788,7 @@ static Pgu64Option pg_bytes_last_index_of_byte(Pgu8Slice haystack, u8 needle) {
     u8 it = PG_SLICE_AT(haystack, i);
     if (needle == it) {
       res.res = (u64)i;
-      res.ok = true;
+      res.has_value = true;
       return res;
     }
   }
@@ -1831,7 +1831,7 @@ static Pgu64Option pg_bytes_index_of_bytes(Pgu8Slice haystack,
   for (u64 i = 0; i < haystack.len; i++) {
     if (pg_bytes_starts_with(PG_SLICE_RANGE_START(haystack, (u64)i), needle)) {
       res.res = (u64)i;
-      res.ok = true;
+      res.has_value = true;
       return res;
     }
   }
@@ -1870,7 +1870,7 @@ static Pgu64Option pg_bytes_last_index_of_bytes(Pgu8Slice haystack,
   for (i64 i = (i64)haystack.len - 1; i >= 0; i--) {
     if (pg_bytes_ends_with(PG_SLICE_RANGE_START(haystack, (u64)i), needle)) {
       res.res = (u64)i;
-      res.ok = true;
+      res.has_value = true;
       return res;
     }
   }
@@ -1894,7 +1894,7 @@ pg_bytes_cut_byte(Pgu8Slice haystack, u8 needle) {
     return res;
   }
 
-  res.ok = true;
+  res.has_value = true;
   res.left.data = haystack.data;
   res.left.len = (u64)(ret - haystack.data);
   res.right.data = ret + 1;
@@ -1908,11 +1908,11 @@ pg_bytes_cut_bytes_excl(Pgu8Slice haystack, Pgu8Slice needle) {
   PgBytesCut res = {0};
 
   Pgu64Option search = pg_bytes_index_of_bytes(haystack, needle);
-  if (!search.ok) {
+  if (!search.has_value) {
     return res;
   }
 
-  res.ok = true;
+  res.has_value = true;
   res.left = PG_SLICE_RANGE(haystack, 0, search.res);
   res.right = PG_SLICE_RANGE_START(haystack, search.res);
   return res;
@@ -1948,7 +1948,7 @@ pg_string_cut_string(PgString s, PgString needle) {
 
   res.left = PG_SLICE_RANGE(s, 0, (u64)idx);
   res.right = PG_SLICE_RANGE_START(s, (u64)idx + needle.len);
-  res.ok = true;
+  res.has_value = true;
 
   return res;
 }
@@ -1963,7 +1963,7 @@ pg_string_split_next(PgSplitIterator *it) {
     i64 idx = pg_string_index_of_string(it->s, it->sep);
     if (-1 == idx) {
       // Last element.
-      PgStringOption res = {.res = it->s, .ok = true};
+      PgStringOption res = {.res = it->s, .has_value = true};
       it->s = (PgString){0};
       return res;
     }
@@ -1973,7 +1973,7 @@ pg_string_split_next(PgSplitIterator *it) {
       continue;
     } else {
       PgStringOption res = {.res = PG_SLICE_RANGE(it->s, 0, (u64)idx),
-                            .ok = true};
+                            .has_value = true};
       it->s = PG_SLICE_RANGE_START(it->s, (u64)idx + it->sep.len);
 
       return res;
@@ -2131,7 +2131,7 @@ pg_string_consume_rune(PgString haystack, PgRune needle) {
 
   res.res.data = haystack.data + it.idx;
   res.res.len = haystack.len - it.idx;
-  res.ok = true;
+  res.has_value = true;
   return res;
 }
 
@@ -2142,7 +2142,7 @@ pg_string_consume_string(PgString haystack, PgString needle) {
 
   for (u64 i = 0; i < needle.len; i++) {
     res = pg_string_consume_rune(res.res, PG_SLICE_AT(needle, i));
-    if (!res.ok) {
+    if (!res.has_value) {
       return res;
     }
   }
@@ -2156,7 +2156,7 @@ pg_string_consume_any_string(PgString haystack, PgStringSlice needles) {
 
   for (u64 i = 0; i < needles.len; i++) {
     res = pg_string_consume_string(res.res, PG_SLICE_AT(needles, i));
-    if (res.ok) {
+    if (res.has_value) {
       return res;
     }
   }
@@ -2771,7 +2771,7 @@ pg_ring_index_of_byte(PgRing rg, u8 needle) {
     u64 len = rg.idx_write - rg.idx_read;
     u8 *find = memchr(start, needle, len);
     if (find) {
-      res.ok = true;
+      res.has_value = true;
       res.res = (u64)(find - start);
     }
     return res;
@@ -2783,7 +2783,7 @@ pg_ring_index_of_byte(PgRing rg, u8 needle) {
       u64 len = rg.data.len - rg.idx_read;
       u8 *find = memchr(start, needle, len);
       if (find) {
-        res.ok = true;
+        res.has_value = true;
         res.res = (u64)(find - start);
       }
     }
@@ -2793,7 +2793,7 @@ pg_ring_index_of_byte(PgRing rg, u8 needle) {
       u64 len = rg.idx_write;
       u8 *find = memchr(start, needle, len);
       if (find) {
-        res.ok = true;
+        res.has_value = true;
         res.res = (u64)(find - start);
       }
     }
@@ -2833,7 +2833,7 @@ pg_ring_index_of_bytes2(PgRing rg, u8 needle0, u8 needle1) {
 
   for (u64 _i = 0; _i < rg.data.len; _i++) {
     Pgu64Option idx_opt = pg_ring_index_of_byte(rg, needle0);
-    if (!idx_opt.ok) {
+    if (!idx_opt.has_value) {
       return res;
     }
 
@@ -2857,7 +2857,7 @@ pg_ring_index_of_bytes2(PgRing rg, u8 needle0, u8 needle1) {
           PG_SLICE_AT(tmp_slice, 1) == needle1) {
         PG_ASSERT(idx < rg.data.len);
 
-        res.ok = true;
+        res.has_value = true;
         res.res = idx;
         return res;
       }
@@ -3575,7 +3575,7 @@ pg_string_index_of_unescaped_rune(PgString haystack, PgRune needle,
         haystack, (u64)idx + pg_utf8_rune_bytes_count(needle));
 
     PgRuneOption first = pg_string_first(remaining);
-    if (!first.ok) {
+    if (!first.has_value) {
       return -1;
     }
     if (escape != first.res) {
@@ -3959,7 +3959,7 @@ pg_bitfield_get_first_zero(PgString bitfield) {
     PG_ASSERT(bit_idx > 0);
 
     res.res = i * 8 + (bit_idx - 1);
-    res.ok = true;
+    res.has_value = true;
     return res;
   }
   return res;
@@ -4217,7 +4217,7 @@ pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
       continue;
     }
     res.res = idx;
-    res.ok = true;
+    res.has_value = true;
     return res;
   }
   return res;
@@ -4320,7 +4320,7 @@ pg_u64_range_search(Pgu64Slice haystack, u64 needle) {
   for (u64 i = 1; i < haystack.len; i++) {
     u64 elem = PG_SLICE_AT(haystack, i);
     if (needle < elem) {
-      res.ok = true;
+      res.has_value = true;
       res.res.idx = i - 1;
       res.res.start_incl = PG_SLICE_AT(haystack, i - 1);
       res.res.end_excl = elem;
@@ -5934,9 +5934,9 @@ pg_writer_win32_write(PgWriter *w, Pgu8Slice src) {
   PgFileDescriptor file = w->ctx;
   HANDLE handle = file.ptr;
   DWORD n = 0;
-  bool ok = WriteFile(handle, src.data, (DWORD)src.len, &n, nullptr);
+  bool has_value = WriteFile(handle, src.data, (DWORD)src.len, &n, nullptr);
   Pgu64Result res = {0};
-  if (!ok) {
+  if (!has_value) {
     res.err = (PgError)pg_os_get_last_error();
   } else {
     res.res = (u64)n;
@@ -6243,7 +6243,7 @@ pg_http_parse_response_status_line(PgString status_line) {
   PgString remaining = status_line;
   {
     PgStringOption consume = pg_string_consume_string(remaining, PG_S("HTTP/"));
-    if (!consume.ok) {
+    if (!consume.has_value) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
@@ -6266,7 +6266,7 @@ pg_http_parse_response_status_line(PgString status_line) {
 
   {
     PgStringOption consume = pg_string_consume_rune(remaining, '.');
-    if (!consume.ok) {
+    if (!consume.has_value) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
@@ -6289,7 +6289,7 @@ pg_http_parse_response_status_line(PgString status_line) {
 
   {
     PgStringOption consume = pg_string_consume_rune(remaining, ' ');
-    if (!consume.ok) {
+    if (!consume.has_value) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
@@ -6594,7 +6594,7 @@ pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
   PgSplitIterator split_it_slash = pg_string_split_string(s, PG_S("/"));
   for (u64 i = 0; i < s.len; i++) { // Bound.
     PgStringOption split = pg_string_split_next(&split_it_slash);
-    if (!split.ok) {
+    if (!split.has_value) {
       break;
     }
 
@@ -6675,7 +6675,7 @@ pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
   PgString remaining = s;
   {
     PgStringOption res_consume_question = pg_string_consume_rune(s, '?');
-    if (!res_consume_question.ok) {
+    if (!res_consume_question.has_value) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
@@ -6891,7 +6891,7 @@ pg_url_parse(PgString s, PgAllocator *allocator) {
 
     PgStringOption res_consume =
         pg_string_consume_string(remaining, PG_S("//"));
-    if (!res_consume.ok) {
+    if (!res_consume.has_value) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
@@ -6947,7 +6947,7 @@ pg_http_parse_request_status_line(PgString status_line,
   PgHttpRequestStatusLineResult res = {0};
 
   PgStringCut cut = pg_string_cut_rune(status_line, ' ');
-  if (!cut.ok) {
+  if (!cut.has_value) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
@@ -6994,7 +6994,7 @@ pg_http_parse_request_status_line(PgString status_line,
   PgString remaining = pg_string_trim_space(cut.right);
   {
     PgStringOption consume = pg_string_consume_string(remaining, PG_S("HTTP/"));
-    if (!consume.ok) {
+    if (!consume.has_value) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
@@ -7017,7 +7017,7 @@ pg_http_parse_request_status_line(PgString status_line,
 
   {
     PgStringOption consume = pg_string_consume_rune(remaining, '.');
-    if (!consume.ok) {
+    if (!consume.has_value) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
@@ -7051,7 +7051,7 @@ pg_http_parse_header(PgString s) {
   PgStringKeyValueResult res = {0};
 
   PgStringCut cut = pg_string_cut_rune(s, ':');
-  if (!cut.ok) {
+  if (!cut.has_value) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
@@ -7078,13 +7078,13 @@ pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
   PgString sep = PG_S("\r\n\r\n");
 
   PgStringOption s = pg_ring_read_until_excl(rg, sep, allocator);
-  if (!s.ok) { // In progress.
+  if (!s.has_value) { // In progress.
     return res;
   }
 
   PgSplitIterator it = pg_string_split_string(s.res, PG_S("\r\n"));
   PgStringOption res_split = pg_string_split_next(&it);
-  if (!res_split.ok) {
+  if (!res_split.has_value) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
@@ -7102,7 +7102,7 @@ pg_http_read_response(PgRing *rg, PgAllocator *allocator) {
 
   for (;;) {
     res_split = pg_string_split_next(&it);
-    if (!res_split.ok) {
+    if (!res_split.has_value) {
       break;
     }
     PgStringKeyValueResult res_kv = pg_http_parse_header(res_split.res);
@@ -7142,11 +7142,11 @@ pg_reader_read_until_byte_incl(PgReader *r, Pgu8Slice dst, u8 needle) {
 
     Pgu8Slice haystack = PG_SLICE_RANGE(dst, 0, res_read.res);
     Pgu64Option search = pg_bytes_index_of_byte(haystack, needle);
-    if (!search.ok) {
+    if (!search.has_value) {
       return res;
     }
 
-    res.res.ok = true;
+    res.res.has_value = true;
     res.res.res = search.res;
     return res;
   } else { // Buffered reader.
@@ -7155,13 +7155,13 @@ pg_reader_read_until_byte_incl(PgReader *r, Pgu8Slice dst, u8 needle) {
     for (u64 _i = 0; _i <= 1; _i++) {
       Pgu64OkResult res = {0};
       Pgu64Option search = pg_ring_index_of_byte(r->ring, needle);
-      if (search.ok) {
+      if (search.has_value) {
         search.res += 1; // Incl.
         PG_ASSERT(
             pg_ring_read_bytes(&r->ring, PG_SLICE_RANGE(dst, 0, search.res)) ==
             search.res);
 
-        res.res.ok = true;
+        res.res.has_value = true;
         res.res.res = search.res;
         return res;
       }
@@ -7208,11 +7208,11 @@ pg_reader_read_until_bytes2_incl(PgReader *r, Pgu8Slice dst, u8 needle0,
     Pgu8Slice needle = {.data = needle_data, .len = 2};
     Pgu8Slice haystack = PG_SLICE_RANGE(dst, 0, res_read.res);
     Pgu64Option search = pg_bytes_index_of_bytes(haystack, needle);
-    if (!search.ok) {
+    if (!search.has_value) {
       return res;
     }
 
-    res.res.ok = true;
+    res.res.has_value = true;
     res.res.res = search.res;
     return res;
   } else {
@@ -7221,12 +7221,12 @@ pg_reader_read_until_bytes2_incl(PgReader *r, Pgu8Slice dst, u8 needle0,
     for (u64 _i = 0; _i <= 1; _i++) {
       Pgu64OkResult res = {0};
       Pgu64Option search = pg_ring_index_of_bytes2(r->ring, needle0, needle1);
-      if (search.ok) {
+      if (search.has_value) {
         search.res += 2; // Incl.
         PG_ASSERT(
             pg_ring_read_bytes(&r->ring, PG_SLICE_RANGE(dst, 0, search.res)) ==
             search.res);
-        res.res.ok = true;
+        res.res.has_value = true;
         res.res.res = search.res;
         return res;
       }
@@ -7273,7 +7273,7 @@ pg_reader_read_line(PgReader *reader, PgNewlineKind newline_kind,
   if (res.err) {
     return res;
   }
-  if (!res.res.ok) {
+  if (!res.res.has_value) {
     return res;
   }
 
@@ -7318,7 +7318,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
       res.err = res_read.err;
       return res;
     }
-    if (!res_read.res.ok) {
+    if (!res_read.res.has_value) {
       res.err = PG_ERR_EOF;
       return res;
     }
@@ -7347,7 +7347,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
       res.err = res_read.err;
       return res;
     }
-    if (!res_read.res.ok) {
+    if (!res_read.res.has_value) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
@@ -7944,7 +7944,7 @@ static PgError pg_html_tokenize_attributes(PgString s, u64 *pos,
 
   for (;;) {
     PgRuneOption first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-    if (!first_opt.ok) { // Early EOF.
+    if (!first_opt.has_value) { // Early EOF.
       return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
     }
 
@@ -7984,7 +7984,7 @@ static PgError pg_html_tokenize_comment(PgString s, u64 *pos,
 
   for (;;) {
     PgRuneOption first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-    if (!first_opt.ok) {
+    if (!first_opt.has_value) {
       return PG_HTML_PARSE_ERROR_EOF_IN_COMMENT;
     }
 
@@ -8021,7 +8021,7 @@ static PgError pg_html_tokenize_doctype_name(PgString s, u64 *pos,
 
   for (;;) {
     PgRuneOption first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-    if (!first_opt.ok) {
+    if (!first_opt.has_value) {
       return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
     }
 
@@ -8053,7 +8053,7 @@ static PgError pg_html_tokenize_doctype(PgString s, u64 *pos,
   *pos += PG_S("DOCTYPE").len;
 
   PgRuneOption first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-  if (!first_opt.ok) {
+  if (!first_opt.has_value) {
     return PG_HTML_PARSE_ERROR_MISSING_WHITESPACE_BEFORE_DOCTYPE_NAME;
   }
 
@@ -8065,7 +8065,7 @@ static PgError pg_html_tokenize_doctype(PgString s, u64 *pos,
 
   for (;;) {
     first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-    if (!first_opt.ok) {
+    if (!first_opt.has_value) {
       return PG_HTML_PARSE_ERROR_EOF_IN_DOCTYPE;
     }
 
@@ -8113,12 +8113,12 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
                                     PgHtmlTokenDyn *tokens,
                                     PgAllocator *allocator) {
   PgRuneOption first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-  PG_ASSERT(first_opt.ok);
+  PG_ASSERT(first_opt.has_value);
   PG_ASSERT('<' == first_opt.res);
   *pos += pg_utf8_rune_bytes_count('<');
 
   first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-  if (first_opt.ok && ('!' == first_opt.res)) {
+  if (first_opt.has_value && ('!' == first_opt.res)) {
     *pos += pg_utf8_rune_bytes_count('!');
     return pg_html_tokenize_markup(s, pos, tokens, allocator);
   }
@@ -8131,7 +8131,7 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
   };
 
   first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-  if (first_opt.ok) {
+  if (first_opt.has_value) {
     PgRune first = first_opt.res;
     if ('/' == first) {
       *pos += pg_utf8_rune_bytes_count(first);
@@ -8142,7 +8142,7 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
   }
 
   first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-  if (!first_opt.ok || (!pg_rune_ascii_is_alphabetical(first_opt.res))) {
+  if (!first_opt.has_value || (!pg_rune_ascii_is_alphabetical(first_opt.res))) {
     return PG_HTML_PARSE_ERROR_INVALID_FIRST_CHARACTER_OF_TAG_NAME;
   }
   *pos += pg_utf8_rune_bytes_count(first_opt.res);
@@ -8150,7 +8150,7 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
   for (;;) {
     first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
 
-    if (!first_opt.ok) { // Early EOF.
+    if (!first_opt.has_value) { // Early EOF.
       return PG_HTML_PARSE_ERROR_EOF_IN_TAG;
     }
 
@@ -8202,7 +8202,7 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
 
   for (;;) {
     PgRuneOption first_opt = pg_string_first(PG_SLICE_RANGE_START(s, *pos));
-    if (!first_opt.ok) {
+    if (!first_opt.has_value) {
       return 0;
     }
 
@@ -8236,7 +8236,7 @@ pg_html_tokenize(PgString s, PgAllocator *allocator) {
   u64 pos = 0;
   for (;;) {
     PgRuneOption first_opt = pg_string_first(PG_SLICE_RANGE_START(s, pos));
-    if (!first_opt.ok) { // EOF.
+    if (!first_opt.has_value) { // EOF.
       return res;
     }
 
@@ -8416,7 +8416,7 @@ pg_html_node_get_title_level(PgHtmlNode *node) {
   }
 
   PgRuneOption last_opt = pg_string_last(node->token_start.tag);
-  if (!last_opt.ok) {
+  if (!last_opt.has_value) {
     return 0;
   }
 
@@ -8590,7 +8590,7 @@ pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
   Pgu8Slice at = PG_SLICE_RANGE_START(elf.strtab, offset);
 
   PgBytesCut cut = pg_bytes_cut_byte(at, 0);
-  if (!cut.ok) {
+  if (!cut.has_value) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
@@ -8866,13 +8866,13 @@ pg_aio_wait(PgAio aio, PgAioEventSlice events_out, Pgu32Option timeout_ms) {
   }
 
   struct timespec timeout = {0};
-  if (timeout_ms.ok) {
+  if (timeout_ms.has_value) {
     timeout.tv_sec = timeout_ms.res / 1000;
     timeout.tv_nsec = (timeout_ms.res % 1000) * 1000 * 1000;
   }
 
   i32 ret = kevent(aio.aio.fd, nullptr, 0, eventlist, eventlist_len,
-                   timeout_ms.ok ? &timeout : nullptr);
+                   timeout_ms.has_value ? &timeout : nullptr);
   if (-1 == ret) {
     res.err = (PgError)errno;
     return res;
@@ -8920,13 +8920,13 @@ pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Option timeout_ms) {
   }
 
   struct timespec timeout = {0};
-  if (timeout_ms.ok) {
+  if (timeout_ms.has_value) {
     timeout.tv_sec = timeout_ms.res / 1000;
     timeout.tv_nsec = (timeout_ms.res % 1000) * 1000 * 1000;
   }
 
   i32 ret = kevent(aio.aio.fd, nullptr, 0, eventlist, eventlist_len,
-                   timeout_ms.ok ? &timeout : nullptr);
+                   timeout_ms.has_value ? &timeout : nullptr);
   if (-1 == ret) {
     res.err = (PgError)errno;
     return res;
@@ -9068,7 +9068,7 @@ pg_aio_inotify_register_interest(PgAio aio, PgString name,
 pg_aio_ensure_inotify(PgAio *aio) {
   PG_ASSERT(aio);
 
-  if (aio->inotify.ok) {
+  if (aio->inotify.has_value) {
     return 0;
   }
 
@@ -9077,7 +9077,7 @@ pg_aio_ensure_inotify(PgAio *aio) {
     return res.err;
   }
 
-  aio->inotify.ok = true;
+  aio->inotify.has_value = true;
   aio->inotify.res = res.res;
 
   return 0;
@@ -9171,7 +9171,7 @@ pg_aio_wait(PgAio aio, PgAioEventSlice events_out, Pgu32Option timeout_ms) {
   i32 ret = 0;
   do {
     ret = epoll_wait(aio.aio.fd, events, (i32)events_len,
-                     timeout_ms.ok ? (i32)timeout_ms.res : -1);
+                     timeout_ms.has_value ? (i32)timeout_ms.res : -1);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
@@ -9215,7 +9215,7 @@ pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Option timeout_ms) {
   i32 ret = 0;
   do {
     ret = epoll_wait(aio.aio.fd, events, (i32)events_len,
-                     timeout_ms.ok ? (i32)timeout_ms.res : -1);
+                     timeout_ms.has_value ? (i32)timeout_ms.res : -1);
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
@@ -9466,7 +9466,7 @@ pg_aio_cqe_dequeue(PgRing *cqe) {
   Pgu8Slice bytes = {.data = (u8 *)&res.res, .len = sizeof(PgAioEvent)};
   PG_ASSERT(sizeof(PgAioEvent) == pg_ring_read_bytes(cqe, bytes));
 
-  res.ok = true;
+  res.has_value = true;
   return res;
 }
 
@@ -9505,20 +9505,20 @@ typedef struct {
 } PgCliParseResult;
 
 [[nodiscard]] static bool pg_cli_is_short_option(PgString s) {
-  PgStringOption s_ok = pg_string_consume_rune(s, '-');
-  if (!s_ok.ok) {
+  PgStringOption s_has_value = pg_string_consume_rune(s, '-');
+  if (!s_has_value.has_value) {
     return false;
   }
 
   // Is long?
-  s = s_ok.res;
-  s_ok = pg_string_consume_rune(s, '-');
-  return !s_ok.ok;
+  s = s_has_value.res;
+  s_has_value = pg_string_consume_rune(s, '-');
+  return !s_has_value.has_value;
 }
 
 [[nodiscard]] static bool pg_cli_is_no_option(PgString s) {
-  PgStringOption s_ok = pg_string_consume_rune(s, '-');
-  return !s_ok.ok;
+  PgStringOption s_has_value = pg_string_consume_rune(s, '-');
+  return !s_has_value.has_value;
 }
 
 [[nodiscard]] static PgCliOptionDescriptionOption
@@ -9528,7 +9528,7 @@ pg_cli_desc_find_by_name(PgCliOptionDescriptionSlice descs, PgString name) {
   for (u64 i = 0; i < descs.len; i++) {
     PgCliOptionDescription it = PG_SLICE_AT(descs, i);
     if (pg_string_eq(it.name_long, name) || pg_string_eq(it.name_short, name)) {
-      res.ok = true;
+      res.has_value = true;
       res.res = it;
       return res;
     }
@@ -9557,12 +9557,12 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
                                PgCliOptionDescriptionSlice descs, char **argv,
                                u64 *argv_idx, PgAllocator *allocator) {
 
-  PgCliOptionDescriptionOption desc_ok =
+  PgCliOptionDescriptionOption desc_has_value =
       pg_cli_desc_find_by_name(descs, opt_name);
-  if (!desc_ok.ok) {
+  if (!desc_has_value.has_value) {
     return PG_ERR_CLI_UNKNOWN_OPTION;
   }
-  PgCliOptionDescription desc = desc_ok.res;
+  PgCliOptionDescription desc = desc_has_value.res;
 
   if (!pg_string_is_empty(desc.value_name) && !with_opt_value_allowed) {
     return PG_ERR_CLI_FORBIDEN_OPTION_VALUE;
@@ -9611,17 +9611,17 @@ pg_cli_handle_one_long_option(PgString opt_name, PgCliOptionDyn *options,
                               PgAllocator *allocator) {
   PgString opt_value = {0};
   PgStringCut cut = pg_string_cut_rune(opt_name, '=');
-  if (cut.ok) {
+  if (cut.has_value) {
     opt_name = cut.left;
     opt_value = cut.right;
   }
 
-  PgCliOptionDescriptionOption desc_ok =
+  PgCliOptionDescriptionOption desc_has_value =
       pg_cli_desc_find_by_name(descs, opt_name);
-  if (!desc_ok.ok) {
+  if (!desc_has_value.has_value) {
     return PG_ERR_CLI_UNKNOWN_OPTION;
   }
-  PgCliOptionDescription desc = desc_ok.res;
+  PgCliOptionDescription desc = desc_has_value.res;
 
   // A value is expected in the same `argv` slot after `=`.
   if (!pg_string_is_empty(desc.value_name) && pg_string_is_empty(opt_value)) {
