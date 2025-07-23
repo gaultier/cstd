@@ -3170,6 +3170,52 @@ static void test_cli_options_parse() {
     PG_ASSERT(PG_ERR_CLI_MALFORMED_OPTION == res.err);
     PG_ASSERT(pg_string_eq(res.err_argv, PG_S("---foo")));
   }
+
+  // Malformed option.
+  {
+    PgCliOptionDescription descs[] = {
+        {
+            .name_short = PG_S("v"),
+            .name_long = PG_S("verbose"),
+            .description = PG_S("Verbose mode"),
+        },
+    };
+    PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
+
+    char *argv[] = {
+        "main.bin",
+        "-",
+        "some_argument",
+    };
+    int argc = PG_STATIC_ARRAY_LEN(argv);
+
+    PgCliParseResult res = pg_cli_parse(desc_slice, argc, argv, allocator);
+    PG_ASSERT(PG_ERR_CLI_MALFORMED_OPTION == res.err);
+    PG_ASSERT(pg_string_eq(res.err_argv, PG_S("-")));
+  }
+
+  // Malformed option.
+  {
+    PgCliOptionDescription descs[] = {
+        {
+            .name_short = PG_S("v"),
+            .name_long = PG_S("verbose"),
+            .description = PG_S("Verbose mode"),
+        },
+    };
+    PgCliOptionDescriptionSlice desc_slice = PG_SLICE_FROM_C(descs);
+
+    char *argv[] = {
+        "main.bin",
+        "--",
+        "some_argument",
+    };
+    int argc = PG_STATIC_ARRAY_LEN(argv);
+
+    PgCliParseResult res = pg_cli_parse(desc_slice, argc, argv, allocator);
+    PG_ASSERT(PG_ERR_CLI_MALFORMED_OPTION == res.err);
+    PG_ASSERT(pg_string_eq(res.err_argv, PG_S("--")));
+  }
 }
 
 int main() {
