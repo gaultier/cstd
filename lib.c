@@ -9675,7 +9675,16 @@ pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
               opt_name, false, &res.options, desc_slice, argv, &i, allocator);
           if (0 != err) {
             res.err = err;
-            res.err_argv = opt_name;
+            // Best effort reporting.
+
+            if (PG_ERR_CLI_UNKNOWN_OPTION == err) {
+              PgString synth = pg_string_make(2, allocator);
+              PG_SLICE_AT(synth, 0) = '-';
+              PG_SLICE_AT(synth, 1) = PG_SLICE_AT(arg, j);
+              res.err_argv = synth;
+            } else {
+              res.err_argv = opt_name;
+            }
             return res;
           }
         }

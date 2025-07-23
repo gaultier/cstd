@@ -3317,7 +3317,7 @@ static void test_cli_options_parse() {
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(PG_ERR_CLI_UNKNOWN_OPTION == res.err);
-    PG_ASSERT(pg_string_eq(res.err_argv, PG_S("x")));
+    PG_ASSERT(pg_string_eq(res.err_argv, PG_S("-x")));
   }
 
   // Unknown option passed.
