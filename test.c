@@ -19,7 +19,7 @@ static void test_string_last() {
     PG_ASSERT(!pg_string_last(PG_S("")).ok);
   }
   {
-    PgRuneOk res = pg_string_last(PG_S("朝日新聞デジタル聞"));
+    PgRuneOption res = pg_string_last(PG_S("朝日新聞デジタル聞"));
     PG_ASSERT(res.ok);
     PG_ASSERT(0x805e /* 聞 */ == res.res);
   }
@@ -31,7 +31,7 @@ static void test_string_first() {
     PG_ASSERT(!pg_string_first(PG_S("")).ok);
   }
   {
-    PgRuneOk res = pg_string_first(PG_S("聞デジタル"));
+    PgRuneOption res = pg_string_first(PG_S("聞デジタル"));
     PG_ASSERT(res.ok);
     PG_ASSERT(0x805e /* 聞 */ == res.res);
   }
@@ -159,19 +159,19 @@ static void test_string_split_byte() {
   PgSplitIterator it = pg_string_split_string(s, PG_S("."));
 
   {
-    PgStringOk elem = pg_string_split_next(&it);
+    PgStringOption elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.res, PG_S("hello")));
   }
 
   {
-    PgStringOk elem = pg_string_split_next(&it);
+    PgStringOption elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.res, PG_S("world")));
   }
 
   {
-    PgStringOk elem = pg_string_split_next(&it);
+    PgStringOption elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.res, PG_S("foobar")));
   }
@@ -185,19 +185,19 @@ static void test_string_split_string() {
   PgSplitIterator it = pg_string_split_string(s, PG_S("🚀🛸"));
 
   {
-    PgStringOk elem = pg_string_split_next(&it);
+    PgStringOption elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.res, PG_S("hello")));
   }
 
   {
-    PgStringOk elem = pg_string_split_next(&it);
+    PgStringOption elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.res, PG_S("world🚀little")));
   }
 
   {
-    PgStringOk elem = pg_string_split_next(&it);
+    PgStringOption elem = pg_string_split_next(&it);
     PG_ASSERT(true == elem.ok);
     PG_ASSERT(pg_string_eq(elem.res, PG_S("thing !")));
   }
@@ -495,15 +495,15 @@ static void test_utf8_iterator() {
 
 static void test_string_consume() {
   {
-    PgStringOk res = pg_string_consume_rune(PG_S(""), '{');
+    PgStringOption res = pg_string_consume_rune(PG_S(""), '{');
     PG_ASSERT(!res.ok);
   }
   {
-    PgStringOk res = pg_string_consume_rune(PG_S("[1,2]"), '{');
+    PgStringOption res = pg_string_consume_rune(PG_S("[1,2]"), '{');
     PG_ASSERT(!res.ok);
   }
   {
-    PgStringOk res = pg_string_consume_rune(PG_S("🍌[1,2]"), 0x1f34c /* 🍌 */);
+    PgStringOption res = pg_string_consume_rune(PG_S("🍌[1,2]"), 0x1f34c /* 🍌 */);
     PG_ASSERT(res.ok);
     PG_ASSERT(pg_string_eq(PG_S("[1,2]"), res.res));
   }
@@ -2853,13 +2853,13 @@ static void test_aio_tcp_sockets() {
   PgReader server_reader = pg_reader_make_from_socket(server_fd, 16, allocator);
 
   for (u64 _i = 0; _i < 32; _i++) {
-    Pgu32Ok timeout = {0};
+    Pgu32Option timeout = {0};
     Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout);
     PG_ASSERT(0 == res_wait.err);
     PG_ASSERT(0 != res_wait.res);
 
     for (u64 i = 0; i < res_wait.res; i++) {
-      PgAioEventOk ok_event = pg_aio_cqe_dequeue(&cqe);
+      PgAioEventOption ok_event = pg_aio_cqe_dequeue(&cqe);
       PG_ASSERT(ok_event.ok);
 
       PgAioEvent event = ok_event.res;
@@ -2899,7 +2899,7 @@ static void test_watch_directory() {
   PgRing cqe = pg_ring_make(sizeof(PgAioEvent) * 16, allocator);
 
   for (u64 _i = 0; _i < 4; _i++) {
-    Pgu32Ok timeout = {.res = 1, .ok = false};
+    Pgu32Option timeout = {.res = 1, .ok = false};
     Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout);
     PG_ASSERT(0 == res_wait.err);
     if (0 == res_wait.res) {
@@ -2907,7 +2907,7 @@ static void test_watch_directory() {
     }
 
     for (u64 i = 0; i < res_wait.res; i++) {
-      PgAioEventOk ok_event = pg_aio_cqe_dequeue(&cqe);
+      PgAioEventOption ok_event = pg_aio_cqe_dequeue(&cqe);
       PG_ASSERT(ok_event.ok);
 
       PgAioEvent event = ok_event.res;
