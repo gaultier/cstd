@@ -1,6 +1,9 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpadded"
+
 // TODO: Document all functions.
 // TODO: IPv6.
 // TODO: *Pool allocator?*
@@ -160,7 +163,7 @@ typedef double f64;
   }
 
 // TODO: Separate error type?
-typedef u32 PgError;
+typedef u64 PgError;
 #define PG_ERR_EOF 4095
 #ifdef PG_OS_UNIX
 #define PG_ERR_INVALID_VALUE EINVAL
@@ -9812,5 +9815,6 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     fprintf(stderr, "Unknown CLI options parse error.");
   }
 }
+#pragma GCC diagnostic pop
 
 #endif
