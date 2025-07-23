@@ -9467,14 +9467,6 @@ pg_aio_cqe_dequeue(PgRing *cqe) {
   return res;
 }
 
-typedef enum {
-  PG_CLI_OPTION_KIND_NONE,
-  PG_CLI_OPTION_KIND_BOOL,
-  PG_CLI_OPTION_KIND_I64,
-  PG_CLI_OPTION_KIND_F64,
-  PG_CLI_OPTION_KIND_STRING,
-} PgCliOptionKind;
-
 typedef struct {
   bool required;
   // Name of the value e.g. `linker` for `-fuse-ld`.
