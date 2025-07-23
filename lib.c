@@ -9498,6 +9498,7 @@ typedef struct {
 PG_DYN(PgCliOption) PgCliOptionDyn;
 PG_SLICE(PgCliOption) PgCliOptionSlice;
 PG_RESULT(PgCliOption) PgCliOptionResult;
+PG_OK(PgCliOption) PgCliOptionOk;
 
 typedef struct {
   PgStringDyn plain_arguments;
@@ -9551,6 +9552,20 @@ pg_cli_desc_find_by_name(PgCliOptionDescriptionSlice descs, PgString name,
   }
 
   return res;
+}
+
+[[nodiscard]] static PgCliOption *
+pg_cli_options_find_by_name(PgCliOptionDyn options, PgString name_short,
+                            PgString name_long) {
+  for (u64 i = 0; i < options.len; i++) {
+    PgCliOption *it = PG_SLICE_AT_PTR(&options, i);
+    if (pg_string_eq(it->desc.name_long, name_short) ||
+        pg_string_eq(it->desc.name_short, name_long)) {
+      return it;
+    }
+  }
+
+  return nullptr;
 }
 
 [[nodiscard]] static PgCliOptionResult
@@ -9607,7 +9622,8 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
 
     // Error if the option name starts with more than 2 `-` e.g. `---a` or it
     // only contains `-` e.g. `-`, `--`.
-    // TODO: Treat `---` as a separator between options and plain arguments.
+    // TODO: Treat `---` as a valid separator between options and plain
+    // arguments.
     if (pg_string_starts_with(arg, PG_S("---")) ||
         pg_string_eq(arg, PG_S("-")) || pg_string_eq(arg, PG_S("--"))) {
       res.err = PG_ERR_CLI_MALFORMED_OPTION;
@@ -9654,7 +9670,8 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       continue;
     }
 
-    // Long option from now on.
+    // Long option from there.
+
     arg = pg_string_trim_left(arg, '-');
     PG_ASSERT(arg.len > 0);
     PG_ASSERT(0 && "todo");
@@ -9692,17 +9709,8 @@ pg_cli_parse(PgCliOptionDescriptionSlice descs, int argc, char *argv[],
       continue;
     }
 
-    bool found = false;
-    for (u64 j = 0; j < res.options.len; j++) {
-      PgCliOption opt = PG_SLICE_AT(res.options, j);
-      if (pg_string_eq(opt.desc.name_short, desc.name_short) ||
-          pg_string_eq(opt.desc.name_long, desc.name_long)) {
-        found = true;
-        break;
-      }
-    }
-
-    if (!found) {
+    if (!pg_cli_options_find_by_name(res.options, desc.name_short,
+                                     desc.name_long)) {
       res.err = PG_ERR_CLI_MISSING_REQUIRED_OPTION;
       res.err_argv = pg_string_is_empty(desc.name_short) ? desc.name_long
                                                          : desc.name_short;
