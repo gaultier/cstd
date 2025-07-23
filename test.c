@@ -2918,7 +2918,7 @@ static void test_watch_directory() {
 #endif
 
 static void test_cli_options_parse() {
-  PgArena arena = pg_arena_make_from_virtual_mem(8 * PG_KiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(16 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
@@ -3115,7 +3115,7 @@ static void test_cli_options_parse() {
     PG_ASSERT(pg_string_eq(res.err_argv, PG_S("o")));
   }
 
-  // Missing required short option.
+  // Missing required option.
   {
     PgCliOptionDescriptionDyn descs = {0};
     *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
@@ -3488,6 +3488,53 @@ static void test_cli_options_parse() {
     PG_ASSERT(pg_string_eq(opt0_value0, PG_S("out1.txt")));
     PgString opt0_value1 = PG_SLICE_AT(opt0.values, 1);
     PG_ASSERT(pg_string_eq(opt0_value1, PG_S("foo.txt")));
+  }
+  // Help, short form.
+  {
+    PgCliOptionDescriptionDyn descs = {0};
+    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
+        .name_short = PG_S("v"),
+        .name_long = PG_S("verbose"),
+        .description = PG_S("Verbose mode"),
+    };
+    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
+        .name_short = PG_S("H"),
+        .name_long = PG_S("hidden"),
+        .description = PG_S("scan hidden files"),
+    };
+    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
+        .name_short = PG_S("o"),
+        .name_long = PG_S("output"),
+        .description = PG_S("Specify an output"),
+        .value_name = PG_S("file"),
+    };
+
+    char *argv[] = {
+        "main.bin", "--output=out1.txt", "some_argument", "-h", "foo.txt",
+    };
+    int argc = PG_STATIC_ARRAY_LEN(argv);
+
+    PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(2 == res.plain_arguments.len);
+    PG_ASSERT(2 == res.options.len);
+
+    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.plain_arguments, 0),
+                           PG_S("some_argument")));
+    PG_ASSERT(
+        pg_string_eq(PG_SLICE_AT(res.plain_arguments, 1), PG_S("foo.txt")));
+
+    PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
+    PG_ASSERT(0 == opt0.err);
+    PG_ASSERT(pg_string_eq(opt0.description.name_long, PG_S("output")));
+    PG_ASSERT(1 == opt0.values.len);
+    PgString opt0_value0 = PG_SLICE_AT(opt0.values, 0);
+    PG_ASSERT(pg_string_eq(opt0_value0, PG_S("out1.txt")));
+
+    PgCliOption opt1 = PG_SLICE_AT(res.options, 1);
+    PG_ASSERT(0 == opt1.err);
+    PG_ASSERT(pg_string_eq(opt1.description.name_long, PG_S("help")));
+    PG_ASSERT(0 == opt1.values.len);
   }
 }
 
