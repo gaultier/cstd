@@ -1,4 +1,1 @@
-- s/PG_OK/PG_OPTION/g
-- s/XXXOption.ok/XXXOption.has_value/g
-- s/XXXOption.res/XXXOption.value/g
-- s/XXXResult.res/XXResult.value/g
+- replace `*PG_DYN_PUSH(a,b)=c` by `PG_DYN_PUSH(a,c,b)` 

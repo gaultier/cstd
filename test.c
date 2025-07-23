@@ -217,7 +217,7 @@ static void test_dyn_ensure_cap() {
     PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
     Pgu8Dyn dyn = {0};
-    *PG_DYN_PUSH(&dyn, allocator) = 1;
+    PG_DYN_PUSH(&dyn, 1, allocator);
     PG_ASSERT(1 == dyn.len);
     PG_ASSERT(2 == dyn.cap);
 
@@ -238,19 +238,19 @@ static void test_dyn_ensure_cap() {
     PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
     Pgu8Dyn dyn = {0};
-    *PG_DYN_PUSH(&dyn, allocator) = 1;
+    PG_DYN_PUSH(&dyn, 1, allocator);
     PG_ASSERT(1 == dyn.len);
     PG_ASSERT(2 == dyn.cap);
 
     Pgu8Dyn dummy = {0};
-    *PG_DYN_PUSH(&dummy, allocator) = 2;
-    *PG_DYN_PUSH(&dummy, allocator) = 3;
+    PG_DYN_PUSH(&dummy, 2, allocator);
+    PG_DYN_PUSH(&dummy, 3, allocator);
 
     u64 arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
     PG_ASSERT(2 + 2 == arena_size_expected);
 
     // This triggers a new allocation.
-    *PG_DYN_PUSH(&dummy, allocator) = 4;
+    PG_DYN_PUSH(&dummy, 4, allocator);
     PG_ASSERT(3 == dummy.len);
     PG_ASSERT(4 == dummy.cap);
 
@@ -297,9 +297,9 @@ static void test_slice_range() {
   // Works on empty slices.
   (void)PG_SLICE_RANGE(PG_DYN_SLICE(PgStringSlice, dyn), 0, 0);
 
-  *PG_DYN_PUSH(&dyn, allocator) = PG_S("hello \"world\n\"!");
-  *PG_DYN_PUSH(&dyn, allocator) = PG_S("日");
-  *PG_DYN_PUSH(&dyn, allocator) = PG_S("本語");
+  PG_DYN_PUSH(&dyn, PG_S("hello \"world\n\"!"), allocator);
+  PG_DYN_PUSH(&dyn, PG_S("日"), allocator);
+  PG_DYN_PUSH(&dyn, PG_S("本語"), allocator);
 
   PgStringSlice s = PG_DYN_SLICE(PgStringSlice, dyn);
   PgStringSlice range = PG_SLICE_RANGE_START(s, 1UL);
@@ -1266,7 +1266,7 @@ static void test_http_request_to_string() {
     req.method = PG_HTTP_METHOD_POST;
     pg_http_push_header(&req.headers, PG_S("Host"), PG_S("google.com"),
                         allocator);
-    *PG_DYN_PUSH(&req.url.path_components, allocator) = PG_S("foobar");
+    PG_DYN_PUSH(&req.url.path_components, PG_S("foobar"), allocator);
 
     PgString s = pg_http_request_to_string(req, allocator);
     PgString expected = PG_S("POST /foobar HTTP/1.1\r\n"
@@ -2121,7 +2121,7 @@ static void test_process_no_capture() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgStringDyn args = {0};
-  *PG_DYN_PUSH(&args, allocator) = PG_S("ls-files");
+  PG_DYN_PUSH(&args, PG_S("ls-files"), allocator);
 
   PgProcessSpawnOptions options = {0};
   PgProcessResult res_spawn = pg_process_spawn(
@@ -2152,7 +2152,7 @@ static void test_process_capture() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgStringDyn args = {0};
-  *PG_DYN_PUSH(&args, allocator) = PG_S("ls-files");
+  PG_DYN_PUSH(&args, PG_S("ls-files"), allocator);
 
   PgProcessSpawnOptions options = {
       .stdout_capture = PG_CHILD_PROCESS_STD_IO_PIPE,
@@ -2185,7 +2185,7 @@ static void test_process_stdin() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgStringDyn args = {0};
-  *PG_DYN_PUSH(&args, allocator) = PG_S("lo wo");
+  PG_DYN_PUSH(&args, PG_S("lo wo"), allocator);
 
   PgProcessSpawnOptions options = {
       .stdin_capture = PG_CHILD_PROCESS_STD_IO_PIPE,
@@ -2926,17 +2926,21 @@ static void test_cli_options_parse() {
   // No options, only plain arguments.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("o"),
-        .name_long = PG_S("output"),
-        .description = PG_S("Specify an output file"),
-        .value_name = PG_S("file"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output file"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin",
@@ -2958,17 +2962,21 @@ static void test_cli_options_parse() {
   // Some short option with value given.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("o"),
-        .name_long = PG_S("output"),
-        .description = PG_S("Specify an output"),
-        .value_name = PG_S("file"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin",
@@ -2996,17 +3004,21 @@ static void test_cli_options_parse() {
   // All short options given.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("o"),
-        .name_long = PG_S("output"),
-        .description = PG_S("Specify an output"),
-        .value_name = PG_S("file"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin", "-o", "out.txt", "some_argument", "-v",
@@ -3036,22 +3048,28 @@ static void test_cli_options_parse() {
   // Short options given, coalesced.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("H"),
-        .name_long = PG_S("hidden"),
-        .description = PG_S("scan hidden files"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("o"),
-        .name_long = PG_S("output"),
-        .description = PG_S("Specify an output"),
-        .value_name = PG_S("file"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin", "-o", "out.txt", "-vH", "some_argument",
@@ -3086,22 +3104,28 @@ static void test_cli_options_parse() {
   // Short option given without argument but one was expected.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("H"),
-        .name_long = PG_S("hidden"),
-        .description = PG_S("scan hidden files"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("o"),
-        .name_long = PG_S("output"),
-        .description = PG_S("Specify an output"),
-        .value_name = PG_S("file"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin",
@@ -3119,17 +3143,21 @@ static void test_cli_options_parse() {
   // Missing required option.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-        .required = true,
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("H"),
-        .name_long = PG_S("hidden"),
-        .description = PG_S("scan hidden files"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                    .required = true,
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin",
@@ -3146,11 +3174,13 @@ static void test_cli_options_parse() {
   // Malformed option.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin",
@@ -3167,11 +3197,13 @@ static void test_cli_options_parse() {
   // Malformed option.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin",
@@ -3188,16 +3220,20 @@ static void test_cli_options_parse() {
   // Treat everything after `--` as plain arguments.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("H"),
-        .name_long = PG_S("hidden"),
-        .description = PG_S("Hidden mode"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("Hidden mode"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin", "-H", "--", "--verbose", "some_argument",
@@ -3223,22 +3259,28 @@ static void test_cli_options_parse() {
   // Short options given, coalesced, repeated.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("H"),
-        .name_long = PG_S("hidden"),
-        .description = PG_S("scan hidden files"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("o"),
-        .name_long = PG_S("output"),
-        .description = PG_S("Specify an output"),
-        .value_name = PG_S("file"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin", "-o", "out1.txt", "-vH", "some_argument", "-o", "out2.txt",
@@ -3276,16 +3318,20 @@ static void test_cli_options_parse() {
   // Short options repeated without value: noop.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("H"),
-        .name_long = PG_S("hidden"),
-        .description = PG_S("scan hidden files"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin",
@@ -3317,11 +3363,13 @@ static void test_cli_options_parse() {
   // Unknown option passed, coalesced.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin",
@@ -3338,11 +3386,13 @@ static void test_cli_options_parse() {
   // Unknown option passed.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin",
@@ -3358,22 +3408,28 @@ static void test_cli_options_parse() {
   // Long option given.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("H"),
-        .name_long = PG_S("hidden"),
-        .description = PG_S("scan hidden files"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("o"),
-        .name_long = PG_S("output"),
-        .description = PG_S("Specify an output"),
-        .value_name = PG_S("file"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin",
@@ -3400,22 +3456,28 @@ static void test_cli_options_parse() {
   // Long & short options given.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("H"),
-        .name_long = PG_S("hidden"),
-        .description = PG_S("scan hidden files"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("o"),
-        .name_long = PG_S("output"),
-        .description = PG_S("Specify an output"),
-        .value_name = PG_S("file"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin", "-v", "--output=out1.txt", "some_argument", "--hidden",
@@ -3451,22 +3513,28 @@ static void test_cli_options_parse() {
   // Repeated, same long & short option given.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("H"),
-        .name_long = PG_S("hidden"),
-        .description = PG_S("scan hidden files"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("o"),
-        .name_long = PG_S("output"),
-        .description = PG_S("Specify an output"),
-        .value_name = PG_S("file"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin", "--output=out1.txt", "some_argument", "-o", "foo.txt",
@@ -3493,22 +3561,28 @@ static void test_cli_options_parse() {
   // Help, short form.
   {
     PgCliOptionDescriptionDyn descs = {0};
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("v"),
-        .name_long = PG_S("verbose"),
-        .description = PG_S("Verbose mode"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("H"),
-        .name_long = PG_S("hidden"),
-        .description = PG_S("scan hidden files"),
-    };
-    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-        .name_short = PG_S("o"),
-        .name_long = PG_S("output"),
-        .description = PG_S("Specify an output"),
-        .value_name = PG_S("file"),
-    };
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
 
     char *argv[] = {
         "main.bin", "--output=out1.txt", "some_argument", "-h", "foo.txt",
@@ -3545,21 +3619,27 @@ static void test_cli_options_help() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgCliOptionDescriptionDyn descs = {0};
-  *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-      .name_short = PG_S("v"),
-      .description = PG_S("Verbose mode"),
-  };
-  *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-      .name_long = PG_S("hidden"),
-      .description = PG_S("Scan hidden files"),
-  };
-  *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
-      .name_short = PG_S("o"),
-      .name_long = PG_S("output"),
-      .description = PG_S("Specify an output file"),
-      .value_name = PG_S("file"),
-      .required = true,
-  };
+  PG_DYN_PUSH(&descs,
+              ((PgCliOptionDescription){
+                  .name_short = PG_S("v"),
+                  .description = PG_S("Verbose mode"),
+              }),
+              allocator);
+  PG_DYN_PUSH(&descs,
+              ((PgCliOptionDescription){
+                  .name_long = PG_S("hidden"),
+                  .description = PG_S("Scan hidden files"),
+              }),
+              allocator);
+  PG_DYN_PUSH(&descs,
+              ((PgCliOptionDescription){
+                  .name_short = PG_S("o"),
+                  .name_long = PG_S("output"),
+                  .description = PG_S("Specify an output file"),
+                  .value_name = PG_S("file"),
+                  .required = true,
+              }),
+              allocator);
   PgString exe_name = PG_S("a.out");
   PgString description =
       PG_S("This is an example program. It helps fooizing bars.");

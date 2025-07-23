@@ -2544,9 +2544,12 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
 #define PG_DYN_SPACE(T, dyn)                                                   \
   ((T){.data = (dyn)->data + (dyn)->len, .len = (dyn)->cap - (dyn)->len})
 
-#define PG_DYN_PUSH(s, allocator)                                              \
-  (PG_DYN_ENSURE_CAP(s, (s)->len + 1, allocator),                              \
-   (s)->len > 0 ? PG_ASSERT((s)->data) : 0, (s)->data + (s)->len++)
+#define PG_DYN_PUSH(s, elem, allocator)                                        \
+  do {                                                                         \
+    PG_DYN_ENSURE_CAP(s, (s)->len + 1, allocator);                             \
+    (s)->len += 1;                                                             \
+    *PG_SLICE_AT_PTR(s, (s)->len - 1) = (typeof((s)->data[0]))(elem);          \
+  } while (0)
 
 #define PG_DYN_PUSH_WITHIN_CAPACITY(s)                                         \
   (PG_ASSERT(((s)->len < (s)->cap)), (s)->len > 0 ? PG_ASSERT((s)->data) : 0,  \
@@ -3407,11 +3410,11 @@ pg_string_builder_append_js_string_escaped(Pgu8Dyn *sb, PgString s,
       if (rune <= 127) {
         pg_string_builder_append_rune(sb, rune, allocator);
       } else {
-        *PG_DYN_PUSH(sb, allocator) = '\\';
-        *PG_DYN_PUSH(sb, allocator) = 'u';
-        *PG_DYN_PUSH(sb, allocator) = '{';
+        PG_DYN_PUSH(sb, '\\', allocator);
+        PG_DYN_PUSH(sb, 'u', allocator);
+        PG_DYN_PUSH(sb, '{', allocator);
         pg_string_builder_append_u64_hex(sb, rune, allocator);
-        *PG_DYN_PUSH(sb, allocator) = '}';
+        PG_DYN_PUSH(sb, '}', allocator);
       }
     }
   }
@@ -3438,7 +3441,7 @@ pg_byte_buffer_append_u32_be_within_capacity(Pgu8Dyn *dyn, u32 n) {
 [[maybe_unused]] static void pg_byte_buffer_append_u8(Pgu8Dyn *dyn, u8 n,
                                                       PgAllocator *allocator) {
 
-  *PG_DYN_PUSH(dyn, allocator) = n;
+  PG_DYN_PUSH(dyn, n, allocator);
 }
 
 [[maybe_unused]] static void pg_byte_buffer_append_u16(Pgu8Dyn *dyn, u16 n,
@@ -5325,12 +5328,12 @@ static PgProcessResult pg_process_spawn(PgString path, PgStringSlice args,
 
   PgCstrDyn args_c = {0};
   PG_DYN_ENSURE_CAP(&args_c, args.len + 2, allocator);
-  *PG_DYN_PUSH(&args_c, allocator) = path_c;
+  PG_DYN_PUSH(&args_c, path_c, allocator);
 
   for (u64 i = 0; i < args.len; i++) {
     PgString arg = PG_SLICE_AT(args, i);
 
-    *PG_DYN_PUSH(&args_c, allocator) = pg_string_to_cstr(arg, allocator);
+    PG_DYN_PUSH(&args_c, pg_string_to_cstr(arg, allocator), allocator);
   }
   PG_ASSERT(args.len + 1 == args_c.len);
 
@@ -6320,8 +6323,8 @@ pg_http_parse_response_status_line(PgString status_line) {
 [[maybe_unused]]
 static void pg_http_push_header(PgStringKeyValueDyn *headers, PgString key,
                                 PgString value, PgAllocator *allocator) {
-  *PG_DYN_PUSH(headers, allocator) =
-      (PgStringKeyValue){.key = key, .value = value};
+  PG_DYN_PUSH(headers, ((PgStringKeyValue){.key = key, .value = value}),
+              allocator);
 }
 
 [[nodiscard]] [[maybe_unused]] static PgError
@@ -6529,7 +6532,7 @@ pg_html_sanitize(PgString s, PgAllocator *allocator) {
     } else if ('\'' == c) {
       PG_DYN_APPEND_SLICE(&res, PG_S("&#39;"), allocator);
     } else {
-      *PG_DYN_PUSH(&res, allocator) = c;
+      PG_DYN_PUSH(&res, c, allocator);
     }
   }
 
@@ -6557,14 +6560,14 @@ static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
     PgRune rune = res.rune;
 
     if (pg_rune_ascii_is_alphanumeric(rune)) {
-      *PG_DYN_PUSH(&sb, allocator) = (u8)pg_rune_ascii_to_lower_case(rune);
+      PG_DYN_PUSH(&sb, pg_rune_ascii_to_lower_case(rune), allocator);
     } else if ('+' == rune) {
       PG_DYN_APPEND_SLICE(&sb, PG_S("plus"), allocator);
     } else if ('#' == rune) {
       PG_DYN_APPEND_SLICE(&sb, PG_S("sharp"), allocator);
     } else if (PG_SLICE_LAST(sb) != '-') {
       // Other runes are mapped to `-`, but we avoid consecutive `-`.
-      *PG_DYN_PUSH(&sb, allocator) = '-';
+      PG_DYN_PUSH(&sb, '-', allocator);
     }
   }
   PgString res = PG_DYN_SLICE(PgString, sb);
@@ -6603,7 +6606,7 @@ pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
       continue;
     }
 
-    *PG_DYN_PUSH(&components, allocator) = split_opt.value;
+    PG_DYN_PUSH(&components, split_opt.value, allocator);
   }
 
   res.value = components;
@@ -6695,8 +6698,8 @@ pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
     PgString v = res_consume_eq.consumed ? res_consume_eq.right : PG_S("");
 
     if (!PG_SLICE_IS_EMPTY(k)) {
-      *PG_DYN_PUSH(&res.value, allocator) =
-          (PgStringKeyValue){.key = k, .value = v};
+      PG_DYN_PUSH(&res.value, ((PgStringKeyValue){.key = k, .value = v}),
+                  allocator);
     }
 
     if (!res_consume_and.consumed) {
@@ -7368,7 +7371,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
       return res;
     }
 
-    *PG_DYN_PUSH(&res.req.headers, allocator) = res_kv.value;
+    PG_DYN_PUSH(&res.req.headers, res_kv.value, allocator);
   }
 
   // Too many headers.
@@ -8001,7 +8004,7 @@ static PgError pg_html_tokenize_comment(PgString s, u64 *pos,
           .start = start,
           .end = (u32)*pos,
       };
-      *PG_DYN_PUSH(tokens, allocator) = token;
+      PG_DYN_PUSH(tokens, token, allocator);
 
       *pos += PG_S("-->").len;
       return 0;
@@ -8039,7 +8042,7 @@ static PgError pg_html_tokenize_doctype_name(PgString s, u64 *pos,
       token.end = (u32)*pos;
       token.doctype.len = token.end - token.start;
       PG_ASSERT(!pg_string_is_empty(token.doctype));
-      *PG_DYN_PUSH(tokens, allocator) = token;
+      PG_DYN_PUSH(tokens, token, allocator);
 
       *pos += pg_utf8_rune_bytes_count(first);
       return 0;
@@ -8175,7 +8178,7 @@ static PgError pg_html_tokenize_tag(PgString s, u64 *pos,
       token.tag = pg_string_trim_space(token.tag);
       token.tag = pg_string_trim_right(token.tag, '/');
 
-      *PG_DYN_PUSH(tokens, allocator) = token;
+      PG_DYN_PUSH(tokens, token, allocator);
       *pos += pg_utf8_rune_bytes_count(first);
       return 0;
     }
@@ -8219,7 +8222,7 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
           .text = PG_SLICE_RANGE(s, start, *pos),
       };
       if (!pg_string_is_empty(pg_string_trim_space(token.text))) {
-        *PG_DYN_PUSH(tokens, allocator) = token;
+        PG_DYN_PUSH(tokens, token, allocator);
       }
       return 0;
     }
@@ -9597,17 +9600,17 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
 
     // With value.
 
-    *PG_DYN_PUSH(&opt_existing->values, allocator) = opt_value;
+    PG_DYN_PUSH(&opt_existing->values, opt_value, allocator);
     return 0;
   }
 
   // Add the new option.
   PgCliOption opt = {.description = desc};
   if (!pg_string_is_empty(desc.value_name)) {
-    *PG_DYN_PUSH(&opt.values, allocator) = opt_value;
+    PG_DYN_PUSH(&opt.values, opt_value, allocator);
   }
 
-  *PG_DYN_PUSH(options, allocator) = opt;
+  PG_DYN_PUSH(options, opt, allocator);
   return 0;
 }
 
@@ -9645,17 +9648,17 @@ pg_cli_handle_one_long_option(PgString opt_name, PgCliOptionDyn *options,
 
     // With value.
 
-    *PG_DYN_PUSH(&opt_existing->values, allocator) = opt_value;
+    PG_DYN_PUSH(&opt_existing->values, opt_value, allocator);
     return 0;
   }
 
   // Add the new option.
   PgCliOption opt = {.description = desc};
   if (!pg_string_is_empty(desc.value_name)) {
-    *PG_DYN_PUSH(&opt.values, allocator) = opt_value;
+    PG_DYN_PUSH(&opt.values, opt_value, allocator);
   }
 
-  *PG_DYN_PUSH(options, allocator) = opt;
+  PG_DYN_PUSH(options, opt, allocator);
   return 0;
 }
 
@@ -9667,7 +9670,7 @@ static void pg_cli_inject_help_option(PgCliOptionDescriptionDyn *descs,
       .description = PG_S("Print this help message"),
   };
 
-  *PG_DYN_PUSH(descs, allocator) = desc;
+  PG_DYN_PUSH(descs, desc, allocator);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgCliParseResult
@@ -9684,7 +9687,7 @@ pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
 
     // Plain argument.
     if (pg_cli_is_no_option(arg)) {
-      *PG_DYN_PUSH(&res.plain_arguments, allocator) = arg;
+      PG_DYN_PUSH(&res.plain_arguments, arg, allocator);
       continue;
     }
 
@@ -9692,7 +9695,7 @@ pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
     if (pg_string_eq(arg, PG_S("--"))) {
       for (u64 j = i + 1; j < (u64)argc; j++) {
         PgString arg = pg_cstr_to_string(argv[j]);
-        *PG_DYN_PUSH(&res.plain_arguments, allocator) = arg;
+        PG_DYN_PUSH(&res.plain_arguments, arg, allocator);
       }
       return res;
     }
