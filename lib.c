@@ -9488,7 +9488,6 @@ typedef struct {
 
 typedef struct {
   PgCliOptionDescription desc;
-  PgString value;
   PgStringDyn values;
   PgError err;
 } PgCliOption;
@@ -9604,13 +9603,6 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
 
     // With value.
 
-    // Move the `u.value` into `u.values` (once).
-    if (opt_existing->value.len > 0) {
-      PG_ASSERT(0 == opt_existing->values.len);
-
-      *PG_DYN_PUSH(&opt_existing->values, allocator) = opt_existing->value;
-      opt_existing->value.len = 0;
-    }
     *PG_DYN_PUSH(&opt_existing->values, allocator) = opt_value;
     return 0;
   }
@@ -9618,7 +9610,7 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
   // Add the new option.
   PgCliOption opt = {.desc = desc};
   if (desc.with_value) {
-    opt.value = opt_value;
+    *PG_DYN_PUSH(&opt.values, allocator) = opt_value;
   }
 
   *PG_DYN_PUSH(options, allocator) = opt;
