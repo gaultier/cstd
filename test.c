@@ -3351,10 +3351,13 @@ static void test_cli_options_help() {
       PG_S("This is an example program. It helps fooizing bars."),
       PG_S("<file1> <file2> <file3>"), allocator);
 
-  PgString expected = PG_S("a.out [-v] [--hidden] (-o|--output file) <file1> "
-                           "<file2> <file3>\nThis is "
-                           "an example program. It helps fooizing bars.\n");
-  printf("%.*s", (i32)help.len, help.data);
+  PgString expected = PG_S(
+      "a.out [-v] [--hidden] (-o|--output file) <file1> "
+      "<file2> <file3>\nThis is "
+      "an example program. It helps fooizing bars.\n\nOPTIONS:\n    -v\n       "
+      " Verbose mode.\n\n    --hidden\n        Scan hidden files.\n\n    -o "
+      "file, --output=file    [required]\n        Specify an output "
+      "file.\n\n\n");
   PG_ASSERT(pg_string_eq(expected, help));
 }
 
