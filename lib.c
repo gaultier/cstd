@@ -9473,7 +9473,6 @@ typedef enum {
 
 typedef struct {
   bool required;
-  bool repeated;
   bool with_value;
   PgString name_short;
   PgString name_long;
@@ -9489,10 +9488,8 @@ typedef struct {
 
 typedef struct {
   PgCliOptionDescription desc;
-  union {
-    PgString value;
-    PgStringDyn values;
-  } u;
+  PgString value;
+  PgStringDyn values;
   PgError err;
 } PgCliOption;
 PG_DYN(PgCliOption) PgCliOptionDyn;
@@ -9560,8 +9557,8 @@ pg_cli_options_find_by_name(PgCliOptionDyn options, PgString name_short,
                             PgString name_long) {
   for (u64 i = 0; i < options.len; i++) {
     PgCliOption *it = PG_SLICE_AT_PTR(&options, i);
-    if (pg_string_eq(it->desc.name_long, name_short) ||
-        pg_string_eq(it->desc.name_short, name_long)) {
+    if (pg_string_eq(it->desc.name_long, name_long) ||
+        pg_string_eq(it->desc.name_short, name_short)) {
       return it;
     }
   }
@@ -9586,7 +9583,12 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
     return PG_ERR_CLI_FORBIDEN_OPTION_VALUE;
   }
 
-  PgString opt_value = pg_cstr_to_string(argv[*argv_idx + desc.with_value]);
+  PgString opt_value = {0};
+  if (desc.with_value) {
+    *argv_idx += 1;
+    opt_value = pg_cstr_to_string(argv[*argv_idx]);
+  }
+
   if (desc.with_value &&
       (0 == opt_value.len || !pg_cli_is_no_option(opt_value))) {
     return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
@@ -9603,21 +9605,20 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
     // With value.
 
     // Move the `u.value` into `u.values` (once).
-    if (opt_existing->u.value.len > 0) {
-      PG_ASSERT(0 == opt_existing->u.values.len);
+    if (opt_existing->value.len > 0) {
+      PG_ASSERT(0 == opt_existing->values.len);
 
-      *PG_DYN_PUSH(&opt_existing->u.values, allocator) = opt_existing->u.value;
-      opt_existing->u.value.len = 0;
+      *PG_DYN_PUSH(&opt_existing->values, allocator) = opt_existing->value;
+      opt_existing->value.len = 0;
     }
-    *PG_DYN_PUSH(&opt_existing->u.values, allocator) = opt_value;
+    *PG_DYN_PUSH(&opt_existing->values, allocator) = opt_value;
     return 0;
   }
 
   // Add the new option.
   PgCliOption opt = {.desc = desc};
   if (desc.with_value) {
-    *argv_idx += 1;
-    opt.u.value = opt_value;
+    opt.value = opt_value;
   }
 
   *PG_DYN_PUSH(options, allocator) = opt;
