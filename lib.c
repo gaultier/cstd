@@ -9586,7 +9586,7 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
     return PG_ERR_CLI_FORBIDEN_OPTION_VALUE;
   }
 
-  PgString opt_value = pg_cstr_to_string(argv[*argv_idx]);
+  PgString opt_value = pg_cstr_to_string(argv[*argv_idx + desc.with_value]);
   if (desc.with_value &&
       (0 == opt_value.len || !pg_cli_is_no_option(opt_value))) {
     return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
