@@ -3184,7 +3184,7 @@ static void test_cli_options_parse() {
     PG_ASSERT(pg_string_eq(res.err_argv, PG_S("-")));
   }
 
-  // Malformed option.
+  // Treat everything after `--` as plain arguments.
   {
     PgCliOptionDescriptionDyn descs = {0};
     *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
@@ -3192,17 +3192,31 @@ static void test_cli_options_parse() {
         .name_long = PG_S("verbose"),
         .description = PG_S("Verbose mode"),
     };
+    *PG_DYN_PUSH(&descs, allocator) = (PgCliOptionDescription){
+        .name_short = PG_S("H"),
+        .name_long = PG_S("hidden"),
+        .description = PG_S("Hidden mode"),
+    };
 
     char *argv[] = {
-        "main.bin",
-        "--",
-        "some_argument",
+        "main.bin", "-H", "--", "--verbose", "some_argument",
     };
     int argc = PG_STATIC_ARRAY_LEN(argv);
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
-    PG_ASSERT(PG_ERR_CLI_MALFORMED_OPTION == res.err);
-    PG_ASSERT(pg_string_eq(res.err_argv, PG_S("--")));
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(1 == res.options.len);
+    PG_ASSERT(2 == res.plain_arguments.len);
+
+    PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
+    PG_ASSERT(pg_string_eq(opt0.description.name_long, PG_S("hidden")));
+    PG_ASSERT(0 == opt0.values.len);
+
+    PgString plain_arg0 = PG_SLICE_AT(res.plain_arguments, 0);
+    PG_ASSERT(pg_string_eq(plain_arg0, PG_S("--verbose")));
+
+    PgString plain_arg1 = PG_SLICE_AT(res.plain_arguments, 1);
+    PG_ASSERT(pg_string_eq(plain_arg1, PG_S("some_argument")));
   }
 
   // Short options given, coalesced, repeated.

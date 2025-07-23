@@ -9631,12 +9631,21 @@ pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
       continue;
     }
 
+    // Treat all remaining arguments as plain.
+    if (pg_string_eq(arg, PG_S("--"))) {
+      for (u64 j = i + 1; j < (u64)argc; j++) {
+        PgString arg = pg_cstr_to_string(argv[j]);
+        *PG_DYN_PUSH(&res.plain_arguments, allocator) = arg;
+      }
+      return res;
+    }
+
     // Error if the option name starts with more than 2 `-` e.g. `---a` or it
     // only contains `-` e.g. `-`, `--`.
-    // TODO: Treat `---` as a valid separator between options and plain
+    // TODO: Treat `--` as a valid separator between options and plain
     // arguments.
     if (pg_string_starts_with(arg, PG_S("---")) ||
-        pg_string_eq(arg, PG_S("-")) || pg_string_eq(arg, PG_S("--"))) {
+        pg_string_eq(arg, PG_S("-"))) {
       res.err = PG_ERR_CLI_MALFORMED_OPTION;
       res.err_argv = arg;
       return res;
