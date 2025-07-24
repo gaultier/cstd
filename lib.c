@@ -1056,8 +1056,8 @@ typedef enum {
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorPairResult pg_pipe_make();
 
-[[maybe_unused]] static Pgu64Result pg_file_read_at(PgFileDescriptor file,
-                                                    PgString buf, u64 offset);
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_file_read_at(PgFileDescriptor file, PgString buf, u64 offset);
 
 [[maybe_unused]] [[nodiscard]] PgDirectoryResult
 pg_directory_open(PgString name);
@@ -1092,8 +1092,8 @@ pg_file_size(PgFileDescriptor file);
 [[nodiscard]] static Pgu64Result pg_file_read(PgFileDescriptor file,
                                               PgString dst);
 
-[[maybe_unused]] static Pgu64Result pg_file_write(PgFileDescriptor file,
-                                                  PgString s);
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_file_write(PgFileDescriptor file, PgString s);
 
 [[nodiscard]] [[maybe_unused]] static PgAioResult pg_aio_init();
 
@@ -1141,7 +1141,7 @@ pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
 pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex,
                  const struct timespec *time_point);
 
-[[maybe_unused]] static u64
+[[maybe_unused]] [[nodiscard]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
 
 [[maybe_unused]] inline static void
@@ -2342,7 +2342,7 @@ pg_heap_allocator_as_allocator(PgHeapAllocator *allocator) {
   return (PgAllocator *)allocator;
 }
 
-[[maybe_unused]]
+[[maybe_unused]] [[nodiscard]]
 static PgAllocator *pg_heap_allocator() {
   static PgHeapAllocator pg_heap_allocator_ = {
       .alloc_fn = pg_alloc_heap_libc,
@@ -5969,7 +5969,7 @@ pg_time_ns_now(PgClockKind clock_kind) {
 
   switch (clock_kind) {
   case PG_CLOCK_KIND_MONOTONIC: {
-    static LARGE_INTEGER frequency = {0};
+    LARGE_INTEGER frequency = {0};
     if (!frequency.QuadPart) {
       QueryPerformanceFrequency(&frequency);
       PG_ASSERT(frequency.QuadPart);
