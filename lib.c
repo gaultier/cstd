@@ -2648,7 +2648,8 @@ pg_string_builder_make(u64 cap, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] static PgRing pg_ring_make(u64 cap, PgAllocator *allocator) {
+[[maybe_unused]] [[nodiscard]] static PgRing
+pg_ring_make(u64 cap, PgAllocator *allocator) {
   return (PgRing){.data = pg_string_make(cap, allocator)};
 }
 
@@ -3840,7 +3841,7 @@ static void pg_sha1_process_x86(u32 state[5], const u8 data[], u32 length) {
   state[4] = (u32)_mm_extract_epi32(E0, 3);
 }
 
-[[maybe_unused]] static PgSha1 pg_sha1(PgString s) {
+[[maybe_unused]] [[nodiscard]] static PgSha1 pg_sha1(PgString s) {
   PG_SHA1_CTX ctx = {0};
   PG_SHA1Init(&ctx);
 
@@ -3859,7 +3860,7 @@ static void pg_sha1_process_x86(u32 state[5], const u8 data[], u32 length) {
 }
 
 #else
-[[maybe_unused]] static PgSha1 pg_sha1(PgString s) {
+[[maybe_unused]] [[nodiscard]] static PgSha1 pg_sha1(PgString s) {
   PG_SHA1_CTX ctx = {0};
   PG_SHA1Init(&ctx);
   PG_SHA1Update(&ctx, s.data, s.len);
@@ -4419,7 +4420,7 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file, u64 buffer_size,
   return w;
 }
 
-[[maybe_unused]] static PgStringResult
+[[maybe_unused]] [[nodiscard]] static PgStringResult
 pg_file_read_full_from_descriptor(PgFileDescriptor file, u64 size,
                                   PgAllocator *allocator) {
   PgStringResult res = {0};
@@ -4460,7 +4461,7 @@ end:
   return res;
 }
 
-[[maybe_unused]] static PgStringResult
+[[maybe_unused]] [[nodiscard]] static PgStringResult
 pg_file_read_full_from_descriptor_until_eof(PgFileDescriptor file,
                                             u64 size_hint,
                                             PgAllocator *allocator) {
@@ -4572,7 +4573,7 @@ end:
   return err;
 }
 
-[[maybe_unused]] static PgStringResult
+[[maybe_unused]] [[nodiscard]] static PgStringResult
 pg_file_read_full_from_path(PgString path, PgAllocator *allocator) {
   PgStringResult res = {0};
 
@@ -4601,9 +4602,9 @@ end:
   return res;
 }
 
-[[maybe_unused]] static PgError pg_file_write_full(PgString path,
-                                                   PgString content, u64 mode,
-                                                   PgAllocator *allocator) {
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_file_write_full(PgString path, PgString content, u64 mode,
+                   PgAllocator *allocator) {
   PgError err = 0;
 
   PgFileDescriptorResult res_file =
@@ -5699,7 +5700,7 @@ pg_time_ns_now(PgClockKind clock) {
   return res;
 }
 
-[[maybe_unused]] static u64
+[[maybe_unused]] [[nodiscard]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
   u64 *frame_pointer = __builtin_frame_address(0);
   u64 res = 0;
@@ -5730,8 +5731,8 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
   return (u64)ret;
 }
 
-[[maybe_unused]] static Pgu64Result pg_file_read(PgFileDescriptor file,
-                                                 PgString buf) {
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_file_read(PgFileDescriptor file, PgString buf) {
   Pgu64Result res = {0};
 
   isize n = 0;
@@ -5748,8 +5749,8 @@ pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
   return res;
 }
 
-[[maybe_unused]] static Pgu64Result pg_file_write(PgFileDescriptor file,
-                                                  PgString s) {
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_file_write(PgFileDescriptor file, PgString s) {
   Pgu64Result res = {0};
 
   isize n = 0;
@@ -5774,8 +5775,8 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
   return 0;
 }
 
-[[maybe_unused]] static Pgu64Result pg_file_read_at(PgFileDescriptor file,
-                                                    PgString buf, u64 offset) {
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_file_read_at(PgFileDescriptor file, PgString buf, u64 offset) {
   Pgu64Result res = {0};
 
   isize n = 0;
@@ -7357,7 +7358,7 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req, PgAllocator *allocator) {
   return 0;
 }
 
-[[maybe_unused]] static PgString
+[[maybe_unused]] [[nodiscard]] static PgString
 pg_http_request_to_string(PgHttpRequest req, PgAllocator *allocator) {
   u64 cap =
       // TODO: Tweak this number?
