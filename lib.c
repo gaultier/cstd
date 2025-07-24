@@ -5943,7 +5943,7 @@ pg_writer_win32_write(PgWriter *w, Pgu8Slice src) {
   if (!has_value) {
     res.err = (PgError)pg_os_get_last_error();
   } else {
-    res.res = (u64)n;
+    res.value = (u64)n;
   }
 
   return res;
@@ -5978,13 +5978,13 @@ pg_time_ns_now(PgClockKind clock_kind) {
     PG_ASSERT(QueryPerformanceCounter(&counter));
     f64 seconds = (f64)counter.QuadPart / (f64)frequency.QuadPart;
 
-    res.res = (u64)(PG_Seconds * seconds);
+    res.value = (u64)(PG_Seconds * seconds);
     return res;
   }
   case PG_CLOCK_KIND_REALTIME: {
     FILETIME ft = {0};
     GetSystemTimeAsFileTime(&ft);
-    res.res = (((u64)ft.dwHighDateTime) << 32) | ((u64)ft.dwLowDateTime);
+    res.value = (((u64)ft.dwHighDateTime) << 32) | ((u64)ft.dwLowDateTime);
     return res;
   }
   default:
@@ -6019,9 +6019,9 @@ pg_time_ns_now(PgClockKind clock_kind) {
   PgVoidPtrResult res = {0};
   // Note: We will reserve the guard pages right now.
 
-  res.res = VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE,
-                         (DWORD)pg_virtual_mem_flags_to_os_flags(flags));
-  if (!res.res) {
+  res.value = VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE,
+                           (DWORD)pg_virtual_mem_flags_to_os_flags(flags));
+  if (!res.value) {
     res.err = (PgError)pg_os_get_last_error();
   }
   return res;
@@ -6059,14 +6059,14 @@ pg_string_to_wtf16(PgString s, PgAllocator *allocator) {
     return res;
   }
 
-  res.res.len = (u64)wlen + 1;
-  res.res.data =
-      pg_alloc(allocator, sizeof(wchar_t), _Alignof(wchar_t), res.res.len);
-  PG_ASSERT(res.res.data);
+  res.value.len = (u64)wlen + 1;
+  res.value.data =
+      pg_alloc(allocator, sizeof(wchar_t), _Alignof(wchar_t), res.value.len);
+  PG_ASSERT(res.value.data);
   PG_ASSERT(0 != MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
                                      (const char *)s.data, (i32)s.len,
-                                     res.res.data, (i32)res.res.len));
-  PG_ASSERT(0 == res.res.data[res.res.len - 1]);
+                                     res.value.data, (i32)res.value.len));
+  PG_ASSERT(0 == res.value.data[res.value.len - 1]);
 
   return res;
 }
@@ -6121,18 +6121,19 @@ pg_file_open(PgString path, PgFileAccess access, u64 mode,
     return res;
   }
 
-  HANDLE handle = CreateFileW(
-      res_path_os.res.data, desired_access, FILE_SHARE_READ | FILE_SHARE_DELETE,
-      nullptr, creation_disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
+  HANDLE handle =
+      CreateFileW(res_path_os.value.data, desired_access,
+                  FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
+                  creation_disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
 
-  pg_free(allocator, res_path_os.res.data);
+  pg_free(allocator, res_path_os.value.data);
 
   if (INVALID_HANDLE_VALUE == handle) {
     res.err = (PgError)pg_os_get_last_error();
     return res;
   }
 
-  res.res.ptr = handle;
+  res.value.ptr = handle;
   return res;
 }
 
@@ -6153,7 +6154,7 @@ pg_file_open(PgString path, PgFileAccess access, u64 mode,
     return res;
   }
 
-  res.res = (u64)size.QuadPart;
+  res.value = (u64)size.QuadPart;
   return res;
 }
 
@@ -6161,7 +6162,7 @@ pg_file_open(PgString path, PgFileAccess access, u64 mode,
                                               PgString dst) {
   Pgu64Result res = {0};
 
-  if (0 == ReadFile(file.ptr, dst.data, (DWORD)dst.len, (LPDWORD)&res.res,
+  if (0 == ReadFile(file.ptr, dst.data, (DWORD)dst.len, (LPDWORD)&res.value,
                     nullptr)) {
     res.err = (PgError)pg_os_get_last_error();
     return res;
@@ -6175,7 +6176,7 @@ pg_file_open(PgString path, PgFileAccess access, u64 mode,
   Pgu64Result res = {0};
 
   if (0 ==
-      WriteFile(file.ptr, s.data, (DWORD)s.len, (LPDWORD)&res.res, nullptr)) {
+      WriteFile(file.ptr, s.data, (DWORD)s.len, (LPDWORD)&res.value, nullptr)) {
     res.err = (PgError)pg_os_get_last_error();
     return res;
   }
@@ -8668,7 +8669,7 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
     return res;
   }
 
-  res.res.aio.fd = ret;
+  res.value.aio.fd = ret;
   return res;
 }
 
@@ -8682,7 +8683,7 @@ pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
     return res;
   }
 
-  res.err = pg_aio_register_interest_fd(*aio, res.res, interest);
+  res.err = pg_aio_register_interest_fd(*aio, res.value, interest);
   if (res.err) {
     return res;
   }
@@ -8769,8 +8770,8 @@ pg_aio_wait(PgAio aio, PgAioEventSlice events_out, Pgu32Option timeout_ms) {
 
   struct timespec timeout = {0};
   if (timeout_ms.has_value) {
-    timeout.tv_sec = timeout_ms.res / 1000;
-    timeout.tv_nsec = (timeout_ms.res % 1000) * 1000 * 1000;
+    timeout.tv_sec = timeout_ms.value / 1000;
+    timeout.tv_nsec = (timeout_ms.value % 1000) * 1000 * 1000;
   }
 
   i32 ret = kevent(aio.aio.fd, nullptr, 0, eventlist, eventlist_len,
@@ -8805,7 +8806,7 @@ pg_aio_wait(PgAio aio, PgAioEventSlice events_out, Pgu32Option timeout_ms) {
     }
   }
 
-  res.res = (u64)ret;
+  res.value = (u64)ret;
   return res;
 };
 
@@ -8823,8 +8824,8 @@ pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Option timeout_ms) {
 
   struct timespec timeout = {0};
   if (timeout_ms.has_value) {
-    timeout.tv_sec = timeout_ms.res / 1000;
-    timeout.tv_nsec = (timeout_ms.res % 1000) * 1000 * 1000;
+    timeout.tv_sec = timeout_ms.value / 1000;
+    timeout.tv_nsec = (timeout_ms.value % 1000) * 1000 * 1000;
   }
 
   i32 ret = kevent(aio.aio.fd, nullptr, 0, eventlist, eventlist_len,
@@ -8862,7 +8863,7 @@ pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Option timeout_ms) {
     PG_ASSERT(sizeof(ev) == pg_ring_write_bytes(cqe, ev_bytes));
   }
 
-  res.res = (u64)ret;
+  res.value = (u64)ret;
   return res;
 }
 
