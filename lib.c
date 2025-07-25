@@ -1143,15 +1143,10 @@ pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
 pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex,
                  const struct timespec *time_point);
 
-<<<<<<< HEAD
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 pie_offset, u64 call_stack[PG_STACKTRACE_MAX]);
 
 [[nodiscard]] static u64 pg_pie_get_offset();
-=======
-[[maybe_unused]] [[nodiscard]] static u64
-pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]);
->>>>>>> 5e815aecbddb4129a27593375b630eac33710438
 
 [[maybe_unused]] inline static void
 pg_stacktrace_print(const char *file, int line, const char *function) {
