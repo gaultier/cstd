@@ -512,42 +512,67 @@ static void test_string_consume() {
 
 static void test_string_parse_u64() {
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S(""));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S(""), 10, true);
     PG_ASSERT(!num_res.present);
     PG_ASSERT(0 == num_res.remaining.len);
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("🍌"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("🍌"), 10, true);
     PG_ASSERT(!num_res.present);
     PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("🍌123🍌"));
+    PgParseNumberResult num_res =
+        pg_string_parse_u64(PG_S("🍌123🍌"), 10, true);
     PG_ASSERT(!num_res.present);
     PG_ASSERT(pg_string_eq(PG_S("🍌123🍌"), num_res.remaining));
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0123"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0123"), 10, true);
     PG_ASSERT(!num_res.present);
     PG_ASSERT(pg_string_eq(PG_S("0123"), num_res.remaining));
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0"), 10, true);
     PG_ASSERT(num_res.present);
     PG_ASSERT(pg_string_eq(PG_S(""), num_res.remaining));
     PG_ASSERT(0 == num_res.n);
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0🍌"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0🍌"), 10, true);
     PG_ASSERT(num_res.present);
     PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
     PG_ASSERT(0 == num_res.n);
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("123🍌"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("123🍌"), 10, true);
     PG_ASSERT(num_res.present);
     PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
     PG_ASSERT(123 == num_res.n);
+  }
+  // Allow leading zero.
+  {
+    PgParseNumberResult num_res =
+        pg_string_parse_u64(PG_S("0123🍌"), 10, false);
+    PG_ASSERT(num_res.present);
+    PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
+    PG_ASSERT(123 == num_res.n);
+  }
+  // Base 16, valid.
+  {
+    PgParseNumberResult num_res =
+        pg_string_parse_u64(PG_S("012f🍌"), 16, false);
+    PG_ASSERT(num_res.present);
+    PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
+    PG_ASSERT(0x12f == num_res.n);
+  }
+  // Base 16, non hex characters.
+  {
+    PgParseNumberResult num_res =
+        pg_string_parse_u64(PG_S("012g🍌"), 16, false);
+    PG_ASSERT(num_res.present);
+    PG_ASSERT(pg_string_eq(PG_S("g🍌"), num_res.remaining));
+    PG_ASSERT(0x12 == num_res.n);
   }
 }
 
@@ -3661,7 +3686,13 @@ static void test_cli_options_help() {
   PG_ASSERT(pg_string_eq(expected, help));
 }
 
+static void test_pie_get_offset() {
+  u64 offset = pg_pie_get_offset();
+  PG_ASSERT(offset > 0xffff);
+}
+
 int main() {
+  test_pie_get_offset();
   test_rune_bytes_count();
   test_utf8_count();
   test_string_last();

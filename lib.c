@@ -5,6 +5,8 @@
 #pragma GCC diagnostic ignored "-Wpadded"
 
 // TODO: Document all functions.
+// TODO: Get machine stack trace.
+// TODO: Get human readable stack trace.
 // TODO: IPv6.
 // TODO: *Pool allocator?*
 // TODO: Randomize arena guard pages.
@@ -261,7 +263,7 @@ PG_DYN(f64) Pgf64Dyn;
   return ns / 1'000'000;
 }
 
-#define PG_STACKTRACE_MAX 64
+#define PG_STACKTRACE_MAX 128
 
 typedef struct PgAllocator PgAllocator;
 
@@ -1277,6 +1279,11 @@ static const PgString PG_ASCII_SPACES = PG_S(" \f\n\r\t");
   return ('0' <= c && c <= '9');
 }
 
+[[maybe_unused]] [[nodiscard]] static bool pg_rune_ascii_is_hex(PgRune c) {
+  return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') ||
+         ('A' <= c && c <= 'F');
+}
+
 [[maybe_unused]] [[nodiscard]] static bool
 pg_rune_ascii_is_alphanumeric(PgRune c) {
   return pg_rune_ascii_is_numeric(c) || pg_rune_ascii_is_alphabetical(c);
@@ -2098,6 +2105,11 @@ pg_string_index_of_any_rune(PgString haystack, PgString needles) {
   return -1;
 }
 
+[[maybe_unused]] [[nodiscard]] static bool
+pg_string_contains_rune(PgString haystack, PgRune needle) {
+  return -1 != pg_string_index_of_rune(haystack, needle);
+}
+
 [[maybe_unused]] [[nodiscard]] static bool pg_string_contains(PgString haystack,
                                                               PgString needle) {
   return -1 != pg_string_index_of_string(haystack, needle);
@@ -2179,13 +2191,23 @@ pg_string_ends_with(PgString haystack, PgString needle) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgParseNumberResult
-pg_string_parse_u64(PgString s) {
+pg_string_parse_u64(PgString s, u64 base, bool forbig_leading_zeroes) {
+  PG_ASSERT(10 == base || 16 == base);
+
   PgParseNumberResult res = {0};
   res.remaining = s;
 
+  static const u8 hex_to_num[256] = {
+      ['0'] = 0,  ['1'] = 1,  ['2'] = 2,  ['3'] = 3,  ['4'] = 4,  ['5'] = 5,
+      ['6'] = 6,  ['7'] = 7,  ['8'] = 8,  ['9'] = 9,  ['a'] = 10, ['b'] = 11,
+      ['c'] = 12, ['d'] = 13, ['e'] = 14, ['f'] = 15, ['A'] = 10, ['B'] = 11,
+      ['C'] = 12, ['D'] = 13, ['E'] = 14, ['F'] = 15,
+
+  };
+
   // Forbid leading zero(es) if there is more than one digit.
-  if (pg_string_starts_with(s, PG_S("0")) && s.len >= 2 &&
-      pg_rune_ascii_is_numeric(PG_SLICE_AT(s, 1))) {
+  if (forbig_leading_zeroes && pg_string_starts_with(s, PG_S("0")) &&
+      s.len >= 2 && pg_rune_ascii_is_numeric(PG_SLICE_AT(s, 1))) {
     return res;
   }
 
@@ -2198,12 +2220,20 @@ pg_string_parse_u64(PgString s) {
     }
 
     PgRune c = res_rune.rune;
-    if (!pg_rune_ascii_is_numeric(c)) { // End of numbers sequence.
+    if (10 == base &&
+        !pg_rune_ascii_is_numeric(c)) { // End of numbers sequence.
+      break;
+    }
+    if (16 == base && !pg_rune_ascii_is_hex(c)) { // End of numbers sequence.
       break;
     }
 
-    res.n *= 10;
-    res.n += (u8)c - '0';
+    res.n *= base;
+    if (10 == base) {
+      res.n += (u8)c - '0';
+    } else if (16 == base) {
+      res.n += hex_to_num[c];
+    }
     res.present = true;
     last_idx = it.idx;
   }
@@ -2771,9 +2801,10 @@ pg_ring_index_of_byte(PgRing rg, u8 needle) {
   PG_ASSERT(rg.data.data);
   Pgu64Option res = {0};
 
-  if (rg.idx_read < rg.idx_write) { // 1 memchr.
+  if (rg.idx_read <= rg.idx_write) { // 1 memchr.
     u8 *start = rg.data.data + rg.idx_read;
-    u64 len = rg.idx_write - rg.idx_read;
+    u64 len =
+        rg.idx_read == rg.idx_write ? rg.count : (rg.idx_write - rg.idx_read);
     u8 *find = memchr(start, needle, len);
     if (find) {
       res.has_value = true;
@@ -5699,6 +5730,8 @@ pg_time_ns_now(PgClockKind clock) {
   return res;
 }
 
+[[nodiscard]] static u64 pg_pie_get_offset();
+
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 call_stack[PG_STACKTRACE_MAX]) {
   u64 *frame_pointer = __builtin_frame_address(0);
@@ -6256,7 +6289,7 @@ pg_http_parse_response_status_line(PgString status_line) {
   }
 
   {
-    PgParseNumberResult res_major = pg_string_parse_u64(remaining);
+    PgParseNumberResult res_major = pg_string_parse_u64(remaining, 10, true);
     if (!res_major.present) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -6279,7 +6312,7 @@ pg_http_parse_response_status_line(PgString status_line) {
   }
 
   {
-    PgParseNumberResult res_minor = pg_string_parse_u64(remaining);
+    PgParseNumberResult res_minor = pg_string_parse_u64(remaining, 10, true);
     if (!res_minor.present) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -6302,7 +6335,8 @@ pg_http_parse_response_status_line(PgString status_line) {
   }
 
   {
-    PgParseNumberResult res_status_code = pg_string_parse_u64(remaining);
+    PgParseNumberResult res_status_code =
+        pg_string_parse_u64(remaining, 10, true);
     if (!res_status_code.present) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -6739,7 +6773,7 @@ pg_url_parse_port(PgString s) {
     return res;
   }
 
-  PgParseNumberResult port_parse = pg_string_parse_u64(s);
+  PgParseNumberResult port_parse = pg_string_parse_u64(s, 10, true);
   if (!PG_SLICE_IS_EMPTY(port_parse.remaining)) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
@@ -7008,7 +7042,7 @@ pg_http_parse_request_status_line(PgString status_line,
   }
 
   {
-    PgParseNumberResult res_major = pg_string_parse_u64(remaining);
+    PgParseNumberResult res_major = pg_string_parse_u64(remaining, 10, true);
     if (!res_major.present) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -7031,7 +7065,7 @@ pg_http_parse_request_status_line(PgString status_line,
   }
 
   {
-    PgParseNumberResult res_minor = pg_string_parse_u64(remaining);
+    PgParseNumberResult res_minor = pg_string_parse_u64(remaining, 10, true);
     if (!res_minor.present) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -7410,7 +7444,7 @@ pg_http_content_length(PgStringKeyValueSlice headers) {
       continue;
     }
 
-    PgParseNumberResult res_parse = pg_string_parse_u64(h.value);
+    PgParseNumberResult res_parse = pg_string_parse_u64(h.value, 10, true);
     if (!res_parse.present) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
@@ -8889,6 +8923,78 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
 }
 
 #ifdef PG_OS_LINUX
+
+[[nodiscard]] static u64 pg_pie_get_offset() {
+  u8 mem[4096] = {0};
+  PgArena arena = pg_arena_make_from_mem(mem, PG_STATIC_ARRAY_LEN(mem));
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgFileDescriptorResult res_fd = pg_file_open(
+      PG_S("/proc/self/maps"), PG_FILE_ACCESS_READ, 0600, false, allocator);
+  if (0 != res_fd.err) {
+    return 0;
+  }
+  PgFileDescriptor fd = res_fd.value;
+
+  PgReader r = pg_reader_make_from_file(fd, 512, allocator);
+
+  u64 max_lines = 512;
+
+  for (u64 _i = 0; _i < max_lines; _i++) {
+    u8 line[512] = {0};
+    PgString line_slice = PG_SLICE_FROM_C(line);
+    Pgu64OptionResult res_line =
+        pg_reader_read_line(&r, PG_NEWLINE_KIND_LF, line_slice);
+    if (0 != res_line.err) {
+      return 0;
+    }
+    if (!res_line.value.has_value) {
+      return 0;
+    }
+    line_slice.len = res_line.value.value;
+
+    PgStringCut cut_space = pg_string_cut_rune(line_slice, ' ');
+    if (!cut_space.has_value) {
+      continue;
+    }
+
+    PgString mem_range = cut_space.left;
+    PgString perms = cut_space.right;
+
+    if (!pg_string_contains_rune(perms, 'x')) {
+      continue;
+    }
+
+    PgStringCut cut_dash = pg_string_cut_rune(mem_range, '-');
+    if (!cut_dash.has_value) {
+      continue;
+    }
+
+    PgParseNumberResult res_mem_start =
+        pg_string_parse_u64(cut_dash.left, 16, false);
+    if (!res_mem_start.present) {
+      continue;
+    }
+
+    PgParseNumberResult res_mem_end =
+        pg_string_parse_u64(cut_dash.right, 16, false);
+    if (!res_mem_end.present) {
+      continue;
+    }
+
+    u64 start = res_mem_start.n;
+    u64 end = res_mem_end.n;
+    PG_ASSERT(0 == (start % pg_os_get_page_size()));
+    PG_ASSERT(0 == (end % pg_os_get_page_size()));
+
+    if (start <= (u64)&pg_pie_get_offset && (u64)&pg_pie_get_offset < end) {
+      return start;
+    }
+  }
+  return 0;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
 pg_aio_inotify_init() {
   PgFileDescriptorResult res = {0};
