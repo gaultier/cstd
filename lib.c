@@ -9844,6 +9844,7 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
 #ifdef PG_OS_LINUX
 
 [[nodiscard]] static u64 pg_pie_get_offset() {
+  u64 res = 0;
   u8 mem[4096] = {0};
   PgArena arena = pg_arena_make_from_mem(mem, PG_STATIC_ARRAY_LEN(mem));
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -9866,10 +9867,10 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
     Pgu64OptionResult res_line =
         pg_reader_read_line(&r, PG_NEWLINE_KIND_LF, line_slice);
     if (0 != res_line.err) {
-      return 0;
+      goto end;
     }
     if (!res_line.value.has_value) {
-      return 0;
+      goto end;
     }
     line_slice.len = res_line.value.value;
 
@@ -9908,10 +9909,13 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
     PG_ASSERT(0 == (end % pg_os_get_page_size()));
 
     if (start <= (u64)&pg_pie_get_offset && (u64)&pg_pie_get_offset < end) {
-      return start;
+      res = start;
+      goto end;
     }
   }
-  return 0;
+end:
+  (void)pg_file_close(fd);
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
