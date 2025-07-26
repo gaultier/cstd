@@ -1143,6 +1143,16 @@ typedef enum {
   PG_DWARF_TAG_TYPE_UNIT = 0X0041,
   PG_DWARF_TAG_RVALUE_REFERENCE_TYPE = 0X0042,
   PG_DWARF_TAG_TEMPLATE_ALIAS = 0X0043,
+  PG_DWARF_TAG_COARRAY_TYPE = 0x44,
+  PG_DWARF_TAG_GENERIC_SUBRANGE = 0x45,
+  PG_DWARF_TAG_DYNAMIC_TYPE = 0x46,
+  PG_DWARF_TAG_ATOMIC_TYPE = 0x47,
+  PG_DWARF_TAG_CALL_SITE = 0x48,
+  PG_DWARF_TAG_CALL_SITE_PARAMETER = 0x49,
+  PG_DWARF_TAG_SKELETON_UNIT = 0x4a,
+  PG_DWARF_TAG_IMMUTABLE_TYPE = 0x4b,
+  PG_DWARF_TAG_LO_USER = 0x4080,
+  PG_DWARF_TAG_HI_USER = 0xffff,
 } PgDwarfTag;
 
 typedef enum : u16 {
@@ -1401,13 +1411,14 @@ typedef enum : u8 {
 typedef struct {
   PgDwarfAttribute attribute;
   PgDwarfForm form;
-  PG_PAD(1);
+  // Only in case of `attribute == PG_DWARF_FORM_IMPLICIT_CONST`.
+  i64 value;
 } PgDwarfAttributeForm;
 PG_DYN(PgDwarfAttributeForm) PgDwarfAttributeFormDyn;
 
 typedef struct {
   u64 type;
-  u64 tag;
+  PgDwarfTag tag;
   PgDwarfAttributeFormDyn attribute_forms;
 } PgDwarfAbbreviationEntry;
 PG_DYN(PgDwarfAbbreviationEntry) PgDwarfAbbreviationEntryDyn;
@@ -10155,7 +10166,7 @@ pg_self_exe_get_path(PgAllocator *allocator) {
 }
 
 [[nodiscard]] static PgDwarfAbbreviationEntryOptionResult
-pg_dwarf_parse_abbreviation_entry(PgReader *r) {
+pg_dwarf_parse_abbreviation_entry(PgReader *r, PgAllocator *allocator) {
   PgDwarfAbbreviationEntryOptionResult res = {0};
   PgDwarfAbbreviationEntry entry = {0};
 
@@ -10191,41 +10202,45 @@ pg_dwarf_parse_abbreviation_entry(PgReader *r) {
       return res;
     }
     has_children = res_has_children.value;
+    // TODO: use.
   }
 
   // Attributes.
   for (u64 _i = 0; _i < PG_DWARF_MAX_ABBREV_ATTRIBUTES; _i++) {
+    PgDwarfAttributeForm attribute_form = {0};
+
     Pgu64Result res_name = pg_reader_read_u64_leb128(r);
     if (res_name.err) {
       res.err = res_name.err;
       return res;
     }
-    u64 name = res_name.value;
+    attribute_form.attribute = res_name.value;
 
     Pgu64Result res_form = pg_reader_read_u64_leb128(r);
     if (res_form.err) {
       res.err = res_form.err;
       return res;
     }
-    u64 form = res_form.value;
+    attribute_form.form = res_form.value;
 
     // End.
-    if (0 == name && 0 == form) {
+    if (0 == attribute_form.attribute && 0 == attribute_form.form) {
       res.value.has_value = true;
       res.value.value = entry;
       return res;
     }
 
-    if (PG_DWARF_FORM_IMPLICIT_CONST == form) {
+    // Need to read one more field?
+    if (PG_DWARF_FORM_IMPLICIT_CONST == attribute_form.form) {
       Pgi64Result res_value = pg_reader_read_i64_leb128(r);
       if (res_value.err) {
         res.err = res_value.err;
         return res;
       }
-      i64 val = res_value.value;
-      // TODO: use `val`.
-      (void)val;
+      i64 value = res_value.value;
+      attribute_form.value = value;
     }
+    PG_DYN_PUSH(&entry.attribute_forms, attribute_form, allocator);
   }
 
   res.err = PG_ERR_TOO_BIG;
@@ -10280,7 +10295,7 @@ pg_self_load_debug_info(PgAllocator *allocator) {
     PgReader r = pg_reader_make_from_bytes(bytes);
     for (u64 _i = 0; _i < PG_DWARF_MAX_ABBREV; _i++) {
       PgDwarfAbbreviationEntryOptionResult res_abbrev =
-          pg_dwarf_parse_abbreviation_entry(&r);
+          pg_dwarf_parse_abbreviation_entry(&r, allocator);
       if (res_abbrev.err) {
         res.err = res_abbrev.err;
         return res;
