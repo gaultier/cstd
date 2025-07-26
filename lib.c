@@ -10010,9 +10010,26 @@ pg_self_load_debug_info(PgAllocator *allocator) {
       pg_elf_section_header_find_ptr_by_name_and_kind(
           &elf, PG_S(".debug_abbrev"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
 
+  if (!section_header_debug_abbrev) {
+    return res;
+  }
+
+  {
+    Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(
+        elf, section_header_debug_abbrev - elf.section_headers.data);
+    if (res_bytes.err) {
+      res.err = res_bytes.err;
+      return res;
+    }
+    Pgu8Slice bytes = res_bytes.value;
+  }
+
   PgElfSectionHeader *section_header_debug_info =
       pg_elf_section_header_find_ptr_by_name_and_kind(
           &elf, PG_S(".debug_info"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+  if (!section_header_debug_info) {
+    return res;
+  }
 
   // TODO
   return res;
