@@ -10142,7 +10142,6 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
       case PG_DWARF_FORM_STRP:
       case PG_DWARF_FORM_REF_ADDR:
       case PG_DWARF_FORM_REF_SIG8:
-      case PG_DWARF_FORM_IMPLICIT_CONST:
       case PG_DWARF_FORM_INDIRECT:
       case PG_DWARF_FORM_REF_SUP8:
       case PG_DWARF_FORM_REF_SUP4:
@@ -10151,7 +10150,9 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
         fprintf(stderr, "%u\n", attr_form.form);
         PG_ASSERT(0 && "todo");
 
-      case PG_DWARF_FORM_FLAG_PRESENT: { // No data.
+        // No data.
+      case PG_DWARF_FORM_IMPLICIT_CONST:
+      case PG_DWARF_FORM_FLAG_PRESENT: {
       } break;
 
       case PG_DWARF_FORM_LOCLISTX: {
