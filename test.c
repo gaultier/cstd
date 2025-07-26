@@ -3734,6 +3734,8 @@ static void test_debug_info() {
       pg_dwarf_resolve_debug_compilation_unit_functions(debug.elf, unit,
                                                         allocator);
   PG_ASSERT(0 == res_fns.err);
+  PgDwarfFunctionDeclarationDyn fns = res_fns.value;
+  PG_ASSERT(fns.len > 0);
 }
 
 int main() {

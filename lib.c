@@ -10102,19 +10102,20 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
 
   PgReader r = pg_reader_make_from_bytes(info_bytes);
 
-  for (u64 i = 0; i < unit.abbrevs.len; i++) {
+  while (!PG_SLICE_IS_EMPTY(r.u.bytes)) {
     Pgu64Result res_entry_idx = pg_reader_read_u64_leb128(&r);
     PG_TRY(entry_idx, res, res_entry_idx);
     if (0 == entry_idx) {
       continue;
     }
 
-    if (entry_idx + 1 >= unit.abbrevs.len) {
+    if (entry_idx >= unit.abbrevs.len + 1) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
 
     PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, entry_idx - 1);
+    PgDwarfFunctionDeclaration fn = {0};
 
     for (u64 j = 0; j < abbrev.attribute_forms.len; j++) {
       PgDwarfAttributeForm attr_form = PG_SLICE_AT(abbrev.attribute_forms, j);
@@ -10154,11 +10155,6 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
         PG_TRY(val, res, res_read);
       } break;
 
-      case PG_DWARF_FORM_ADDRX: {
-        Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
-        PG_TRY(val, res, res_read);
-      } break;
-
       case PG_DWARF_FORM_EXPRLOC: {
         Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
         PG_TRY(length, res, res_read);
@@ -10195,6 +10191,12 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
       case PG_DWARF_FORM_DATA1: {
         Pgu8Result res_read = pg_reader_read_u8_le(&r);
         PG_TRY(val, res, res_read);
+        if (PG_DWARF_TAG_SUBPROGRAM == abbrev.tag &&
+            PG_DWARF_AT_DECL_FILE == attr_form.attribute) {
+          PgString s =
+              pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
+          fn.file = s;
+        }
       } break;
 
       case PG_DWARF_FORM_DATA2: {
@@ -10205,6 +10207,11 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
       case PG_DWARF_FORM_DATA4: {
         Pgu32Result res_read = pg_reader_read_u32_le(&r);
         PG_TRY(val, res, res_read);
+
+        if (PG_DWARF_TAG_SUBPROGRAM == abbrev.tag &&
+            PG_DWARF_AT_HIGH_PC == attr_form.attribute) {
+          fn.high_pc = val;
+        }
       } break;
 
       case PG_DWARF_FORM_DATA8: {
@@ -10257,35 +10264,45 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
         Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
         PG_TRY(val, res, res_read);
         PgString s = pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
-        fprintf(stderr, "%.*s\n", (i32)s.len, s.data);
       } break;
 
       case PG_DWARF_FORM_STRX1: {
         Pgu8Result res_read = pg_reader_read_u8_le(&r);
         PG_TRY(val, res, res_read);
         PgString s = pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
-        fprintf(stderr, "%.*s\n", (i32)s.len, s.data);
       } break;
 
       case PG_DWARF_FORM_STRX2: {
         Pgu16Result res_read = pg_reader_read_u16_le(&r);
         PG_TRY(val, res, res_read);
         PgString s = pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
-        fprintf(stderr, "%.*s\n", (i32)s.len, s.data);
+
+        if (PG_DWARF_TAG_SUBPROGRAM == abbrev.tag &&
+            PG_DWARF_AT_NAME == attr_form.attribute) {
+          fn.name = s;
+        }
       } break;
 
       case PG_DWARF_FORM_STRX3: {
         Pgu32Result res_read = pg_reader_read_u24_le(&r);
         PG_TRY(val, res, res_read);
         PgString s = pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
-        fprintf(stderr, "%.*s\n", (i32)s.len, s.data);
       } break;
 
       case PG_DWARF_FORM_STRX4: {
         Pgu32Result res_read = pg_reader_read_u32_le(&r);
         PG_TRY(val, res, res_read);
         PgString s = pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
-        fprintf(stderr, "%.*s\n", (i32)s.len, s.data);
+      } break;
+
+      case PG_DWARF_FORM_ADDRX: {
+        Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
+        PG_TRY(val, res, res_read);
+
+        if (PG_DWARF_TAG_SUBPROGRAM == abbrev.tag &&
+            PG_DWARF_AT_LOW_PC == attr_form.attribute) {
+          fn.low_pc = val;
+        }
       } break;
 
       case PG_DWARF_FORM_ADDRX1: {
@@ -10312,6 +10329,9 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
       default:
         PG_ASSERT(0 && "todo");
       }
+    }
+    if (PG_DWARF_TAG_SUBPROGRAM == abbrev.tag) {
+      PG_DYN_PUSH(&res.value, fn, allocator);
     }
   }
   return res;
