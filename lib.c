@@ -10163,10 +10163,6 @@ pg_dwarf_parse_abbreviation_entry(PgReader *r, PgAllocator *allocator) {
   // Tag.
   {
     Pgu64Result res_type = pg_reader_read_u64_leb128(r);
-    // The end.
-    if (PG_ERR_EOF == res_type.err) {
-      return res;
-    }
 
     if (res_type.err) {
       res.err = res_type.err;
@@ -10177,6 +10173,12 @@ pg_dwarf_parse_abbreviation_entry(PgReader *r, PgAllocator *allocator) {
   // Type.
   {
     Pgu64Result res_tag = pg_reader_read_u64_leb128(r);
+    // The end?
+    // > The abbreviations for a given compilation unit end with an entry
+    // > consisting of a 0 byte for the abbreviation code.
+    if (PG_ERR_EOF == res_tag.err && 0 == entry.type) {
+      return res;
+    }
     if (res_tag.err) {
       res.err = res_tag.err;
       return res;
