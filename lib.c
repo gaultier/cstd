@@ -102,6 +102,9 @@
 #define PG_PAD(n) u8 PG_PRIVATE_NAME(_padding)[n]
 
 #define PG_PATH_MAX 4096
+// TODO: Probably need higher values.
+#define PG_DWARF_MAX_ABBREV 4096
+#define PG_DWARF_MAX_ABBREV_ATTRIBUTES 256
 
 #define PG_MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define PG_MAX(a, b) (((a) < (b)) ? (b) : (a))
@@ -1373,6 +1376,18 @@ typedef enum : u8 {
   PG_DWARF_FORM_EXPRLOC = 0X18,
   PG_DWARF_FORM_FLAG_PRESENT = 0X19,
   PG_DWARF_FORM_REF_SIG8 = 0X20,
+  PG_DWARF_FORM_IMPLICIT_CONST = 0x21,
+  PG_DWARF_FORM_LOCLISTX = 0X22,
+  PG_DWARF_FORM_RNGLISTX = 0X23,
+  PG_DWARF_FORM_REF_SUP8 = 0X24,
+  PG_DWARF_FORM_STRX1 = 0X25,
+  PG_DWARF_FORM_STRX2 = 0X26,
+  PG_DWARF_FORM_STRX3 = 0X27,
+  PG_DWARF_FORM_STRX4 = 0X28,
+  PG_DWARF_FORM_ADDRX1 = 0X29,
+  PG_DWARF_FORM_ADDRX2 = 0X2A,
+  PG_DWARF_FORM_ADDRX3 = 0X2B,
+  PG_DWARF_FORM_addrx4 = 0x2c,
 } PgDwarfForm;
 
 typedef enum : u8 {
@@ -1391,12 +1406,12 @@ typedef struct {
 PG_DYN(PgDwarfAttributeForm) PgDwarfAttributeFormDyn;
 
 typedef struct {
+  u64 type;
+  u64 tag;
   PgDwarfAttributeFormDyn attribute_forms;
-  u8 type;
-  u8 tag;
-  PG_PAD(6);
 } PgDwarfAbbreviationEntry;
 PG_DYN(PgDwarfAbbreviationEntry) PgDwarfAbbreviationEntryDyn;
+PG_RESULT(PgDwarfAbbreviationEntry) PgDwarfAbbreviationEntryResult;
 
 typedef struct {
   PgDwarfAbbreviationEntryDyn entries;
@@ -4171,6 +4186,159 @@ pg_reader_read(PgReader *r, Pgu8Slice dst) {
     remaining = PG_SLICE_RANGE_START(remaining, res.value);
   }
   return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu8Result
+pg_reader_read_u8_le(PgReader *r) {
+  Pgu8Result res = {0};
+
+  u8 dst[sizeof(res.value)] = {0};
+  Pgu8Slice dst_slice = PG_SLICE_FROM_C(dst);
+
+  PgError err = pg_reader_read_full(r, dst_slice);
+
+  if (err) {
+    res.err = err;
+    return res;
+  }
+
+  res.value = *(typeof(res.value) *)(dst);
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu16Result
+pg_reader_read_u16_le(PgReader *r) {
+  Pgu16Result res = {0};
+
+  u8 dst[sizeof(res.value)] = {0};
+  Pgu8Slice dst_slice = PG_SLICE_FROM_C(dst);
+
+  PgError err = pg_reader_read_full(r, dst_slice);
+
+  if (err) {
+    res.err = err;
+    return res;
+  }
+
+  res.value = *(typeof(res.value) *)(dst);
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu32Result
+pg_reader_read_u32_le(PgReader *r) {
+  Pgu32Result res = {0};
+
+  u8 dst[sizeof(res.value)] = {0};
+  Pgu8Slice dst_slice = PG_SLICE_FROM_C(dst);
+
+  PgError err = pg_reader_read_full(r, dst_slice);
+
+  if (err) {
+    res.err = err;
+    return res;
+  }
+
+  res.value = *(typeof(res.value) *)(dst);
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_reader_read_u64_le(PgReader *r) {
+  Pgu64Result res = {0};
+
+  u8 dst[sizeof(res.value)] = {0};
+  Pgu8Slice dst_slice = PG_SLICE_FROM_C(dst);
+
+  PgError err = pg_reader_read_full(r, dst_slice);
+
+  if (err) {
+    res.err = err;
+    return res;
+  }
+
+  res.value = *(typeof(res.value) *)(dst);
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgu64Result
+pg_reader_read_u64_leb128(PgReader *r) {
+  Pgu64Result res = {0};
+
+  for (u64 _i = 0; _i < 5; _i++) {
+    Pgu8Result res_u8 = pg_reader_read_u8_le(r);
+    if (res_u8.err) {
+      res.err = res_u8.err;
+      return res;
+    }
+
+    u8 byte = res_u8.value;
+
+    // End?
+    if (0 == (byte & 0x80)) {
+      if (0 != (res.value & 0xff)) {
+        res.err = PG_ERR_INVALID_VALUE;
+        return res;
+      }
+      res.value |= byte;
+      return res;
+    }
+
+    // Data would be overriden?
+    if (0 != (res.value & 0xffff'ff00)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+
+    res.value <<= 8;
+    res.value |= (byte & 0x7F);
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]] static Pgi64Result
+pg_reader_read_i64_leb128(PgReader *r) {
+  Pgi64Result res = {0};
+  u8 byte = 0;
+  u64 shift = 0;
+
+  for (u64 _i = 0; _i < 5; _i++) {
+    Pgu8Result res_u8 = pg_reader_read_u8_le(r);
+    if (res_u8.err) {
+      res.err = res_u8.err;
+      return res;
+    }
+
+    byte = res_u8.value;
+
+    // End?
+    if (0 == (byte & 0x80)) {
+      if (0 != (res.value & 0xff)) {
+        res.err = PG_ERR_INVALID_VALUE;
+        return res;
+      }
+      res.value |= byte;
+      break;
+    }
+
+    // Data would be overriden?
+    if (0 != (res.value & 0xffff'ff00)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+
+    res.value <<= 8;
+    res.value |= (byte & 0x7F);
+    shift += 7;
+  }
+
+  // Sign is in second high-order bit (0x40).
+  if (shift < sizeof(u64) * 8 && (byte & 0x40)) {
+    // Sign extend.
+    res.value |= (~0 << shift);
+  }
+
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
@@ -9980,6 +10148,75 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   return res;
 }
 
+[[nodiscard]] static PgDwarfAbbreviationEntryResult
+pg_dwarf_parse_abbreviation_entry(PgReader *r) {
+  PgDwarfAbbreviationEntryResult res = {0};
+
+  // Tag.
+  {
+    Pgu64Result res_type = pg_reader_read_u64_leb128(r);
+    if (res_type.err) {
+      res.err = res_type.err;
+      return res;
+    }
+    res.value.type = res_type.value;
+  }
+  // Type.
+  {
+    Pgu64Result res_tag = pg_reader_read_u64_leb128(r);
+    if (res_tag.err) {
+      res.err = res_tag.err;
+      return res;
+    }
+    res.value.tag = res_tag.value;
+  }
+  // Has children.
+  bool has_children = false;
+  {
+    Pgu8Result res_has_children = pg_reader_read_u8_le(r);
+    if (res_has_children.err) {
+      res.err = res_has_children.err;
+      return res;
+    }
+    has_children = res_has_children.value;
+  }
+
+  // Attributes.
+  for (u64 _i = 0; _i < PG_DWARF_MAX_ABBREV_ATTRIBUTES; _i++) {
+    Pgu64Result res_name = pg_reader_read_u64_leb128(r);
+    if (res_name.err) {
+      res.err = res_name.err;
+      return res;
+    }
+    u64 name = res_name.value;
+
+    Pgu64Result res_form = pg_reader_read_u64_leb128(r);
+    if (res_form.err) {
+      res.err = res_form.err;
+      return res;
+    }
+    u64 form = res_form.value;
+
+    // End.
+    if (0 == name && 0 == form) {
+      break;
+    }
+
+    if (PG_DWARF_FORM_IMPLICIT_CONST == form) {
+      Pgi64Result res_value = pg_reader_read_i64_leb128(r);
+      if (res_value.err) {
+        res.err = res_value.err;
+        return res;
+      }
+      i64 val = res_value.value;
+      // TODO: use `val`.
+      (void)val;
+    }
+  }
+
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgStringResult
 pg_self_load_debug_info(PgAllocator *allocator) {
   PgStringResult res = {0};
@@ -10014,6 +10251,8 @@ pg_self_load_debug_info(PgAllocator *allocator) {
     return res;
   }
 
+  PgDwarfAbbreviationEntryDyn abbrevs = {0};
+  PG_DYN_ENSURE_CAP(&abbrevs, 256, allocator);
   {
     Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(
         elf, section_header_debug_abbrev - elf.section_headers.data);
@@ -10022,6 +10261,19 @@ pg_self_load_debug_info(PgAllocator *allocator) {
       return res;
     }
     Pgu8Slice bytes = res_bytes.value;
+
+    PgReader r = pg_reader_make_from_bytes(bytes);
+    for (u64 _i = 0; _i < PG_DWARF_MAX_ABBREV; _i++) {
+      PgDwarfAbbreviationEntryResult res_abbrev =
+          pg_dwarf_parse_abbreviation_entry(&r);
+      // TODO: Detect EOF.
+      if (res_abbrev.err) {
+        res.err = res_abbrev.err;
+        return res;
+      }
+      PgDwarfAbbreviationEntry abbrev = res_abbrev.value;
+      PG_DYN_PUSH(&abbrevs, abbrev, allocator);
+    }
   }
 
   PgElfSectionHeader *section_header_debug_info =
