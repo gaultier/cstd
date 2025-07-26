@@ -3691,11 +3691,26 @@ static void test_self_functions() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  u64 offset = pg_self_pie_get_offset();
-  PG_ASSERT(offset > 0xffff);
+  {
+    u64 offset = pg_self_pie_get_offset();
+    PG_ASSERT(offset > 0xffff);
+  }
+  // Do it twice to check that it works with the `once` mechanism.
+  {
+    u64 offset = pg_self_pie_get_offset();
+    PG_ASSERT(offset > 0xffff);
+  }
 
-  PgString exe_path = pg_self_exe_get_path(allocator);
-  PG_ASSERT(pg_string_contains(exe_path, PG_S("cstd/test")));
+  {
+    PgString exe_path = pg_self_exe_get_path(allocator);
+    PG_ASSERT(pg_string_contains(exe_path, PG_S("cstd/test")));
+  }
+
+  // Do it twice to check that it works with the `once` mechanism.
+  {
+    PgString exe_path = pg_self_exe_get_path(nullptr);
+    PG_ASSERT(pg_string_contains(exe_path, PG_S("cstd/test")));
+  }
 }
 
 int main() {
