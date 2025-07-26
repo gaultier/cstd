@@ -1419,6 +1419,7 @@ PG_DYN(PgDwarfAttributeForm) PgDwarfAttributeFormDyn;
 typedef struct {
   u64 type;
   PgDwarfTag tag;
+  bool has_children;
   PgDwarfAttributeFormDyn attribute_forms;
 } PgDwarfAbbreviationEntry;
 PG_DYN(PgDwarfAbbreviationEntry) PgDwarfAbbreviationEntryDyn;
@@ -1427,8 +1428,9 @@ PG_RESULT(PgDwarfAbbreviationEntryOption) PgDwarfAbbreviationEntryOptionResult;
 PG_RESULT(PgDwarfAbbreviationEntryDyn) PgDwarfAbbreviationEntryDynResult;
 
 typedef struct {
-  PgDwarfAbbreviationEntryDyn entries;
-} PgDwarfAbbreviation;
+  void *todo;
+} PgDwarfDebugInfo;
+PG_RESULT(PgDwarfDebugInfo) PgDwarfDebugInfoResult;
 
 typedef struct {
   u64 low_pc;
@@ -1452,7 +1454,6 @@ typedef struct {
   u64 file;
   u16 line;
   bool is_stmt;
-  PG_PAD(5);
   // TODO: track column?
 } PgDwarfLineSectionFsm;
 
@@ -10187,15 +10188,13 @@ pg_dwarf_parse_abbreviation_entry(PgReader *r, PgAllocator *allocator) {
     entry.tag = res_tag.value;
   }
   // Has children.
-  bool has_children = false;
   {
     Pgu8Result res_has_children = pg_reader_read_u8_le(r);
     if (res_has_children.err) {
       res.err = res_has_children.err;
       return res;
     }
-    has_children = res_has_children.value;
-    // TODO: use.
+    entry.has_children = res_has_children.value;
   }
 
   // Attributes.
@@ -10245,20 +10244,19 @@ pg_dwarf_parse_abbreviation_entry(PgReader *r, PgAllocator *allocator) {
 }
 
 [[nodiscard]] static PgDwarfAbbreviationEntryDynResult
-pg_dwarf_parse_abbreviation_entries(PgElf *elf, PgAllocator *allocator) {
+pg_dwarf_parse_abbreviation_entries(PgElf elf, PgAllocator *allocator) {
   PgDwarfAbbreviationEntryDynResult res = {0};
 
   PgElfSectionHeader *section_header_debug_abbrev =
       pg_elf_section_header_find_ptr_by_name_and_kind(
-          elf, PG_S(".debug_abbrev"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+          &elf, PG_S(".debug_abbrev"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
 
   if (!section_header_debug_abbrev) {
     return res;
   }
 
-  u64 section_idx = section_header_debug_abbrev - elf->section_headers.data;
-  Pgu8SliceResult res_bytes =
-      pg_elf_get_section_header_bytes(*elf, section_idx);
+  u64 section_idx = section_header_debug_abbrev - elf.section_headers.data;
+  Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(elf, section_idx);
   if (res_bytes.err) {
     res.err = res_bytes.err;
     return res;
@@ -10284,6 +10282,32 @@ pg_dwarf_parse_abbreviation_entries(PgElf *elf, PgAllocator *allocator) {
   }
 
   res.err = PG_ERR_TOO_BIG;
+  return res;
+}
+
+[[nodiscard]] static PgDwarfDebugInfoResult
+pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
+  PgDwarfDebugInfoResult res = {0};
+
+  PgElfSectionHeader *section_header_debug_info =
+      pg_elf_section_header_find_ptr_by_name_and_kind(
+          &elf, PG_S(".debug_info"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+
+  if (!section_header_debug_info) {
+    return res;
+  }
+
+  u64 section_idx = section_header_debug_info - elf.section_headers.data;
+  Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(elf, section_idx);
+  if (res_bytes.err) {
+    res.err = res_bytes.err;
+    return res;
+  }
+  Pgu8Slice bytes = res_bytes.value;
+
+  PgReader r = pg_reader_make_from_bytes(bytes);
+
+  // TODO
   return res;
 }
 
@@ -10313,54 +10337,11 @@ pg_self_load_debug_info(PgAllocator *allocator) {
   }
   PgElf elf = res_elf.value;
 
+  // TODO: Multiple compile units.
   PgDwarfAbbreviationEntryDynResult res_abbrevs =
-      pg_dwarf_parse_abbreviation_entries(&elf, allocator);
+      pg_dwarf_parse_abbreviation_entries(elf, allocator);
   if (res_abbrevs.err) {
     res.err = res_abbrevs.err;
-    return res;
-  }
-
-  PgElfSectionHeader *section_header_debug_abbrev =
-      pg_elf_section_header_find_ptr_by_name_and_kind(
-          &elf, PG_S(".debug_abbrev"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
-
-  if (!section_header_debug_abbrev) {
-    return res;
-  }
-
-  PgDwarfAbbreviationEntryDyn abbrevs = {0};
-  PG_DYN_ENSURE_CAP(&abbrevs, 256, allocator);
-  {
-    Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(
-        elf, section_header_debug_abbrev - elf.section_headers.data);
-    if (res_bytes.err) {
-      res.err = res_bytes.err;
-      return res;
-    }
-    Pgu8Slice bytes = res_bytes.value;
-
-    PgReader r = pg_reader_make_from_bytes(bytes);
-    for (u64 _i = 0; _i < PG_DWARF_MAX_ABBREV; _i++) {
-      PgDwarfAbbreviationEntryOptionResult res_abbrev =
-          pg_dwarf_parse_abbreviation_entry(&r, allocator);
-      if (res_abbrev.err) {
-        res.err = res_abbrev.err;
-        return res;
-      }
-      if (res_abbrev.value.has_value) {
-        PgDwarfAbbreviationEntry abbrev = res_abbrev.value.value;
-        PG_DYN_PUSH(&abbrevs, abbrev, allocator);
-      } else {
-        break;
-      }
-    }
-    // TODO: Err on max reached.
-  }
-
-  PgElfSectionHeader *section_header_debug_info =
-      pg_elf_section_header_find_ptr_by_name_and_kind(
-          &elf, PG_S(".debug_info"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
-  if (!section_header_debug_info) {
     return res;
   }
 
