@@ -3718,8 +3718,12 @@ static void test_debug_info() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgStringResult res_debug = pg_self_load_debug_info(allocator);
+  PgDwarfDebugInfoCompilationUnitResult res_debug =
+      pg_self_load_debug_info(allocator);
   PG_ASSERT(0 == res_debug.err);
+  PgDwarfDebugInfoCompilationUnit unit = res_debug.value;
+  PG_ASSERT(PG_DWARF_COMPILATION_UNIT_COMPILE == unit.kind);
+  PG_ASSERT(unit.abbrevs.len > 0);
 }
 
 int main() {

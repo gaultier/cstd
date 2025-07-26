@@ -1416,16 +1416,16 @@ typedef enum : u8 {
 } PgDwarfLne;
 
 typedef enum : u8 {
-  PG_DWARF_HEADER_UNIT_NONE = 0x00,
-  PG_DWARF_HEADER_UNIT_COMPILE = 0x01,
-  PG_DWARF_HEADER_UNIT_TYPE = 0x02,
-  PG_DWARF_HEADER_UNIT_PARTIAL = 0x03,
-  PG_DWARF_HEADER_UNIT_SKELETON = 0x04,
-  PG_DWARF_HEADER_UNIT_SPLIT_COMPILE = 0x05,
-  PG_DWARF_HEADER_UNIT_SPLIT_TYPE = 0x06,
-  PG_DWARF_HEADER_UNIT_LO_USER = 0x80,
-  PG_DWARF_HEADER_UNIT_HI_USER = 0xff,
-} PgDwarfHeaderUnitKind;
+  PG_DWARF_COMPILATION_UNIT_NONE = 0x00,
+  PG_DWARF_COMPILATION_UNIT_COMPILE = 0x01,
+  PG_DWARF_COMPILATION_UNIT_TYPE = 0x02,
+  PG_DWARF_COMPILATION_UNIT_PARTIAL = 0x03,
+  PG_DWARF_COMPILATION_UNIT_SKELETON = 0x04,
+  PG_DWARF_COMPILATION_UNIT_SPLIT_COMPILE = 0x05,
+  PG_DWARF_COMPILATION_UNIT_SPLIT_TYPE = 0x06,
+  PG_DWARF_COMPILATION_UNIT_LO_USER = 0x80,
+  PG_DWARF_COMPILATION_UNIT_HI_USER = 0xff,
+} PgDwarfCompilationUnitKind;
 
 typedef struct {
   PgDwarfAttribute attribute;
@@ -1447,7 +1447,7 @@ PG_RESULT(PgDwarfAbbreviationEntryOption) PgDwarfAbbreviationEntryOptionResult;
 PG_RESULT(PgDwarfAbbreviationEntryDyn) PgDwarfAbbreviationEntryDynResult;
 
 typedef struct {
-  PgDwarfHeaderUnitKind kind;
+  PgDwarfCompilationUnitKind kind;
   PgDwarfAbbreviationEntryDyn abbrevs;
   u64 id;
 } PgDwarfDebugInfoCompilationUnit;
@@ -10365,7 +10365,7 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
   res.value.kind = unit_kind;
 
   switch (res.value.kind) {
-  case PG_DWARF_HEADER_UNIT_SKELETON: {
+  case PG_DWARF_COMPILATION_UNIT_SKELETON: {
     Pgu8Result res_address_size = pg_reader_read_u8_le(&r);
     PG_TRY(address_size, res, res_address_size);
     // Only expect address size 8 (64 bits).
@@ -10386,14 +10386,31 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
 
     res.value.abbrevs = res_abbrevs.value;
   } break;
-  case PG_DWARF_HEADER_UNIT_NONE:
-  case PG_DWARF_HEADER_UNIT_COMPILE:
-  case PG_DWARF_HEADER_UNIT_TYPE:
-  case PG_DWARF_HEADER_UNIT_PARTIAL:
-  case PG_DWARF_HEADER_UNIT_SPLIT_COMPILE:
-  case PG_DWARF_HEADER_UNIT_SPLIT_TYPE:
-  case PG_DWARF_HEADER_UNIT_LO_USER:
-  case PG_DWARF_HEADER_UNIT_HI_USER:
+  case PG_DWARF_COMPILATION_UNIT_COMPILE: {
+    Pgu8Result res_address_size = pg_reader_read_u8_le(&r);
+    PG_TRY(address_size, res, res_address_size);
+    // Only expect address size 8 (64 bits).
+    PG_ASSERT(8 == address_size);
+
+    Pgu32Result res_abbrev_offset = pg_reader_read_u32_le(&r);
+    PG_TRY(abbrev_offset, res, res_abbrev_offset);
+
+    PgDwarfAbbreviationEntryDynResult res_abbrevs =
+        pg_dwarf_parse_abbreviation_entries(elf, abbrev_offset, allocator);
+    if (res_abbrevs.err) {
+      res.err = res_abbrevs.err;
+      return res;
+    }
+
+    res.value.abbrevs = res_abbrevs.value;
+  } break;
+  case PG_DWARF_COMPILATION_UNIT_NONE:
+  case PG_DWARF_COMPILATION_UNIT_TYPE:
+  case PG_DWARF_COMPILATION_UNIT_PARTIAL:
+  case PG_DWARF_COMPILATION_UNIT_SPLIT_COMPILE:
+  case PG_DWARF_COMPILATION_UNIT_SPLIT_TYPE:
+  case PG_DWARF_COMPILATION_UNIT_LO_USER:
+  case PG_DWARF_COMPILATION_UNIT_HI_USER:
   default:
     PG_ASSERT(0 && "todo");
   }
@@ -10403,9 +10420,9 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgStringResult
+[[maybe_unused]] [[nodiscard]] static PgDwarfDebugInfoCompilationUnitResult
 pg_self_load_debug_info(PgAllocator *allocator) {
-  PgStringResult res = {0};
+  PgDwarfDebugInfoCompilationUnitResult res = {0};
 
   PgString exe_path = pg_self_exe_get_path(allocator);
   if (pg_string_is_empty(exe_path)) {
@@ -10429,13 +10446,7 @@ pg_self_load_debug_info(PgAllocator *allocator) {
   }
   PgElf elf = res_elf.value;
 
-  PgDwarfDebugInfoCompilationUnitResult res_debug_info =
-      pg_dwarf_parse_debug_info(elf, allocator);
-  if (res_debug_info.err) {
-    res.err = res_debug_info.err;
-    return res;
-  }
-
+  res = pg_dwarf_parse_debug_info(elf, allocator);
   return res;
 }
 
