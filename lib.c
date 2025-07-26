@@ -4280,6 +4280,7 @@ pg_reader_read_u64_le(PgReader *r) {
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_reader_read_u64_leb128(PgReader *r) {
   Pgu64Result res = {0};
+  u64 shift = 0;
 
   for (u64 _i = 0; _i < 5; _i++) {
     Pgu8Result res_u8 = pg_reader_read_u8_le(r);
@@ -4290,24 +4291,13 @@ pg_reader_read_u64_leb128(PgReader *r) {
 
     u8 byte = res_u8.value;
 
+    res.value |= (byte & 0x7F) << shift;
     // End?
     if (0 == (byte & 0x80)) {
-      if (0 != (res.value & 0xff)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
-      }
-      res.value |= byte;
       return res;
     }
 
-    // Data would be overriden?
-    if (0 != (res.value & 0xffff'ff00)) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
-    }
-
-    res.value <<= 8;
-    res.value |= (byte & 0x7F);
+    shift += 7;
   }
 
   return res;
@@ -10210,6 +10200,10 @@ pg_dwarf_parse_abbreviation_entry(PgReader *r, PgAllocator *allocator) {
     PgDwarfAttributeForm attribute_form = {0};
 
     Pgu64Result res_name = pg_reader_read_u64_leb128(r);
+    // The end.
+    if (PG_ERR_EOF == res_name.err) {
+      return res;
+    }
     if (res_name.err) {
       res.err = res_name.err;
       return res;
