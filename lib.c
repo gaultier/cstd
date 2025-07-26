@@ -2101,12 +2101,12 @@ pg_fill_call_stack(u64 pie_offset, u64 call_stack[PG_STACKTRACE_MAX]);
 [[maybe_unused]] inline static void
 pg_stacktrace_print(const char *file, int line, const char *function) {
   // FIXME: Only do this once in the process, not once per thread.
-  static _Atomic PgOnce pie_offset_once = PG_ONCE_UNINITIALIZED;
+  static _Atomic PgOnce once = PG_ONCE_UNINITIALIZED;
   static u64 pie_offset = 0;
-  if (pg_once_do(&pie_offset_once)) {
+  if (pg_once_do(&once)) {
     pie_offset = pg_self_pie_get_offset();
 
-    pg_once_mark_as_done(&pie_offset_once);
+    pg_once_mark_as_done(&once);
   }
 
   fprintf(stderr, "ASSERT: %s:%d:%s\n", file, line, function);
@@ -9892,18 +9892,24 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_self_exe_get_path(PgAllocator *allocator) {
-  PgString res = {0};
+  static _Atomic PgOnce once = PG_ONCE_UNINITIALIZED;
+  static PgString res = {0};
+  if (pg_once_do(&once)) {
+    char path_c[PG_PATH_MAX] = {0};
+    i32 ret = 0;
+    do {
+      ret = readlink("/proc/self/exe", path_c, PG_STATIC_ARRAY_LEN(path_c));
+    } while (-1 == ret && EINTR == errno);
+    if (-1 == errno) {
+      return res;
+    }
 
-  char path_c[PG_PATH_MAX] = {0};
-  i32 ret = 0;
-  do {
-    ret = readlink("/proc/self/exe", path_c, PG_STATIC_ARRAY_LEN(path_c));
-  } while (-1 == ret && EINTR == errno);
-  if (-1 == errno) {
-    return res;
+    res = pg_string_clone(pg_cstr_to_string(path_c), allocator);
+
+    pg_once_mark_as_done(&once);
   }
 
-  res = pg_string_clone(pg_cstr_to_string(path_c), allocator);
+  PG_ASSERT(!pg_string_is_empty(res));
   return res;
 }
 

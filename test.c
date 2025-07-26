@@ -3686,13 +3686,20 @@ static void test_cli_options_help() {
   PG_ASSERT(pg_string_eq(expected, help));
 }
 
-static void test_pie_get_offset() {
+static void test_self_functions() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
   u64 offset = pg_self_pie_get_offset();
   PG_ASSERT(offset > 0xffff);
+
+  PgString exe_path = pg_self_exe_get_path(allocator);
+  PG_ASSERT(pg_string_contains(exe_path, PG_S("cstd/test")));
 }
 
 int main() {
-  test_pie_get_offset();
+  test_self_functions();
   test_rune_bytes_count();
   test_utf8_count();
   test_string_last();
