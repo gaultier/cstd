@@ -10176,6 +10176,11 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   return res;
 }
 
+[[nodiscard]] static bool
+pg_dwarf_abbreviation_entry_is_null(PgDwarfAbbreviationEntry abbrev) {
+  return 0 == abbrev.type;
+}
+
 [[nodiscard]] static PgDwarfAbbreviationEntryOptionResult
 pg_dwarf_parse_abbreviation_entry(PgReader *r, PgAllocator *allocator) {
   PgDwarfAbbreviationEntryOptionResult res = {0};
@@ -10365,6 +10370,17 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
 
     // Semi-arbitrary loop bound.
     for (u64 _i = 0; _i < size; _i++) {
+      PgDwarfAbbreviationEntryOptionResult res_abbrev =
+          pg_dwarf_parse_abbreviation_entry(&r, allocator);
+      PG_TRY(abbrev, res, res_abbrev);
+
+      if (!abbrev.has_value ||
+          pg_dwarf_abbreviation_entry_is_null(abbrev.value)) {
+        break;
+      }
+      // TODO: Use it.
+      PG_ASSERT(abbrev.value.type);
+
       // TODO: Read dwarf abbrev entry.
     }
   } break;
