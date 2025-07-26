@@ -3724,6 +3724,10 @@ static void test_debug_info() {
   PgDwarfDebugInfoCompilationUnit unit = res_debug.value;
   PG_ASSERT(PG_DWARF_COMPILATION_UNIT_COMPILE == unit.kind);
   PG_ASSERT(unit.abbrevs.len > 0);
+
+  PgWriter w = pg_writer_make_from_file_descriptor((PgFileDescriptor){.fd = 1},
+                                                   1024, allocator);
+  pg_dwarf_debug_info_print(&w, unit, allocator);
 }
 
 int main() {
