@@ -10109,6 +10109,11 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
       continue;
     }
 
+    if (entry_idx + 1 >= unit.abbrevs.len) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+
     PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, entry_idx - 1);
 
     for (u64 j = 0; j < abbrev.attribute_forms.len; j++) {
@@ -10137,12 +10142,6 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
         PG_TRY(val, res, res_read);
 
         val = val + 1 - 1;
-      } break;
-
-      case PG_DWARF_FORM_STRX: {
-        Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
-        PG_TRY(val, res, res_read);
-        PgString s = pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
       } break;
 
       case PG_DWARF_FORM_UDATA: {
@@ -10254,28 +10253,39 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
         PG_TRY(val, res, res_read);
       } break;
 
+      case PG_DWARF_FORM_STRX: {
+        Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
+        PG_TRY(val, res, res_read);
+        PgString s = pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
+        fprintf(stderr, "%.*s\n", (i32)s.len, s.data);
+      } break;
+
       case PG_DWARF_FORM_STRX1: {
         Pgu8Result res_read = pg_reader_read_u8_le(&r);
         PG_TRY(val, res, res_read);
         PgString s = pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
+        fprintf(stderr, "%.*s\n", (i32)s.len, s.data);
       } break;
 
       case PG_DWARF_FORM_STRX2: {
         Pgu16Result res_read = pg_reader_read_u16_le(&r);
         PG_TRY(val, res, res_read);
         PgString s = pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
+        fprintf(stderr, "%.*s\n", (i32)s.len, s.data);
       } break;
 
       case PG_DWARF_FORM_STRX3: {
         Pgu32Result res_read = pg_reader_read_u24_le(&r);
         PG_TRY(val, res, res_read);
         PgString s = pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
+        fprintf(stderr, "%.*s\n", (i32)s.len, s.data);
       } break;
 
       case PG_DWARF_FORM_STRX4: {
         Pgu32Result res_read = pg_reader_read_u32_le(&r);
         PG_TRY(val, res, res_read);
         PgString s = pg_dwarf_resolve_string(str_offsets_bytes, str_bytes, val);
+        fprintf(stderr, "%.*s\n", (i32)s.len, s.data);
       } break;
 
       case PG_DWARF_FORM_ADDRX1: {
