@@ -1450,6 +1450,15 @@ PG_RESULT(PgDwarfAbbreviationEntryOption) PgDwarfAbbreviationEntryOptionResult;
 PG_RESULT(PgDwarfAbbreviationEntryDyn) PgDwarfAbbreviationEntryDynResult;
 
 typedef struct {
+  u64 low_pc;
+  u64 high_pc;
+  PgString name;
+  PgString file;
+} PgDwarfFunctionDeclaration;
+PG_DYN(PgDwarfFunctionDeclaration) PgDwarfFunctionDeclarationDyn;
+PG_RESULT(PgDwarfFunctionDeclarationDyn) PgDwarfFunctionDeclarationDynResult;
+
+typedef struct {
   PgDwarfCompilationUnitKind kind;
   PgDwarfAbbreviationEntryDyn abbrevs;
   // Only for skeleton unit.
@@ -1459,14 +1468,12 @@ PG_RESULT(PgDwarfDebugInfoCompilationUnit)
 PgDwarfDebugInfoCompilationUnitResult;
 
 typedef struct {
-  u64 low_pc;
-  PgString fn_name;
-  PgString directory;
-  PgString file;
-  u16 high_pc;
-  u16 line;
-  PG_PAD(4);
-} PgDwarfFunctionDeclaration;
+  PgString exe_path;
+  Pgu8Slice exe_bytes;
+  PgDwarfDebugInfoCompilationUnit unit;
+  PgElf elf;
+} PgDebugData;
+PG_RESULT(PgDebugData) PgDebugDataResult;
 
 typedef struct {
   u64 pc;
@@ -9984,9 +9991,46 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
     PG_ASSERT(0 && "todo");
   }
 
-#if 0
-  for (u64 i = 0; i < res.value.abbrevs.len; i++) {
-    PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(res.value.abbrevs, i);
+  return res;
+}
+
+[[nodiscard]] static u64 pg_dwarf_compilation_unit_get_data_offset(
+    PgDwarfDebugInfoCompilationUnit unit) {
+  switch (unit.kind) {
+  case PG_DWARF_COMPILATION_UNIT_COMPILE:
+    return 12;
+  case PG_DWARF_COMPILATION_UNIT_NONE:
+  case PG_DWARF_COMPILATION_UNIT_TYPE:
+  case PG_DWARF_COMPILATION_UNIT_PARTIAL:
+  case PG_DWARF_COMPILATION_UNIT_SKELETON:
+  case PG_DWARF_COMPILATION_UNIT_SPLIT_COMPILE:
+  case PG_DWARF_COMPILATION_UNIT_SPLIT_TYPE:
+  case PG_DWARF_COMPILATION_UNIT_LO_USER:
+  case PG_DWARF_COMPILATION_UNIT_HI_USER:
+    PG_ASSERT(0 && "todo");
+  default:
+    PG_ASSERT(0);
+  }
+}
+
+[[maybe_unused]] [[nodiscard]]
+static PgDwarfFunctionDeclarationDynResult
+pg_dwarf_resolve_debug_compilation_unit_functions(
+    PgElf elf, PgDwarfDebugInfoCompilationUnit unit, PgAllocator *allocator) {
+  (void)allocator; // TODO
+  PgDwarfFunctionDeclarationDynResult res = {0};
+
+  Pgu8SliceResult res_bytes = pg_elf_section_header_find_bytes_by_name_and_kind(
+      elf, PG_S(".debug_str"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+  PG_TRY(bytes, res, res_bytes);
+
+  u64 offset = pg_dwarf_compilation_unit_get_data_offset(unit);
+  bytes = PG_SLICE_RANGE_START(bytes, offset);
+
+  PgReader r = pg_reader_make_from_bytes(bytes);
+
+  for (u64 i = 0; i < unit.abbrevs.len; i++) {
+    PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, i);
 
     for (u64 j = 0; j < abbrev.attribute_forms.len; j++) {
       PgDwarfAttributeForm attr_form = PG_SLICE_AT(abbrev.attribute_forms, j);
@@ -10026,6 +10070,7 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
       case PG_DWARF_FORM_STRX1: {
         Pgu8Result res_read = pg_reader_read_u8_le(&r);
         PG_TRY(val, res, res_read);
+        (void)val; // TODO
       } break;
       case PG_DWARF_FORM_STRX2:
       case PG_DWARF_FORM_STRX3:
@@ -10039,8 +10084,6 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
       }
     }
   }
-#endif
-
   return res;
 }
 
@@ -10467,33 +10510,40 @@ pg_dwarf_debug_info_print(PgWriter *w, PgDwarfDebugInfoCompilationUnit unit,
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PgDwarfDebugInfoCompilationUnitResult
+[[maybe_unused]] [[nodiscard]] static PgDebugDataResult
 pg_self_load_debug_info(PgAllocator *allocator) {
-  PgDwarfDebugInfoCompilationUnitResult res = {0};
+  PgDebugDataResult res = {0};
 
-  PgString exe_path = pg_self_exe_get_path(allocator);
-  if (pg_string_is_empty(exe_path)) {
+  res.value.exe_path = pg_self_exe_get_path(allocator);
+  if (pg_string_is_empty(res.value.exe_path)) {
     return res;
   }
 
   // TODO: Only read the relevant parts.
   // Depending on the size of the executable.
-  PgStringResult res_exe = pg_file_read_full_from_path(exe_path, allocator);
+  PgStringResult res_exe =
+      pg_file_read_full_from_path(res.value.exe_path, allocator);
   if (res_exe.err) {
     res.err = res_exe.err;
     return res;
   }
-  PgString exe = res_exe.value;
+  res.value.exe_bytes = res_exe.value;
 
   // TODO: Other formats.
-  PgElfResult res_elf = pg_elf_parse(exe);
+  PgElfResult res_elf = pg_elf_parse(res.value.exe_bytes);
   if (res_elf.err) {
     res.err = res_elf.err;
     return res;
   }
-  PgElf elf = res_elf.value;
+  res.value.elf = res_elf.value;
 
-  res = pg_dwarf_parse_debug_info(elf, allocator);
+  PgDwarfDebugInfoCompilationUnitResult res_unit =
+      pg_dwarf_parse_debug_info(res.value.elf, allocator);
+  if (res_unit.err) {
+    res.err = res_unit.err;
+    return res;
+  }
+  res.value.unit = res_unit.value;
   return res;
 }
 
