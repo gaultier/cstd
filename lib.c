@@ -9992,6 +9992,7 @@ pg_self_exe_get_path(PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static PgStringResult pg_self_load_debug_info() {
   PgStringResult res = {0};
+  // TODO
   return res;
 }
 
