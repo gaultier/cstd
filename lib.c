@@ -918,10 +918,9 @@ typedef struct {
 
   // Cache useful section header data.
   PgElfSymbolTableEntryDyn symtab;
-  Pgu8Slice strtab_bytes;
-  Pgu8Slice shtrtab_bytes;
-  Pgu8Slice section_header_text_bytes;
+
   u32 section_header_text_idx;
+  u32 section_header_strtab_idx;
 } PgElf;
 PG_RESULT(PgElf) PgElfResult;
 
@@ -9474,12 +9473,20 @@ pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
                                                             u32 offset) {
   PgStringResult res = {0};
 
-  if (offset >= elf.shtrtab_bytes.len) {
+  Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(
+      elf, elf.header.section_header_shstrtab_index);
+  if (res_bytes.err) {
+    res.err = res_bytes.err;
+    return res;
+  }
+  Pgu8Slice bytes = res_bytes.value;
+
+  if (offset >= bytes.len) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  Pgu8Slice at = PG_SLICE_RANGE_START(elf.shtrtab_bytes, offset);
+  Pgu8Slice at = PG_SLICE_RANGE_START(bytes, offset);
 
   PgBytesCut cut = pg_bytes_cut_byte(at, 0);
   if (!cut.has_value) {
@@ -9496,12 +9503,20 @@ pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
                                                          u32 offset) {
   PgStringResult res = {0};
 
-  if (offset >= elf.strtab_bytes.len) {
+  Pgu8SliceResult res_bytes =
+      pg_elf_get_section_header_bytes(elf, elf.section_header_strtab_idx);
+  if (res_bytes.err) {
+    res.err = res_bytes.err;
+    return res;
+  }
+  Pgu8Slice bytes = res_bytes.value;
+
+  if (offset >= bytes.len) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  Pgu8Slice at = PG_SLICE_RANGE_START(elf.strtab_bytes, offset);
+  Pgu8Slice at = PG_SLICE_RANGE_START(bytes, offset);
 
   PgBytesCut cut = pg_bytes_cut_byte(at, 0);
   if (!cut.has_value) {
@@ -9578,32 +9593,11 @@ pg_elf_parse(Pgu8Slice elf_bytes) {
         .cap = h.section_header_entries_count,
     };
 
-    // Locate `shtrtab` section.
-    Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(
-        res.value, res.value.header.section_header_shstrtab_index);
-    if (res_bytes.err) {
-      res.err = res_bytes.err;
-      return res;
-    }
-    res.value.shtrtab_bytes = res_bytes.value;
-
-    if (PG_SLICE_IS_EMPTY(res.value.shtrtab_bytes)) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
-    }
-
     PgElfSectionHeader *section_text =
         pg_elf_section_header_find_ptr_by_name_and_kind(
             &res.value, PG_S(".text"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
     if (section_text) {
       u32 idx = section_text - res.value.section_headers.data;
-      Pgu8SliceResult res_bytes =
-          pg_elf_get_section_header_bytes(res.value, idx);
-      if (res_bytes.err) {
-        res.err = res_bytes.err;
-        return res;
-      }
-      res.value.section_header_text_bytes = res_bytes.value;
       res.value.section_header_text_idx = idx;
     }
   }
@@ -9620,7 +9614,15 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
     return res;
   }
 
-  if (sym.value >= elf.section_header_text_bytes.len) {
+  Pgu8SliceResult res_bytes =
+      pg_elf_get_section_header_bytes(elf, elf.section_header_text_idx);
+  if (res_bytes.err) {
+    res.err = res_bytes.err;
+    return res;
+  }
+  Pgu8Slice bytes = res_bytes.value;
+
+  if (sym.value >= bytes.len) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
@@ -9631,7 +9633,7 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
     return res;
   }
 
-  res.value = PG_SLICE_RANGE(elf.section_header_text_bytes, sym.value, end);
+  res.value = PG_SLICE_RANGE(bytes, sym.value, end);
   return res;
 }
 
