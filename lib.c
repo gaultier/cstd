@@ -2100,14 +2100,7 @@ pg_fill_call_stack(u64 pie_offset, u64 call_stack[PG_STACKTRACE_MAX]);
 
 [[maybe_unused]] inline static void
 pg_stacktrace_print(const char *file, int line, const char *function) {
-  // FIXME: Only do this once in the process, not once per thread.
-  static _Atomic PgOnce once = PG_ONCE_UNINITIALIZED;
-  static u64 pie_offset = 0;
-  if (pg_once_do(&once)) {
-    pie_offset = pg_self_pie_get_offset();
-
-    pg_once_mark_as_done(&once);
-  }
+  u64 pie_offset = pg_self_pie_get_offset();
 
   fprintf(stderr, "ASSERT: %s:%d:%s\n", file, line, function);
 
@@ -9914,78 +9907,91 @@ pg_self_exe_get_path(PgAllocator *allocator) {
 }
 
 [[nodiscard]] static u64 pg_self_pie_get_offset() {
-  u64 res = 0;
-  u8 mem[4096] = {0};
-  PgArena arena = pg_arena_make_from_mem(mem, PG_STATIC_ARRAY_LEN(mem));
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+  static _Atomic PgOnce once = PG_ONCE_UNINITIALIZED;
+  static u64 res = 0;
 
-  PgFileDescriptorResult res_fd = pg_file_open(
-      PG_S("/proc/self/maps"), PG_FILE_ACCESS_READ, 0600, false, allocator);
-  if (0 != res_fd.err) {
-    return 0;
+  if (pg_once_do(&once)) {
+    u8 mem[4096] = {0};
+    PgArena arena = pg_arena_make_from_mem(mem, PG_STATIC_ARRAY_LEN(mem));
+    PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+    PgFileDescriptorResult res_fd = pg_file_open(
+        PG_S("/proc/self/maps"), PG_FILE_ACCESS_READ, 0600, false, allocator);
+    if (0 != res_fd.err) {
+      goto end_once;
+    }
+    PgFileDescriptor fd = res_fd.value;
+
+    PgReader r = pg_reader_make_from_file(fd, 512, allocator);
+
+    u64 max_lines = 512;
+
+    for (u64 _i = 0; _i < max_lines; _i++) {
+      u8 line[512] = {0};
+      PgString line_slice = PG_SLICE_FROM_C(line);
+      Pgu64OptionResult res_line =
+          pg_reader_read_line(&r, PG_NEWLINE_KIND_LF, line_slice);
+      if (0 != res_line.err) {
+        goto end_file;
+      }
+      if (!res_line.value.has_value) {
+        goto end_file;
+      }
+      line_slice.len = res_line.value.value;
+
+      PgStringCut cut_space = pg_string_cut_rune(line_slice, ' ');
+      if (!cut_space.has_value) {
+        continue;
+      }
+
+      PgString mem_range = cut_space.left;
+      PgString perms = cut_space.right;
+
+      if (!pg_string_contains_rune(perms, 'x')) {
+        continue;
+      }
+
+      PgStringCut cut_dash = pg_string_cut_rune(mem_range, '-');
+      if (!cut_dash.has_value) {
+        continue;
+      }
+
+      PgParseNumberResult res_mem_start =
+          pg_string_parse_u64(cut_dash.left, 16, false);
+      if (!res_mem_start.present) {
+        continue;
+      }
+
+      PgParseNumberResult res_mem_end =
+          pg_string_parse_u64(cut_dash.right, 16, false);
+      if (!res_mem_end.present) {
+        continue;
+      }
+
+      u64 start = res_mem_start.n;
+      u64 end = res_mem_end.n;
+      PG_ASSERT(0 == (start % pg_os_get_page_size()));
+      PG_ASSERT(0 == (end % pg_os_get_page_size()));
+
+      if (start <= (u64)&pg_self_pie_get_offset &&
+          (u64)&pg_self_pie_get_offset < end) {
+        res = start;
+        goto end_file;
+      }
+    }
+  end_file:
+    (void)pg_file_close(fd);
+
+  end_once:
+    pg_once_mark_as_done(&once);
   }
-  PgFileDescriptor fd = res_fd.value;
 
-  PgReader r = pg_reader_make_from_file(fd, 512, allocator);
+  return res;
+}
 
-  u64 max_lines = 512;
-
-  for (u64 _i = 0; _i < max_lines; _i++) {
-    u8 line[512] = {0};
-    PgString line_slice = PG_SLICE_FROM_C(line);
-    Pgu64OptionResult res_line =
-        pg_reader_read_line(&r, PG_NEWLINE_KIND_LF, line_slice);
-    if (0 != res_line.err) {
-      goto end;
-    }
-    if (!res_line.value.has_value) {
-      goto end;
-    }
-    line_slice.len = res_line.value.value;
-
-    PgStringCut cut_space = pg_string_cut_rune(line_slice, ' ');
-    if (!cut_space.has_value) {
-      continue;
-    }
-
-    PgString mem_range = cut_space.left;
-    PgString perms = cut_space.right;
-
-    if (!pg_string_contains_rune(perms, 'x')) {
-      continue;
-    }
-
-    PgStringCut cut_dash = pg_string_cut_rune(mem_range, '-');
-    if (!cut_dash.has_value) {
-      continue;
-    }
-
-    PgParseNumberResult res_mem_start =
-        pg_string_parse_u64(cut_dash.left, 16, false);
-    if (!res_mem_start.present) {
-      continue;
-    }
-
-    PgParseNumberResult res_mem_end =
-        pg_string_parse_u64(cut_dash.right, 16, false);
-    if (!res_mem_end.present) {
-      continue;
-    }
-
-    u64 start = res_mem_start.n;
-    u64 end = res_mem_end.n;
-    PG_ASSERT(0 == (start % pg_os_get_page_size()));
-    PG_ASSERT(0 == (end % pg_os_get_page_size()));
-
-    if (start <= (u64)&pg_self_pie_get_offset &&
-        (u64)&pg_self_pie_get_offset < end) {
-      res = start;
-      goto end;
-    }
-  }
-end:
-  (void)pg_file_close(fd);
+[[maybe_unused]] [[nodiscard]] static PgStringResult pg_self_load_debug_info() {
+  PgStringResult res = {0};
   return res;
 }
 
