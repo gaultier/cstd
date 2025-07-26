@@ -903,7 +903,7 @@ typedef struct {
   u16 section_header_entries_count;
   // The section header table index of the entry that is associated with the
   // section name string table.
-  u16 section_header_index;
+  u16 section_header_shstrtab_index;
 } PgElfHeader;
 static_assert(24 == offsetof(PgElfHeader, entrypoint_address));
 static_assert(52 == offsetof(PgElfHeader, header_size));
@@ -919,6 +919,7 @@ typedef struct {
   // Cache useful section header data.
   PgElfSymbolTableEntryDyn symtab;
   Pgu8Slice strtab_bytes;
+  Pgu8Slice shtrtab_bytes;
   Pgu8Slice section_header_text_bytes;
   u32 section_header_text_idx;
 } PgElf;
@@ -9469,6 +9470,28 @@ pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
   return res;
 }
 
+[[nodiscard]] static PgStringResult pg_elf_get_sh_string_at(PgElf elf,
+                                                            u32 offset) {
+  PgStringResult res = {0};
+
+  if (offset >= elf.shtrtab_bytes.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  Pgu8Slice at = PG_SLICE_RANGE_START(elf.shtrtab_bytes, offset);
+
+  PgBytesCut cut = pg_bytes_cut_byte(at, 0);
+  if (!cut.has_value) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  res.value = cut.left;
+
+  return res;
+}
+
 [[nodiscard]] static PgStringResult pg_elf_get_string_at(PgElf elf,
                                                          u32 offset) {
   PgStringResult res = {0};
@@ -9503,7 +9526,7 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
       continue;
     }
 
-    PgStringResult res_str = pg_elf_get_string_at(*elf, section->name);
+    PgStringResult res_str = pg_elf_get_sh_string_at(*elf, section->name);
     if (res_str.err) {
       continue;
     }
@@ -9518,7 +9541,7 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgElfResult
-pg_elf_parse(Pgu8Slice elf_bytes, PgAllocator *allocator) {
+pg_elf_parse(Pgu8Slice elf_bytes) {
   PgElfResult res = {0};
   res.value.bytes = elf_bytes;
 
@@ -9555,59 +9578,18 @@ pg_elf_parse(Pgu8Slice elf_bytes, PgAllocator *allocator) {
         .cap = h.section_header_entries_count,
     };
 
-    // Locate `strtab` and `symtab` sections.
-    for (u32 i = 0; i < res.value.section_headers.len; i++) {
-      PgElfSectionHeader section = PG_SLICE_AT(res.value.section_headers, i);
+    // Locate `shtrtab` section.
+    Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(
+        res.value, res.value.header.section_header_shstrtab_index);
+    if (res_bytes.err) {
+      res.err = res_bytes.err;
+      return res;
+    }
+    res.value.shtrtab_bytes = res_bytes.value;
 
-      switch (section.kind) {
-      case PG_ELF_SECTION_HEADER_KIND_SYMTAB: {
-        Pgu8SliceResult res_bytes =
-            pg_elf_get_section_header_bytes(res.value, i);
-        if (res_bytes.err) {
-          res.err = res_bytes.err;
-          return res;
-        }
-
-        Pgu8Slice bytes = res_bytes.value;
-
-        if (PG_SLICE_IS_EMPTY(bytes)) {
-          res.err = res_bytes.err;
-          return res;
-        }
-
-        PG_DYN_ENSURE_CAP(&res.value.symtab, section.size, allocator);
-        pg_memcpy(res.value.symtab.data, bytes.data, bytes.len);
-        res.value.symtab.len = bytes.len / sizeof(PgElfSymbolTableEntry);
-      } break;
-      case PG_ELF_SECTION_HEADER_KIND_STRTAB: {
-        Pgu8SliceResult res_bytes =
-            pg_elf_get_section_header_bytes(res.value, i);
-        if (res_bytes.err) {
-          res.err = res_bytes.err;
-          return res;
-        }
-
-        if (PG_SLICE_IS_EMPTY(res_bytes.value)) {
-          res.err = res_bytes.err;
-          return res;
-        }
-
-        res.value.strtab_bytes = res_bytes.value;
-      } break;
-
-      case PG_ELF_SECTION_HEADER_KIND_NULL:
-      case PG_ELF_SECTION_HEADER_KIND_PROGBITS:
-      case PG_ELF_SECTION_HEADER_KIND_RELA:
-      case PG_ELF_SECTION_HEADER_KIND_HASH:
-      case PG_ELF_SECTION_HEADER_KIND_DYNAMIC:
-      case PG_ELF_SECTION_HEADER_KIND_NOTE:
-      case PG_ELF_SECTION_HEADER_KIND_NOBITS:
-      case PG_ELF_SECTION_HEADER_KIND_REL:
-      case PG_ELF_SECTION_HEADER_KIND_SHLIB:
-      case PG_ELF_SECTION_HEADER_KIND_DYNSYM:
-      default: {
-      }
-      }
+    if (PG_SLICE_IS_EMPTY(res.value.shtrtab_bytes)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
     }
 
     PgElfSectionHeader *section_text =
@@ -10015,7 +9997,7 @@ pg_self_load_debug_info(PgAllocator *allocator) {
   PgString exe = res_exe.value;
 
   // TODO: Other formats.
-  PgElfResult res_elf = pg_elf_parse(exe, allocator);
+  PgElfResult res_elf = pg_elf_parse(exe);
   if (res_elf.err) {
     res.err = res_elf.err;
     return res;
