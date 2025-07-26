@@ -168,6 +168,13 @@ typedef double f64;
     bool has_value;                                                            \
   }
 
+#define PG_TRY(val, out, in)                                                   \
+  if ((in).err) {                                                              \
+    (out).err = (in).err;                                                      \
+    return (out);                                                              \
+  }                                                                            \
+  typeof(in.value) val = (in).value
+
 // TODO: Separate error type?
 typedef u64 PgError;
 #define PG_ERR_EOF 4095
@@ -1407,6 +1414,18 @@ typedef enum : u8 {
   PG_DWARF_LNE_DEFINE_FILE,
   PG_DWARF_LNE_SET_DISCRIMINATOR,
 } PgDwarfLne;
+
+typedef enum : u8 {
+  PG_DWARF_HEADER_UNIT_NONE = 0x00,
+  PG_DWARF_HEADER_UNIT_COMPILE = 0x01,
+  PG_DWARF_HEADER_UNIT_TYPE = 0x02,
+  PG_DWARF_HEADER_UNIT_PARTIAL = 0x03,
+  PG_DWARF_HEADER_UNIT_SKELETON = 0x04,
+  PG_DWARF_HEADER_UNIT_SPLIT_COMPILE = 0x05,
+  PG_DWARF_HEADER_UNIT_SPLIT_TYPE = 0x06,
+  PG_DWARF_HEADER_UNIT_LO_USER = 0x80,
+  PG_DWARF_HEADER_UNIT_HI_USER = 0xff,
+} PgDwarfHeaderUnitKind;
 
 typedef struct {
   PgDwarfAttribute attribute;
@@ -10306,6 +10325,59 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
   Pgu8Slice bytes = res_bytes.value;
 
   PgReader r = pg_reader_make_from_bytes(bytes);
+
+  // Size.
+  Pgu32Result res_size = pg_reader_read_u32_le(&r);
+  PG_TRY(size, res, res_size);
+
+  // DWARF 64 bits?
+  if (0xffff'ffff == size) {
+    // Unsupported for now.
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  // Version.
+  Pgu16Result res_version = pg_reader_read_u16_le(&r);
+  PG_TRY(version, res, res_version);
+  // Only expect v5.
+  if (5 != version) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  Pgu8Result res_unit_kind = pg_reader_read_u8_le(&r);
+  PG_TRY(unit_kind, res, res_unit_kind);
+  PgDwarfHeaderUnitKind kind = unit_kind;
+
+  switch (kind) {
+  case PG_DWARF_HEADER_UNIT_SKELETON: {
+    Pgu8Result res_address_size = pg_reader_read_u8_le(&r);
+    PG_TRY(address_size, res, res_address_size);
+    // Only expect address size 8 (64 bits).
+    PG_ASSERT(8 == address_size);
+
+    Pgu32Result res_abbrev_offset = pg_reader_read_u32_le(&r);
+    PG_TRY(abbrev_offset, res, res_abbrev_offset);
+
+    Pgu64Result res_unit_id = pg_reader_read_u64_le(&r);
+    PG_TRY(unit_id, res, res_unit_id);
+
+    // Semi-arbitrary loop bound.
+    for (u64 _i = 0; _i < size; _i++) {
+    }
+  } break;
+  case PG_DWARF_HEADER_UNIT_NONE:
+  case PG_DWARF_HEADER_UNIT_COMPILE:
+  case PG_DWARF_HEADER_UNIT_TYPE:
+  case PG_DWARF_HEADER_UNIT_PARTIAL:
+  case PG_DWARF_HEADER_UNIT_SPLIT_COMPILE:
+  case PG_DWARF_HEADER_UNIT_SPLIT_TYPE:
+  case PG_DWARF_HEADER_UNIT_LO_USER:
+  case PG_DWARF_HEADER_UNIT_HI_USER:
+  default:
+    PG_ASSERT(0 && "todo");
+  }
 
   // TODO
   (void)allocator;
