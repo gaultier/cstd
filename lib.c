@@ -10308,6 +10308,7 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
   PgReader r = pg_reader_make_from_bytes(bytes);
 
   // TODO
+  (void)allocator;
   return res;
 }
 
@@ -10345,7 +10346,13 @@ pg_self_load_debug_info(PgAllocator *allocator) {
     return res;
   }
 
-  // TODO
+  PgDwarfDebugInfoResult res_debug_info =
+      pg_dwarf_parse_debug_info(elf, allocator);
+  if (res_debug_info.err) {
+    res.err = res_debug_info.err;
+    return res;
+  }
+
   return res;
 }
 
