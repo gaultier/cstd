@@ -1424,6 +1424,7 @@ typedef struct {
 PG_DYN(PgDwarfAbbreviationEntry) PgDwarfAbbreviationEntryDyn;
 PG_OPTION(PgDwarfAbbreviationEntry) PgDwarfAbbreviationEntryOption;
 PG_RESULT(PgDwarfAbbreviationEntryOption) PgDwarfAbbreviationEntryOptionResult;
+PG_RESULT(PgDwarfAbbreviationEntryDyn) PgDwarfAbbreviationEntryDynResult;
 
 typedef struct {
   PgDwarfAbbreviationEntryDyn entries;
@@ -10243,6 +10244,49 @@ pg_dwarf_parse_abbreviation_entry(PgReader *r, PgAllocator *allocator) {
   return res;
 }
 
+[[nodiscard]] static PgDwarfAbbreviationEntryDynResult
+pg_dwarf_parse_abbreviation_entries(PgElf *elf, PgAllocator *allocator) {
+  PgDwarfAbbreviationEntryDynResult res = {0};
+
+  PgElfSectionHeader *section_header_debug_abbrev =
+      pg_elf_section_header_find_ptr_by_name_and_kind(
+          elf, PG_S(".debug_abbrev"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+
+  if (!section_header_debug_abbrev) {
+    return res;
+  }
+
+  u64 section_idx = section_header_debug_abbrev - elf->section_headers.data;
+  Pgu8SliceResult res_bytes =
+      pg_elf_get_section_header_bytes(*elf, section_idx);
+  if (res_bytes.err) {
+    res.err = res_bytes.err;
+    return res;
+  }
+  Pgu8Slice bytes = res_bytes.value;
+  PG_DYN_ENSURE_CAP(&res.value, bytes.len / 4, allocator);
+
+  PgReader r = pg_reader_make_from_bytes(bytes);
+
+  for (u64 _i = 0; _i < PG_DWARF_MAX_ABBREV; _i++) {
+    PgDwarfAbbreviationEntryOptionResult res_abbrev =
+        pg_dwarf_parse_abbreviation_entry(&r, allocator);
+    if (res_abbrev.err) {
+      res.err = res_abbrev.err;
+      return res;
+    }
+    if (res_abbrev.value.has_value) {
+      PgDwarfAbbreviationEntry abbrev = res_abbrev.value.value;
+      PG_DYN_PUSH(&res.value, abbrev, allocator);
+    } else { // The end.
+      return res;
+    }
+  }
+
+  res.err = PG_ERR_TOO_BIG;
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgStringResult
 pg_self_load_debug_info(PgAllocator *allocator) {
   PgStringResult res = {0};
@@ -10268,6 +10312,13 @@ pg_self_load_debug_info(PgAllocator *allocator) {
     return res;
   }
   PgElf elf = res_elf.value;
+
+  PgDwarfAbbreviationEntryDynResult res_abbrevs =
+      pg_dwarf_parse_abbreviation_entries(&elf, allocator);
+  if (res_abbrevs.err) {
+    res.err = res_abbrevs.err;
+    return res;
+  }
 
   PgElfSectionHeader *section_header_debug_abbrev =
       pg_elf_section_header_find_ptr_by_name_and_kind(
