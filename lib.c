@@ -1447,9 +1447,12 @@ PG_RESULT(PgDwarfAbbreviationEntryOption) PgDwarfAbbreviationEntryOptionResult;
 PG_RESULT(PgDwarfAbbreviationEntryDyn) PgDwarfAbbreviationEntryDynResult;
 
 typedef struct {
-  void *todo;
-} PgDwarfDebugInfo;
-PG_RESULT(PgDwarfDebugInfo) PgDwarfDebugInfoResult;
+  PgDwarfHeaderUnitKind kind;
+  PgDwarfAbbreviationEntryDyn abbrevs;
+  u64 id;
+} PgDwarfDebugInfoCompilationUnit;
+PG_RESULT(PgDwarfDebugInfoCompilationUnit)
+PgDwarfDebugInfoCompilationUnitResult;
 
 typedef struct {
   u64 low_pc;
@@ -10268,7 +10271,8 @@ pg_dwarf_parse_abbreviation_entry(PgReader *r, PgAllocator *allocator) {
 }
 
 [[nodiscard]] static PgDwarfAbbreviationEntryDynResult
-pg_dwarf_parse_abbreviation_entries(PgElf elf, PgAllocator *allocator) {
+pg_dwarf_parse_abbreviation_entries(PgElf elf, u64 offset,
+                                    PgAllocator *allocator) {
   PgDwarfAbbreviationEntryDynResult res = {0};
 
   PgElfSectionHeader *section_header_debug_abbrev =
@@ -10286,6 +10290,11 @@ pg_dwarf_parse_abbreviation_entries(PgElf elf, PgAllocator *allocator) {
     return res;
   }
   Pgu8Slice bytes = res_bytes.value;
+  if (offset >= bytes.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  bytes = PG_SLICE_RANGE_START(bytes, offset);
   PG_DYN_ENSURE_CAP(&res.value, bytes.len / 4, allocator);
 
   PgReader r = pg_reader_make_from_bytes(bytes);
@@ -10309,9 +10318,9 @@ pg_dwarf_parse_abbreviation_entries(PgElf elf, PgAllocator *allocator) {
   return res;
 }
 
-[[nodiscard]] static PgDwarfDebugInfoResult
+[[nodiscard]] static PgDwarfDebugInfoCompilationUnitResult
 pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
-  PgDwarfDebugInfoResult res = {0};
+  PgDwarfDebugInfoCompilationUnitResult res = {0};
 
   PgElfSectionHeader *section_header_debug_info =
       pg_elf_section_header_find_ptr_by_name_and_kind(
@@ -10353,9 +10362,9 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
 
   Pgu8Result res_unit_kind = pg_reader_read_u8_le(&r);
   PG_TRY(unit_kind, res, res_unit_kind);
-  PgDwarfHeaderUnitKind kind = unit_kind;
+  res.value.kind = unit_kind;
 
-  switch (kind) {
+  switch (res.value.kind) {
   case PG_DWARF_HEADER_UNIT_SKELETON: {
     Pgu8Result res_address_size = pg_reader_read_u8_le(&r);
     PG_TRY(address_size, res, res_address_size);
@@ -10366,23 +10375,16 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
     PG_TRY(abbrev_offset, res, res_abbrev_offset);
 
     Pgu64Result res_unit_id = pg_reader_read_u64_le(&r);
-    PG_TRY(unit_id, res, res_unit_id);
+    res.value.id = res_unit_id.value;
 
-    // Semi-arbitrary loop bound.
-    for (u64 _i = 0; _i < size; _i++) {
-      PgDwarfAbbreviationEntryOptionResult res_abbrev =
-          pg_dwarf_parse_abbreviation_entry(&r, allocator);
-      PG_TRY(abbrev, res, res_abbrev);
-
-      if (!abbrev.has_value ||
-          pg_dwarf_abbreviation_entry_is_null(abbrev.value)) {
-        break;
-      }
-      // TODO: Use it.
-      PG_ASSERT(abbrev.value.type);
-
-      // TODO: Read dwarf abbrev entry.
+    PgDwarfAbbreviationEntryDynResult res_abbrevs =
+        pg_dwarf_parse_abbreviation_entries(elf, abbrev_offset, allocator);
+    if (res_abbrevs.err) {
+      res.err = res_abbrevs.err;
+      return res;
     }
+
+    res.value.abbrevs = res_abbrevs.value;
   } break;
   case PG_DWARF_HEADER_UNIT_NONE:
   case PG_DWARF_HEADER_UNIT_COMPILE:
@@ -10427,15 +10429,7 @@ pg_self_load_debug_info(PgAllocator *allocator) {
   }
   PgElf elf = res_elf.value;
 
-  // TODO: Multiple compile units.
-  PgDwarfAbbreviationEntryDynResult res_abbrevs =
-      pg_dwarf_parse_abbreviation_entries(elf, allocator);
-  if (res_abbrevs.err) {
-    res.err = res_abbrevs.err;
-    return res;
-  }
-
-  PgDwarfDebugInfoResult res_debug_info =
+  PgDwarfDebugInfoCompilationUnitResult res_debug_info =
       pg_dwarf_parse_debug_info(elf, allocator);
   if (res_debug_info.err) {
     res.err = res_debug_info.err;
