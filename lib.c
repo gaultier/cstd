@@ -10365,6 +10365,7 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
 
     // Semi-arbitrary loop bound.
     for (u64 _i = 0; _i < size; _i++) {
+      // TODO: Read dwarf abbrev entry.
     }
   } break;
   case PG_DWARF_HEADER_UNIT_NONE:
