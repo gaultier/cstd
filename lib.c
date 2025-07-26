@@ -3068,6 +3068,19 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
   };
 }
 
+[[nodiscard]] PgStringOption pg_str0_to_string(Pgu8Slice bytes) {
+  PgStringOption res = {0};
+
+  PgBytesCut cut = pg_bytes_cut_byte(bytes, 0);
+  if (!cut.has_value) {
+    return res;
+  }
+
+  res.has_value = true;
+  res.value = cut.left;
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgCompare pg_string_cmp(PgString a,
                                                               PgString b) {
   int cmp = memcmp(a.data, b.data, PG_MIN(a.len, b.len));
@@ -9260,14 +9273,14 @@ pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
   }
 
   Pgu8Slice at = PG_SLICE_RANGE_START(bytes, offset);
+  PgStringOption s = pg_str0_to_string(at);
 
-  PgBytesCut cut = pg_bytes_cut_byte(at, 0);
-  if (!cut.has_value) {
+  if (!s.has_value) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  res.value = cut.left;
+  res.value = s.value;
 
   return res;
 }
@@ -10020,17 +10033,31 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
   (void)allocator; // TODO
   PgDwarfFunctionDeclarationDynResult res = {0};
 
-  Pgu8SliceResult res_bytes = pg_elf_section_header_find_bytes_by_name_and_kind(
-      elf, PG_S(".debug_str"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
-  PG_TRY(bytes, res, res_bytes);
+  Pgu8SliceResult res_str_bytes =
+      pg_elf_section_header_find_bytes_by_name_and_kind(
+          elf, PG_S(".debug_str"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+  PG_TRY(str_bytes, res, res_str_bytes);
+
+  Pgu8SliceResult res_info_bytes =
+      pg_elf_section_header_find_bytes_by_name_and_kind(
+          elf, PG_S(".debug_info"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+  PG_TRY(info_bytes, res, res_info_bytes);
 
   u64 offset = pg_dwarf_compilation_unit_get_data_offset(unit);
-  bytes = PG_SLICE_RANGE_START(bytes, offset);
+  info_bytes = PG_SLICE_RANGE_START(info_bytes, offset);
 
-  PgReader r = pg_reader_make_from_bytes(bytes);
+  PgReader r = pg_reader_make_from_bytes(info_bytes);
 
   for (u64 i = 0; i < unit.abbrevs.len; i++) {
     PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, i);
+
+    Pgu64Result res_entry_idx = pg_reader_read_u64_leb128(&r);
+    PG_TRY(entry_idx, res, res_entry_idx);
+
+    if (i + 1 != entry_idx) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
 
     for (u64 j = 0; j < abbrev.attribute_forms.len; j++) {
       PgDwarfAttributeForm attr_form = PG_SLICE_AT(abbrev.attribute_forms, j);
@@ -10070,7 +10097,10 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
       case PG_DWARF_FORM_STRX1: {
         Pgu8Result res_read = pg_reader_read_u8_le(&r);
         PG_TRY(val, res, res_read);
-        (void)val; // TODO
+        PgStringOption s =
+            pg_str0_to_string(PG_SLICE_RANGE_START(str_bytes, val));
+
+        s.has_value = s.has_value; // TODO: use.
       } break;
       case PG_DWARF_FORM_STRX2:
       case PG_DWARF_FORM_STRX3:
