@@ -1,8 +1,8 @@
-#ifndef CSTD_LIB_C
-#define CSTD_LIB_C
-
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpadded"
+
+#ifndef CSTD_LIB_C
+#define CSTD_LIB_C
 
 // TODO: Document all functions.
 // TODO: Get machine stack trace.
@@ -916,11 +916,11 @@ typedef struct {
   PgElfProgramHeaderDyn program_headers;
   PgElfSectionHeaderDyn section_headers;
 
-  // Useful section header data.
+  // Cache useful section header data.
   PgElfSymbolTableEntryDyn symtab;
-  Pgu8Slice strtab;
-  Pgu8Slice program_text;
-  u32 program_text_idx;
+  Pgu8Slice strtab_bytes;
+  Pgu8Slice section_header_text_bytes;
+  u32 section_header_text_idx;
 } PgElf;
 PG_RESULT(PgElf) PgElfResult;
 
@@ -9473,12 +9473,12 @@ pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
                                                          u32 offset) {
   PgStringResult res = {0};
 
-  if (offset >= elf.strtab.len) {
+  if (offset >= elf.strtab_bytes.len) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  Pgu8Slice at = PG_SLICE_RANGE_START(elf.strtab, offset);
+  Pgu8Slice at = PG_SLICE_RANGE_START(elf.strtab_bytes, offset);
 
   PgBytesCut cut = pg_bytes_cut_byte(at, 0);
   if (!cut.has_value) {
@@ -9489,6 +9489,32 @@ pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
   res.value = cut.left;
 
   return res;
+}
+
+[[nodiscard]] static PgElfSectionHeader *
+pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
+                                                PgElfSectionHeaderKind kind) {
+  PG_ASSERT(elf);
+
+  for (u32 i = 0; i < elf->section_headers.len; i++) {
+    PgElfSectionHeader *section = PG_SLICE_AT_PTR(&elf->section_headers, i);
+
+    if (kind != section->kind) {
+      continue;
+    }
+
+    PgStringResult res_str = pg_elf_get_string_at(*elf, section->name);
+    if (res_str.err) {
+      continue;
+    }
+
+    if (!pg_string_eq(res_str.value, name)) {
+      continue;
+    }
+
+    return section;
+  }
+  return nullptr;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgElfResult
@@ -9528,6 +9554,8 @@ pg_elf_parse(Pgu8Slice elf_bytes, PgAllocator *allocator) {
         .len = h.section_header_entries_count,
         .cap = h.section_header_entries_count,
     };
+
+    // Locate `strtab` and `symtab` sections.
     for (u32 i = 0; i < res.value.section_headers.len; i++) {
       PgElfSectionHeader section = PG_SLICE_AT(res.value.section_headers, i);
 
@@ -9564,7 +9592,7 @@ pg_elf_parse(Pgu8Slice elf_bytes, PgAllocator *allocator) {
           return res;
         }
 
-        res.value.strtab = res_bytes.value;
+        res.value.strtab_bytes = res_bytes.value;
       } break;
 
       case PG_ELF_SECTION_HEADER_KIND_NULL:
@@ -9582,41 +9610,19 @@ pg_elf_parse(Pgu8Slice elf_bytes, PgAllocator *allocator) {
       }
     }
 
-    // Second pass to find the `.text` section since section header might be
-    // in any order.
-    for (u32 i = 0; i < res.value.section_headers.len; i++) {
-      PgElfSectionHeader section = PG_SLICE_AT(res.value.section_headers, i);
-
-      if (PG_ELF_SECTION_HEADER_KIND_PROGBITS != section.kind) {
-        continue;
-      }
-
-      PgStringResult res_str = pg_elf_get_string_at(res.value, section.name);
-      if (res_str.err) {
-        res.err = res_str.err;
-        return res;
-      }
-
-      if (!pg_string_eq(res_str.value, PG_S(".text"))) {
-        continue;
-      }
-
-      // Found.
-
-      Pgu8SliceResult res_bytes = pg_elf_get_section_header_bytes(res.value, i);
+    PgElfSectionHeader *section_text =
+        pg_elf_section_header_find_ptr_by_name_and_kind(
+            &res.value, PG_S(".text"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+    if (section_text) {
+      u32 idx = section_text - res.value.section_headers.data;
+      Pgu8SliceResult res_bytes =
+          pg_elf_get_section_header_bytes(res.value, idx);
       if (res_bytes.err) {
         res.err = res_bytes.err;
         return res;
       }
-
-      res.value.program_text = res_bytes.value;
-      res.value.program_text_idx = i;
-      break;
-    }
-
-    if (PG_SLICE_IS_EMPTY(res.value.program_text)) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      res.value.section_header_text_bytes = res_bytes.value;
+      res.value.section_header_text_idx = idx;
     }
   }
 
@@ -9627,12 +9633,12 @@ pg_elf_parse(Pgu8Slice elf_bytes, PgAllocator *allocator) {
 pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
   Pgu8SliceResult res = {0};
 
-  if (elf.program_text_idx != sym.section_header_table_index) {
+  if (elf.section_header_text_idx != sym.section_header_table_index) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  if (sym.value >= elf.program_text.len) {
+  if (sym.value >= elf.section_header_text_bytes.len) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
@@ -9643,7 +9649,7 @@ pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
     return res;
   }
 
-  res.value = PG_SLICE_RANGE(elf.program_text, sym.value, end);
+  res.value = PG_SLICE_RANGE(elf.section_header_text_bytes, sym.value, end);
   return res;
 }
 
@@ -9990,8 +9996,40 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgStringResult pg_self_load_debug_info() {
+[[maybe_unused]] [[nodiscard]] static PgStringResult
+pg_self_load_debug_info(PgAllocator *allocator) {
   PgStringResult res = {0};
+
+  PgString exe_path = pg_self_exe_get_path(allocator);
+  if (pg_string_is_empty(exe_path)) {
+    return res;
+  }
+
+  // TODO: Only read the relevant parts.
+  // Depending on the size of the executable.
+  PgStringResult res_exe = pg_file_read_full_from_path(exe_path, allocator);
+  if (res_exe.err) {
+    res.err = res_exe.err;
+    return res;
+  }
+  PgString exe = res_exe.value;
+
+  // TODO: Other formats.
+  PgElfResult res_elf = pg_elf_parse(exe, allocator);
+  if (res_elf.err) {
+    res.err = res_elf.err;
+    return res;
+  }
+  PgElf elf = res_elf.value;
+
+  PgElfSectionHeader *section_header_debug_abbrev =
+      pg_elf_section_header_find_ptr_by_name_and_kind(
+          &elf, PG_S(".debug_abbrev"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+
+  PgElfSectionHeader *section_header_debug_info =
+      pg_elf_section_header_find_ptr_by_name_and_kind(
+          &elf, PG_S(".debug_info"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+
   // TODO
   return res;
 }
@@ -10929,6 +10967,5 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     fprintf(stderr, "Unknown CLI options parse error.");
   }
 }
-#pragma GCC diagnostic pop
-
 #endif
+#pragma GCC diagnostic pop

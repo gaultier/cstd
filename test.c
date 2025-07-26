@@ -3713,8 +3713,18 @@ static void test_self_functions() {
   }
 }
 
+static void test_debug_info() {
+  PgArena arena = pg_arena_make_from_virtual_mem(16 * PG_MiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgStringResult res_debug = pg_self_load_debug_info(allocator);
+  PG_ASSERT(0 == res_debug.err);
+}
+
 int main() {
   test_self_functions();
+  test_debug_info();
   test_rune_bytes_count();
   test_utf8_count();
   test_string_last();
