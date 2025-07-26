@@ -10103,11 +10103,13 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
   PgReader r = pg_reader_make_from_bytes(info_bytes);
 
   for (u64 i = 0; i < unit.abbrevs.len; i++) {
-    PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, i);
-
     Pgu64Result res_entry_idx = pg_reader_read_u64_leb128(&r);
     PG_TRY(entry_idx, res, res_entry_idx);
-    (void)entry_idx;
+    if (0 == entry_idx) {
+      continue;
+    }
+
+    PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, entry_idx - 1);
 
     for (u64 j = 0; j < abbrev.attribute_forms.len; j++) {
       PgDwarfAttributeForm attr_form = PG_SLICE_AT(abbrev.attribute_forms, j);
