@@ -3687,7 +3687,7 @@ static void test_cli_options_help() {
 }
 
 static void test_pie_get_offset() {
-  u64 offset = pg_pie_get_offset();
+  u64 offset = pg_self_pie_get_offset();
   PG_ASSERT(offset > 0xffff);
 }
 

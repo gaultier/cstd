@@ -50,6 +50,7 @@
 #include "sha1.c"
 #include <inttypes.h>
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdckdint.h>
 #include <stddef.h>
@@ -1545,6 +1546,12 @@ static const char dw_form_str[][30] = {
     [PG_DWARF_FORM_REF_SIG8] = "PG_DWARF_FORM_REF_SIG8",
 };
 
+typedef enum : i32 {
+  PG_ONCE_UNINITIALIZED,
+  PG_ONCE_INITIALIZING,
+  PG_ONCE_INITIALIZED,
+} PgOnce;
+
 // ---------------- Functions.
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
@@ -1618,6 +1625,8 @@ pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Option timeout_ms);
 // TODO: Thread attributes?
 [[maybe_unused]] [[nodiscard]] static PgThreadResult
 pg_thread_create(PgThreadFn fn, void *fn_data);
+
+[[maybe_unused]] static void pg_thread_yield();
 
 [[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread);
 
@@ -2049,19 +2058,55 @@ static PgString dw_attribute_to_str(dw_attribute_t attr) {
 }
 #endif
 
+static void pg_once_mark_as_done(_Atomic PgOnce *done) {
+  // PG_ONCE_INITIALIZING -> PG_ONCE_INITIALIZED.
+  atomic_store_explicit(done, PG_ONCE_INITIALIZED, memory_order_release);
+}
+
+[[nodiscard]] static bool pg_once_do(_Atomic PgOnce *done) {
+
+  // Loop until initialized.
+  while (PG_ONCE_INITIALIZED !=
+         atomic_load_explicit(done, memory_order_acquire)) {
+    i32 expected = PG_ONCE_UNINITIALIZED;
+
+    // Try PG_ONCE_UNINITIALIZED -> PG_ONCE_INITIALIZING.
+    if (atomic_compare_exchange_weak_explicit(
+            done, &expected, PG_ONCE_INITIALIZING, memory_order_acq_rel,
+            memory_order_acquire)) {
+      // Caller will do the initialization and then call `pg_once_mark_as_done`.
+      return true;
+    } else {
+      // Another thread is doing the initialization.
+
+      // If the other thread is done, return.
+      if (PG_ONCE_INITIALIZED == expected) {
+        return false;
+      } else if (PG_ONCE_INITIALIZING == expected) {
+        // Busy wait by looping again, for simplicity.
+        pg_thread_yield();
+      }
+    }
+  }
+
+  // Already initialized.
+  return false;
+}
+
 [[maybe_unused]] static u64
 pg_fill_call_stack(u64 pie_offset, u64 call_stack[PG_STACKTRACE_MAX]);
 
-[[nodiscard]] static u64 pg_pie_get_offset();
+[[nodiscard]] static u64 pg_self_pie_get_offset();
 
 [[maybe_unused]] inline static void
 pg_stacktrace_print(const char *file, int line, const char *function) {
   // FIXME: Only do this once in the process, not once per thread.
-  static thread_local bool pie_offset_once = false;
-  static thread_local u64 pie_offset = 0;
-  if (!pie_offset_once) {
-    pie_offset = pg_pie_get_offset();
-    pie_offset_once = true;
+  static _Atomic PgOnce pie_offset_once = PG_ONCE_UNINITIALIZED;
+  static u64 pie_offset = 0;
+  if (pg_once_do(&pie_offset_once)) {
+    pie_offset = pg_self_pie_get_offset();
+
+    pg_once_mark_as_done(&pie_offset_once);
   }
 
   fprintf(stderr, "ASSERT: %s:%d:%s\n", file, line, function);
@@ -9843,7 +9888,26 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
 
 #ifdef PG_OS_LINUX
 
-[[nodiscard]] static u64 pg_pie_get_offset() {
+[[maybe_unused]] static void pg_thread_yield() { sched_yield(); }
+
+[[maybe_unused]] [[nodiscard]] static PgString
+pg_self_exe_get_path(PgAllocator *allocator) {
+  PgString res = {0};
+
+  char path_c[PG_PATH_MAX] = {0};
+  i32 ret = 0;
+  do {
+    ret = readlink("/proc/self/exe", path_c, PG_STATIC_ARRAY_LEN(path_c));
+  } while (-1 == ret && EINTR == errno);
+  if (-1 == errno) {
+    return res;
+  }
+
+  res = pg_string_clone(pg_cstr_to_string(path_c), allocator);
+  return res;
+}
+
+[[nodiscard]] static u64 pg_self_pie_get_offset() {
   u64 res = 0;
   u8 mem[4096] = {0};
   PgArena arena = pg_arena_make_from_mem(mem, PG_STATIC_ARRAY_LEN(mem));
@@ -9908,7 +9972,8 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
     PG_ASSERT(0 == (start % pg_os_get_page_size()));
     PG_ASSERT(0 == (end % pg_os_get_page_size()));
 
-    if (start <= (u64)&pg_pie_get_offset && (u64)&pg_pie_get_offset < end) {
+    if (start <= (u64)&pg_self_pie_get_offset &&
+        (u64)&pg_self_pie_get_offset < end) {
       res = start;
       goto end;
     }
@@ -10261,6 +10326,13 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
   }
   return 0;
 }
+
+#endif
+
+#ifdef PG_OS_APPLE
+
+// TODO: is pthread_yield defined on macos?
+[[maybe_unused]] static void pg_thread_yield() {}
 
 #endif
 
