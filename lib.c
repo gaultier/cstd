@@ -1501,7 +1501,7 @@ PG_RESULT(PgDwarfFunctionDeclarationDyn) PgDwarfFunctionDeclarationDynResult;
 typedef struct {
   PgDwarfCompilationUnitKind kind;
   PgDwarfAbbreviationEntryDyn abbrevs;
-  PgDwarfRangeListEntryDyn ranges;
+  PgDwarfRangeListEntryDyn address_ranges;
   Pgu64Dyn addresses;
 
   // Only for skeleton unit.
@@ -10056,7 +10056,7 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
 
     switch (entry.kind) {
     case PG_DWARF_RLE_END_OF_LIST:
-      return res;
+      break;
 
     case PG_DWARF_RLE_BASE_ADDRESSX: {
       Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
@@ -10176,6 +10176,11 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
+  }
+
+  if (!PG_SLICE_IS_EMPTY(r.u.bytes)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
   }
 
   return res;
@@ -10343,7 +10348,7 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
         res.err = res_ranges.err;
         return res;
       }
-      res.value.ranges = res_ranges.value;
+      res.value.address_ranges = res_ranges.value;
     }
 
   } break;
@@ -10636,7 +10641,7 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
 
         if (PG_DWARF_TAG_COMPILE_UNIT == abbrev.tag &&
             PG_DWARF_AT_RANGES == attr_form.attribute) {
-          address_range = PG_SLICE_AT(unit.ranges, val);
+          address_range = PG_SLICE_AT(unit.address_ranges, val);
         }
       } break;
 
