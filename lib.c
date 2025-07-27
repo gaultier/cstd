@@ -10138,21 +10138,49 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
       switch (attr_form.form) {
       case PG_DWARF_FORM_STRING:
       case PG_DWARF_FORM_BLOCK:
-      case PG_DWARF_FORM_FLAG:
-      case PG_DWARF_FORM_STRP:
-      case PG_DWARF_FORM_REF_ADDR:
       case PG_DWARF_FORM_REF_SIG8:
       case PG_DWARF_FORM_INDIRECT:
-      case PG_DWARF_FORM_REF_SUP8:
-      case PG_DWARF_FORM_REF_SUP4:
-      case PG_DWARF_FORM_STRP_SUP:
-      case PG_DWARF_FORM_LINE_STRP:
         fprintf(stderr, "%u\n", attr_form.form);
         PG_ASSERT(0 && "todo");
+
+      case PG_DWARF_FORM_REF_SUP8: {
+        Pgu64Result res_read = pg_reader_read_u64_le(&r);
+        PG_TRY(val, res, res_read);
+      } break;
+
+      case PG_DWARF_FORM_REF_SUP4: {
+        Pgu32Result res_read = pg_reader_read_u32_le(&r);
+        PG_TRY(val, res, res_read);
+      } break;
+
+      case PG_DWARF_FORM_FLAG: {
+        Pgu8Result res_read = pg_reader_read_u8_le(&r);
+        PG_TRY(val, res, res_read);
+      } break;
+
+      case PG_DWARF_FORM_REF_ADDR: {
+        Pgu32Result res_read = pg_reader_read_u32_le(&r);
+        PG_TRY(val, res, res_read);
+      } break;
 
         // No data.
       case PG_DWARF_FORM_IMPLICIT_CONST:
       case PG_DWARF_FORM_FLAG_PRESENT: {
+      } break;
+
+      case PG_DWARF_FORM_STRP: {
+        Pgu32Result res_read = pg_reader_read_u32_le(&r);
+        PG_TRY(val, res, res_read);
+      } break;
+
+      case PG_DWARF_FORM_STRP_SUP: {
+        Pgu32Result res_read = pg_reader_read_u32_le(&r);
+        PG_TRY(val, res, res_read);
+      } break;
+
+      case PG_DWARF_FORM_LINE_STRP: {
+        Pgu32Result res_read = pg_reader_read_u32_le(&r);
+        PG_TRY(val, res, res_read);
       } break;
 
       case PG_DWARF_FORM_LOCLISTX: {
