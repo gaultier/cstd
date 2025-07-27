@@ -10594,8 +10594,9 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
         PG_TRY(val, res, res_read);
         if (PG_DWARF_TAG_SUBPROGRAM == abbrev.tag &&
             PG_DWARF_AT_DECL_FILE == attr_form.attribute) {
-          PgString s = pg_dwarf_resolve_string(str_offsets, str_bytes, val);
-          fn.file = pg_string_clone(s, allocator);
+          // FIXME: Index into the line table.
+          // PgString s = pg_dwarf_resolve_string(str_offsets, str_bytes, val);
+          // fn.file = pg_string_clone(s, allocator);
         }
       } break;
 
@@ -10610,7 +10611,7 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
 
         if (PG_DWARF_TAG_SUBPROGRAM == abbrev.tag &&
             PG_DWARF_AT_HIGH_PC == attr_form.attribute) {
-          fn.high_pc = val;
+          fn.high_pc = fn.low_pc + val;
         }
       } break;
 
@@ -10705,10 +10706,7 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
         if (PG_DWARF_TAG_SUBPROGRAM == abbrev.tag &&
             PG_DWARF_AT_LOW_PC == attr_form.attribute) {
           // TODO: Non-crashing bound check.
-          // FIXME: `val` is actually an index into the range of addresses given
-          // by `DW_AT_ranges`.
-
-          fn.low_pc = 0; // PG_SLICE_AT(range_bytes, val);
+          fn.low_pc = PG_SLICE_AT(unit.addresses, val);
         }
       } break;
 
