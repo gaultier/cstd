@@ -12326,20 +12326,22 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
 
     PgDwarfDebugInfoCompilationUnit unit = debug.unit;
     if (PG_DWARF_COMPILATION_UNIT_COMPILE != unit.kind) {
-      goto end;
+      goto end_debug;
     }
     if (0 == unit.abbrevs.len) {
-      goto end;
+      goto end_debug;
     }
 
     PgDwarfFunctionDeclarationDynResult res_fns =
         pg_dwarf_compilation_unit_resolve_debug_functions(debug.elf, unit,
                                                           allocator);
     if (res_fns.err) {
-      goto end;
+      goto end_debug;
     }
     fns = res_fns.value;
 
+  end_debug:
+    pg_self_debug_info_release(debug);
   end:
     pg_once_mark_as_done(&once);
   }
