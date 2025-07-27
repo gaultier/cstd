@@ -12308,7 +12308,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
   }
 }
 
-[[maybe_unused]] static void pg_stack_trace_print_dwarf() {
+[[maybe_unused]] static void pg_stack_trace_print_dwarf(u64 skip) {
   static _Atomic PgOnce once = false;
   static u8 mem[128 * PG_KiB /* TODO: Make dynamic? */] = {0};
   static PgDwarfFunctionDeclarationDyn fns = {0};
@@ -12350,7 +12350,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
     u64 stack_trace_len = pg_fill_stack_trace(0, stack_trace);
 
-    for (u64 i = 1 /* Skip self */; i < stack_trace_len; i++) {
+    for (u64 i = 1 /* Skip self */ + skip; i < stack_trace_len; i++) {
       u64 addr = PG_C_ARRAY_AT(stack_trace, PG_STACK_TRACE_MAX, i);
       PgDwarfFunctionDeclarationOption fn_opt =
           pg_dwarf_find_function_by_addr(fns, addr);
