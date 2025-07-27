@@ -10137,11 +10137,23 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
 
       switch (attr_form.form) {
       case PG_DWARF_FORM_STRING:
-      case PG_DWARF_FORM_BLOCK:
-      case PG_DWARF_FORM_REF_SIG8:
-      case PG_DWARF_FORM_INDIRECT:
         fprintf(stderr, "%u\n", attr_form.form);
         PG_ASSERT(0 && "todo");
+
+      case PG_DWARF_FORM_INDIRECT: {
+        Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
+        PG_TRY(val, res, res_read);
+      } break;
+
+      case PG_DWARF_FORM_BLOCK: {
+        Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
+        PG_TRY(val, res, res_read);
+      } break;
+
+      case PG_DWARF_FORM_REF_SIG8: {
+        Pgu64Result res_read = pg_reader_read_u64_le(&r);
+        PG_TRY(val, res, res_read);
+      } break;
 
       case PG_DWARF_FORM_REF_SUP8: {
         Pgu64Result res_read = pg_reader_read_u64_le(&r);
