@@ -10441,8 +10441,7 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
   PG_DYN_ENSURE_CAP(&res.value, pg_dwarf_compilation_unit_count_functions(unit),
                     allocator);
 
-  // Filled by `DW_AT_ranges`.
-  Pgu8Slice range_bytes = {0};
+  PgDwarfRangeListEntry address_range = {0};
 
   while (!PG_SLICE_IS_EMPTY(r.u.bytes)) {
     Pgu64Result res_entry_idx = pg_reader_read_u64_leb128(&r);
@@ -10458,7 +10457,6 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
 
     PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, entry_idx - 1);
     PgDwarfFunctionDeclaration fn = {0};
-    PgDwarfRangeListEntry address_range = {0};
 
     for (u64 j = 0; j < abbrev.attribute_forms.len; j++) {
       PgDwarfAttributeForm attr_form = PG_SLICE_AT(abbrev.attribute_forms, j);
