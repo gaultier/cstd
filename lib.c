@@ -10366,7 +10366,7 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
 
     PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, entry_idx - 1);
     PgDwarfFunctionDeclaration fn = {0};
-
+    PgDwarfRangeListEntry address_range = {0};
     u64 base_address = 0;
 
     for (u64 j = 0; j < abbrev.attribute_forms.len; j++) {
@@ -10547,15 +10547,14 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
 
         if (PG_DWARF_TAG_COMPILE_UNIT == abbrev.tag &&
             PG_DWARF_AT_RANGES == attr_form.attribute) {
-          PgDwarfRangeListEntry range = PG_SLICE_AT(unit.ranges, val);
-          val = val + 1 - 1;
+          address_range = PG_SLICE_AT(unit.ranges, val);
 
           if (unit.ranges.len > 0) {
-            PgDwarfRangeListEntry range = PG_SLICE_AT(unit.ranges, 0);
-            if (PG_DWARF_RLE_BASE_ADDRESS == range.kind) {
-              base_address = range.u.u64;
-            } else if (PG_DWARF_RLE_BASE_ADDRESSX == range.kind) {
-              base_address = PG_SLICE_AT(addresses, range.u.address_index);
+            PgDwarfRangeListEntry first = PG_SLICE_AT(unit.ranges, 0);
+            if (PG_DWARF_RLE_BASE_ADDRESS == first.kind) {
+              base_address = first.u.u64;
+            } else if (PG_DWARF_RLE_BASE_ADDRESSX == first.kind) {
+              base_address = PG_SLICE_AT(addresses, first.u.address_index);
             }
           }
         }
