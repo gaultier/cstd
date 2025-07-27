@@ -10093,6 +10093,7 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
         PG_DYN_PUSH(&res.value, ranges, allocator);
       }
       ranges = (PgDwarfRangeListEntryDyn){0};
+      base_address = 0;
     } break;
 
     case PG_DWARF_RLE_BASE_ADDRESSX: {
