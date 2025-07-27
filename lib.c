@@ -1781,9 +1781,9 @@ pg_stacktrace_print(const char *file, int line, const char *function) {
   fprintf(stderr, "ASSERT: %s:%d:%s\n", file, line, function);
 
   u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
-  u64 callstack_len = pg_fill_stack_trace(pie_offset, stack_trace);
+  u64 stack_trace_len = pg_fill_stack_trace(pie_offset, stack_trace);
 
-  for (u64 i = 0; i < callstack_len; i++) {
+  for (u64 i = 0; i < stack_trace_len; i++) {
     fprintf(stderr, "%#" PRIx64 "\n", stack_trace[i]);
   }
 
@@ -12272,15 +12272,57 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
   }
 }
 
-[[maybe_unused]] inline static void pg_stacktrace_print_dwarf() {
+[[maybe_unused]] inline static void pg_stack_trace_print_dwarf() {
   static _Atomic PgOnce once = false;
   static u8 mem[16 * PG_KiB /* TODO: Make dynamic? */] = {0};
+  static PgDwarfFunctionDeclarationDyn fns = {0};
+
   if (pg_once_do(&once)) {
     PgArena arena = pg_arena_make_from_mem(mem, PG_STATIC_ARRAY_LEN(mem));
+    PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-    // TODO
+    PgDebugDataResult res_debug = pg_self_debug_info_load(allocator);
+    if (res_debug.err) {
+      goto end;
+    }
+    PgDebugData debug = res_debug.value;
 
+    PgDwarfDebugInfoCompilationUnit unit = debug.unit;
+    if (PG_DWARF_COMPILATION_UNIT_COMPILE != unit.kind) {
+      goto end;
+    }
+    if (0 == unit.abbrevs.len) {
+      goto end;
+    }
+
+    PgDwarfFunctionDeclarationDynResult res_fns =
+        pg_dwarf_compilation_unit_resolve_debug_functions(debug.elf, unit,
+                                                          allocator);
+    if (res_fns.err) {
+      goto end;
+    }
+    fns = res_fns.value;
+
+  end:
     pg_once_mark_as_done(&once);
+  }
+
+  {
+    u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
+    u64 stack_trace_len = pg_fill_stack_trace(0, stack_trace);
+
+    for (u64 i = 0; i < stack_trace_len; i++) {
+      u64 addr = PG_C_ARRAY_AT(stack_trace, PG_STACK_TRACE_MAX, i);
+      PgDwarfFunctionDeclarationOption fn_opt =
+          pg_dwarf_find_function_by_addr(fns, addr);
+      if (fn_opt.has_value) {
+        PgDwarfFunctionDeclaration fn = fn_opt.value;
+        fprintf(stderr, "%.*s\n", (i32)fn.name.len, fn.name.data);
+      } else {
+        fprintf(stderr, "%#" PRIx64 "\n", stack_trace[i]);
+      }
+    }
   }
 }
 #endif

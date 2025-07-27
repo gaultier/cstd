@@ -3754,14 +3754,13 @@ static void test_debug_info() {
 
   {
     u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
-    u64 callstack_len = pg_fill_stack_trace(0, stack_trace);
+    u64 stack_trace_len = pg_fill_stack_trace(0, stack_trace);
 
-    for (u64 i = 0; i < callstack_len; i++) {
+    for (u64 i = 0; i < stack_trace_len; i++) {
       u64 addr = PG_C_ARRAY_AT(stack_trace, PG_STACK_TRACE_MAX, i);
       PgDwarfFunctionDeclarationOption fn_opt =
           pg_dwarf_find_function_by_addr(fns, addr);
       if (fn_opt.has_value) {
-        fn_opt.has_value = !!fn_opt.has_value;
         PgDwarfFunctionDeclaration fn = fn_opt.value;
         fprintf(stderr, "%.*s\n", (i32)fn.name.len, fn.name.data);
       }
