@@ -10070,9 +10070,7 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
       PG_DYN_PUSH(&res.value, entry, allocator);
     } break;
 
-    case PG_DWARF_RLE_STARTX_LENGTH:
-    case PG_DWARF_RLE_OFFSET_PAIR:
-    case PG_DWARF_RLE_STARTX_ENDX: {
+    case PG_DWARF_RLE_STARTX_LENGTH: {
       Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
       if (res_read.err) {
         res.err = res_read.err;
@@ -10086,6 +10084,42 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
         return res;
       }
       entry.u.pair_u64.b = res_read.value;
+
+      PG_DYN_PUSH(&res.value, entry, allocator);
+    } break;
+
+    case PG_DWARF_RLE_OFFSET_PAIR: {
+      Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.pair_u64.a = base_address + res_read.value;
+
+      res_read = pg_reader_read_u64_leb128(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.pair_u64.b = base_address + res_read.value;
+
+      PG_DYN_PUSH(&res.value, entry, allocator);
+    } break;
+
+    case PG_DWARF_RLE_STARTX_ENDX: {
+      Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.pair_u64.a = base_address + res_read.value;
+
+      res_read = pg_reader_read_u64_leb128(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.pair_u64.b = base_address + res_read.value;
 
       PG_DYN_PUSH(&res.value, entry, allocator);
     } break;
