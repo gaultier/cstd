@@ -10103,7 +10103,9 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
       }
       entry.u.pair_u64.b = base_address + res_read.value;
 
-      PG_DYN_PUSH(&res.value, entry, allocator);
+      if (entry.u.pair_u64.a != entry.u.pair_u64.b) {
+        PG_DYN_PUSH(&res.value, entry, allocator);
+      }
     } break;
 
     case PG_DWARF_RLE_STARTX_ENDX: {
@@ -10121,7 +10123,9 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
       }
       entry.u.pair_u64.b = base_address + res_read.value;
 
-      PG_DYN_PUSH(&res.value, entry, allocator);
+      if (entry.u.pair_u64.a != entry.u.pair_u64.b) {
+        PG_DYN_PUSH(&res.value, entry, allocator);
+      }
     } break;
 
     case PG_DWARF_RLE_BASE_ADDRESS: {
@@ -10151,7 +10155,9 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
       }
       entry.u.pair_u64.b = res_read.value;
 
-      PG_DYN_PUSH(&res.value, entry, allocator);
+      if (entry.u.pair_u64.a != entry.u.pair_u64.b) {
+        PG_DYN_PUSH(&res.value, entry, allocator);
+      }
     } break;
 
     case PG_DWARF_RLE_START_LENGTH: {
