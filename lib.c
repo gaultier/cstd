@@ -9453,8 +9453,8 @@ pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
   return res;
 }
 
-[[nodiscard]] static PgStringResult pg_elf_get_string_at(PgElf elf,
-                                                         u32 offset) {
+[[maybe_unused]] [[nodiscard]] static PgStringResult
+pg_elf_get_string_at(PgElf elf, u32 offset) {
   PgStringResult res = {0};
 
   Pgu8SliceResult res_bytes =
@@ -9948,11 +9948,6 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   }
 
   return res;
-}
-
-[[nodiscard]] static bool
-pg_dwarf_abbreviation_entry_is_null(PgDwarfAbbreviationEntry abbrev) {
-  return 0 == abbrev.type;
 }
 
 [[nodiscard]] static PgDwarfAbbreviationEntryOptionResult
