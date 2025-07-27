@@ -281,7 +281,7 @@ PG_RESULT(Pgu64Dyn) Pgu64DynResult;
   return ns / 1'000'000;
 }
 
-#define PG_STACKTRACE_MAX 128
+#define PG_STACK_TRACE_MAX 128
 
 typedef struct PgAllocator PgAllocator;
 
@@ -1765,7 +1765,7 @@ static void pg_once_mark_as_done(_Atomic PgOnce *done) {
 }
 
 [[maybe_unused]] static u64
-pg_fill_call_stack(u64 pie_offset, u64 call_stack[PG_STACKTRACE_MAX]);
+pg_fill_stack_trace(u64 pie_offset, u64 stack_trace[PG_STACK_TRACE_MAX]);
 
 [[nodiscard]] static u64 pg_self_pie_get_offset();
 
@@ -1775,11 +1775,11 @@ pg_stacktrace_print(const char *file, int line, const char *function) {
 
   fprintf(stderr, "ASSERT: %s:%d:%s\n", file, line, function);
 
-  u64 call_stack[PG_STACKTRACE_MAX] = {0};
-  u64 callstack_len = pg_fill_call_stack(pie_offset, call_stack);
+  u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
+  u64 callstack_len = pg_fill_stack_trace(pie_offset, stack_trace);
 
   for (u64 i = 0; i < callstack_len; i++) {
-    fprintf(stderr, "%#" PRIx64 "\n", call_stack[i]);
+    fprintf(stderr, "%#" PRIx64 "\n", stack_trace[i]);
   }
 
   puts("");
@@ -6587,15 +6587,15 @@ pg_time_ns_now(PgClockKind clock) {
 }
 
 [[maybe_unused]] static u64
-pg_fill_call_stack(u64 pie_offset, u64 call_stack[PG_STACKTRACE_MAX]) {
+pg_fill_stack_trace(u64 pie_offset, u64 stack_trace[PG_STACK_TRACE_MAX]) {
   u64 *frame_pointer = __builtin_frame_address(0);
   u64 res = 0;
 
-  while (res < PG_STACKTRACE_MAX && frame_pointer != 0 &&
+  while (res < PG_STACK_TRACE_MAX && frame_pointer != 0 &&
          ((u64)frame_pointer & 7) == 0 && *frame_pointer != 0) {
     u64 instruction_pointer = *(frame_pointer + 1);
     // Careful not to enter an infinite recursion of `PG_ASSERT ->
-    // pg_fill_call_stack`.
+    // pg_fill_stack_trace`.
     PG_ASSERT_TRAP_ONLY(instruction_pointer >= pie_offset);
 
     frame_pointer = (u64 *)*frame_pointer;
@@ -6604,7 +6604,7 @@ pg_fill_call_stack(u64 pie_offset, u64 call_stack[PG_STACKTRACE_MAX]) {
     // is done. But: We want the location of the call i.e. the `call xxx`
     // instruction, so we subtract one byte to point inside it, which is not
     // quite 'at' it, but good enough.
-    call_stack[res++] = (instruction_pointer - 1) - pie_offset;
+    stack_trace[res++] = (instruction_pointer - 1) - pie_offset;
   }
 
   return res;

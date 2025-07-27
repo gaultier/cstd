@@ -3752,11 +3752,11 @@ static void test_debug_info() {
   }
 
   {
-    u64 call_stack[PG_STACKTRACE_MAX] = {0};
-    u64 callstack_len = pg_fill_call_stack(0, call_stack);
+    u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
+    u64 callstack_len = pg_fill_stack_trace(0, stack_trace);
 
     for (u64 i = 0; i < callstack_len; i++) {
-      u64 addr = PG_C_ARRAY_AT(call_stack, PG_STACKTRACE_MAX, i);
+      u64 addr = PG_C_ARRAY_AT(stack_trace, PG_STACK_TRACE_MAX, i);
       PgDwarfFunctionDeclarationOption fn_opt =
           pg_dwarf_find_function_by_addr(fns, addr);
       if (fn_opt.has_value) {
