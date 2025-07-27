@@ -10045,7 +10045,7 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
   }
   u64 base_address = 0;
 
-  for (u64 _i = 0; _i < bytes.len; _i++) {
+  while (!PG_SLICE_IS_EMPTY(r.u.bytes)) {
     PgDwarfRangeListEntry entry = {0};
     Pgu8Result res_kind = pg_reader_read_u8_le(&r);
     if (res_kind.err) {
@@ -10056,7 +10056,7 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
 
     switch (entry.kind) {
     case PG_DWARF_RLE_END_OF_LIST:
-      break;
+      continue;
 
     case PG_DWARF_RLE_BASE_ADDRESSX: {
       Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
