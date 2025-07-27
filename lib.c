@@ -168,6 +168,11 @@ typedef double f64;
     bool has_value;                                                            \
   }
 
+#define PG_TRY_ERR(err)                                                        \
+  if (err) {                                                                   \
+    return err;                                                                \
+  }
+
 #define PG_TRY(val, out, in)                                                   \
   if ((in).err) {                                                              \
     (out).err = (in).err;                                                      \
@@ -10075,11 +10080,21 @@ pg_dwarf_resolve_string(Pgu32Slice str_offsets, Pgu8Slice str_bytes, u64 idx) {
   return pg_str0_to_string(PG_SLICE_RANGE_START(str_bytes, str_idx)).value;
 }
 
+[[nodiscard]] static u64 pg_dwarf_compilation_unit_count_functions(
+    PgDwarfDebugInfoCompilationUnit unit) {
+  u64 res = 0;
+
+  for (u64 i = 0; i < unit.abbrevs.len; i++) {
+    PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, i);
+    res += PG_DWARF_TAG_SUBPROGRAM == abbrev.tag;
+  }
+  return res;
+}
+
 [[maybe_unused]] [[nodiscard]]
 static PgDwarfFunctionDeclarationDynResult
-pg_dwarf_resolve_debug_compilation_unit_functions(
+pg_dwarf_compilation_unit_resolve_debug_functions(
     PgElf elf, PgDwarfDebugInfoCompilationUnit unit, PgAllocator *allocator) {
-  (void)allocator; // TODO
   PgDwarfFunctionDeclarationDynResult res = {0};
 
   Pgu8SliceResult res_str_bytes =
@@ -10117,6 +10132,9 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
 
   PgReader r = pg_reader_make_from_bytes(info_bytes);
 
+  PG_DYN_ENSURE_CAP(&res.value, pg_dwarf_compilation_unit_count_functions(unit),
+                    allocator);
+
   while (!PG_SLICE_IS_EMPTY(r.u.bytes)) {
     Pgu64Result res_entry_idx = pg_reader_read_u64_leb128(&r);
     PG_TRY(entry_idx, res, res_entry_idx);
@@ -10137,7 +10155,6 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
 
       switch (attr_form.form) {
       case PG_DWARF_FORM_STRING:
-        fprintf(stderr, "%u\n", attr_form.form);
         PG_ASSERT(0 && "todo");
 
       case PG_DWARF_FORM_INDIRECT: {
@@ -10251,7 +10268,7 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
         if (PG_DWARF_TAG_SUBPROGRAM == abbrev.tag &&
             PG_DWARF_AT_DECL_FILE == attr_form.attribute) {
           PgString s = pg_dwarf_resolve_string(str_offsets, str_bytes, val);
-          fn.file = s;
+          fn.file = pg_string_clone(s, allocator);
         }
       } break;
 
@@ -10335,7 +10352,7 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
 
         if (PG_DWARF_TAG_SUBPROGRAM == abbrev.tag &&
             PG_DWARF_AT_NAME == attr_form.attribute) {
-          fn.name = s;
+          fn.name = pg_string_clone(s, allocator);
         }
       } break;
 
@@ -10391,6 +10408,32 @@ pg_dwarf_resolve_debug_compilation_unit_functions(
     }
   }
   return res;
+}
+
+[[maybe_unused]]
+static PgError pg_dwarf_print_function(PgWriter *w,
+                                       PgDwarfFunctionDeclaration fn,
+                                       PgAllocator *allocator) {
+  PG_TRY_ERR(pg_writer_write_full(w, fn.file, allocator));
+  PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
+  PG_TRY_ERR(pg_writer_write_full(w, fn.name, allocator));
+  PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
+  PG_TRY_ERR(pg_writer_write_u64_as_string(w, fn.low_pc, allocator));
+  PG_TRY_ERR(pg_writer_write_full(w, PG_S("-"), allocator));
+  PG_TRY_ERR(pg_writer_write_u64_as_string(w, fn.high_pc, allocator));
+
+  return 0;
+}
+
+[[maybe_unused]]
+static PgError pg_dwarf_print_functions(PgWriter *w,
+                                        PgDwarfFunctionDeclarationDyn fns,
+                                        PgAllocator *allocator) {
+  for (u64 i = 0; i < fns.len; i++) {
+    PG_TRY_ERR(pg_dwarf_print_function(w, PG_SLICE_AT(fns, i), allocator));
+    PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
+  }
+  return 0;
 }
 
 static const PgString pg_dwarf_compilation_unit_kind_to_str[] = {

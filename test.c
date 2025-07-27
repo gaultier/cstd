@@ -3726,16 +3726,30 @@ static void test_debug_info() {
   PG_ASSERT(PG_DWARF_COMPILATION_UNIT_COMPILE == unit.kind);
   PG_ASSERT(unit.abbrevs.len > 0);
 
-  PgWriter w = pg_writer_make_from_file_descriptor((PgFileDescriptor){.fd = 1},
-                                                   1024, allocator);
-  pg_dwarf_debug_info_print(&w, unit, allocator);
+  {
+    PgWriter w =
+        pg_writer_make_from_file_descriptor(pg_os_stdout(), 1024, allocator);
+    pg_dwarf_debug_info_print(&w, unit, nullptr);
+  }
 
+  PgArena fn_arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator fn_arena_allocator = pg_make_arena_allocator(&fn_arena);
+  PgAllocator *fn_allocator =
+      pg_arena_allocator_as_allocator(&fn_arena_allocator);
   PgDwarfFunctionDeclarationDynResult res_fns =
-      pg_dwarf_resolve_debug_compilation_unit_functions(debug.elf, unit,
-                                                        allocator);
+      pg_dwarf_compilation_unit_resolve_debug_functions(debug.elf, unit,
+                                                        fn_allocator);
   PG_ASSERT(0 == res_fns.err);
   PgDwarfFunctionDeclarationDyn fns = res_fns.value;
   PG_ASSERT(fns.len > 0);
+
+  PG_ASSERT(0 == pg_arena_release(&arena));
+
+  {
+    PgWriter w_fn =
+        pg_writer_make_from_file_descriptor(pg_os_stdout(), 1024, fn_allocator);
+    pg_dwarf_print_functions(&w_fn, fns, nullptr);
+  }
 }
 
 int main() {
