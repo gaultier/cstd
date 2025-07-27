@@ -1514,7 +1514,13 @@ PG_RESULT(PgDwarfDebugInfoCompilationUnit)
 PgDwarfDebugInfoCompilationUnitResult;
 
 typedef struct {
-  Pgu8Slice exe_bytes;
+  PgFileDescriptor fd;
+  Pgu8Slice data;
+} PgVirtualMemFile;
+PG_RESULT(PgVirtualMemFile) PgVirtualMemFileResult;
+
+typedef struct {
+  PgVirtualMemFile file;
   PgDwarfDebugInfoCompilationUnit unit;
   PgElf elf;
 } PgDebugData;
@@ -6538,6 +6544,46 @@ pg_process_wait(PgProcess process, u64 stdio_size_hint, u64 stderr_size_hint,
   return res;
 }
 
+[[nodiscard]] PgVirtualMemFileResult
+pg_virtual_mem_map_file(PgString path, PgFileAccess access,
+                        bool create_if_not_exists) {
+  PgVirtualMemFileResult res = {0};
+
+  PgFileDescriptorResult res_fd =
+      pg_file_open(path, access, 0600, create_if_not_exists, nullptr);
+  PG_TRY(fd, res, res_fd);
+
+  Pgu64Result res_size = pg_file_size(fd);
+  PG_TRY(size, res, res_size);
+
+  i32 prot = 0;
+  switch (access) {
+  case PG_FILE_ACCESS_READ:
+    prot = PROT_READ;
+    break;
+  case PG_FILE_ACCESS_WRITE:
+    prot = PROT_WRITE;
+    break;
+  case PG_FILE_ACCESS_READ_WRITE:
+    prot = PROT_READ | PROT_WRITE;
+    break;
+  case PG_FILE_ACCESS_NONE:
+    break;
+  default:
+    PG_ASSERT(0);
+  }
+
+  u8 *mem = mmap(nullptr, size, prot, MAP_PRIVATE, fd.fd, 0);
+  if ((void *)-1 == mem) {
+    res.err = (PgError)pg_os_get_last_error();
+  }
+
+  res.value.fd = fd;
+  res.value.data.data = mem;
+  res.value.data.len = size;
+  return res;
+}
+
 [[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
                                              PgVirtualMemFlags flags_new) {
   if (-1 == mprotect(ptr, size, pg_virtual_mem_flags_to_os_flags(flags_new))) {
@@ -6684,8 +6730,12 @@ pg_file_read_at(PgFileDescriptor file, PgString buf, u64 offset) {
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptorResult
 pg_file_open(PgString path, PgFileAccess access, u64 mode,
-             bool create_if_not_exists, PgAllocator *allocator) {
+             bool create_if_not_exists, PgAllocator *) {
   PgFileDescriptorResult res = {0};
+
+  if (path.len > PG_PATH_MAX - 1) {
+    res.err = PG_ERR_INVALID_VALUE;
+  }
 
   int flags = 0;
   switch (access & PG_FILE_ACCESS_ALL) {
@@ -6707,9 +6757,10 @@ pg_file_open(PgString path, PgFileAccess access, u64 mode,
     flags |= O_CREAT;
   }
 
-  char *path_os = pg_string_to_cstr(path, allocator);
-  int fd = open(path_os, flags, mode ? mode : 0600);
-  pg_free(allocator, path_os);
+  u8 path_c[PG_PATH_MAX] = {0};
+  pg_memcpy(path_c, path.data, path.len);
+
+  int fd = open((char *)path_c, flags, mode ? mode : 0600);
 
   if (-1 == fd) {
     res.err = (PgError)pg_os_get_last_error();
@@ -11241,8 +11292,15 @@ pg_dwarf_debug_info_print(PgWriter *w, PgDwarfDebugInfoCompilationUnit unit,
   }
 }
 
+[[maybe_unused]] static void pg_self_debug_info_release(PgDebugData dbg) {
+  if (dbg.file.data.data) {
+    munmap(dbg.file.data.data, dbg.file.data.len);
+    (void)pg_file_close(dbg.file.fd);
+  }
+}
+
 [[maybe_unused]] [[nodiscard]] static PgDebugDataResult
-pg_self_load_debug_info(PgAllocator *allocator) {
+pg_self_debug_info_load(PgAllocator *allocator) {
   PgDebugDataResult res = {0};
 
   PgString exe_path = pg_self_exe_get_path(allocator);
@@ -11252,18 +11310,16 @@ pg_self_load_debug_info(PgAllocator *allocator) {
 
   // TODO: Only read the relevant parts.
   // Depending on the size of the executable.
-  PgStringResult res_exe = pg_file_read_full_from_path(exe_path, allocator);
-  if (res_exe.err) {
-    res.err = res_exe.err;
-    return res;
-  }
-  res.value.exe_bytes = res_exe.value;
+  PgVirtualMemFileResult res_file =
+      pg_virtual_mem_map_file(exe_path, PG_FILE_ACCESS_READ, false);
+  PG_TRY(file, res, res_file);
+  res.value.file = file;
 
   // TODO: Other formats.
-  PgElfResult res_elf = pg_elf_parse(res.value.exe_bytes);
+  PgElfResult res_elf = pg_elf_parse(file.data);
   if (res_elf.err) {
     res.err = res_elf.err;
-    return res;
+    goto end;
   }
   res.value.elf = res_elf.value;
 
@@ -11271,9 +11327,14 @@ pg_self_load_debug_info(PgAllocator *allocator) {
       pg_dwarf_parse_debug_info(res.value.elf, allocator);
   if (res_unit.err) {
     res.err = res_unit.err;
-    return res;
+    goto end;
   }
   res.value.unit = res_unit.value;
+
+end:
+  if (res.err) {
+    pg_self_debug_info_release(res.value);
+  }
   return res;
 }
 

@@ -3718,7 +3718,7 @@ static void test_debug_info() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgDebugDataResult res_debug = pg_self_load_debug_info(allocator);
+  PgDebugDataResult res_debug = pg_self_debug_info_load(allocator);
   PG_ASSERT(0 == res_debug.err);
   PgDebugData debug = res_debug.value;
 
@@ -3744,6 +3744,7 @@ static void test_debug_info() {
   PG_ASSERT(fns.len > 0);
 
   PG_ASSERT(0 == pg_arena_release(&arena));
+  pg_self_debug_info_release(debug);
 
   {
     PgWriter w_fn =
