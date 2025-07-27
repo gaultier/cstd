@@ -3,7 +3,7 @@
 
 LD = lld
 
-CFLAGS = -fpie -fno-omit-frame-pointer -march=native -fuse-ld=$(LD) -std=c23 -Wall -Wextra -Wno-cast-function-type-mismatch -Werror -Wpadded -g3
+CFLAGS = -fpie -fno-omit-frame-pointer -march=native -fuse-ld=$(LD) -std=c23 -Wall -Wextra -Wno-cast-function-type-mismatch -Werror -Wpadded -Wimplicit-fallthrough -g3
 
 LDFLAGS = -flto
 
