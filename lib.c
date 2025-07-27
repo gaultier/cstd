@@ -4358,6 +4358,35 @@ pg_string_builder_append_u64(Pgu8Dyn *sb, u64 n, PgAllocator *allocator) {
 }
 
 [[maybe_unused]] [[nodiscard]]
+static PgError pg_writer_write_u64_hex(PgWriter *w, u64 n,
+                                       PgAllocator *allocator) {
+  u8 tmp[128] = {0};
+  Pgu8Slice tmp_slice = PG_SLICE_FROM_C(tmp);
+  u64 idx = tmp_slice.len;
+
+  static const u8 num_to_hex[256] = {
+      [0] = '0',  [1] = '1',  [2] = '2',  [3] = '3', [4] = '4',  [5] = '5',
+      [6] = '6',  [7] = '7',  [8] = '8',  [9] = '9', [10] = 'a', [11] = 'b',
+      [12] = 'c', [13] = 'd', [14] = 'e', [15] = 'f'};
+
+  do {
+    u8 c1 = n & 15;         // i.e. `% 16`.
+    u8 c2 = (n >> 4) & 0xf; // i.e. `/ 16`
+
+    idx -= 1;
+    PG_SLICE_AT(tmp_slice, idx) = num_to_hex[c1];
+    idx -= 1;
+    PG_SLICE_AT(tmp_slice, idx) = num_to_hex[c2];
+
+    n >>= 8;
+  } while (n);
+
+  PG_TRY_ERR(pg_writer_write_full(w, PG_S("0x"), allocator));
+  return pg_writer_write_full(w, PG_SLICE_RANGE_START(tmp_slice, idx),
+                              allocator);
+}
+
+[[maybe_unused]] [[nodiscard]]
 static PgError pg_writer_write_u8_hex_upper(PgWriter *w, u8 n,
                                             PgAllocator *allocator) {
 
@@ -10750,9 +10779,9 @@ static PgError pg_dwarf_print_function(PgWriter *w,
   PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
   PG_TRY_ERR(pg_writer_write_full(w, fn.name, allocator));
   PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
-  PG_TRY_ERR(pg_writer_write_u64_as_string(w, fn.low_pc, allocator));
+  PG_TRY_ERR(pg_writer_write_u64_hex(w, fn.low_pc, allocator));
   PG_TRY_ERR(pg_writer_write_full(w, PG_S("-"), allocator));
-  PG_TRY_ERR(pg_writer_write_u64_as_string(w, fn.high_pc, allocator));
+  PG_TRY_ERR(pg_writer_write_u64_hex(w, fn.high_pc, allocator));
 
   return 0;
 }
