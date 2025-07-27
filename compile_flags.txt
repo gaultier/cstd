@@ -9,4 +9,6 @@
 -Werror
 -Wpadded
 -Wimplicit-fallthrough
+-Wunused
+-Wunused-variable
 -g3
