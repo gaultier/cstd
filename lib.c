@@ -266,6 +266,8 @@ PG_OPTION(f64) Pgf64Option;
 PG_SLICE(f64) Pgf64Slice;
 PG_DYN(f64) Pgf64Dyn;
 
+PG_RESULT(Pgu64Dyn) Pgu64DynResult;
+
 #define PG_STATIC_ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
 #define PG_SLICE_FROM_C(arr) {.data = arr, .len = PG_STATIC_ARRAY_LEN(arr)}
@@ -1500,6 +1502,7 @@ typedef struct {
   PgDwarfCompilationUnitKind kind;
   PgDwarfAbbreviationEntryDyn abbrevs;
   PgDwarfRangeListEntryDyn ranges;
+  Pgu64Dyn addresses;
 
   // Only for skeleton unit.
   u64 id;
@@ -9996,7 +9999,8 @@ pg_dwarf_parse_abbreviation_entries(PgElf elf, u64 offset,
 }
 
 [[nodiscard]] static PgDwarfRangeListEntryDynResult
-pg_dwarf_address_ranges_parse(Pgu8Slice bytes, PgAllocator *allocator) {
+pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
+                              PgAllocator *allocator) {
   PgDwarfRangeListEntryDynResult res = {0};
 
   PgReader r = pg_reader_make_from_bytes(bytes);
@@ -10039,6 +10043,7 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, PgAllocator *allocator) {
       PG_TRY(offset, res, res_offset);
     }
   }
+  u64 base_address = 0;
 
   for (u64 _i = 0; _i < bytes.len; _i++) {
     PgDwarfRangeListEntry entry = {0};
@@ -10059,6 +10064,8 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, PgAllocator *allocator) {
         res.err = res_read.err;
         return res;
       }
+      base_address = PG_SLICE_AT(addresses, res_read.value);
+
       entry.u.u64 = res_read.value;
       PG_DYN_PUSH(&res.value, entry, allocator);
     } break;
@@ -10089,6 +10096,8 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, PgAllocator *allocator) {
         res.err = res_read.err;
         return res;
       }
+      base_address = res_read.value;
+
       entry.u.u64 = res_read.value;
       PG_DYN_PUSH(&res.value, entry, allocator);
     } break;
@@ -10134,6 +10143,62 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, PgAllocator *allocator) {
       return res;
     }
   }
+
+  return res;
+}
+
+[[nodiscard]] static Pgu64DynResult
+pg_dwarf_addresses_parse(Pgu8Slice bytes, PgAllocator *allocator) {
+  Pgu64DynResult res = {0};
+
+  PgReader r = pg_reader_make_from_bytes(bytes);
+
+  Pgu32Result res_length = pg_reader_read_u32_le(&r);
+  PG_TRY(length, res, res_length);
+  u32 expected_length = 0;
+  if (__builtin_add_overflow(length, 4, &expected_length)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  if (expected_length != bytes.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  Pgu16Result res_version = pg_reader_read_u16_le(&r);
+  PG_TRY(version, res, res_version);
+  if (5 != version) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  Pgu8Result res_address_size = pg_reader_read_u8_le(&r);
+  PG_TRY(address_size, res, res_address_size);
+  if (8 != address_size) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  Pgu8Result res_segment_selector_size = pg_reader_read_u8_le(&r);
+  PG_TRY(segment_selector_size, res, res_segment_selector_size);
+  if (0 != segment_selector_size) {
+    // Need to read segment + address in the loop below.
+    PG_ASSERT(0 && "todo");
+  }
+
+  if (0 != (r.u.bytes.len % 8)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  PG_DYN_ENSURE_CAP(&res.value, r.u.bytes.len / 8, allocator);
+
+  while (!PG_SLICE_IS_EMPTY(r.u.bytes)) {
+    Pgu64Result res_addr = pg_reader_read_u64_le(&r);
+    PG_TRY(addr, res, res_addr);
+
+    PG_DYN_PUSH(&res.value, addr, allocator);
+  }
+  PG_ASSERT(0 == r.u.bytes.len);
 
   return res;
 }
@@ -10218,6 +10283,19 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
       res.value.abbrevs = res_abbrevs.value;
     }
 
+    // Parse addresses.
+    {
+      Pgu8SliceResult res_addresses_bytes =
+          pg_elf_section_header_find_bytes_by_name_and_kind(
+              elf, PG_S(".debug_addr"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+      PG_TRY(addresses_bytes, res, res_addresses_bytes);
+
+      Pgu64DynResult res_addresses =
+          pg_dwarf_addresses_parse(addresses_bytes, allocator);
+      PG_TRY(addresses, res, res_addresses);
+      res.value.addresses = addresses;
+    }
+
     // Parse abbreviation entries.
     {
       Pgu8SliceResult res_rng_lists_bytes =
@@ -10225,8 +10303,8 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
               elf, PG_S(".debug_rnglists"),
               PG_ELF_SECTION_HEADER_KIND_PROGBITS);
       PG_TRY(rng_lists_bytes, res, res_rng_lists_bytes);
-      PgDwarfRangeListEntryDynResult res_ranges =
-          pg_dwarf_address_ranges_parse(rng_lists_bytes, allocator);
+      PgDwarfRangeListEntryDynResult res_ranges = pg_dwarf_address_ranges_parse(
+          rng_lists_bytes, res.value.addresses, allocator);
       if (res_ranges.err) {
         res.err = res_ranges.err;
         return res;
@@ -10291,26 +10369,6 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
     PgElf elf, PgDwarfDebugInfoCompilationUnit unit, PgAllocator *allocator) {
   PgDwarfFunctionDeclarationDynResult res = {0};
 
-  Pgu8SliceResult res_addresses_bytes =
-      pg_elf_section_header_find_bytes_by_name_and_kind(
-          elf, PG_S(".debug_addr"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
-  PG_TRY(addresses_bytes, res, res_addresses_bytes);
-  // NOTE: Technically the header size is given by `DW_AT_addr_base`, but
-  // we hard-code it.
-  if (addresses_bytes.len < 8) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-  addresses_bytes = PG_SLICE_RANGE_START(addresses_bytes, 8);
-  if (0 != (addresses_bytes.len % 4)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-  Pgu32Slice addresses = {
-      .data = (u32 *)addresses_bytes.data,
-      .len = addresses_bytes.len / 4,
-  };
-
   Pgu8SliceResult res_str_bytes =
       pg_elf_section_header_find_bytes_by_name_and_kind(
           elf, PG_S(".debug_str"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
@@ -10367,7 +10425,6 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
     PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, entry_idx - 1);
     PgDwarfFunctionDeclaration fn = {0};
     PgDwarfRangeListEntry address_range = {0};
-    u64 base_address = 0;
 
     for (u64 j = 0; j < abbrev.attribute_forms.len; j++) {
       PgDwarfAttributeForm attr_form = PG_SLICE_AT(abbrev.attribute_forms, j);
@@ -10548,15 +10605,6 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
         if (PG_DWARF_TAG_COMPILE_UNIT == abbrev.tag &&
             PG_DWARF_AT_RANGES == attr_form.attribute) {
           address_range = PG_SLICE_AT(unit.ranges, val);
-
-          if (unit.ranges.len > 0) {
-            PgDwarfRangeListEntry first = PG_SLICE_AT(unit.ranges, 0);
-            if (PG_DWARF_RLE_BASE_ADDRESS == first.kind) {
-              base_address = first.u.u64;
-            } else if (PG_DWARF_RLE_BASE_ADDRESSX == first.kind) {
-              base_address = PG_SLICE_AT(addresses, first.u.address_index);
-            }
-          }
         }
       } break;
 
