@@ -1498,6 +1498,7 @@ typedef struct {
   PgString file;
 } PgDwarfFunctionDeclaration;
 PG_DYN(PgDwarfFunctionDeclaration) PgDwarfFunctionDeclarationDyn;
+PG_OPTION(PgDwarfFunctionDeclaration) PgDwarfFunctionDeclarationOption;
 PG_RESULT(PgDwarfFunctionDeclarationDyn) PgDwarfFunctionDeclarationDynResult;
 
 typedef struct {
@@ -10769,6 +10770,22 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
       PG_DYN_PUSH(&res.value, fn, allocator);
     }
   }
+  return res;
+}
+
+[[nodiscard]] static PgDwarfFunctionDeclarationOption
+pg_dwarf_find_function_by_addr(PgDwarfFunctionDeclarationDyn fns, u64 addr) {
+  PgDwarfFunctionDeclarationOption res = {0};
+
+  for (u64 i = 0; i < fns.len; i++) {
+    PgDwarfFunctionDeclaration fn = PG_SLICE_AT(fns, i);
+    if (fn.low_pc <= addr && addr < fn.high_pc) {
+      res.has_value = true;
+      res.value = fn;
+      return res;
+    }
+  }
+
   return res;
 }
 

@@ -3750,6 +3750,22 @@ static void test_debug_info() {
         pg_writer_make_from_file_descriptor(pg_os_stdout(), 1024, fn_allocator);
     pg_dwarf_print_functions(&w_fn, fns, nullptr);
   }
+
+  {
+    u64 call_stack[PG_STACKTRACE_MAX] = {0};
+    u64 callstack_len = pg_fill_call_stack(0, call_stack);
+
+    for (u64 i = 0; i < callstack_len; i++) {
+      u64 addr = PG_C_ARRAY_AT(call_stack, PG_STACKTRACE_MAX, i);
+      PgDwarfFunctionDeclarationOption fn_opt =
+          pg_dwarf_find_function_by_addr(fns, addr);
+      if (fn_opt.has_value) {
+        fn_opt.has_value = !!fn_opt.has_value;
+        PgDwarfFunctionDeclaration fn = fn_opt.value;
+        fprintf(stderr, "%.*s\n", (i32)fn.name.len, fn.name.data);
+      }
+    }
+  }
 }
 
 int main() {
