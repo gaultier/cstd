@@ -1372,6 +1372,33 @@ typedef enum : u16 {
 } PgDwarfAttribute;
 
 typedef enum : u8 {
+  PG_DWARF_RLE_END_OF_LIST = 0,
+  PG_DWARF_RLE_BASE_ADDRESSX = 1,
+  PG_DWARF_RLE_STARTX_ENDX = 2,
+  PG_DWARF_RLE_STARTX_LENGTH = 3,
+  PG_DWARF_RLE_OFFSET_PAIR = 4,
+  PG_DWARF_RLE_BASE_ADDRESS = 5,
+  PG_DWARF_RLE_START_END = 6,
+  PG_DWARF_RLE_START_LENGTH = 7,
+} PgDwarfRangeListEntryKind;
+
+typedef struct {
+  u64 a, b;
+} Pgu64Pair;
+
+typedef struct {
+  PgDwarfRangeListEntryKind kind;
+  union {
+    u32 address_index;  // PG_DWARF_RLE_BASE_ADDRESSX
+    Pgu64Pair pair_u64; // PG_DWARF_RLE_STARTX_LENGTH, PG_DWARF_RLE_OFFSET_PAIR,
+                        // PG_DWARF_RLE_START_END,PG_DWARF_RLE_START_LENGTH
+    u64 u64;            // PG_DWARF_BASE_ADDRESS
+  } u;
+} PgDwarfRangeListEntry;
+PG_DYN(PgDwarfRangeListEntry) PgDwarfRangeListEntryDyn;
+PG_RESULT(PgDwarfRangeListEntryDyn) PgDwarfRangeListEntryDynResult;
+
+typedef enum : u8 {
   PG_DWARF_FORM_NONE = 0,
   PG_DWARF_FORM_ADDR = 0X01,
   PG_DWARF_FORM_BLOCK2 = 0X03,
@@ -1472,6 +1499,8 @@ PG_RESULT(PgDwarfFunctionDeclarationDyn) PgDwarfFunctionDeclarationDynResult;
 typedef struct {
   PgDwarfCompilationUnitKind kind;
   PgDwarfAbbreviationEntryDyn abbrevs;
+  PgDwarfRangeListEntryDyn ranges;
+
   // Only for skeleton unit.
   u64 id;
 } PgDwarfDebugInfoCompilationUnit;
@@ -9966,6 +9995,110 @@ pg_dwarf_parse_abbreviation_entries(PgElf elf, u64 offset,
   return res;
 }
 
+[[nodiscard]] static PgDwarfRangeListEntryDynResult
+pg_dwarf_address_ranges_parse(Pgu8Slice bytes, PgAllocator *allocator) {
+  PgDwarfRangeListEntryDynResult res = {0};
+
+  PgReader r = pg_reader_make_from_bytes(bytes);
+
+  for (u64 _i = 0; _i < bytes.len; _i++) {
+    PgDwarfRangeListEntry entry = {0};
+    Pgu8Result res_kind = pg_reader_read_u8_le(&r);
+    if (res_kind.err) {
+      res.err = res_kind.err;
+      return res;
+    }
+    entry.kind = res_kind.value;
+
+    switch (entry.kind) {
+    case PG_DWARF_RLE_END_OF_LIST:
+      return res;
+
+    case PG_DWARF_RLE_BASE_ADDRESSX: {
+      Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.u64 = res_read.value;
+      PG_DYN_PUSH(&res.value, entry, allocator);
+    } break;
+
+    case PG_DWARF_RLE_STARTX_LENGTH:
+    case PG_DWARF_RLE_OFFSET_PAIR:
+    case PG_DWARF_RLE_STARTX_ENDX: {
+      Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.pair_u64.a = res_read.value;
+
+      res_read = pg_reader_read_u64_leb128(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.pair_u64.b = res_read.value;
+
+      PG_DYN_PUSH(&res.value, entry, allocator);
+    } break;
+
+    case PG_DWARF_RLE_BASE_ADDRESS: {
+      Pgu64Result res_read = pg_reader_read_u64_le(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.u64 = res_read.value;
+      PG_DYN_PUSH(&res.value, entry, allocator);
+    } break;
+
+    case PG_DWARF_RLE_START_END: {
+      Pgu64Result res_read = pg_reader_read_u64_le(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.pair_u64.a = res_read.value;
+
+      res_read = pg_reader_read_u64_le(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.pair_u64.b = res_read.value;
+
+      PG_DYN_PUSH(&res.value, entry, allocator);
+    } break;
+
+    case PG_DWARF_RLE_START_LENGTH: {
+      Pgu64Result res_read = pg_reader_read_u64_le(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.pair_u64.a = res_read.value;
+
+      res_read = pg_reader_read_u64_leb128(&r);
+      if (res_read.err) {
+        res.err = res_read.err;
+        return res;
+      }
+      entry.u.pair_u64.b = res_read.value;
+
+      PG_DYN_PUSH(&res.value, entry, allocator);
+    } break;
+
+    default:
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+  }
+
+  return res;
+}
+
 [[nodiscard]] static PgDwarfDebugInfoCompilationUnitResult
 pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
   PgDwarfDebugInfoCompilationUnitResult res = {0};
@@ -10032,17 +10165,35 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
     // Only expect address size 8 (64 bits).
     PG_ASSERT(8 == address_size);
 
-    Pgu32Result res_abbrev_offset = pg_reader_read_u32_le(&r);
-    PG_TRY(abbrev_offset, res, res_abbrev_offset);
+    // Parse abbreviation entries.
+    {
+      Pgu32Result res_abbrev_offset = pg_reader_read_u32_le(&r);
+      PG_TRY(abbrev_offset, res, res_abbrev_offset);
 
-    PgDwarfAbbreviationEntryDynResult res_abbrevs =
-        pg_dwarf_parse_abbreviation_entries(elf, abbrev_offset, allocator);
-    if (res_abbrevs.err) {
-      res.err = res_abbrevs.err;
-      return res;
+      PgDwarfAbbreviationEntryDynResult res_abbrevs =
+          pg_dwarf_parse_abbreviation_entries(elf, abbrev_offset, allocator);
+      if (res_abbrevs.err) {
+        res.err = res_abbrevs.err;
+        return res;
+      }
+      res.value.abbrevs = res_abbrevs.value;
     }
 
-    res.value.abbrevs = res_abbrevs.value;
+    // Parse abbreviation entries.
+    {
+      Pgu8SliceResult res_rng_lists_bytes =
+          pg_elf_section_header_find_bytes_by_name_and_kind(
+              elf, PG_S(".debug_rnglists"),
+              PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+      PG_TRY(rng_lists_bytes, res, res_rng_lists_bytes);
+      PgDwarfRangeListEntryDynResult res_ranges =
+          pg_dwarf_address_ranges_parse(rng_lists_bytes, allocator);
+      if (res_ranges.err) {
+        res.err = res_ranges.err;
+        return res;
+      }
+      res.value.ranges = res_ranges.value;
+    }
 
   } break;
   case PG_DWARF_COMPILATION_UNIT_NONE:
@@ -10159,6 +10310,9 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
   PG_DYN_ENSURE_CAP(&res.value, pg_dwarf_compilation_unit_count_functions(unit),
                     allocator);
 
+  // Filled by `DW_AT_ranges`.
+  Pgu8Slice range_bytes = {0};
+
   while (!PG_SLICE_IS_EMPTY(r.u.bytes)) {
     Pgu64Result res_entry_idx = pg_reader_read_u64_leb128(&r);
     PG_TRY(entry_idx, res, res_entry_idx);
@@ -10239,8 +10393,6 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
       case PG_DWARF_FORM_LOCLISTX: {
         Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
         PG_TRY(val, res, res_read);
-
-        val = val + 1 - 1;
       } break;
 
       case PG_DWARF_FORM_UDATA: {
@@ -10267,8 +10419,6 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
       case PG_DWARF_FORM_ADDR: {
         Pgu64Result res_read = pg_reader_read_u64_le(&r);
         PG_TRY(val, res, res_read);
-
-        val = val + 1 - 1;
       } break;
 
       case PG_DWARF_FORM_BLOCK1: {
@@ -10338,7 +10488,6 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
       case PG_DWARF_FORM_REF4: {
         Pgu32Result res_read = pg_reader_read_u32_le(&r);
         PG_TRY(val, res, res_read);
-        val = val + 1 - 1;
       } break;
 
       case PG_DWARF_FORM_REF8: {
@@ -10349,12 +10498,16 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
       case PG_DWARF_FORM_SEC_OFFSET: {
         Pgu32Result res_read = pg_reader_read_u32_le(&r);
         PG_TRY(val, res, res_read);
-        val = val + 1 - 1;
       } break;
 
       case PG_DWARF_FORM_RNGLISTX: {
         Pgu64Result res_read = pg_reader_read_u64_leb128(&r);
         PG_TRY(val, res, res_read);
+
+        if (PG_DWARF_TAG_COMPILE_UNIT == abbrev.tag &&
+            PG_DWARF_AT_RANGES == attr_form.attribute) {
+          val = val + 1 - 1;
+        }
       } break;
 
       case PG_DWARF_FORM_STRX: {
@@ -10401,7 +10554,7 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
           // TODO: Non-crashing bound check.
           // FIXME: `val` is actually an index into the range of addresses given
           // by `DW_AT_ranges`.
-          fn.low_pc = PG_SLICE_AT(addresses, val - 1);
+          fn.low_pc = PG_SLICE_AT(range_bytes, val);
         }
       } break;
 
