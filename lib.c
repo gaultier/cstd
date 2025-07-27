@@ -10101,6 +10101,26 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
     PgElf elf, PgDwarfDebugInfoCompilationUnit unit, PgAllocator *allocator) {
   PgDwarfFunctionDeclarationDynResult res = {0};
 
+  Pgu8SliceResult res_addresses_bytes =
+      pg_elf_section_header_find_bytes_by_name_and_kind(
+          elf, PG_S(".debug_addr"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+  PG_TRY(addresses_bytes, res, res_addresses_bytes);
+  // NOTE: Technically the header size is given by `DW_AT_addr_base`, but
+  // we hard-code it.
+  if (addresses_bytes.len < 8) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  addresses_bytes = PG_SLICE_RANGE_START(addresses_bytes, 8);
+  if (0 != (addresses_bytes.len % 4)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  Pgu32Slice addresses = {
+      .data = (u32 *)addresses_bytes.data,
+      .len = addresses_bytes.len / 4,
+  };
+
   Pgu8SliceResult res_str_bytes =
       pg_elf_section_header_find_bytes_by_name_and_kind(
           elf, PG_S(".debug_str"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
@@ -10378,7 +10398,10 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
 
         if (PG_DWARF_TAG_SUBPROGRAM == abbrev.tag &&
             PG_DWARF_AT_LOW_PC == attr_form.attribute) {
-          fn.low_pc = val;
+          // TODO: Non-crashing bound check.
+          // FIXME: `val` is actually an index into the range of addresses given
+          // by `DW_AT_ranges`.
+          fn.low_pc = PG_SLICE_AT(addresses, val - 1);
         }
       } break;
 
