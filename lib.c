@@ -1514,7 +1514,6 @@ PG_RESULT(PgDwarfDebugInfoCompilationUnit)
 PgDwarfDebugInfoCompilationUnitResult;
 
 typedef struct {
-  PgString exe_path;
   Pgu8Slice exe_bytes;
   PgDwarfDebugInfoCompilationUnit unit;
   PgElf elf;
@@ -11246,15 +11245,14 @@ pg_dwarf_debug_info_print(PgWriter *w, PgDwarfDebugInfoCompilationUnit unit,
 pg_self_load_debug_info(PgAllocator *allocator) {
   PgDebugDataResult res = {0};
 
-  res.value.exe_path = pg_self_exe_get_path(allocator);
-  if (pg_string_is_empty(res.value.exe_path)) {
+  PgString exe_path = pg_self_exe_get_path(allocator);
+  if (pg_string_is_empty(exe_path)) {
     return res;
   }
 
   // TODO: Only read the relevant parts.
   // Depending on the size of the executable.
-  PgStringResult res_exe =
-      pg_file_read_full_from_path(res.value.exe_path, allocator);
+  PgStringResult res_exe = pg_file_read_full_from_path(exe_path, allocator);
   if (res_exe.err) {
     res.err = res_exe.err;
     return res;
@@ -12210,6 +12208,18 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     break;
   default:
     fprintf(stderr, "Unknown CLI options parse error.");
+  }
+}
+
+[[maybe_unused]] inline static void pg_stacktrace_print_dwarf() {
+  static _Atomic PgOnce once = false;
+  static u8 mem[16 * PG_KiB /* TODO: Make dynamic? */] = {0};
+  if (pg_once_do(&once)) {
+    PgArena arena = pg_arena_make_from_mem(mem, PG_STATIC_ARRAY_LEN(mem));
+
+    // TODO
+
+    pg_once_mark_as_done(&once);
   }
 }
 #endif
