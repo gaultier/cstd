@@ -12308,7 +12308,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
   }
 }
 
-[[maybe_unused]] inline static void pg_stack_trace_print_dwarf() {
+[[maybe_unused]] static void pg_stack_trace_print_dwarf() {
   static _Atomic PgOnce once = false;
   static u8 mem[16 * PG_KiB /* TODO: Make dynamic? */] = {0};
   static PgDwarfFunctionDeclarationDyn fns = {0};
