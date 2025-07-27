@@ -1392,7 +1392,7 @@ typedef struct {
     u32 address_index;  // PG_DWARF_RLE_BASE_ADDRESSX
     Pgu64Pair pair_u64; // PG_DWARF_RLE_STARTX_LENGTH, PG_DWARF_RLE_OFFSET_PAIR,
                         // PG_DWARF_RLE_START_END,PG_DWARF_RLE_START_LENGTH
-    u64 u64;            // PG_DWARF_BASE_ADDRESS
+    u64 u64;            // PG_DWARF_RLE_BASE_ADDRESS
   } u;
 } PgDwarfRangeListEntry;
 PG_DYN(PgDwarfRangeListEntry) PgDwarfRangeListEntryDyn;
@@ -10367,6 +10367,8 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
     PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, entry_idx - 1);
     PgDwarfFunctionDeclaration fn = {0};
 
+    u64 base_address = 0;
+
     for (u64 j = 0; j < abbrev.attribute_forms.len; j++) {
       PgDwarfAttributeForm attr_form = PG_SLICE_AT(abbrev.attribute_forms, j);
 
@@ -10545,7 +10547,17 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
 
         if (PG_DWARF_TAG_COMPILE_UNIT == abbrev.tag &&
             PG_DWARF_AT_RANGES == attr_form.attribute) {
+          PgDwarfRangeListEntry range = PG_SLICE_AT(unit.ranges, val);
           val = val + 1 - 1;
+
+          if (unit.ranges.len > 0) {
+            PgDwarfRangeListEntry range = PG_SLICE_AT(unit.ranges, 0);
+            if (PG_DWARF_RLE_BASE_ADDRESS == range.kind) {
+              base_address = range.u.u64;
+            } else if (PG_DWARF_RLE_BASE_ADDRESSX == range.kind) {
+              base_address = PG_SLICE_AT(addresses, range.u.address_index);
+            }
+          }
         }
       } break;
 
@@ -10593,7 +10605,8 @@ pg_dwarf_compilation_unit_resolve_debug_functions(
           // TODO: Non-crashing bound check.
           // FIXME: `val` is actually an index into the range of addresses given
           // by `DW_AT_ranges`.
-          fn.low_pc = PG_SLICE_AT(range_bytes, val);
+
+          fn.low_pc = 0; // PG_SLICE_AT(range_bytes, val);
         }
       } break;
 
