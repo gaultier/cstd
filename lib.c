@@ -4431,6 +4431,10 @@ pg_string_index_of_any_unescaped_rune(PgString haystack, PgString needles,
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_clone(PgString s, PgAllocator *allocator) {
+  if (pg_string_is_empty(s)) {
+    return s;
+  }
+
   PgString res = pg_string_make(s.len, allocator);
   if (res.data != nullptr) {
     pg_memcpy(res.data, s.data, s.len);
@@ -10430,9 +10434,13 @@ static PgError pg_dwarf_print_functions(PgWriter *w,
                                         PgDwarfFunctionDeclarationDyn fns,
                                         PgAllocator *allocator) {
   for (u64 i = 0; i < fns.len; i++) {
+    PG_TRY_ERR(pg_writer_write_full(w, PG_S("["), allocator));
+    PG_TRY_ERR(pg_writer_write_u64_as_string(w, i, allocator));
+    PG_TRY_ERR(pg_writer_write_full(w, PG_S("]"), allocator));
     PG_TRY_ERR(pg_dwarf_print_function(w, PG_SLICE_AT(fns, i), allocator));
     PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
   }
+  pg_writer_flush(w, allocator);
   return 0;
 }
 

@@ -3732,7 +3732,7 @@ static void test_debug_info() {
     pg_dwarf_debug_info_print(&w, unit, nullptr);
   }
 
-  PgArena fn_arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArena fn_arena = pg_arena_make_from_virtual_mem(64 * PG_KiB);
   PgArenaAllocator fn_arena_allocator = pg_make_arena_allocator(&fn_arena);
   PgAllocator *fn_allocator =
       pg_arena_allocator_as_allocator(&fn_arena_allocator);
