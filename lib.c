@@ -10001,6 +10001,45 @@ pg_dwarf_address_ranges_parse(Pgu8Slice bytes, PgAllocator *allocator) {
 
   PgReader r = pg_reader_make_from_bytes(bytes);
 
+  Pgu32Result res_length = pg_reader_read_u32_le(&r);
+  PG_TRY(length, res, res_length);
+  u32 expected_length = 0;
+  if (__builtin_add_overflow(length, 4, &expected_length)) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+  if (expected_length != bytes.len) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  Pgu16Result res_version = pg_reader_read_u16_le(&r);
+  PG_TRY(version, res, res_version);
+  if (5 != version) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  Pgu8Result res_address_size = pg_reader_read_u8_le(&r);
+  PG_TRY(address_size, res, res_address_size);
+  if (8 != address_size) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  Pgu8Result res_segment_selector_size = pg_reader_read_u8_le(&r);
+  PG_TRY(segment_selector_size, res, res_segment_selector_size);
+
+  Pgu32Result res_offset_count = pg_reader_read_u32_le(&r);
+  PG_TRY(offset_count, res, res_offset_count);
+
+  if (0 != offset_count) {
+    for (u32 i = 0; i < offset_count; i++) {
+      Pgu32Result res_offset = pg_reader_read_u32_le(&r);
+      PG_TRY(offset, res, res_offset);
+    }
+  }
+
   for (u64 _i = 0; _i < bytes.len; _i++) {
     PgDwarfRangeListEntry entry = {0};
     Pgu8Result res_kind = pg_reader_read_u8_le(&r);
