@@ -11361,9 +11361,8 @@ static PgError pg_dwarf_print_functions(PgWriter *w,
   return 0;
 }
 
-[[maybe_unused]] static void
-pg_dwarf_debug_info_print(PgWriter *w, PgDwarfDebugInfoCompilationUnit unit,
-                          PgAllocator *allocator) {
+[[maybe_unused]] static void pg_dwarf_compilation_unit_print_abbreviations(
+    PgWriter *w, PgDwarfDebugInfoCompilationUnit unit, PgAllocator *allocator) {
   PgString kind_str = pg_dwarf_compilation_unit_kind_to_str[unit.kind];
   PG_ASSERT(0 == pg_writer_write_full(w, kind_str, allocator));
   PG_ASSERT(0 ==
