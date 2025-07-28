@@ -1,6 +1,2 @@
-- make pg_watch_dir work
-- allocator that exports CTF data
-- [x] load debug info
-- [ ] minimize debug info mem usage
-- [ ] make debug info load work in release mode
-- [ ] map current address to file+line in debug info (.debug_line, .debug_loc_lists etc)
+- [.] minimize debug info mem usage
+- [ ] add macros to deal with `XXXResult` [simpler](https://gist.github.com/LAK132/0d264549745e8196df1e632d5b518c37)

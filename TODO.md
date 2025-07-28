@@ -1,0 +1,5 @@
+- [ ] Make allocation failures recoverable
+- [ ] Make pg_watch_dir work
+- [ ] Allocator that exports CTF data
+- [ ] Make debug info load work in release mode
+- [ ] Map current address to file+line in debug info (.debug_line, .debug_loc_lists etc)
