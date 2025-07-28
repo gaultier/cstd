@@ -1531,6 +1531,7 @@ typedef struct {
   } u;
   PgDwarfAbbreviationEntry abbrev;
   PgDwarfAttributeForm attr_form;
+  u64 tag_id;
 } PgDwarfAtom;
 PG_OPTION(PgDwarfAtom) PgDwarfAtomOption;
 PG_RESULT(PgDwarfAtomOption) PgDwarfAtomOptionResult;
@@ -1542,8 +1543,11 @@ typedef struct {
   PgReader r;             // Reader on `.debug_info`.
   Pgu8Slice str_bytes;    // `.debug_str`.
   Pgu32Slice str_offsets; // `.debug_str_offsets`
+  // Current abbreviation being iterated on.
   PgDwarfAbbreviationEntryOption abbrev_opt;
+  // Current attribute form being iterated on.
   u64 abbrev_attr_form_idx;
+  u64 current_tag_id;
 } PgDebugDataIterator;
 PG_RESULT(PgDebugDataIterator) PgDebugDataIteratorResult;
 
@@ -1791,7 +1795,8 @@ static void pg_once_mark_as_done(_Atomic PgOnce *done) {
 }
 
 [[maybe_unused]] static u64
-pg_fill_stack_trace(u64 pie_offset, u64 stack_trace[PG_STACK_TRACE_MAX]);
+pg_fill_stack_trace(u64 skip, u64 pie_offset,
+                    u64 stack_trace[PG_STACK_TRACE_MAX]);
 
 [[nodiscard]] static u64 pg_self_pie_get_offset();
 
@@ -1802,7 +1807,7 @@ pg_stacktrace_print(const char *file, int line, const char *function) {
   fprintf(stderr, "ASSERT: %s:%d:%s\n", file, line, function);
 
   u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
-  u64 stack_trace_len = pg_fill_stack_trace(pie_offset, stack_trace);
+  u64 stack_trace_len = pg_fill_stack_trace(1, pie_offset, stack_trace);
 
   for (u64 i = 0; i < stack_trace_len; i++) {
     fprintf(stderr, "%#" PRIx64 "\n", stack_trace[i]);
@@ -6653,7 +6658,8 @@ pg_time_ns_now(PgClockKind clock) {
 }
 
 [[maybe_unused]] static u64
-pg_fill_stack_trace(u64 pie_offset, u64 stack_trace[PG_STACK_TRACE_MAX]) {
+pg_fill_stack_trace(u64 skip, u64 pie_offset,
+                    u64 stack_trace[PG_STACK_TRACE_MAX]) {
   u64 *frame_pointer = __builtin_frame_address(0);
   u64 res = 0;
 
@@ -6666,11 +6672,11 @@ pg_fill_stack_trace(u64 pie_offset, u64 stack_trace[PG_STACK_TRACE_MAX]) {
 
     frame_pointer = (u64 *)*frame_pointer;
 
-    // `ip` points to the return instruction in the caller, once this call
-    // is done. But: We want the location of the call i.e. the `call xxx`
-    // instruction, so we subtract one byte to point inside it, which is not
-    // quite 'at' it, but good enough.
-    stack_trace[res++] = (instruction_pointer - 1) - pie_offset;
+    if (0 == skip || res >= skip) {
+      stack_trace[res++] = (instruction_pointer)-pie_offset;
+    } else {
+      skip--;
+    }
   }
 
   return res;
@@ -10904,11 +10910,13 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
     it->abbrev_opt.has_value = true;
     it->abbrev_opt.value = abbrev;
     it->abbrev_attr_form_idx = 0;
+    it->current_tag_id = it->r.u.bytes.len;
   }
 
   PG_ASSERT(it->abbrev_opt.has_value);
   PgDwarfAbbreviationEntry abbrev = it->abbrev_opt.value;
   res.value.value.abbrev = abbrev;
+  res.value.value.tag_id = it->current_tag_id;
 
   if (PG_SLICE_IS_EMPTY(abbrev.attribute_forms)) {
     return res;
@@ -11273,6 +11281,7 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
   PgDwarfFunctionDeclarationDynResult res = {0};
 
   PgDwarfFunctionDeclaration fn = {0};
+  u64 current_tag_id = 0;
   for (;;) {
     PgDwarfAtomOptionResult res_next =
         pg_dwarf_compilation_unit_debug_info_next(it);
@@ -11287,18 +11296,22 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
     }
 
     PgDwarfAtom atom = next.value;
-    printf("[D001] tag=%s attr=%s form=%s\n",
-           pg_dwarf_tag_str[atom.abbrev.tag].data,
-           pg_dwarf_attribute_str[atom.attr_form.attribute].data,
-           pg_dwarf_form_str[atom.attr_form.form].data);
 
     // Only interested in functions.
     if (PG_DWARF_TAG_SUBPROGRAM != atom.abbrev.tag) {
+      continue;
+    }
+
+    if (0 == current_tag_id) {
+      current_tag_id = atom.tag_id;
+    }
+
+    if (current_tag_id != atom.tag_id) {
       if (!pg_string_is_empty(fn.name)) {
         PG_DYN_PUSH(&res.value, fn, allocator);
         fn = (PgDwarfFunctionDeclaration){0};
       }
-      continue;
+      current_tag_id = atom.tag_id;
     }
 
     if (PG_DWARF_AT_LOW_PC == atom.attr_form.attribute) {
@@ -12477,18 +12490,19 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
 
   {
     u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
-    u64 stack_trace_len = pg_fill_stack_trace(0, stack_trace);
+    u64 stack_trace_len = pg_fill_stack_trace(skip, 0, stack_trace);
 
-    for (u64 i = 1 /* Skip self */ + skip; i < stack_trace_len; i++) {
+    for (u32 i = 0; i < stack_trace_len; i++) {
       u64 addr = PG_C_ARRAY_AT(stack_trace, PG_STACK_TRACE_MAX, i);
       PgDwarfFunctionDeclarationOption fn_opt =
           pg_dwarf_find_function_by_addr(fns, addr);
+
+      fprintf(stderr, "[%u] at: %#" PRIx64, i, addr);
       if (fn_opt.has_value) {
         PgDwarfFunctionDeclaration fn = fn_opt.value;
-        fprintf(stderr, "%.*s\n", (i32)fn.name.len, fn.name.data);
-      } else {
-        fprintf(stderr, "%#" PRIx64 "\n", stack_trace[i]);
+        fprintf(stderr, " %.*s", (i32)fn.name.len, fn.name.data);
       }
+      fprintf(stderr, "\n");
     }
   }
 }
