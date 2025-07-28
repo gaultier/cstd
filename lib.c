@@ -1539,7 +1539,9 @@ typedef struct {
   PgVirtualMemFile file;
   PgDwarfDebugInfoCompilationUnit unit;
   PgElf elf;
-  PgReader r; // Reader on `.debug_info`.
+  PgReader r;             // Reader on `.debug_info`.
+  Pgu8Slice str_bytes;    // `.debug_str`.
+  Pgu32Slice str_offsets; // `.debug_str_offsets`
   PgDwarfAbbreviationEntryOption abbrev_opt;
   u64 abbrev_attr_form_idx;
 } PgDebugDataIterator;
@@ -10875,34 +10877,6 @@ static PgDwarfAtomOptionResult
 pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
   PgDwarfAtomOptionResult res = {0};
 
-  // TODO: Lazily find these sections (or do it once in the iterator
-  // initialization).
-  Pgu8SliceResult res_str_bytes =
-      pg_elf_section_header_find_bytes_by_name_and_kind(
-          it->elf, PG_S(".debug_str"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
-  PG_TRY(str_bytes, res, res_str_bytes);
-
-  Pgu8SliceResult res_str_offsets_bytes =
-      pg_elf_section_header_find_bytes_by_name_and_kind(
-          it->elf, PG_S(".debug_str_offsets"),
-          PG_ELF_SECTION_HEADER_KIND_PROGBITS);
-  PG_TRY(str_offsets_bytes, res, res_str_offsets_bytes);
-  // NOTE: Technically the header size is given by `DW_AT_str_offsets_base`, but
-  // we hard-code it.
-  if (str_offsets_bytes.len < 8) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-  str_offsets_bytes = PG_SLICE_RANGE_START(str_offsets_bytes, 8);
-  if (0 != (str_offsets_bytes.len % 4)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
-  }
-  Pgu32Slice str_offsets = {
-      .data = (u32 *)str_offsets_bytes.data,
-      .len = str_offsets_bytes.len / 4,
-  };
-
   // The end.
   if (PG_SLICE_IS_EMPTY(it->r.u.bytes)) {
     return res;
@@ -10912,8 +10886,6 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
 
   if (!it->abbrev_opt.has_value ||
       it->abbrev_attr_form_idx >= it->abbrev_opt.value.attribute_forms.len) {
-    // FIXME: Keep track in iterator `inside_tag`  to only read this at the
-    // beginning of a new tag !!!
     Pgu64Result res_entry_idx = pg_reader_read_u64_leb128(&it->r);
     PG_TRY(entry_idx, res, res_entry_idx);
     if (0 == entry_idx) {
@@ -11206,7 +11178,7 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
   case PG_DWARF_FORM_STRX: {
     Pgu64Result res_read = pg_reader_read_u64_leb128(&it->r);
     PG_TRY(val, res, res_read);
-    PgString s = pg_dwarf_resolve_string(str_offsets, str_bytes, val);
+    PgString s = pg_dwarf_resolve_string(it->str_offsets, it->str_bytes, val);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_BYTES;
     res.value.value.u.bytes = s;
@@ -11215,7 +11187,7 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
   case PG_DWARF_FORM_STRX1: {
     Pgu8Result res_read = pg_reader_read_u8_le(&it->r);
     PG_TRY(val, res, res_read);
-    PgString s = pg_dwarf_resolve_string(str_offsets, str_bytes, val);
+    PgString s = pg_dwarf_resolve_string(it->str_offsets, it->str_bytes, val);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_BYTES;
     res.value.value.u.bytes = s;
@@ -11224,7 +11196,7 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
   case PG_DWARF_FORM_STRX2: {
     Pgu16Result res_read = pg_reader_read_u16_le(&it->r);
     PG_TRY(val, res, res_read);
-    PgString s = pg_dwarf_resolve_string(str_offsets, str_bytes, val);
+    PgString s = pg_dwarf_resolve_string(it->str_offsets, it->str_bytes, val);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_BYTES;
     res.value.value.u.bytes = s;
@@ -11233,7 +11205,7 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
   case PG_DWARF_FORM_STRX3: {
     Pgu32Result res_read = pg_reader_read_u24_le(&it->r);
     PG_TRY(val, res, res_read);
-    PgString s = pg_dwarf_resolve_string(str_offsets, str_bytes, val);
+    PgString s = pg_dwarf_resolve_string(it->str_offsets, it->str_bytes, val);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_BYTES;
     res.value.value.u.bytes = s;
@@ -11242,7 +11214,7 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
   case PG_DWARF_FORM_STRX4: {
     Pgu32Result res_read = pg_reader_read_u32_le(&it->r);
     PG_TRY(val, res, res_read);
-    PgString s = pg_dwarf_resolve_string(str_offsets, str_bytes, val);
+    PgString s = pg_dwarf_resolve_string(it->str_offsets, it->str_bytes, val);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_BYTES;
     res.value.value.u.bytes = s;
@@ -11494,6 +11466,42 @@ pg_self_debug_info_iterator_make(PgAllocator *allocator) {
     info_bytes = PG_SLICE_RANGE_START(info_bytes, offset);
 
     res.value.r = pg_reader_make_from_bytes(info_bytes);
+  }
+
+  // Set string section.
+  {
+    Pgu8SliceResult res_str_bytes =
+        pg_elf_section_header_find_bytes_by_name_and_kind(
+            res.value.elf, PG_S(".debug_str"),
+            PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+    PG_TRY(str_bytes, res, res_str_bytes);
+    res.value.str_bytes = str_bytes;
+  }
+
+  // Set string offsets section.
+  {
+    Pgu8SliceResult res_str_offsets_bytes =
+        pg_elf_section_header_find_bytes_by_name_and_kind(
+            res.value.elf, PG_S(".debug_str_offsets"),
+            PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+    PG_TRY(str_offsets_bytes, res, res_str_offsets_bytes);
+    // Check that the header is present.
+    if (str_offsets_bytes.len < 8) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    str_offsets_bytes = PG_SLICE_RANGE_START(str_offsets_bytes, 8);
+    if (0 != (str_offsets_bytes.len % 4)) {
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
+    }
+    // TODO: Should we check alignment (`0 != ((u64)str_offsets_bytes.data %
+    // 4`)?
+    Pgu32Slice str_offsets = {
+        .data = (u32 *)str_offsets_bytes.data,
+        .len = str_offsets_bytes.len / 4,
+    };
+    res.value.str_offsets = str_offsets;
   }
 
 end:
