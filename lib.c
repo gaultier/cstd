@@ -12446,11 +12446,11 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
 
 [[maybe_unused]] static void pg_stack_trace_print_dwarf(u64 skip) {
   static _Atomic PgOnce once = false;
-  static u8 mem[128 * PG_KiB /* TODO: Make dynamic? */] = {0};
+  static PgArena arena = {0};
   static PgDwarfFunctionDeclarationDyn fns = {0};
 
   if (pg_once_do(&once)) {
-    PgArena arena = pg_arena_make_from_mem(mem, PG_STATIC_ARRAY_LEN(mem));
+    arena = pg_arena_make_from_virtual_mem(512 * PG_KiB);
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
     PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
@@ -12467,6 +12467,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
       goto end_debug;
     }
     fns = res_fns.value;
+    goto end;
 
   end_debug:
     pg_self_debug_info_iterator_release(it);
