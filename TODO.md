@@ -1,4 +1,6 @@
 - [ ] Make allocation failures recoverable
+- [ ] macos: Get path to executable (`#include <mach-o/dyld.h>` + `_NSGetExecutablePath`)
+- [ ] macos: Parse mach-o
 - [ ] Make pg_watch_dir work
 - [ ] Allocator that exports CTF data
 - [ ] Make debug info load work in release mode
