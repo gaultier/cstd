@@ -3,3 +3,4 @@
 - [ ] Allocator that exports CTF data
 - [ ] Make debug info load work in release mode
 - [ ] Map current address to file+line in debug info (.debug_line, .debug_loc_lists etc)
+- [ ] Add higher-level APIs for common use-cases
