@@ -12492,6 +12492,8 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
     u64 stack_trace_len = pg_fill_stack_trace(skip, 0, stack_trace);
 
+    fprintf(stderr, " Stack trace:\n");
+
     for (u32 i = 0; i < stack_trace_len; i++) {
       u64 addr = PG_C_ARRAY_AT(stack_trace, PG_STACK_TRACE_MAX, i);
       PgDwarfFunctionDeclarationOption fn_opt =
@@ -12501,6 +12503,9 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
       if (fn_opt.has_value) {
         PgDwarfFunctionDeclaration fn = fn_opt.value;
         fprintf(stderr, " %.*s", (i32)fn.name.len, fn.name.data);
+        if (pg_string_eq(fn.name, PG_S("main"))) {
+          i = stack_trace_len; // End.
+        }
       }
       fprintf(stderr, "\n");
     }
