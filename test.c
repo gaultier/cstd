@@ -3741,10 +3741,10 @@ static void test_debug_info() {
                                                         fn_allocator);
   PG_ASSERT(0 == res_fns.err);
   PgDwarfFunctionDeclarationDyn fns = res_fns.value;
-  PG_ASSERT(fns.len > 0);
+  PG_ASSERT(fns.len > 0)
 
   PG_ASSERT(0 == pg_arena_release(&arena));
-  pg_self_debug_info_release(debug);
+  pg_self_debug_info_iterator_release(debug);
 
   {
     PgWriter w_fn =
