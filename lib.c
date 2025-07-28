@@ -4,20 +4,6 @@
 #ifndef CSTD_LIB_C
 #define CSTD_LIB_C
 
-// TODO: Document all functions.
-// TODO: Get machine stack trace.
-// TODO: Get human readable stack trace.
-// TODO: IPv6.
-// TODO: *Pool allocator?*
-// TODO: Randomize arena guard pages.
-// TODO: HTTP compression (gzip, etc)
-// TODO: TLS 1.3
-// TODO: Pprof/Chromium Trace Format memory profiling.
-// TODO: [Unix] Human-readable stacktrace.
-// TODO: Get PIE offset for better call stack.
-// TODO: Test untested functions (add test coverage to build).
-// TODO: [Windows] Unix/Windows parity.
-
 #if defined(__linux__)
 #define PG_OS_LINUX
 #endif
