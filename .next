@@ -1,2 +1,4 @@
-- [.] minimize debug info mem usage
+- [x] minimize debug info mem usage
+- [ ] investigate why `sysconf` has wrong low_pc, high_pc in debug info of release build
+- [ ] support more forms for functions & ignore inlined
 - [ ] add macros to deal with `XXXResult` [simpler](https://gist.github.com/LAK132/0d264549745e8196df1e632d5b518c37)

@@ -11289,7 +11289,7 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
 
     // The end.
     if (!next.has_value) {
-      if (!pg_string_is_empty(fn.name)) {
+      if (!pg_string_is_empty(fn.name) && fn.high_pc) {
         PG_DYN_PUSH(&res.value, fn, allocator);
       }
       return res;
@@ -11298,6 +11298,7 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
     PgDwarfAtom atom = next.value;
 
     // Only interested in functions.
+    // TODO: DW_inlined_subroutine.
     if (PG_DWARF_TAG_SUBPROGRAM != atom.abbrev.tag) {
       continue;
     }
@@ -11306,8 +11307,12 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
       current_tag_id = atom.tag_id;
     }
 
+    // TODO: ignore inlined, external.
     if (current_tag_id != atom.tag_id) {
-      if (!pg_string_is_empty(fn.name)) {
+      // Functions without a name or an address are of no use.
+      if (!pg_string_is_empty(fn.name) /*&& fn.high_pc*/) {
+        printf("[D002] %.*s %#lx %#lx\n", (i32)fn.name.len, fn.name.data,
+               fn.low_pc, fn.high_pc);
         PG_DYN_PUSH(&res.value, fn, allocator);
         fn = (PgDwarfFunctionDeclaration){0};
       }
@@ -11317,6 +11322,7 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
     if (PG_DWARF_AT_LOW_PC == atom.attr_form.attribute) {
       fn.low_pc = PG_SLICE_AT(it->unit.addresses, atom.u.u64);
     }
+    // TODO: DW_AT_abstract_origin
     if (PG_DWARF_AT_NAME == atom.attr_form.attribute) {
       fn.name = pg_string_clone(atom.u.bytes, allocator);
     }
