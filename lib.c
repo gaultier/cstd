@@ -10476,7 +10476,7 @@ pg_dwarf_parse_abbreviation_entries(PgElf elf, u64 offset,
   return res;
 }
 
-[[nodiscard]] static PgDwarfRangesDynResult
+[[maybe_unused]] [[nodiscard]] static PgDwarfRangesDynResult
 pg_dwarf_address_ranges_parse(Pgu8Slice bytes, Pgu64Dyn addresses,
                               PgAllocator *allocator) {
   PgDwarfRangesDynResult res = {0};
