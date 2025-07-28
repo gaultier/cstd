@@ -10913,10 +10913,44 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
 }
 
 [[nodiscard]] static PgDwarfFunctionDeclarationDynResult
-pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *) {
+pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
   PgDwarfFunctionDeclarationDynResult res = {0};
 
-  // TODO
+  PgDwarfFunctionDeclaration fn = {0};
+  for (;;) {
+    PgDwarfAtomOptionResult res_next =
+        pg_dwarf_compilation_unit_debug_info_next(it);
+    PG_TRY(next, res, res_next);
+
+    // The end.
+    if (!next.has_value) {
+      if (!pg_string_is_empty(fn.name)) {
+        PG_DYN_PUSH(&res.value, fn, allocator);
+      }
+      return res;
+    }
+
+    PgDwarfAtom atom = next.value;
+
+    // Only interested in functions.
+    if (PG_DWARF_TAG_SUBPROGRAM != atom.abbrev.tag) {
+      if (!pg_string_is_empty(fn.name)) {
+        PG_DYN_PUSH(&res.value, fn, allocator);
+        fn = (PgDwarfFunctionDeclaration){0};
+      }
+      continue;
+    }
+
+    if (PG_DWARF_AT_LOW_PC == atom.attr_form.attribute) {
+      fn.low_pc = PG_SLICE_AT(it->unit.addresses, atom.u.u64);
+    }
+    if (PG_DWARF_AT_NAME == atom.attr_form.attribute) {
+      fn.name = pg_string_clone(atom.u.bytes, allocator);
+    }
+    if (PG_DWARF_AT_HIGH_PC == atom.attr_form.attribute) {
+      fn.high_pc = fn.low_pc + atom.u.u64;
+    }
+  }
 
   return res;
 }

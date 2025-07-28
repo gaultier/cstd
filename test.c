@@ -3718,11 +3718,12 @@ static void test_debug_info() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgDebugDataResult res_debug = pg_self_debug_info_load(allocator);
-  PG_ASSERT(0 == res_debug.err);
-  PgDebugData debug = res_debug.value;
+  PgDebugDataIteratorResult res_it =
+      pg_self_debug_info_iterator_make(allocator);
+  PG_ASSERT(0 == res_it.err);
+  PgDebugDataIterator it = res_it.value;
 
-  PgDwarfDebugInfoCompilationUnit unit = debug.unit;
+  PgDwarfDebugInfoCompilationUnit unit = it.unit;
   PG_ASSERT(PG_DWARF_COMPILATION_UNIT_COMPILE == unit.kind);
   PG_ASSERT(unit.abbrevs.len > 0);
 
@@ -3737,14 +3738,13 @@ static void test_debug_info() {
   PgAllocator *fn_allocator =
       pg_arena_allocator_as_allocator(&fn_arena_allocator);
   PgDwarfFunctionDeclarationDynResult res_fns =
-      pg_dwarf_compilation_unit_resolve_debug_functions(debug.elf, unit,
-                                                        fn_allocator);
+      pg_dwarf_collect_functions(&it, fn_allocator);
   PG_ASSERT(0 == res_fns.err);
   PgDwarfFunctionDeclarationDyn fns = res_fns.value;
-  PG_ASSERT(fns.len > 0)
+  PG_ASSERT(fns.len > 0);
 
   PG_ASSERT(0 == pg_arena_release(&arena));
-  pg_self_debug_info_iterator_release(debug);
+  pg_self_debug_info_iterator_release(it);
 
   {
     PgWriter w_fn =
