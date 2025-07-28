@@ -10931,11 +10931,16 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
 
     it->abbrev_opt.has_value = true;
     it->abbrev_opt.value = abbrev;
+    it->abbrev_attr_form_idx = 0;
   }
 
   PG_ASSERT(it->abbrev_opt.has_value);
   PgDwarfAbbreviationEntry abbrev = it->abbrev_opt.value;
   res.value.value.abbrev = abbrev;
+
+  if (PG_SLICE_IS_EMPTY(abbrev.attribute_forms)) {
+    return res;
+  }
 
   PgDwarfAttributeForm attr_form =
       PG_SLICE_AT(abbrev.attribute_forms, it->abbrev_attr_form_idx);
