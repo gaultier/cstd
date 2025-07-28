@@ -10507,6 +10507,8 @@ static PgDwarfAtomOptionResult
 pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
   PgDwarfAtomOptionResult res = {0};
 
+  // TODO: Lazily find these sections (or do it once in the iterator
+  // initialization).
   Pgu8SliceResult res_str_bytes =
       pg_elf_section_header_find_bytes_by_name_and_kind(
           it->elf, PG_S(".debug_str"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
@@ -10539,6 +10541,8 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
   }
 
   {
+    // FIXME: Keep track in iterator `inside_tag`  to only read this at the
+    // beginning of a new tag !!!
     Pgu64Result res_entry_idx = pg_reader_read_u64_leb128(&it->r);
     PG_TRY(entry_idx, res, res_entry_idx);
     if (0 == entry_idx) {
