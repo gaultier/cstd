@@ -6,6 +6,9 @@
 
 #if defined(__linux__)
 #define PG_OS_LINUX
+#include <sys/epoll.h>
+#include <sys/inotify.h>
+#include <sys/sendfile.h>
 #endif
 
 #if defined(__FreeBSD__)
@@ -15,6 +18,7 @@
 #if defined(__APPLE__)
 #define PG_OS_APPLE
 #define _DARWIN_C_SOURCE
+#include <mach-o/dyld.h>
 #endif
 
 #if defined(PG_OS_LINUX) || defined(PG_OS_FREEBSD) || defined(PG_OS_APPLE) ||  \
@@ -25,12 +29,6 @@
 #if defined(PG_OS_UNIX)
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE 1
-#endif
-
-#if defined(PG_OS_LINUX)
-#include <sys/epoll.h>
-#include <sys/inotify.h>
-#include <sys/sendfile.h>
 #endif
 
 #include "sha1.c"
@@ -11996,14 +11994,12 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   static PgString res = {0};
   if (pg_once_do(&once)) {
     char path_c[PG_PATH_MAX] = {0};
-    i32 ret = 0;
-    do {
-      ret = readlink("/proc/self/exe", path_c, PG_STATIC_ARRAY_LEN(path_c));
-    } while (-1 == ret && EINTR == errno);
-    if (-1 == errno) {
+    u32 len = 0;
+
+    i32 ret = _NSGetExecutablePath(path_c, &len);
+    if (-1 == ret) {
       return res;
     }
-
     res = pg_string_clone(pg_cstr_to_string(path_c), allocator);
 
     pg_once_mark_as_done(&once);
