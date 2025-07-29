@@ -3718,10 +3718,10 @@ static void test_debug_info() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgDebugDataIteratorResult res_it =
+  PgDebugInfoIteratorResult res_it =
       pg_self_debug_info_iterator_make(allocator);
   PG_ASSERT(0 == res_it.err);
-  PgDebugDataIterator it = res_it.value;
+  PgDebugInfoIterator it = res_it.value;
 
   PgDwarfDebugInfoCompilationUnit unit = it.unit;
   PG_ASSERT(PG_DWARF_COMPILATION_UNIT_COMPILE == unit.kind);

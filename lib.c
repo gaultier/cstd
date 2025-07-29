@@ -1485,6 +1485,7 @@ typedef struct {
   u64 high_pc;
   PgString name;
   PgString file;
+  u64 debug_info_offset;
 } PgDebugFunctionDeclaration;
 PG_DYN(PgDebugFunctionDeclaration) PgDebugFunctionDeclarationDyn;
 PG_OPTION(PgDebugFunctionDeclaration) PgDebugFunctionDeclarationOption;
@@ -1532,7 +1533,7 @@ typedef struct {
   } u;
   PgDwarfAbbreviationEntry abbrev;
   PgDwarfAttributeForm attr_form;
-  u64 tag_id;
+  u64 debug_info_offset;
 } PgDwarfAtom;
 PG_OPTION(PgDwarfAtom) PgDwarfAtomOption;
 PG_RESULT(PgDwarfAtomOption) PgDwarfAtomOptionResult;
@@ -1548,9 +1549,9 @@ typedef struct {
   PgDwarfAbbreviationEntryOption abbrev_opt;
   // Current attribute form being iterated on.
   u64 abbrev_attr_form_idx;
-  u64 current_tag_id;
-} PgDebugDataIterator;
-PG_RESULT(PgDebugDataIterator) PgDebugDataIteratorResult;
+  Pgu8Slice debug_info_full;
+} PgDebugInfoIterator;
+PG_RESULT(PgDebugInfoIterator) PgDebugInfoIteratorResult;
 
 typedef struct {
   u64 pc;
@@ -1800,7 +1801,7 @@ pg_self_exe_get_path(PgAllocator *allocator);
 
 [[nodiscard]] static u64 pg_self_pie_get_offset();
 
-[[maybe_unused]] [[nodiscard]] static PgDebugDataIteratorResult
+[[maybe_unused]] [[nodiscard]] static PgDebugInfoIteratorResult
 pg_self_debug_info_iterator_make(PgAllocator *allocator);
 
 [[maybe_unused]] static u64
@@ -10841,13 +10842,16 @@ pg_dwarf_resolve_string(Pgu32Slice str_offsets, Pgu8Slice str_bytes, u64 idx) {
 
 [[maybe_unused]] [[nodiscard]]
 static PgDwarfAtomOptionResult
-pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
+pg_dwarf_compilation_unit_debug_info_next(PgDebugInfoIterator *it) {
   PgDwarfAtomOptionResult res = {0};
 
   // The end.
   if (PG_SLICE_IS_EMPTY(it->r.u.bytes)) {
     return res;
   }
+
+  PG_ASSERT(it->r.u.bytes.data >= it->debug_info_full.data);
+  u64 offset = it->r.u.bytes.data - it->debug_info_full.data;
 
   res.value.has_value = true;
 
@@ -10871,13 +10875,12 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
     it->abbrev_opt.has_value = true;
     it->abbrev_opt.value = abbrev;
     it->abbrev_attr_form_idx = 0;
-    it->current_tag_id = it->r.u.bytes.len;
   }
 
   PG_ASSERT(it->abbrev_opt.has_value);
   PgDwarfAbbreviationEntry abbrev = it->abbrev_opt.value;
   res.value.value.abbrev = abbrev;
-  res.value.value.tag_id = it->current_tag_id;
+  res.value.value.debug_info_offset = offset;
 
   if (PG_SLICE_IS_EMPTY(abbrev.attribute_forms)) {
     return res;
@@ -11310,11 +11313,11 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
 }
 
 [[nodiscard]] static PgDebugFunctionDeclarationDynResult
-pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
+pg_dwarf_collect_functions(PgDebugInfoIterator *it, PgAllocator *allocator) {
   PgDebugFunctionDeclarationDynResult res = {0};
 
   PgDebugFunctionDeclaration fn = {0};
-  u64 current_tag_id = 0;
+  u64 current_die_offset = 0;
   for (;;) {
     PgDwarfAtomOptionResult res_next =
         pg_dwarf_compilation_unit_debug_info_next(it);
@@ -11342,22 +11345,20 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
       continue;
     }
 
-    if (0 == current_tag_id) {
-      current_tag_id = atom.tag_id;
+    if (0 == current_die_offset) {
+      current_die_offset = atom.debug_info_offset;
     }
 
     // TODO: ignore inlined, external.
-    if (current_tag_id != atom.tag_id) {
-      // Functions without a name or an address are of no use.
-      if (!pg_string_is_empty(fn.name) /*&& fn.high_pc*/) {
-        fprintf(stderr, "[D002] %" PRIu64 " %.*s %#" PRIx64 " %#" PRIx64 "\n",
-                res.value.len, (i32)fn.name.len, fn.name.data, fn.low_pc,
-                fn.high_pc);
-        fflush(stderr);
-        PG_DYN_PUSH(&res.value, fn, allocator);
-        fn = (PgDebugFunctionDeclaration){0};
-      }
-      current_tag_id = atom.tag_id;
+    if (current_die_offset != atom.debug_info_offset) {
+      fprintf(stderr, "[D002] %" PRIu64 " %.*s %#" PRIx64 " %#" PRIx64 "\n",
+              res.value.len, (i32)fn.name.len, fn.name.data, fn.low_pc,
+              fn.high_pc);
+      fflush(stderr);
+      PG_DYN_PUSH(&res.value, fn, allocator);
+      fn = (PgDebugFunctionDeclaration){0};
+
+      current_die_offset = atom.debug_info_offset;
     }
 
     if (PG_DWARF_AT_LOW_PC == atom.attr_form.attribute) {
@@ -11366,16 +11367,18 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
               res.value.len, (i32)fn.name.len, fn.name.data, fn.low_pc,
               fn.high_pc);
       fflush(stderr);
-    }
-    if (pg_dwarf_attribute_is_name_like(atom.attr_form.attribute)) {
+    } else if (PG_DWARF_AT_NAME == atom.attr_form.attribute) {
       fn.name = pg_string_clone(atom.u.bytes, allocator);
       fprintf(stderr, "[D010] %" PRIu64 " %.*s %#" PRIx64 " %#" PRIx64 "\n",
               res.value.len, (i32)fn.name.len, fn.name.data, fn.low_pc,
               fn.high_pc);
       fflush(stderr);
-    }
-    if (PG_DWARF_AT_HIGH_PC == atom.attr_form.attribute) {
+    } else if (PG_DWARF_AT_HIGH_PC == atom.attr_form.attribute) {
       fn.high_pc = fn.low_pc + atom.u.u64;
+    } else if (PG_DWARF_AT_ABSTRACT_ORIGIN == atom.attr_form.attribute) {
+      PG_ASSERT(PG_DWARF_TAG_INLINED_SUBROUTINE == atom.abbrev.tag);
+      // To be resolved later.
+      fn.debug_info_offset = atom.u.u64;
     }
   }
 
@@ -11424,7 +11427,7 @@ pg_dwarf_compilation_unit_print_abbreviations(
 }
 
 [[maybe_unused]] static void
-pg_self_debug_info_iterator_release(PgDebugDataIterator dbg) {
+pg_self_debug_info_iterator_release(PgDebugInfoIterator dbg) {
   if (dbg.file.data.data) {
     munmap(dbg.file.data.data, dbg.file.data.len);
     (void)pg_file_close(dbg.file.fd);
@@ -11544,9 +11547,9 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgDebugDataIteratorResult
+[[maybe_unused]] [[nodiscard]] static PgDebugInfoIteratorResult
 pg_self_debug_info_iterator_make(PgAllocator *allocator) {
-  PgDebugDataIteratorResult res = {0};
+  PgDebugInfoIteratorResult res = {0};
 
   PgString exe_path = pg_self_exe_get_path(allocator);
   if (pg_string_is_empty(exe_path)) {
@@ -11593,6 +11596,7 @@ pg_self_debug_info_iterator_make(PgAllocator *allocator) {
       goto end;
     }
     PgString info_bytes = res_info_bytes.value;
+    res.value.debug_info_full = info_bytes;
 
     u64 offset = pg_dwarf_compilation_unit_get_data_offset(res.value.unit);
     info_bytes = PG_SLICE_RANGE_START(info_bytes, offset);
@@ -12016,9 +12020,9 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   return _dyld_get_image_vmaddr_slide(0);
 }
 
-[[maybe_unused]] [[nodiscard]] static PgDebugDataIteratorResult
+[[maybe_unused]] [[nodiscard]] static PgDebugInfoIteratorResult
 pg_self_debug_info_iterator_make(PgAllocator *allocator) {
-  PgDebugDataIteratorResult res = {0};
+  PgDebugInfoIteratorResult res = {0};
 
   PgString exe_path = pg_self_exe_get_path(allocator);
   if (pg_string_is_empty(exe_path)) {
@@ -12637,12 +12641,12 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
     PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-    PgDebugDataIteratorResult res_debug =
+    PgDebugInfoIteratorResult res_debug =
         pg_self_debug_info_iterator_make(allocator);
     if (res_debug.err) {
       goto end;
     }
-    PgDebugDataIterator it = res_debug.value;
+    PgDebugInfoIterator it = res_debug.value;
 
     PgDebugFunctionDeclarationDynResult res_fns =
         pg_dwarf_collect_functions(&it, allocator);
