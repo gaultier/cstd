@@ -1,5 +1,4 @@
 - [ ] alloc: Make all allocation failures recoverable
-- [ ] macos: Get path to executable (`#include <mach-o/dyld.h>` + `_NSGetExecutablePath`)
 - [ ] macos: Parse mach-o
 - [ ] io: Make pg_watch_dir work
 - [ ] alloc: Allocator that exports CTF data
@@ -12,6 +11,5 @@
 - [ ] alloc: Randomize arena guard pages.
 - [ ] compression: HTTP compression (gzip, etc)
 - [ ] crypto: TLS 1.3
-- [ ] macos: get PIE offset for better call stack (`_dyld_get_image_vmaddr_slide(0)`)
 - [ ] test: Test untested functions (add test coverage to build).
 - [ ] windows: Unix/Windows parity.

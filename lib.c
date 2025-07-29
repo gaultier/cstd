@@ -12010,17 +12010,7 @@ pg_self_exe_get_path(PgAllocator *allocator) {
 }
 
 [[nodiscard]] static u64 pg_self_pie_get_offset() {
-  static _Atomic PgOnce once = PG_ONCE_UNINITIALIZED;
-  static u64 res = 0;
-
-  if (pg_once_do(&once)) {
-
-    // TODO
-
-    pg_once_mark_as_done(&once);
-  }
-
-  return res;
+  return _dyld_get_image_vmaddr_slide(0);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgDebugDataIteratorResult
