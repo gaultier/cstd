@@ -10704,7 +10704,7 @@ pg_dwarf_addresses_parse(Pgu8Slice bytes, PgAllocator *allocator) {
   return res;
 }
 
-[[nodiscard]] static PgDwarfDebugInfoCompilationUnitResult
+[[maybe_unused]] [[nodiscard]] static PgDwarfDebugInfoCompilationUnitResult
 pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
   PgDwarfDebugInfoCompilationUnitResult res = {0};
 
@@ -10812,7 +10812,8 @@ pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
   return res;
 }
 
-[[nodiscard]] static u64 pg_dwarf_compilation_unit_get_data_offset(
+[[maybe_unused]] [[nodiscard]] static u64
+pg_dwarf_compilation_unit_get_data_offset(
     PgDwarfDebugInfoCompilationUnit unit) {
   switch (unit.kind) {
   case PG_DWARF_COMPILATION_UNIT_COMPILE:
