@@ -1,4 +1,5 @@
 - [x] minimize debug info mem usage
-- [ ] investigate why `sysconf` has wrong low_pc, high_pc in debug info of release build
-- [ ] support more forms for functions & ignore inlined
+- [x] investigate why `sysconf` has wrong low_pc, high_pc in debug info of release build => inlining
+- [x] support more forms for functions & ignore inlined
+- [ ] test the hell out of allocator & gracefully handle ENOMEM
 - [ ] add macros to deal with `XXXResult` [simpler](https://gist.github.com/LAK132/0d264549745e8196df1e632d5b518c37)
