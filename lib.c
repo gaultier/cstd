@@ -6,9 +6,6 @@
 
 #if defined(__linux__)
 #define PG_OS_LINUX
-#include <sys/epoll.h>
-#include <sys/inotify.h>
-#include <sys/sendfile.h>
 #endif
 
 #if defined(__FreeBSD__)
@@ -29,6 +26,12 @@
 #if defined(PG_OS_UNIX)
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE 1
+#endif
+
+#ifdef PG_OS_LINUX
+#include <sys/epoll.h>
+#include <sys/inotify.h>
+#include <sys/sendfile.h>
 #endif
 
 #include "sha1.c"
