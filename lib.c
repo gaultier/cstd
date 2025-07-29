@@ -2939,9 +2939,8 @@ pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   const u64 padding = (-(u64)a->start & (align - 1));
   PG_ASSERT(padding <= align);
 
-  const i64 available = (i64)a->end - (i64)a->start - (i64)padding;
-  PG_ASSERT(available >= 0);
-  if (count > (u64)available / size) {
+  if (a->start + padding + count * size > a->end) {
+    // ENOMEM.
     return nullptr;
   }
 
@@ -9908,9 +9907,11 @@ pg_dwarf_find_function_by_addr(PgDebugFunctionDeclarationDyn fns, u64 addr) {
 }
 
 [[maybe_unused]] [[nodiscard]]
-static PgError pg_dwarf_print_function(PgWriter *w,
+static PgError pg_debug_print_function(PgWriter *w,
                                        PgDebugFunctionDeclaration fn,
                                        PgAllocator *allocator) {
+  PG_TRY_ERR(pg_writer_write_u64_hex(w, fn.debug_info_offset, allocator));
+  PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
   PG_TRY_ERR(pg_writer_write_full(w, fn.file, allocator));
   PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
   PG_TRY_ERR(pg_writer_write_full(w, fn.name, allocator));
@@ -9923,14 +9924,14 @@ static PgError pg_dwarf_print_function(PgWriter *w,
 }
 
 [[maybe_unused]] [[nodiscard]]
-static PgError pg_dwarf_print_functions(PgWriter *w,
+static PgError pg_debug_print_functions(PgWriter *w,
                                         PgDebugFunctionDeclarationDyn fns,
                                         PgAllocator *allocator) {
   for (u64 i = 0; i < fns.len; i++) {
     PG_TRY_ERR(pg_writer_write_full(w, PG_S("["), allocator));
     PG_TRY_ERR(pg_writer_write_u64_as_string(w, i, allocator));
     PG_TRY_ERR(pg_writer_write_full(w, PG_S("]"), allocator));
-    PG_TRY_ERR(pg_dwarf_print_function(w, PG_SLICE_AT(fns, i), allocator));
+    PG_TRY_ERR(pg_debug_print_function(w, PG_SLICE_AT(fns, i), allocator));
     PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
   }
   PG_TRY_ERR(pg_writer_flush(w, allocator));

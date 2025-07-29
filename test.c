@@ -3686,7 +3686,7 @@ static void test_cli_options_help() {
   PG_ASSERT(pg_string_eq(expected, help));
 }
 
-static void test_self_functions() {
+static void test_self() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
@@ -3747,6 +3747,9 @@ static void test_debug_info() {
   pg_self_debug_info_iterator_release(it);
 
   {
+    PgWriter w =
+        pg_writer_make_from_file_descriptor(pg_os_stderr(), 1024, allocator);
+    PG_ASSERT(0 == pg_debug_print_functions(&w, fns, nullptr));
     pg_stack_trace_print_dwarf(1);
   }
 }
@@ -3776,7 +3779,7 @@ static void test_write_u64_hex() {
 int main() {
   test_u64_leb128();
   test_write_u64_hex();
-  test_self_functions();
+  test_self();
   test_debug_info();
   test_rune_bytes_count();
   test_utf8_count();
