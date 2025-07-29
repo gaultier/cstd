@@ -3730,7 +3730,7 @@ static void test_debug_info() {
   {
     PgWriter w =
         pg_writer_make_from_file_descriptor(pg_os_stdout(), 1024, allocator);
-    pg_dwarf_compilation_unit_print_abbreviations(&w, unit, nullptr);
+    (void)pg_dwarf_compilation_unit_print_abbreviations(&w, unit, nullptr);
   }
 
   PgArena fn_arena = pg_arena_make_from_virtual_mem(64 * PG_KiB);
