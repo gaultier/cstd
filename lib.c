@@ -4401,11 +4401,13 @@ pg_string_builder_append_u64(Pgu8Dyn *sb, u64 n, PgAllocator *allocator) {
 [[maybe_unused]] [[nodiscard]]
 static PgError pg_writer_write_u64_hex(PgWriter *w, u64 n,
                                        PgAllocator *allocator) {
-  u8 tmp[128] = {0};
+  u64 bck = n;
+
+  u8 tmp[32] = {0};
   Pgu8Slice tmp_slice = PG_SLICE_FROM_C(tmp);
   u64 idx = tmp_slice.len;
 
-  static const u8 num_to_hex[256] = {
+  static const u8 num_to_hex[16] = {
       [0] = '0',  [1] = '1',  [2] = '2',  [3] = '3', [4] = '4',  [5] = '5',
       [6] = '6',  [7] = '7',  [8] = '8',  [9] = '9', [10] = 'a', [11] = 'b',
       [12] = 'c', [13] = 'd', [14] = 'e', [15] = 'f'};
@@ -11333,8 +11335,14 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
   case PG_DEBUG_ATOM_KIND_NO_DATA:
     break;
   case PG_DEBUG_ATOM_KIND_U8:
+    PG_TRY_ERR(pg_writer_write_u64_hex(w, (u64)atom.u.u8, allocator));
+    break;
   case PG_DEBUG_ATOM_KIND_U16:
+    PG_TRY_ERR(pg_writer_write_u64_hex(w, (u64)atom.u.u16, allocator));
+    break;
   case PG_DEBUG_ATOM_KIND_U32:
+    PG_TRY_ERR(pg_writer_write_u64_hex(w, (u64)atom.u.u32, allocator));
+    break;
   case PG_DEBUG_ATOM_KIND_U64:
     PG_TRY_ERR(pg_writer_write_u64_hex(w, atom.u.u64, allocator));
     break;
@@ -11382,6 +11390,7 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
     (void)pg_dwarf_atom_println(&w, atom, nullptr);
     fprintf(stderr, "[D000] %lu %.*s %#lx %#lx\n", res.value.len,
             (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
+    fflush(stderr);
 
     // Only interested in functions.
     if (!pg_dwarf_abbreviation_entry_is_function_like(atom.abbrev)) {
@@ -11398,6 +11407,7 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
       if (!pg_string_is_empty(fn.name) /*&& fn.high_pc*/) {
         fprintf(stderr, "[D002] %lu %.*s %#lx %#lx\n", res.value.len,
                 (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
+        fflush(stderr);
         PG_DYN_PUSH(&res.value, fn, allocator);
         fn = (PgDwarfFunctionDeclaration){0};
       }
@@ -11406,11 +11416,15 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
 
     if (PG_DWARF_AT_LOW_PC == atom.attr_form.attribute) {
       fn.low_pc = PG_SLICE_AT(it->unit.addresses, atom.u.u64);
+      fprintf(stderr, "[D011] %lu %.*s %#lx %#lx\n", res.value.len,
+              (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
+      fflush(stderr);
     }
     if (pg_dwarf_attribute_is_name_like(atom.attr_form.attribute)) {
       fn.name = pg_string_clone(atom.u.bytes, allocator);
       fprintf(stderr, "[D010] %lu %.*s %#lx %#lx\n", res.value.len,
               (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
+      fflush(stderr);
     }
     if (PG_DWARF_AT_HIGH_PC == atom.attr_form.attribute) {
       fn.high_pc = fn.low_pc + atom.u.u64;

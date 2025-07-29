@@ -3762,8 +3762,20 @@ static void test_u64_leb128() {
   PG_ASSERT(0x348e40 == res.value);
 }
 
+static void test_write_u64_hex() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgWriter w = pg_writer_make_string_builder(8, allocator);
+  PG_ASSERT(0 == pg_writer_write_u64_hex(&w, 0x348e40, allocator));
+  PgString s = PG_DYN_SLICE(PgString, w.u.bytes);
+  PG_ASSERT(pg_string_eq(PG_S("0x348e40"), s));
+}
+
 int main() {
   test_u64_leb128();
+  test_write_u64_hex();
   test_self_functions();
   test_debug_info();
   test_rune_bytes_count();
