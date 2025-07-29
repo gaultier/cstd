@@ -3998,7 +3998,7 @@ pg_reader_read_u64_leb128(PgReader *r) {
   Pgu64Result res = {0};
   u64 shift = 0;
 
-  for (u64 _i = 0; _i < 5; _i++) {
+  for (u64 _i = 0; _i < 16; _i++) {
     Pgu8Result res_u8 = pg_reader_read_u8_le(r);
     if (res_u8.err) {
       res.err = res_u8.err;
@@ -4007,17 +4007,18 @@ pg_reader_read_u64_leb128(PgReader *r) {
 
     u8 byte = res_u8.value;
 
-    res.value |= ((u64)(byte & 0x7F)) << shift;
+    res.value |= (((u64)(byte & 0x7F)) << shift);
+
     // End?
     if (0 == (byte & 0x80)) {
       return res;
     }
 
-    if (shift >= 56 - 7) {
+    shift += 7;
+    if (shift > 56) {
       res.err = PG_ERR_INVALID_VALUE;
       return res;
     }
-    shift += 7;
   }
 
   return res;
@@ -4029,7 +4030,7 @@ pg_reader_read_i64_leb128(PgReader *r) {
   u8 byte = 0;
   u64 shift = 0;
 
-  for (u64 _i = 0; _i < 5; _i++) {
+  for (u64 _i = 0; _i < 16; _i++) {
     Pgu8Result res_u8 = pg_reader_read_u8_le(r);
     if (res_u8.err) {
       res.err = res_u8.err;
@@ -4137,6 +4138,14 @@ pg_writer_write_u64_as_string(PgWriter *w, u64 n, PgAllocator *allocator) {
   PgString s = {.data = tmp + idx, .len = PG_STATIC_ARRAY_LEN(tmp) - idx};
 
   return pg_writer_write_full(w, s, allocator);
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_writer_write_u128_as_string(PgWriter *w, u128 n, PgAllocator *allocator) {
+  PG_TRY_ERR(pg_writer_write_u64_as_string(w, n >> 64, allocator));
+  PG_TRY_ERR(pg_writer_write_u64_as_string(w, n & UINT64_MAX, allocator));
+
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -10340,6 +10349,12 @@ static const PgString pg_dwarf_form_str[] = {
     [PG_DWARF_FORM_SEC_OFFSET] = PG_S("PG_DWARF_FORM_SEC_OFFSET"),
     [PG_DWARF_FORM_EXPRLOC] = PG_S("PG_DWARF_FORM_EXPRLOC"),
     [PG_DWARF_FORM_FLAG_PRESENT] = PG_S("PG_DWARF_FORM_FLAG_PRESENT"),
+    [PG_DWARF_FORM_STRX] = PG_S("PG_DWARF_FORM_STRX"),
+    [PG_DWARF_FORM_ADDRX] = PG_S("PG_DWARF_FORM_ADDRX"),
+    [PG_DWARF_FORM_REF_SUP4] = PG_S("PG_DWARF_FORM_REF_SUP4"),
+    [PG_DWARF_FORM_STRP_SUP] = PG_S("PG_DWARF_FORM_STRP_SUP"),
+    [PG_DWARF_FORM_DATA16] = PG_S("PG_DWARF_FORM_DATA16"),
+    [PG_DWARF_FORM_LINE_STRP] = PG_S("PG_DWARF_FORM_LINE_STRP"),
     [PG_DWARF_FORM_REF_SIG8] = PG_S("PG_DWARF_FORM_REF_SIG8"),
     [PG_DWARF_FORM_IMPLICIT_CONST] = PG_S("PG_DWARF_FORM_IMPLICIT_CONST"),
     [PG_DWARF_FORM_LOCLISTX] = PG_S("PG_DWARF_FORM_LOCLISTX"),
@@ -11273,6 +11288,14 @@ pg_dwarf_compilation_unit_debug_info_next(PgDebugDataIterator *it) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
+
+  PG_ASSERT(0 == res.err);
+  PG_ASSERT(res.value.has_value);
+
+  if (PG_DWARF_TAG_NULL != res.value.value.abbrev.tag) {
+    PG_ASSERT(PG_DWARF_AT_NONE != res.value.value.attr_form.attribute);
+    PG_ASSERT(PG_DWARF_FORM_NONE != res.value.value.attr_form.form);
+  }
   return res;
 }
 
@@ -11297,18 +11320,37 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
   PgString tag_str = pg_dwarf_tag_str[atom.abbrev.tag];
   PG_TRY_ERR(pg_writer_write_full(w, tag_str, allocator));
 
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S(" forms_len="), allocator));
-  PG_TRY_ERR(pg_writer_write_u64_as_string(w, atom.abbrev.attribute_forms.len,
-                                           allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
-
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S("  attribute="), allocator));
+  PG_TRY_ERR(pg_writer_write_full(w, PG_S(" attribute="), allocator));
   PgString attr_str = pg_dwarf_attribute_str[atom.attr_form.attribute];
   PG_TRY_ERR(pg_writer_write_full(w, attr_str, allocator));
 
   PG_TRY_ERR(pg_writer_write_full(w, PG_S(" form="), allocator));
   PgString form_str = pg_dwarf_form_str[atom.attr_form.form];
   PG_TRY_ERR(pg_writer_write_full(w, form_str, allocator));
+
+  PG_TRY_ERR(pg_writer_write_full(w, PG_S(" value="), allocator));
+  switch (atom.kind) {
+  case PG_DEBUG_ATOM_KIND_NO_DATA:
+    break;
+  case PG_DEBUG_ATOM_KIND_U8:
+  case PG_DEBUG_ATOM_KIND_U16:
+  case PG_DEBUG_ATOM_KIND_U32:
+  case PG_DEBUG_ATOM_KIND_U64:
+    PG_TRY_ERR(pg_writer_write_u64_hex(w, atom.u.u64, allocator));
+    break;
+  case PG_DEBUG_ATOM_KIND_I64:
+    PG_TRY_ERR(pg_writer_write_i64_as_string(w, atom.u.u64, allocator));
+    break;
+  case PG_DEBUG_ATOM_KIND_BYTES:
+    PG_TRY_ERR(pg_writer_write_full(w, atom.u.bytes, allocator));
+    break;
+  case PG_DEBUG_ATOM_KIND_U128:
+    PG_TRY_ERR(pg_writer_write_u128_as_string(w, atom.u.u128, allocator));
+    break;
+  default:
+    PG_ASSERT(0);
+  }
+
   PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
   PG_TRY_ERR(pg_writer_flush(w, allocator));
 
@@ -11338,6 +11380,8 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
     PgWriter w =
         pg_writer_make_from_file_descriptor(pg_os_stderr(), 0, nullptr);
     (void)pg_dwarf_atom_println(&w, atom, nullptr);
+    fprintf(stderr, "[D000] %lu %.*s %#lx %#lx\n", res.value.len,
+            (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
 
     // Only interested in functions.
     if (!pg_dwarf_abbreviation_entry_is_function_like(atom.abbrev)) {
@@ -11352,8 +11396,8 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
     if (current_tag_id != atom.tag_id) {
       // Functions without a name or an address are of no use.
       if (!pg_string_is_empty(fn.name) /*&& fn.high_pc*/) {
-        printf("[D002] %lu %.*s %#lx %#lx\n", res.value.len, (i32)fn.name.len,
-               fn.name.data, fn.low_pc, fn.high_pc);
+        fprintf(stderr, "[D002] %lu %.*s %#lx %#lx\n", res.value.len,
+                (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
         PG_DYN_PUSH(&res.value, fn, allocator);
         fn = (PgDwarfFunctionDeclaration){0};
       }
@@ -11365,6 +11409,8 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
     }
     if (pg_dwarf_attribute_is_name_like(atom.attr_form.attribute)) {
       fn.name = pg_string_clone(atom.u.bytes, allocator);
+      fprintf(stderr, "[D010] %lu %.*s %#lx %#lx\n", res.value.len,
+              (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
     }
     if (PG_DWARF_AT_HIGH_PC == atom.attr_form.attribute) {
       fn.high_pc = fn.low_pc + atom.u.u64;

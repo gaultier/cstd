@@ -3751,7 +3751,19 @@ static void test_debug_info() {
   }
 }
 
+static void test_u64_leb128() {
+  u8 input[] = {0xC0, 0x9c, 0xD2, 0x01};
+  Pgu8Slice input_slice = PG_SLICE_FROM_C(input);
+
+  PgReader r = pg_reader_make_from_bytes(input_slice);
+  Pgu64Result res = pg_reader_read_u64_leb128(&r);
+  PG_ASSERT(0 == res.err);
+  PG_ASSERT(PG_SLICE_IS_EMPTY(r.u.bytes));
+  PG_ASSERT(0x348e40 == res.value);
+}
+
 int main() {
+  test_u64_leb128();
   test_self_functions();
   test_debug_info();
   test_rune_bytes_count();
