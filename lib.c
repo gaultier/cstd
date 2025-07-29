@@ -1484,10 +1484,10 @@ typedef struct {
   u64 high_pc;
   PgString name;
   PgString file;
-} PgDwarfFunctionDeclaration;
-PG_DYN(PgDwarfFunctionDeclaration) PgDwarfFunctionDeclarationDyn;
-PG_OPTION(PgDwarfFunctionDeclaration) PgDwarfFunctionDeclarationOption;
-PG_RESULT(PgDwarfFunctionDeclarationDyn) PgDwarfFunctionDeclarationDynResult;
+} PgDebugFunctionDeclaration;
+PG_DYN(PgDebugFunctionDeclaration) PgDebugFunctionDeclarationDyn;
+PG_OPTION(PgDebugFunctionDeclaration) PgDebugFunctionDeclarationOption;
+PG_RESULT(PgDebugFunctionDeclarationDyn) PgDebugFunctionDeclarationDynResult;
 
 typedef struct {
   PgDwarfCompilationUnitKind kind;
@@ -9875,6 +9875,52 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
   }
 }
 
+[[nodiscard]] static PgDebugFunctionDeclarationOption
+pg_dwarf_find_function_by_addr(PgDebugFunctionDeclarationDyn fns, u64 addr) {
+  PgDebugFunctionDeclarationOption res = {0};
+
+  for (u64 i = 0; i < fns.len; i++) {
+    PgDebugFunctionDeclaration fn = PG_SLICE_AT(fns, i);
+    if (fn.low_pc <= addr && addr < fn.high_pc) {
+      res.has_value = true;
+      res.value = fn;
+      return res;
+    }
+  }
+
+  return res;
+}
+
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_dwarf_print_function(PgWriter *w,
+                                       PgDebugFunctionDeclaration fn,
+                                       PgAllocator *allocator) {
+  PG_TRY_ERR(pg_writer_write_full(w, fn.file, allocator));
+  PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
+  PG_TRY_ERR(pg_writer_write_full(w, fn.name, allocator));
+  PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
+  PG_TRY_ERR(pg_writer_write_u64_hex(w, fn.low_pc, allocator));
+  PG_TRY_ERR(pg_writer_write_full(w, PG_S("-"), allocator));
+  PG_TRY_ERR(pg_writer_write_u64_hex(w, fn.high_pc, allocator));
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]]
+static PgError pg_dwarf_print_functions(PgWriter *w,
+                                        PgDebugFunctionDeclarationDyn fns,
+                                        PgAllocator *allocator) {
+  for (u64 i = 0; i < fns.len; i++) {
+    PG_TRY_ERR(pg_writer_write_full(w, PG_S("["), allocator));
+    PG_TRY_ERR(pg_writer_write_u64_as_string(w, i, allocator));
+    PG_TRY_ERR(pg_writer_write_full(w, PG_S("]"), allocator));
+    PG_TRY_ERR(pg_dwarf_print_function(w, PG_SLICE_AT(fns, i), allocator));
+    PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
+  }
+  PG_TRY_ERR(pg_writer_flush(w, allocator));
+  return 0;
+}
+
 #ifdef PG_OS_LINUX
 
 [[maybe_unused]] static void pg_thread_yield() { sched_yield(); }
@@ -11365,11 +11411,11 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
   return 0;
 }
 
-[[nodiscard]] static PgDwarfFunctionDeclarationDynResult
+[[nodiscard]] static PgDebugFunctionDeclarationDynResult
 pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
-  PgDwarfFunctionDeclarationDynResult res = {0};
+  PgDebugFunctionDeclarationDynResult res = {0};
 
-  PgDwarfFunctionDeclaration fn = {0};
+  PgDebugFunctionDeclaration fn = {0};
   u64 current_tag_id = 0;
   for (;;) {
     PgDwarfAtomOptionResult res_next =
@@ -11409,7 +11455,7 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
                 (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
         fflush(stderr);
         PG_DYN_PUSH(&res.value, fn, allocator);
-        fn = (PgDwarfFunctionDeclaration){0};
+        fn = (PgDebugFunctionDeclaration){0};
       }
       current_tag_id = atom.tag_id;
     }
@@ -11432,52 +11478,6 @@ pg_dwarf_collect_functions(PgDebugDataIterator *it, PgAllocator *allocator) {
   }
 
   return res;
-}
-
-[[nodiscard]] static PgDwarfFunctionDeclarationOption
-pg_dwarf_find_function_by_addr(PgDwarfFunctionDeclarationDyn fns, u64 addr) {
-  PgDwarfFunctionDeclarationOption res = {0};
-
-  for (u64 i = 0; i < fns.len; i++) {
-    PgDwarfFunctionDeclaration fn = PG_SLICE_AT(fns, i);
-    if (fn.low_pc <= addr && addr < fn.high_pc) {
-      res.has_value = true;
-      res.value = fn;
-      return res;
-    }
-  }
-
-  return res;
-}
-
-[[maybe_unused]]
-static PgError pg_dwarf_print_function(PgWriter *w,
-                                       PgDwarfFunctionDeclaration fn,
-                                       PgAllocator *allocator) {
-  PG_TRY_ERR(pg_writer_write_full(w, fn.file, allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, fn.name, allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
-  PG_TRY_ERR(pg_writer_write_u64_hex(w, fn.low_pc, allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S("-"), allocator));
-  PG_TRY_ERR(pg_writer_write_u64_hex(w, fn.high_pc, allocator));
-
-  return 0;
-}
-
-[[maybe_unused]]
-static PgError pg_dwarf_print_functions(PgWriter *w,
-                                        PgDwarfFunctionDeclarationDyn fns,
-                                        PgAllocator *allocator) {
-  for (u64 i = 0; i < fns.len; i++) {
-    PG_TRY_ERR(pg_writer_write_full(w, PG_S("["), allocator));
-    PG_TRY_ERR(pg_writer_write_u64_as_string(w, i, allocator));
-    PG_TRY_ERR(pg_writer_write_full(w, PG_S("]"), allocator));
-    PG_TRY_ERR(pg_dwarf_print_function(w, PG_SLICE_AT(fns, i), allocator));
-    PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
-  }
-  PG_TRY_ERR(pg_writer_flush(w, allocator));
-  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -12565,7 +12565,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
 [[maybe_unused]] static void pg_stack_trace_print_dwarf(u64 skip) {
   static _Atomic PgOnce once = false;
   static PgArena arena = {0};
-  static PgDwarfFunctionDeclarationDyn fns = {0};
+  static PgDebugFunctionDeclarationDyn fns = {0};
 
   if (pg_once_do(&once)) {
     arena = pg_arena_make_from_virtual_mem(512 * PG_KiB);
@@ -12579,7 +12579,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     }
     PgDebugDataIterator it = res_debug.value;
 
-    PgDwarfFunctionDeclarationDynResult res_fns =
+    PgDebugFunctionDeclarationDynResult res_fns =
         pg_dwarf_collect_functions(&it, allocator);
     if (res_fns.err) {
       goto end_debug;
@@ -12601,12 +12601,12 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
 
     for (u32 i = 0; i < stack_trace_len; i++) {
       u64 addr = PG_C_ARRAY_AT(stack_trace, PG_STACK_TRACE_MAX, i);
-      PgDwarfFunctionDeclarationOption fn_opt =
+      PgDebugFunctionDeclarationOption fn_opt =
           pg_dwarf_find_function_by_addr(fns, addr);
 
       fprintf(stderr, "[%u] at: %#" PRIx64, i, addr);
       if (fn_opt.has_value) {
-        PgDwarfFunctionDeclaration fn = fn_opt.value;
+        PgDebugFunctionDeclaration fn = fn_opt.value;
         fprintf(stderr, " %.*s", (i32)fn.name.len, fn.name.data);
         if (pg_string_eq(fn.name, PG_S("main"))) {
           i = stack_trace_len; // End.
