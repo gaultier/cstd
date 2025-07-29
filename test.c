@@ -3737,10 +3737,10 @@ static void test_debug_info() {
   PgArenaAllocator fn_arena_allocator = pg_make_arena_allocator(&fn_arena);
   PgAllocator *fn_allocator =
       pg_arena_allocator_as_allocator(&fn_arena_allocator);
-  PgDwarfFunctionDeclarationDynResult res_fns =
+  PgDebugFunctionDeclarationDynResult res_fns =
       pg_dwarf_collect_functions(&it, fn_allocator);
   PG_ASSERT(0 == res_fns.err);
-  PgDwarfFunctionDeclarationDyn fns = res_fns.value;
+  PgDebugFunctionDeclarationDyn fns = res_fns.value;
   PG_ASSERT(fns.len > 0);
 
   PG_ASSERT(0 == pg_arena_release(&arena));
