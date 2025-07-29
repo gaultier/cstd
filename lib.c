@@ -1897,8 +1897,8 @@ static u8 *pg_memmove(void *dst, void *src, u64 len) {
     PG_ASSERT((s)->len > 0);                                                   \
     PG_ASSERT((idx) < (s)->len);                                               \
     if ((idx) + 1 < (s)->len) {                                                \
-      memmove(PG_SLICE_AT_PTR(s, idx), PG_SLICE_AT_PTR(s, (idx) + 1),          \
-              ((s)->len - (idx + 1)) * sizeof(PG_SLICE_AT(*(s), 0)));          \
+      pg_memmove(PG_SLICE_AT_PTR(s, idx), PG_SLICE_AT_PTR(s, (idx) + 1),       \
+                 ((s)->len - (idx + 1)) * sizeof(PG_SLICE_AT(*(s), 0)));       \
     }                                                                          \
     (s)->len -= 1;                                                             \
   } while (0)
@@ -2964,21 +2964,27 @@ pg_try_arena_realloc(PgArena *a, void *ptr, u64 elem_count_old, u64 size,
 
   u64 array_end = (u64)ptr + elem_count_old * size;
 
-  if ((u64)a->start == array_end) { // Optimization.
-    // This is the case of growing the array which is at the end of the arena.
-    // In that case we can simply bump the arena pointer and avoid any copies.
-    a->start += size * (count - elem_count_old);
-    return ptr;
-  }
-
   const u64 padding = (-(u64)a->start & (align - 1));
   PG_ASSERT(padding <= align);
 
   void *res = a->start + padding;
+  if (res + size * count > (void *)a->end) {
+    // ENOMEM.
+    return nullptr;
+  }
+
+  if ((u64)a->start == array_end) { // Optimization.
+    // This is the case of growing the array which is at the end of the arena.
+    // In that case we can simply bump the arena pointer and avoid any copies.
+    PG_ASSERT(0 == padding);
+    a->start += size * (count - elem_count_old);
+    return ptr;
+  }
+
   PG_ASSERT(res != nullptr);
   PG_ASSERT(res <= (void *)a->end);
 
-  memmove(res, ptr, size * count);
+  pg_memmove(res, ptr, size * count);
 
   a->start += padding + count * size;
   PG_ASSERT(a->start <= a->end);
@@ -3233,10 +3239,12 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
   if (nullptr ==
       PgReplica.data) { // First allocation ever for this dynamic array.
     PgReplica.data = pg_alloc(allocator, size, align, new_cap);
+    // FIXME: Gracefully return an error.
     PG_ASSERT(PgReplica.data);
   } else { // General case.
     PgReplica.data = pg_realloc(allocator, PgReplica.data, PgReplica.cap, size,
                                 align, new_cap);
+    // FIXME: Gracefully return an error.
     PG_ASSERT(PgReplica.data);
   }
   PgReplica.cap = new_cap;
@@ -3277,8 +3285,8 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
 #define PG_DYN_APPEND_SLICE(dst, src, allocator)                               \
   do {                                                                         \
     PG_DYN_ENSURE_CAP(dst, (dst)->len + (src).len, (allocator));               \
-    memmove((dst)->data + (dst)->len * sizeof(*(dst)->data), (src).data,       \
-            (src).len * sizeof(*(dst)->data));                                 \
+    pg_memmove((dst)->data + (dst)->len * sizeof(*(dst)->data), (src).data,    \
+               (src).len * sizeof(*(dst)->data));                              \
     (dst)->len += (src).len;                                                   \
   } while (0)
 
@@ -5630,7 +5638,7 @@ pg_directory_open(PgString name) {
   }
 
   u8 name_c[PG_PATH_MAX] = {0};
-  memcpy(name_c, name.data, name.len);
+  pg_memcpy(name_c, name.data, name.len);
 
   res.value.dir = opendir((char *)name_c);
   if (!res.value.dir) {
@@ -8722,7 +8730,7 @@ typedef int (*PgCmpFn)(const void *a, const void *b);
     void *previous = (u8 *)elems + elem_size * (i - 1);
     void *current = (u8 *)elems + elem_size * i;
     if (PG_CMP_EQ == cmp_fn(previous, current)) {
-      memmove(previous, current, elem_size * (*elems_count - i));
+      pg_memmove(previous, current, elem_size * (*elems_count - i));
       PG_ASSERT(*elems_count > 0);
       *elems_count -= 1;
     } else {
@@ -11689,7 +11697,7 @@ pg_aio_inotify_register_interest(PgAio aio, PgString name,
   u8 name_c[4096] = {0};
   PG_ASSERT(name.data);
   PG_ASSERT(name.len < PG_STATIC_ARRAY_LEN(name_c));
-  memcpy(name_c, name.data, name.len);
+  pg_memcpy(name_c, name.data, name.len);
 
   i32 ret = 0;
   do {
@@ -11952,7 +11960,7 @@ pg_aio_fs_wait_one(PgAio aio, Pgu32Option timeout_ms, PgAllocator *allocator) {
 
     if (0 != inev.len) {
       res.value.name = pg_string_make(inev.len, allocator);
-      memcpy(res.value.name.data, inev_data + sizeof(inev), inev.len);
+      pg_memcpy(res.value.name.data, inev_data + sizeof(inev), inev.len);
     }
   }
 
