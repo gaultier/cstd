@@ -199,7 +199,7 @@ typedef double f64;
     if (PG_IS_ERR(V)) {                                                        \
       return PG_ERR((V).u._err, T, E);                                         \
     }                                                                          \
-    (V).u._value                                                               \
+    (V).u._value;                                                              \
   })
 
 // TODO: Separate error type?
@@ -3755,9 +3755,8 @@ pg_writer_flush(PgWriter *w, PgAllocator *allocator) {
     pg_writer_write(PgWriter *w, PG_SLICE(u8) src, PgAllocator *allocator) {
   PG_ASSERT(w);
 
-  PG_RESULT(u64, PgError) res = {0};
   if (PG_SLICE_IS_EMPTY(src)) {
-    return res;
+    return PG_OK(0, u64, PgError);
   }
 
   if (0 == w->ring.data.len) { // Simple reader.
@@ -3788,23 +3787,23 @@ pg_writer_flush(PgWriter *w, PgAllocator *allocator) {
     // room in the ring buffer, carry on.
     PgError err = pg_writer_flush(w, allocator);
     if (err) {
-      return PG_ERR(typeof(res), err);
+      return PG_ERR(err, u64, PgError);
     }
   }
   PG_ASSERT(src.len == pg_ring_write_bytes(&w->ring, src));
-  res.value = src.len;
-  return res;
+
+  return PG_OK(src.len, u64, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_writer_write_u8(PgWriter *w, u8 c, PgAllocator *allocator) {
   PG_SLICE(u8) src = {.data = &c, .len = 1};
   PG_RESULT(u64, PgError) res = pg_writer_write(w, src, allocator);
-  if (res.err) {
-    return res.err;
+  if (PG_IS_ERR(res)) {
+    return PG_UNWRAP_ERR(res);
   }
 
-  return res.value == 1 ? 0 : PG_ERR_IO;
+  return PG_UNWRAP(res) == 1 ? 0 : PG_ERR_IO;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -3816,15 +3815,16 @@ pg_writer_write_full(PgWriter *w, PG_SLICE(u8) s, PgAllocator *allocator) {
     }
 
     PG_RESULT(u64, PgError) res = pg_writer_write(w, remaining, allocator);
-    if (res.err) {
-      return res.err;
+    if (PG_IS_ERR(res)) {
+      return PG_UNWRAP_ERR(res);
     }
 
-    if (0 == res.value) {
+    u64 value = PG_UNWRAP(res);
+    if (0 == value) {
       return PG_ERR_IO;
     }
 
-    remaining = PG_SLICE_RANGE_START(remaining, res.value);
+    remaining = PG_SLICE_RANGE_START(remaining, value);
   }
   return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
 }
@@ -3839,7 +3839,7 @@ pg_writer_write_full(PgWriter *w, PG_SLICE(u8) s, PgAllocator *allocator) {
     return res;
   case PG_READER_KIND_BYTES: {
     if (PG_SLICE_IS_EMPTY(r->u.bytes)) {
-      return PG_ERR(typeof(res), PG_ERR_EOF);
+      return PG_ERR(PG_ERR_EOF, u64, PgError);
     }
 
     u64 n = PG_MIN(dst.len, r->u.bytes.len);
@@ -3848,11 +3848,10 @@ pg_writer_write_full(PgWriter *w, PG_SLICE(u8) s, PgAllocator *allocator) {
       PG_ASSERT(r->u.bytes.data);
       pg_memcpy(dst.data, r->u.bytes.data, n);
     }
-    res.value = n;
 
     r->u.bytes = PG_SLICE_RANGE_START(r->u.bytes, n);
 
-    return res;
+    return PG_OK(n, u64, PgError);
   }
   case PG_READER_KIND_SOCKET:
     return pg_net_socket_read(r->u.socket, dst);
@@ -3881,17 +3880,18 @@ pg_buf_reader_try_fill_once(PgReader *r) {
   }
 
   PG_RESULT(u64, PgError) res_read = pg_reader_do_read(r, tmp_slice);
-  if (PG_ERR_EAGAIN == res_read.err) {
+  if (PG_IS_ERR(res_read) && PG_ERR_EAGAIN == PG_UNWRAP_ERR(res_read)) {
     return 0;
   }
-  if (res_read.err) {
-    return res_read.err;
+  if (PG_IS_ERR(res_read)) {
+    return PG_UNWRAP_ERR(res_read);
   }
-  if (0 == res_read.value) {
+  u64 value = PG_UNWRAP(res_read);
+  if (0 == value) {
     return 0;
   }
 
-  PG_SLICE(u8) read_data = PG_SLICE_RANGE(tmp_slice, 0, res_read.value);
+  PG_SLICE(u8) read_data = PG_SLICE_RANGE(tmp_slice, 0, value);
   PG_ASSERT(read_data.len == pg_ring_write_bytes(&r->ring, read_data));
 
   return 0;
@@ -3915,14 +3915,12 @@ pg_buf_reader_try_fill_once(PgReader *r) {
   if (0 == pg_ring_can_read_count(r->ring)) {
     // Do a real read to re-fill the ring buffer.
     PgError err = pg_buf_reader_try_fill_once(r);
-    if (err) {
-      res.err = err;
+    if (PG_IS_ERR(res)) {
+      return PG_UNWRAP_ERR(res);
     }
   }
 
-  res.value = pg_ring_read_bytes(&r->ring, dst);
-
-  return res;
+  return PG_OK(pg_ring_read_bytes(&r->ring, dst), u64, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -3934,109 +3932,100 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
     }
 
     PG_RESULT(u64, PgError) res = pg_reader_read(r, remaining);
-    if (res.err) {
-      return res.err;
+    if (PG_IS_ERR(res)) {
+      return PG_UNWRAP_ERR(res);
     }
+    u64 value = PG_UNWRAP(res);
 
-    if (0 == res.value) {
+    if (0 == value) {
       return PG_ERR_IO;
     }
 
-    remaining = PG_SLICE_RANGE_START(remaining, res.value);
+    remaining = PG_SLICE_RANGE_START(remaining, value);
   }
   return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u8, PgError)
     pg_reader_read_u8_le(PgReader *r) {
-  PG_RESULT(u8, PgError) res = {0};
-
-  u8 dst[sizeof(res.value)] = {0};
+  u8 dst[sizeof(u8)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
 
   PgError err = pg_reader_read_full(r, dst_slice);
 
   if (err) {
-    return PG_ERR(typeof(res), err);
+    return PG_ERR(err, u8, PgError);
   }
 
-  res.value = *(typeof(res.value) *)(dst);
-  return res;
+  u8 value = *(u8 *)(dst);
+  return PG_OK(value, u8, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u16, PgError)
     pg_reader_read_u16_le(PgReader *r) {
-  PG_RESULT(u16, PgError) res = {0};
-
-  u8 dst[sizeof(res.value)] = {0};
+  u8 dst[sizeof(u16)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
 
   PgError err = pg_reader_read_full(r, dst_slice);
 
   if (err) {
-    return PG_ERR(typeof(res), err);
+    return PG_ERR(err, u16, PgError);
   }
 
-  res.value = *(typeof(res.value) *)(dst);
-  return res;
+  u16 value = *(u16 *)(dst);
+  return PG_OK(value, u16, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u32, PgError)
     pg_reader_read_u24_le(PgReader *r) {
-  PG_RESULT(u32, PgError) res = {0};
-
   u8 dst[3] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
 
   PgError err = pg_reader_read_full(r, dst_slice);
 
   if (err) {
-    return PG_ERR(typeof(res), err);
+    return PG_ERR(err, u32, PgError);
   }
 
-  res.value = (dst[2] << 16) | (dst[1] << 8) | dst[0];
-  return res;
+  u32 value = (dst[2] << 16) | (dst[1] << 8) | dst[0];
+  return PG_OK(value, u32, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u32, PgError)
     pg_reader_read_u32_le(PgReader *r) {
-  PG_RESULT(u32, PgError) res = {0};
-
-  u8 dst[sizeof(res.value)] = {0};
+  u8 dst[sizeof(u32)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
 
   PgError err = pg_reader_read_full(r, dst_slice);
 
   if (err) {
-    return PG_ERR(typeof(res), err);
+    return PG_ERR(err, u32, PgError);
   }
 
-  res.value = *(typeof(res.value) *)(dst);
-  return res;
+  u32 value = *(u32 *)(dst);
+  return PG_OK(value, u32, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_reader_read_u64_le(PgReader *r) {
-  PG_RESULT(u64, PgError) res = {0};
-
-  u8 dst[sizeof(res.value)] = {0};
+  u8 dst[sizeof(u64)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
 
   PgError err = pg_reader_read_full(r, dst_slice);
 
   if (err) {
-    return PG_ERR(typeof(res), err);
+    return PG_ERR(err, u64, PgError);
   }
 
-  res.value = *(typeof(res.value) *)(dst);
-  return res;
+  u64 value = *(u64 *)(dst);
+  return PG_OK(value, u64, PgError);
 }
 
 [[nodiscard]] static PgError pg_reader_discard(PgReader *r, u64 count) {
   for (u64 i = 0; i < count; i++) {
     PG_RESULT(u8, PgError) res_u8 = pg_reader_read_u8_le(r);
-    if (res_u8.err) {
-      return res_u8.err;
+    if (PG_IS_ERR(res_u8)) {
+      return PG_UNWRAP_ERR(res_u8);
     }
   }
   return 0;
@@ -4044,67 +4033,55 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_reader_read_u64_leb128(PgReader *r) {
-  PG_RESULT(u64, PgError) res = {0};
   u64 shift = 0;
+  u64 res = 0;
 
   for (u64 _i = 0; _i < 16; _i++) {
-    PG_RESULT(u8, PgError) res_u8 = pg_reader_read_u8_le(r);
-    if (res_u8.err) {
-      res.err = res_u8.err;
-      return res;
-    }
+    u8 byte = PG_TRY(pg_reader_read_u8_le(r), u64, PgError);
 
-    u8 byte = res_u8.value;
-
-    res.value |= (((u64)(byte & 0x7F)) << shift);
+    res |= (((u64)(byte & 0x7F)) << shift);
 
     // End?
     if (0 == (byte & 0x80)) {
-      return res;
+      return PG_OK(res, u64, PgError);
     }
 
     shift += 7;
     if (shift > 56) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, u64, PgError);
     }
   }
 
-  return res;
+  return PG_OK(res, u64, PgError);
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgi64Result
-pg_reader_read_i64_leb128(PgReader *r) {
-  Pgi64Result res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(i64, PgError)
+    pg_reader_read_i64_leb128(PgReader *r) {
+  i64 res = 0;
   u8 byte = 0;
   u64 shift = 0;
 
   for (u64 _i = 0; _i < 16; _i++) {
-    PG_RESULT(u8, PgError) res_u8 = pg_reader_read_u8_le(r);
-    if (res_u8.err) {
-      res.err = res_u8.err;
-      return res;
-    }
-
-    byte = res_u8.value;
+    u8 byte = PG_TRY(pg_reader_read_u8_le(r), i64, PgError);
 
     // End?
     if (0 == (byte & 0x80)) {
-      if (0 != (res.value & 0xff)) {
-        return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      if (0 != (res & 0xff)) {
+        return PG_ERR(PG_ERR_INVALID_VALUE, i64, PgError);
       }
-      res.value |= byte;
+      res |= byte;
       break;
     }
 
     // Data would be overriden?
-    if (0 != (res.value & 0xffff'ff00)) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    if (0 != (res & 0xffff'ff00)) {
+      return PG_ERR(PG_ERR_INVALID_VALUE, i64, PgError);
     }
 
-    res.value <<= 8;
-    res.value |= (byte & 0x7F);
+    res <<= 8;
+    res |= (byte & 0x7F);
     if (shift >= 56 - 7) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, i64, PgError);
     }
     shift += 7;
   }
@@ -4113,10 +4090,10 @@ pg_reader_read_i64_leb128(PgReader *r) {
   // Sign is in second high-order bit (0x40).
   if (byte & 0x40) {
     // Sign extend.
-    res.value |= (UINT64_MAX << shift);
+    res |= (UINT64_MAX << shift);
   }
 
-  return res;
+  return PG_OK(res, i64, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
@@ -10386,7 +10363,7 @@ static const PgString pg_dwarf_form_str[] = {
 
     // Need to read one more field?
     if (PG_DWARF_FORM_IMPLICIT_CONST == attribute_form.form) {
-      Pgi64Result res_value = pg_reader_read_i64_leb128(r);
+      PG_RESULT(i64) res_value = pg_reader_read_i64_leb128(r);
       if (res_value.err) {
         res.err = res_value.err;
         return res;
@@ -10987,7 +10964,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_SDATA: {
-    Pgi64Result res_read = pg_reader_read_i64_leb128(&it->r);
+    PG_RESULT(i64) res_read = pg_reader_read_i64_leb128(&it->r);
     PG_TRY(val, res, res_read);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_I64;
