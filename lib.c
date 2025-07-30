@@ -923,12 +923,26 @@ typedef struct {
   PgElfSectionHeaderDyn section_headers;
 
   // Cache useful section header data.
-  PgElfSymbolTableEntryDyn symtab;
-
   u32 section_header_text_idx;
   u32 section_header_strtab_idx;
 } PgElf;
 PG_RESULT(PgElf) PgElfResult;
+
+typedef struct {
+  u32 magic;
+  i32 cpu_type;
+  i32 cpu_subtype;
+  u32 filetype;
+  u32 cmds_count;
+  u32 cmds_sizeof;
+  u32 flags;
+  u32 reserved;
+} PgMachoHeader;
+static_assert(32 == sizeof(PgMachoHeader));
+
+typedef struct {
+  PgMachoHeader header;
+} PgMacho;
 
 typedef void (*PgHttpHandler)(PgHttpRequest req, PgReader *reader,
                               PgWriter *writer, PgLogger *logger,
@@ -1541,7 +1555,12 @@ PG_RESULT(PgDwarfAtomOption) PgDwarfAtomOptionResult;
 typedef struct {
   PgVirtualMemFile file;
   PgDwarfDebugInfoCompilationUnit unit;
+#if defined(PG_OS_LINUX) || defined(PG_OS_FREEBSD)
   PgElf elf;
+#endif
+#if defined(PG_OS_APPLE)
+  PgMacho macho;
+#endif
   PgReader r;             // Reader on `.debug_info`.
   Pgu8Slice str_bytes;    // `.debug_str`.
   Pgu32Slice str_offsets; // `.debug_str_offsets`
