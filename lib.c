@@ -3954,9 +3954,9 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu8Result
-pg_reader_read_u8_le(PgReader *r) {
-  Pgu8Result res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u8)
+    pg_reader_read_u8_le(PgReader *r) {
+  PG_RESULT(u8) res = {0};
 
   u8 dst[sizeof(res.value)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
@@ -4046,7 +4046,7 @@ pg_reader_read_u16_le(PgReader *r) {
 
 [[nodiscard]] static PgError pg_reader_discard(PgReader *r, u64 count) {
   for (u64 i = 0; i < count; i++) {
-    Pgu8Result res_u8 = pg_reader_read_u8_le(r);
+    PG_RESULT(u8) res_u8 = pg_reader_read_u8_le(r);
     if (res_u8.err) {
       return res_u8.err;
     }
@@ -4060,7 +4060,7 @@ pg_reader_read_u16_le(PgReader *r) {
   u64 shift = 0;
 
   for (u64 _i = 0; _i < 16; _i++) {
-    Pgu8Result res_u8 = pg_reader_read_u8_le(r);
+    PG_RESULT(u8) res_u8 = pg_reader_read_u8_le(r);
     if (res_u8.err) {
       res.err = res_u8.err;
       return res;
@@ -4092,7 +4092,7 @@ pg_reader_read_i64_leb128(PgReader *r) {
   u64 shift = 0;
 
   for (u64 _i = 0; _i < 16; _i++) {
-    Pgu8Result res_u8 = pg_reader_read_u8_le(r);
+    PG_RESULT(u8) res_u8 = pg_reader_read_u8_le(r);
     if (res_u8.err) {
       res.err = res_u8.err;
       return res;
@@ -10413,7 +10413,7 @@ static const PgString pg_dwarf_form_str[] = {
   }
   // Has children.
   {
-    Pgu8Result res_has_children = pg_reader_read_u8_le(r);
+    PG_RESULT(u8) res_has_children = pg_reader_read_u8_le(r);
     if (res_has_children.err) {
       res.err = res_has_children.err;
       return res;
@@ -10536,14 +10536,14 @@ static const PgString pg_dwarf_form_str[] = {
     return res;
   }
 
-  Pgu8Result res_address_size = pg_reader_read_u8_le(&r);
+  PG_RESULT(u8) res_address_size = pg_reader_read_u8_le(&r);
   PG_TRY(address_size, res, res_address_size);
   if (8 != address_size) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  Pgu8Result res_segment_selector_size = pg_reader_read_u8_le(&r);
+  PG_RESULT(u8) res_segment_selector_size = pg_reader_read_u8_le(&r);
   PG_TRY(segment_selector_size, res, res_segment_selector_size);
   PG_UNUSED(segment_selector_size);
 
@@ -10742,14 +10742,14 @@ static const PgString pg_dwarf_form_str[] = {
     return res;
   }
 
-  Pgu8Result res_address_size = pg_reader_read_u8_le(&r);
+  PG_RESULT(u8) res_address_size = pg_reader_read_u8_le(&r);
   PG_TRY(address_size, res, res_address_size);
   if (8 != address_size) {
     res.err = PG_ERR_INVALID_VALUE;
     return res;
   }
 
-  Pgu8Result res_segment_selector_size = pg_reader_read_u8_le(&r);
+  PG_RESULT(u8) res_segment_selector_size = pg_reader_read_u8_le(&r);
   PG_TRY(segment_selector_size, res, res_segment_selector_size);
   if (0 != segment_selector_size) {
     // Need to read segment + address in the loop below.
@@ -10808,13 +10808,13 @@ static const PgString pg_dwarf_form_str[] = {
     return res;
   }
 
-  Pgu8Result res_unit_kind = pg_reader_read_u8_le(&r);
+  PG_RESULT(u8) res_unit_kind = pg_reader_read_u8_le(&r);
   PG_TRY(unit_kind, res, res_unit_kind);
   res.value.kind = unit_kind;
 
   switch (res.value.kind) {
   case PG_DWARF_COMPILATION_UNIT_SKELETON: {
-    Pgu8Result res_address_size = pg_reader_read_u8_le(&r);
+    PG_RESULT(u8) res_address_size = pg_reader_read_u8_le(&r);
     PG_TRY(address_size, res, res_address_size);
     // Only expect address size 8 (64 bits).
     PG_ASSERT(8 == address_size);
@@ -10836,7 +10836,7 @@ static const PgString pg_dwarf_form_str[] = {
     res.value.abbrevs = res_abbrevs.value;
   } break;
   case PG_DWARF_COMPILATION_UNIT_COMPILE: {
-    Pgu8Result res_address_size = pg_reader_read_u8_le(&r);
+    PG_RESULT(u8) res_address_size = pg_reader_read_u8_le(&r);
     PG_TRY(address_size, res, res_address_size);
     // Only expect address size 8 (64 bits).
     PG_ASSERT(8 == address_size);
@@ -11007,7 +11007,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_FLAG: {
-    Pgu8Result res_read = pg_reader_read_u8_le(&it->r);
+    PG_RESULT(u8) res_read = pg_reader_read_u8_le(&it->r);
     PG_TRY(val, res, res_read);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_U8;
@@ -11100,7 +11100,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_BLOCK1: {
-    Pgu8Result res_read = pg_reader_read_u8_le(&it->r);
+    PG_RESULT(u8) res_read = pg_reader_read_u8_le(&it->r);
     PG_TRY(val, res, res_read);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_U8;
@@ -11124,7 +11124,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_DATA1: {
-    Pgu8Result res_read = pg_reader_read_u8_le(&it->r);
+    PG_RESULT(u8) res_read = pg_reader_read_u8_le(&it->r);
     PG_TRY(val, res, res_read);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_U8;
@@ -11170,7 +11170,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_REF1: {
-    Pgu8Result res_read = pg_reader_read_u8_le(&it->r);
+    PG_RESULT(u8) res_read = pg_reader_read_u8_le(&it->r);
     PG_TRY(val, res, res_read);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_U8;
@@ -11228,7 +11228,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_STRX1: {
-    Pgu8Result res_read = pg_reader_read_u8_le(&it->r);
+    PG_RESULT(u8) res_read = pg_reader_read_u8_le(&it->r);
     PG_TRY(val, res, res_read);
     PgString s = pg_dwarf_resolve_string(it->str_offsets, it->str_bytes, val);
 
@@ -11272,7 +11272,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_ADDRX1: {
-    Pgu8Result res_read = pg_reader_read_u8_le(&it->r);
+    PG_RESULT(u8) res_read = pg_reader_read_u8_le(&it->r);
     PG_TRY(val, res, res_read);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_U8;
