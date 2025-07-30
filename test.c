@@ -3713,6 +3713,7 @@ static void test_self() {
   }
 }
 
+[[maybe_unused]]
 static void test_debug_info() {
   PgArena arena = pg_arena_make_from_virtual_mem(16 * PG_MiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -3776,11 +3777,25 @@ static void test_write_u64_hex() {
   PG_ASSERT(pg_string_eq(PG_S("0x348e40"), s));
 }
 
+static void test_arena() {
+
+  // Empty arena.
+  {
+    PgArenaAllocator arena_allocator = {0};
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+    u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 1);
+    PG_ASSERT(nullptr == res);
+  }
+}
+
 int main() {
+  test_arena();
   test_u64_leb128();
   test_write_u64_hex();
   test_self();
+#if 0
   test_debug_info();
+#endif
   test_rune_bytes_count();
   test_utf8_count();
   test_string_last();

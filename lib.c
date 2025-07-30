@@ -3056,8 +3056,10 @@ static PgAllocator *pg_heap_allocator() {
                                                      u64 sizeof_type,
                                                      u64 alignof_type,
                                                      u64 elem_count) {
-  PG_ASSERT(allocator);
-  PG_ASSERT(allocator->alloc_fn);
+  if (!allocator || !allocator->alloc_fn) {
+    return nullptr;
+  }
+
   return allocator->alloc_fn(allocator, sizeof_type, alignof_type, elem_count);
 }
 
