@@ -309,7 +309,7 @@ static void test_utf8_iterator() {
   // Empty.
   {
     PgString s = PG_S("");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
+    PG_RESULT(u64) res_count = pg_utf8_count_runes(s);
     PG_ASSERT(0 == res_count.err);
     PG_ASSERT(0 == res_count.value);
 
@@ -322,7 +322,7 @@ static void test_utf8_iterator() {
   }
   {
     PgString s = PG_S("2匹の🀅🂣©");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
+    PG_RESULT(u64) res_count = pg_utf8_count_runes(s);
     PG_ASSERT(0 == res_count.err);
     PG_ASSERT(6 == res_count.value);
 
@@ -367,7 +367,7 @@ static void test_utf8_iterator() {
   // Null byte.
   {
     PgString s = PG_S("\x1\x0");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
+    PG_RESULT(u64) res_count = pg_utf8_count_runes(s);
     PG_ASSERT(0 == res_count.err);
     PG_ASSERT(2 == res_count.value);
 
@@ -387,7 +387,7 @@ static void test_utf8_iterator() {
   // Forbidden byte.
   {
     PgString s = PG_S("\x1\xc0");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
+    PG_RESULT(u64) res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -401,7 +401,7 @@ static void test_utf8_iterator() {
   // Forbidden byte.
   {
     PgString s = PG_S("\x1\xf5");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
+    PG_RESULT(u64) res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -415,7 +415,7 @@ static void test_utf8_iterator() {
   // Continuation byte but EOF.
   {
     PgString s = PG_S("\x1\x80");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
+    PG_RESULT(u64) res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -431,7 +431,7 @@ static void test_utf8_iterator() {
     PgString s = PG_S("\x1🀅");
     s.len -= 1; // Early EOF.
 
-    Pgu64Result res_count = pg_utf8_count_runes(s);
+    PG_RESULT(u64) res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -446,7 +446,7 @@ static void test_utf8_iterator() {
   {
     PgString s = PG_S("\x1\xf4\x90\x90\x90");
 
-    Pgu64Result res_count = pg_utf8_count_runes(s);
+    PG_RESULT(u64) res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -461,7 +461,7 @@ static void test_utf8_iterator() {
   {
     PgString s = PG_S("\x1\xc0\x80");
 
-    Pgu64Result res_count = pg_utf8_count_runes(s);
+    PG_RESULT(u64) res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -476,7 +476,7 @@ static void test_utf8_iterator() {
   {
     PgString s = PG_S("\x2F\xC0\xAE\x2E\x2F");
 
-    Pgu64Result res_count = pg_utf8_count_runes(s);
+    PG_RESULT(u64) res_count = pg_utf8_count_runes(s);
     PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
@@ -856,7 +856,7 @@ static void test_ring_buffer_read_write() {
     // Read all.
     {
       u8 tmp[12] = {0};
-      Pgu8Slice tmp_slice = {.data = tmp, PG_STATIC_ARRAY_LEN(tmp)};
+      PG_SLICE(u8) tmp_slice = {.data = tmp, PG_STATIC_ARRAY_LEN(tmp)};
       PG_ASSERT(11 == pg_ring_read_bytes(&rg, tmp_slice));
       PG_ASSERT(
           pg_bytes_eq(PG_S("hello world"), PG_SLICE_RANGE(tmp_slice, 0, 11)));
@@ -876,7 +876,7 @@ static void test_ring_buffer_read_write() {
     PG_ASSERT(12 == pg_ring_can_write_count(rg));
 
     u8 tmp[1] = {0};
-    Pgu8Slice tmp_slice = {.data = tmp, 1};
+    PG_SLICE(u8) tmp_slice = {.data = tmp, 1};
     PG_ASSERT(0 == pg_ring_read_bytes(&rg, tmp_slice));
   }
   // Write to full ring buffer.
@@ -888,7 +888,7 @@ static void test_ring_buffer_read_write() {
     PG_ASSERT(12 == pg_ring_can_write_count(rg));
 
     u8 tmp[1] = {99};
-    Pgu8Slice tmp_slice = {.data = tmp, 1};
+    PG_SLICE(u8) tmp_slice = {.data = tmp, 1};
 
     // Fill.
     for (u64 i = 0; i < 12; i++) {
@@ -918,9 +918,9 @@ static void test_ring_buffer_read_write_fuzz() {
     PG_ASSERT(0 == pg_fd_set_blocking(oracle.second, false));
 
     u8 buf[512 * PG_KiB] = {0};
-    Pgu8Slice buf_slice = {.data = buf, .len = PG_STATIC_ARRAY_LEN(buf)};
+    PG_SLICE(u8) buf_slice = {.data = buf, .len = PG_STATIC_ARRAY_LEN(buf)};
     do {
-      Pgu64Result res_pipe_write = pg_file_write(oracle.second, buf_slice);
+      PG_RESULT(u64) res_pipe_write = pg_file_write(oracle.second, buf_slice);
       if (0 == res_pipe_write.value) {
         break;
       }
@@ -929,7 +929,7 @@ static void test_ring_buffer_read_write_fuzz() {
     PG_ASSERT(0 == pg_fd_set_blocking(oracle.second, true));
 
     // Empty the pipe.
-    Pgu64Result res_pipe_read = pg_file_read(oracle.first, buf_slice);
+    PG_RESULT(u64) res_pipe_read = pg_file_read(oracle.first, buf_slice);
     PG_ASSERT(0 == res_pipe_read.err);
     PG_ASSERT(oracle_cap == res_pipe_read.value);
   }
@@ -961,7 +961,7 @@ static void test_ring_buffer_read_write_fuzz() {
     if (can_write > 0 && src.len > 0) {
       PG_ASSERT(n_write == PG_MIN(can_write, src.len));
 
-      Pgu64Result res_write = pg_file_write(oracle.second, src);
+      PG_RESULT(u64) res_write = pg_file_write(oracle.second, src);
       PG_ASSERT(0 == res_write.err);
       PG_ASSERT(res_write.value == n_write);
     }
@@ -971,7 +971,7 @@ static void test_ring_buffer_read_write_fuzz() {
     if (can_read > 0 && dst.len > 0) {
       PG_ASSERT(n_read == PG_MIN(can_read, dst.len));
 
-      Pgu64Result res_read = pg_file_read(oracle.first, dst);
+      PG_RESULT(u64) res_read = pg_file_read(oracle.first, dst);
       PG_ASSERT(0 == res_read.err);
       PG_ASSERT(res_read.value == n_read);
     }
@@ -1601,8 +1601,8 @@ static void test_http_read_request_full_no_content_length() {
 #if 0
   {
     u8 body[128] = {0};
-    Pgu8Slice body_slice = {.data = body, .len = PG_STATIC_ARRAY_LEN(body)};
-    Pgu64Result res_read = pg_buf_reader_read(&buf_reader, body_slice);
+    PG_SLICE(u8) body_slice = {.data = body, .len = PG_STATIC_ARRAY_LEN(body)};
+    PG_RESULT(u64) res_read = pg_buf_reader_read(&buf_reader, body_slice);
     PG_ASSERT(!res_read.err);
     body_slice.len = res_read.res;
     PG_ASSERT(pg_string_eq(PG_S("Hello, world!"), body_slice));
@@ -1668,11 +1668,11 @@ static void test_http_read_request_full_without_headers() {
     PG_ASSERT(expected.len == pg_ring_can_read_count(buf_reader.ring));
 
     u8 tmp[64] = {0};
-    Pgu8Slice tmp_slice = {
+    PG_SLICE(u8) tmp_slice = {
         .data = tmp,
         .len = PG_STATIC_ARRAY_LEN(tmp),
     };
-    Pgu64Result res_read = pg_buf_reader_read(&buf_reader, tmp_slice);
+    PG_RESULT(u64) res_read = pg_buf_reader_read(&buf_reader, tmp_slice);
     PG_ASSERT(0 == res_read.err);
     PG_ASSERT(expected.len == res_read.res);
     tmp_slice.len = res_read.res;
@@ -1939,7 +1939,7 @@ static void test_http_request_response() {
   PgAioEventSlice events_watch = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
 
   for (u64 _i = 0; _i <= 128; _i++) {
-    Pgu64Result res_wait = pg_aio_queue_wait(queue, events_watch, -1, arena);
+    PG_RESULT(u64) res_wait = pg_aio_queue_wait(queue, events_watch, -1, arena);
     PG_ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
@@ -2235,7 +2235,7 @@ static void test_process_stdin() {
   PgProcess process = res_spawn.value;
 
   PgString msg = PG_S("hello world");
-  Pgu64Result res_write = pg_file_write(process.stdin_pipe, msg);
+  PG_RESULT(u64) res_write = pg_file_write(process.stdin_pipe, msg);
   PG_ASSERT(0 == res_write.err);
   PG_ASSERT(msg.len == res_write.value);
 
@@ -2843,11 +2843,12 @@ static void test_aio_peer(PgAio aio, PgWriter *w, PgReader *r,
   } break;
   case AIO_PEER_STATE_SENT_HELLO: {
     u8 recv[1024] = {0};
-    Pgu8Slice recv_slice = {
+    PG_SLICE(u8)
+    recv_slice = {
         .data = recv,
         .len = PG_STATIC_ARRAY_LEN(recv),
     };
-    Pgu64Result res = pg_reader_read(r, recv_slice);
+    PG_RESULT(u64) res = pg_reader_read(r, recv_slice);
     PG_ASSERT(0 == res.err);
 
     recv_slice.len = res.value;
@@ -2893,7 +2894,7 @@ static void test_aio_tcp_sockets() {
 
   for (u64 _i = 0; _i < 32; _i++) {
     Pgu32Option timeout_opt = {0};
-    Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
+    PG_RESULT(u64) res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
     PG_ASSERT(0 == res_wait.err);
     PG_ASSERT(0 != res_wait.value);
 
@@ -2939,7 +2940,7 @@ static void test_watch_directory() {
 
   for (u64 _i = 0; _i < 4; _i++) {
     Pgu32Option timeout_opt = {0};
-    Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
+    PG_RESULT(u64) res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
     PG_ASSERT(0 == res_wait.err);
     if (0 == res_wait.res) {
       continue;
@@ -3770,10 +3771,10 @@ static void test_debug_info() {
 
 static void test_u64_leb128() {
   u8 input[] = {0xC0, 0x9c, 0xD2, 0x01};
-  Pgu8Slice input_slice = PG_SLICE_FROM_C(input);
+  PG_SLICE(u8) input_slice = PG_SLICE_FROM_C(input);
 
   PgReader r = pg_reader_make_from_bytes(input_slice);
-  Pgu64Result res = pg_reader_read_u64_leb128(&r);
+  PG_RESULT(u64) res = pg_reader_read_u64_leb128(&r);
   PG_ASSERT(0 == res.err);
   PG_ASSERT(PG_SLICE_IS_EMPTY(r.u.bytes));
   PG_ASSERT(0x348e40 == res.value);

@@ -1539,7 +1539,7 @@ typedef struct {
   PgDwarfCompilationUnitKind kind;
   PG_DYN(PgDwarfAbbreviationEntry) abbrevs;
   // PgDwarfRangesDyn range_lists;
-  Pgu64Dyn addresses;
+  PG_DYN(u64) addresses;
 
   // Only for skeleton unit.
   u64 id;
@@ -1756,10 +1756,10 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
     pg_aio_wait(PgAio aio, PG_SLICE(PgAioEvent) events_out,
-                Pgu32Option timeout_ms);
+                PG_OPTION(u32) timeout_ms);
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
-    pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Option timeout_ms);
+    pg_aio_wait_cqe(PgAio aio, PgRing *cqe, PG_OPTION(u32) timeout_ms);
 
 // TODO: Thread attributes?
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgThread)
@@ -3972,9 +3972,9 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu16Result
-pg_reader_read_u16_le(PgReader *r) {
-  Pgu16Result res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u16)
+    pg_reader_read_u16_le(PgReader *r) {
+  PG_RESULT(u16) res = {0};
 
   u8 dst[sizeof(res.value)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
@@ -5187,11 +5187,11 @@ pg_rand_string(PgRng *rng, u64 len, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu32Option
-pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
+[[maybe_unused]] [[nodiscard]] static PG_OPTION(u32)
+    pg_bitfield_get_first_zero_rand(PgString bitfield, u32 len, PgRng *rng) {
   PG_ASSERT(len <= bitfield.len);
 
-  Pgu32Option res = {0};
+  PG_OPTION(u32) res = {0};
 
   u32 start = pg_rand_u32_min_incl_max_excl(rng, 0, len);
   for (u64 i = 0; i < len; i++) {
@@ -5299,7 +5299,7 @@ pg_arena_make_from_virtual_mem(u64 size) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_OPTION(Pgu64Range)
-    pg_u64_range_search(Pgu64Slice haystack, u64 needle) {
+    pg_u64_range_search(PG_SLICE(u64) haystack, u64 needle) {
   PG_OPTION(Pgu64Range) res = {0};
 
   if (0 == haystack.len) {
@@ -7770,9 +7770,9 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static Pgu16Result
-pg_url_parse_port(PgString s) {
-  Pgu16Result res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u16)
+    pg_url_parse_port(PgString s) {
+  PG_RESULT(u16) res = {0};
 
   // Allowed.
   if (PG_SLICE_IS_EMPTY(s)) {
@@ -7828,7 +7828,7 @@ pg_url_parse_port(PgString s) {
 
   // Port, optional.
   if (host_and_rem.consumed) {
-    Pgu16Result res_port = pg_url_parse_port(host_and_rem.right);
+    PG_RESULT(u16) res_port = pg_url_parse_port(host_and_rem.right);
     if (res_port.err) {
       res.err = res_port.err;
       return res;
@@ -9815,7 +9815,7 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
     pg_aio_wait(PgAio aio, PG_SLICE(PgAioEvent) events_out,
-                Pgu32Option timeout_ms) {
+                PG_OPTION(u32) timeout_ms) {
   PG_RESULT(u64) res = {0};
 
   struct kevent eventlist[1024] = {0};
@@ -9868,7 +9868,7 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
 
 // TODO: Use `pg_aio_wait` ?
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
-    pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Option timeout_ms) {
+    pg_aio_wait_cqe(PgAio aio, PgRing *cqe, PG_OPTION(u32) timeout_ms) {
   PG_RESULT(u64) res = {0};
   u64 can_write_count = pg_ring_can_write_count(*cqe) / sizeof(PgAioEvent);
 
@@ -10511,7 +10511,7 @@ static const PgString pg_dwarf_form_str[] = {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(
     PG_DYN(PG_DYN(PgDwarfRangeListEntry)))
-    pg_dwarf_address_ranges_parse(PG_SLICE(u8) bytes, Pgu64Dyn addresses,
+    pg_dwarf_address_ranges_parse(PG_SLICE(u8) bytes, PG_DYN(u64) addresses,
                                   PgAllocator *allocator) {
   PG_RESULT(PG_DYN(PG_DYN(PgDwarfRangeListEntry))) res = {0};
 
@@ -10529,7 +10529,7 @@ static const PgString pg_dwarf_form_str[] = {
     return res;
   }
 
-  Pgu16Result res_version = pg_reader_read_u16_le(&r);
+  PG_RESULT(u16) res_version = pg_reader_read_u16_le(&r);
   PG_TRY(version, res, res_version);
   if (5 != version) {
     res.err = PG_ERR_INVALID_VALUE;
@@ -10735,7 +10735,7 @@ static const PgString pg_dwarf_form_str[] = {
     return res;
   }
 
-  Pgu16Result res_version = pg_reader_read_u16_le(&r);
+  PG_RESULT(u16) res_version = pg_reader_read_u16_le(&r);
   PG_TRY(version, res, res_version);
   if (5 != version) {
     res.err = PG_ERR_INVALID_VALUE;
@@ -10800,7 +10800,7 @@ static const PgString pg_dwarf_form_str[] = {
   }
 
   // Version.
-  Pgu16Result res_version = pg_reader_read_u16_le(&r);
+  PG_RESULT(u16) res_version = pg_reader_read_u16_le(&r);
   PG_TRY(version, res, res_version);
   // Only expect v5.
   if (5 != version) {
@@ -11108,7 +11108,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_BLOCK2: {
-    Pgu16Result res_read = pg_reader_read_u16_le(&it->r);
+    PG_RESULT(u16) res_read = pg_reader_read_u16_le(&it->r);
     PG_TRY(val, res, res_read);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_U16;
@@ -11132,7 +11132,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_DATA2: {
-    Pgu16Result res_read = pg_reader_read_u16_le(&it->r);
+    PG_RESULT(u16) res_read = pg_reader_read_u16_le(&it->r);
     PG_TRY(val, res, res_read);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_U16;
@@ -11178,7 +11178,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_REF2: {
-    Pgu16Result res_read = pg_reader_read_u16_le(&it->r);
+    PG_RESULT(u16) res_read = pg_reader_read_u16_le(&it->r);
     PG_TRY(val, res, res_read);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_U16;
@@ -11237,7 +11237,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_STRX2: {
-    Pgu16Result res_read = pg_reader_read_u16_le(&it->r);
+    PG_RESULT(u16) res_read = pg_reader_read_u16_le(&it->r);
     PG_TRY(val, res, res_read);
     PgString s = pg_dwarf_resolve_string(it->str_offsets, it->str_bytes, val);
 
@@ -11280,7 +11280,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
   } break;
 
   case PG_DWARF_FORM_ADDRX2: {
-    Pgu16Result res_read = pg_reader_read_u16_le(&it->r);
+    PG_RESULT(u16) res_read = pg_reader_read_u16_le(&it->r);
     PG_TRY(val, res, res_read);
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_U16;
@@ -11705,7 +11705,8 @@ pg_self_debug_info_iterator_make(PgAllocator *allocator) {
     }
     // TODO: Should we check alignment (`0 != ((u64)str_offsets_bytes.data %
     // 4`)?
-    Pgu32Slice str_offsets = {
+    PG_SLICE(u32)
+    str_offsets = {
         .data = (u32 *)str_offsets_bytes.data,
         .len = str_offsets_bytes.len / 4,
     };
@@ -11894,7 +11895,8 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
-    pg_aio_wait(PgAio aio, PgAioEventSlice events_out, Pgu32Option timeout_ms) {
+    pg_aio_wait(PgAio aio, PgAioEventSlice events_out,
+                PG_OPTION(u32) timeout_ms) {
   PG_RESULT(u64) res = {0};
 
   struct epoll_event events[1024] = {0};
@@ -11937,7 +11939,7 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
-    pg_aio_wait_cqe(PgAio aio, PgRing *cqe, Pgu32Option timeout_ms) {
+    pg_aio_wait_cqe(PgAio aio, PgRing *cqe, PG_OPTION(u32) timeout_ms) {
   PG_RESULT(u64) res = {0};
 
   struct epoll_event events[1024] = {0};
@@ -11985,7 +11987,8 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgAioEventResult
-pg_aio_fs_wait_one(PgAio aio, Pgu32Option timeout_ms, PgAllocator *allocator) {
+pg_aio_fs_wait_one(PgAio aio, PG_OPTION(u32) timeout_ms,
+                   PgAllocator *allocator) {
   PgAioEventResult res = {0};
 
   PgAioEventSlice events_slice = {
