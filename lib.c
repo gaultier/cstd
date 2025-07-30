@@ -151,8 +151,8 @@ typedef ssize_t isize;
 typedef float f32;
 typedef double f64;
 
-#define PG_RESULT_EX(T) Pg##T##Result
-#define PG_RESULT(T) PG_RESULT_EX(T)
+#define PG_RESULT_EX(T, E) Pg##T##_##E##_Result
+#define PG_RESULT(T, E) PG_RESULT_EX(T, E)
 
 #define PG_OPTION_EX(T) Pg##T##Option
 #define PG_OPTION(T) PG_OPTION_EX(T)
@@ -160,11 +160,14 @@ typedef double f64;
 #define PG_PAIR_EX(T) Pg##T##Pair
 #define PG_PAIR(T) PG_PAIR_EX(T)
 
-#define PG_RESULT_DECL(T)                                                      \
+#define PG_RESULT_DECL(T, E)                                                   \
   typedef struct {                                                             \
-    PgError err;                                                               \
-    T value;                                                                   \
-  } PG_RESULT(T)
+    bool _ok;                                                                  \
+    union {                                                                    \
+      E _err;                                                                  \
+      T _value;                                                                \
+    } u;                                                                       \
+  } PG_RESULT(T, E)
 
 #define PG_OPTION_DECL(T)                                                      \
   typedef struct {                                                             \
@@ -177,20 +180,27 @@ typedef double f64;
     T first, second;                                                           \
   } PG_PAIR(T)
 
-#define PG_ERR(T, E)                                                           \
-  (T) { .err = E }
+#define PG_ERR(V, T, E)                                                        \
+  (PG_RESULT(T, E)) { .u._err = V }
 
-#define PG_TRY_ERR(err)                                                        \
-  if (err) {                                                                   \
-    return err;                                                                \
-  }
+#define PG_OK(V, T, E)                                                         \
+  (PG_RESULT(T, E)) { ._ok = true, .u._value = V }
 
-#define PG_TRY(val, out, in)                                                   \
-  if ((in).err) {                                                              \
-    (out).err = (in).err;                                                      \
-    return (out);                                                              \
-  }                                                                            \
-  typeof(in.value) val = (in).value
+#define PG_IS_ERR(V) !(V)._ok
+
+#define PG_IS_OK(V) (V)._ok
+
+#define PG_UNWRAP(V) (PG_IS_OK(V) ? (V).u._value : PG_ASSERT(0))
+
+#define PG_UNWRAP_ERR(V) (PG_IS_ERR(V) ? (V).u._err : PG_ASSERT(0))
+
+#define PG_TRY(V, T, E)                                                        \
+  ({                                                                           \
+    if (PG_IS_ERR(V)) {                                                        \
+      return PG_ERR((V).u._err, T, E);                                         \
+    }                                                                          \
+    (V).u._value                                                               \
+  })
 
 // TODO: Separate error type?
 typedef u64 PgError;
@@ -213,23 +223,23 @@ typedef u64 PgError;
 #define PG_ERR_CLI_FORBIDEN_OPTION_VALUE 0xff'00'03
 #define PG_ERR_CLI_MALFORMED_OPTION 0xff'00'04
 
-PG_RESULT_DECL(u8);
-PG_RESULT_DECL(u16);
-PG_RESULT_DECL(u32);
-PG_RESULT_DECL(u64);
+PG_RESULT_DECL(u8, PgError);
+PG_RESULT_DECL(u16, PgError);
+PG_RESULT_DECL(u32, PgError);
+PG_RESULT_DECL(u64, PgError);
 
-PG_RESULT_DECL(i8);
-PG_RESULT_DECL(i16);
-PG_RESULT_DECL(i32);
-PG_RESULT_DECL(i64);
+PG_RESULT_DECL(i8, PgError);
+PG_RESULT_DECL(i16, PgError);
+PG_RESULT_DECL(i32, PgError);
+PG_RESULT_DECL(i64, PgError);
 
-PG_RESULT_DECL(bool);
+PG_RESULT_DECL(bool, PgError);
 PG_OPTION_DECL(bool);
 PG_SLICE_DECL(bool);
 PG_DYN_DECL(bool);
 
 typedef void *PgVoidPtr;
-PG_RESULT_DECL(PgVoidPtr);
+PG_RESULT_DECL(PgVoidPtr, PgError);
 
 PG_OPTION_DECL(u8);
 PG_OPTION_DECL(u16);
@@ -279,23 +289,23 @@ typedef PG_SLICE(u8) PgString;
 PG_DYN_DECL(PgString);
 PG_SLICE_DECL(PgString);
 PG_OPTION_DECL(PgString);
-PG_RESULT_DECL(PgString);
-PG_RESULT_DECL(PG_DYN(PgString));
+PG_RESULT_DECL(PgString, PgError);
+PG_RESULT_DECL(PG_DYN(PgString), PgError);
 
 PG_SLICE_DECL(void);
 PG_DYN_DECL(void);
 
 PG_OPTION_DECL(PG_SLICE(u8));
-PG_RESULT_DECL(PG_SLICE(u8));
+PG_RESULT_DECL(PG_SLICE(u8), PgError);
 
-PG_RESULT_DECL(PG_OPTION(u64));
+PG_RESULT_DECL(PG_OPTION(u64), PgError);
 
-PG_RESULT_DECL(f64);
+PG_RESULT_DECL(f64, PgError);
 PG_OPTION_DECL(f64);
 PG_SLICE_DECL(f64);
 PG_DYN_DECL(f64);
 
-PG_RESULT_DECL(PG_DYN(u64));
+PG_RESULT_DECL(PG_DYN(u64), PgError);
 
 #define PG_STATIC_ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -330,11 +340,11 @@ typedef union {
   int fd;
   void *ptr;
 } PgFileDescriptor;
-PG_RESULT_DECL(PgFileDescriptor);
+PG_RESULT_DECL(PgFileDescriptor, PgError);
 PG_OPTION_DECL(PgFileDescriptor);
 PG_PAIR_DECL(PgFileDescriptor);
 
-PG_RESULT_DECL(PG_PAIR(PgFileDescriptor));
+PG_RESULT_DECL(PG_PAIR(PgFileDescriptor), PgError);
 
 typedef enum {
   PG_NET_SOCKET_DOMAIN_LOCAL,
@@ -496,8 +506,8 @@ typedef struct {
   u8 data[PG_SHA1_DIGEST_LENGTH];
 } PgSha1;
 
-typedef PG_RESULT(u64)(uWriteFn)(PgWriter *w, PG_SLICE(u8) src,
-                                 PgAllocator *allocator);
+typedef PG_RESULT(u64, PgError)(WriteFn)(PgWriter *w, PG_SLICE(u8) src,
+                                         PgAllocator *allocator);
 typedef PgError (*FlushFn)(PgWriter *w);
 typedef PgError (*CloseFn)(void *self);
 
@@ -567,12 +577,12 @@ typedef struct {
   // Only if `spawn_options.stderr == PG_CHILD_PROCESS_STD_IO_PIPE`.
   PgString stderr_captured;
 } PgProcessStatus;
-PG_RESULT_DECL(PgProcessStatus);
+PG_RESULT_DECL(PgProcessStatus, PgError);
 
 typedef struct {
   PgString stdout_captured, stderr_captured;
 } PgProcessCaptureStd;
-PG_RESULT_DECL(PgProcessCaptureStd);
+PG_RESULT_DECL(PgProcessCaptureStd, PgError);
 
 typedef struct {
   u64 pid;
@@ -583,7 +593,7 @@ typedef struct {
   // Only if `spawn_options.stderr == PG_CHILD_PROCESS_STD_IO_PIPE`.
   PgFileDescriptor stderr_pipe;
 } PgProcess;
-PG_RESULT_DECL(PgProcess);
+PG_RESULT_DECL(PgProcess, PgError);
 
 typedef enum {
   PG_CHILD_PROCESS_STD_IO_INHERIT,
@@ -602,7 +612,7 @@ typedef struct {
   PgIpv4Address address;
   PgFileDescriptor socket;
 } PgIpv4AddressSocket;
-PG_RESULT_DECL(PgIpv4AddressSocket);
+PG_RESULT_DECL(PgIpv4AddressSocket, PgError);
 
 typedef struct {
   PgIpv4Address address;
@@ -626,10 +636,10 @@ typedef enum {
 typedef struct {
   PgString key, value;
 } PgStringKeyValue;
-PG_RESULT_DECL(PgStringKeyValue);
+PG_RESULT_DECL(PgStringKeyValue, PgError);
 PG_DYN_DECL(PgStringKeyValue);
 PG_SLICE_DECL(PgStringKeyValue);
-PG_RESULT_DECL(PG_DYN(PgStringKeyValue));
+PG_RESULT_DECL(PG_DYN(PgStringKeyValue), PgError);
 
 typedef struct {
   PgString scheme;
@@ -657,7 +667,7 @@ typedef struct {
   PgUrl url; // Does not have a scheme, domain, port.
 } PgHttpRequestStatusLine;
 
-PG_RESULT_DECL(PgHttpRequestStatusLine);
+PG_RESULT_DECL(PgHttpRequestStatusLine, PgError);
 
 // `HTTP/1.1 201 Created`.
 typedef struct {
@@ -666,7 +676,7 @@ typedef struct {
   u16 status;
 } PgHttpResponseStatusLine;
 
-PG_RESULT_DECL(PgHttpResponseStatusLine);
+PG_RESULT_DECL(PgHttpResponseStatusLine, PgError);
 
 typedef struct {
   u8 version_major;
@@ -678,15 +688,15 @@ typedef struct {
 typedef struct {
   PgString username, password;
 } PgUrlUserInfo;
-PG_RESULT_DECL(PgUrlUserInfo);
+PG_RESULT_DECL(PgUrlUserInfo, PgError);
 
 typedef struct {
   PgUrlUserInfo user_info;
   PgString host;
   u16 port;
 } PgUrlAuthority;
-PG_RESULT_DECL(PgUrlAuthority);
-PG_RESULT_DECL(PgUrl);
+PG_RESULT_DECL(PgUrlAuthority, PgError);
+PG_RESULT_DECL(PgUrl, PgError);
 
 typedef struct {
   bool done;
@@ -774,10 +784,10 @@ typedef struct {
     PgString comment;
   };
 } PgHtmlToken;
-PG_RESULT_DECL(PgHtmlToken);
+PG_RESULT_DECL(PgHtmlToken, PgError);
 PG_DYN_DECL(PgHtmlToken);
 PG_SLICE_DECL(PgHtmlToken);
-PG_RESULT_DECL(PG_DYN(PgHtmlToken));
+PG_RESULT_DECL(PG_DYN(PgHtmlToken), PgError);
 
 typedef enum {
   PG_HTML_PARSE_ERROR_NONE = 0,
@@ -803,7 +813,7 @@ struct PgHtmlNode {
   PgLinkedListNode parent, next_sibling, first_child;
 };
 typedef PgHtmlNode *PgHtmlNodePtr;
-PG_RESULT_DECL(PgHtmlNodePtr);
+PG_RESULT_DECL(PgHtmlNodePtr, PgError);
 
 // TODO: Remove and use enum values instead.
 static const u32 PgElfProgramHeaderTypeLoad = 1;
@@ -965,7 +975,7 @@ typedef struct {
   u32 section_header_text_idx;
   u32 section_header_strtab_idx;
 } PgElf;
-PG_RESULT_DECL(PgElf);
+PG_RESULT_DECL(PgElf, PgError);
 
 typedef struct {
   u32 magic;
@@ -982,7 +992,7 @@ static_assert(32 == sizeof(PgMachoHeader));
 typedef struct {
   PgMachoHeader header;
 } PgMacho;
-PG_RESULT_DECL(PgMacho);
+PG_RESULT_DECL(PgMacho, PgError);
 
 typedef void (*PgHttpHandler)(PgHttpRequest req, PgReader *reader,
                               PgWriter *writer, PgLogger *logger,
@@ -996,7 +1006,7 @@ typedef struct {
   void *ctx;
 } PgHttpServerOptions;
 
-PG_RESULT_DECL(PG_SLICE(PgString));
+PG_RESULT_DECL(PG_SLICE(PgString), PgError);
 
 #ifdef PG_OS_UNIX
 typedef pthread_t PgThread;
@@ -1005,7 +1015,7 @@ typedef pthread_t PgThread;
 typedef bool PgThread;
 #endif
 
-PG_RESULT_DECL(PgThread);
+PG_RESULT_DECL(PgThread, PgError);
 PG_SLICE_DECL(PgThread);
 PG_DYN_DECL(PgThread);
 
@@ -1047,7 +1057,7 @@ typedef struct {
 
   bool done;
 } PgThreadPool;
-PG_RESULT_DECL(PgThreadPool);
+PG_RESULT_DECL(PgThreadPool, PgError);
 
 typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_KIND_NONE = 0,
@@ -1070,7 +1080,7 @@ typedef struct {
 } PgAioEvent;
 PG_DYN_DECL(PgAioEvent);
 PG_SLICE_DECL(PgAioEvent);
-PG_RESULT_DECL(PgAioEvent);
+PG_RESULT_DECL(PgAioEvent, PgError);
 PG_OPTION_DECL(PgAioEvent);
 
 typedef struct {
@@ -1079,7 +1089,7 @@ typedef struct {
   PgFileDescriptorOption inotify;
 #endif
 } PgAio;
-PG_RESULT_DECL(PgAio);
+PG_RESULT_DECL(PgAio, PgError);
 
 typedef struct {
 #ifdef PG_OS_UNIX
@@ -1088,14 +1098,14 @@ typedef struct {
   // TODO: Windows.
 #endif
 } PgDirectory;
-PG_RESULT_DECL(PgDirectory);
+PG_RESULT_DECL(PgDirectory, PgError);
 
 #ifdef PG_OS_UNIX
 typedef struct dirent *PgDirectoryEntry;
 #else
 // TODO: Windows.
 #endif
-PG_RESULT_DECL(PgDirectoryEntry);
+PG_RESULT_DECL(PgDirectoryEntry, PgError);
 
 typedef enum {
   PG_WALK_DIRECTORY_KIND_NONE = 0,
@@ -1436,7 +1446,7 @@ typedef struct {
 PG_DYN_DECL(PgDwarfRangeListEntry);
 
 PG_DYN_DECL(PG_DYN(PgDwarfRangeListEntry));
-PG_RESULT_DECL(PG_DYN(PG_DYN(PgDwarfRangeListEntry)));
+PG_RESULT_DECL(PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError);
 
 typedef enum : u8 {
   PG_DWARF_FORM_NONE = 0,
@@ -1524,8 +1534,8 @@ typedef struct {
 } PgDwarfAbbreviationEntry;
 PG_DYN_DECL(PgDwarfAbbreviationEntry);
 PG_OPTION_DECL(PgDwarfAbbreviationEntry);
-PG_RESULT_DECL(PG_OPTION(PgDwarfAbbreviationEntry));
-PG_RESULT_DECL(PG_DYN(PgDwarfAbbreviationEntry));
+PG_RESULT_DECL(PG_OPTION(PgDwarfAbbreviationEntry), PgError);
+PG_RESULT_DECL(PG_DYN(PgDwarfAbbreviationEntry), PgError);
 
 typedef struct {
   u64 low_pc;
@@ -1536,7 +1546,7 @@ typedef struct {
 } PgDebugFunctionDeclaration;
 PG_DYN_DECL(PgDebugFunctionDeclaration);
 PG_OPTION_DECL(PgDebugFunctionDeclaration);
-PG_RESULT_DECL(PG_DYN(PgDebugFunctionDeclaration));
+PG_RESULT_DECL(PG_DYN(PgDebugFunctionDeclaration), PgError);
 
 typedef struct {
   PgDwarfCompilationUnitKind kind;
@@ -1546,13 +1556,13 @@ typedef struct {
   // Only for skeleton unit.
   u64 id;
 } PgDwarfDebugInfoCompilationUnit;
-PG_RESULT_DECL(PgDwarfDebugInfoCompilationUnit);
+PG_RESULT_DECL(PgDwarfDebugInfoCompilationUnit, PgError);
 
 typedef struct {
   PgFileDescriptor fd;
   PG_SLICE(u8) data;
 } PgVirtualMemFile;
-PG_RESULT_DECL(PgVirtualMemFile);
+PG_RESULT_DECL(PgVirtualMemFile, PgError);
 
 typedef enum {
   PG_DEBUG_ATOM_KIND_NO_DATA,
@@ -1581,7 +1591,7 @@ typedef struct {
   u64 debug_info_offset;
 } PgDwarfAtom;
 PG_OPTION_DECL(PgDwarfAtom);
-PG_RESULT_DECL(PG_OPTION(PgDwarfAtom));
+PG_RESULT_DECL(PG_OPTION(PgDwarfAtom), PgError);
 
 typedef struct {
   PgVirtualMemFile file;
@@ -1601,7 +1611,7 @@ typedef struct {
   u64 abbrev_attr_form_idx;
   PG_SLICE(u8) debug_info_full;
 } PgDebugInfoIterator;
-PG_RESULT_DECL(PgDebugInfoIterator);
+PG_RESULT_DECL(PgDebugInfoIterator, PgError);
 
 typedef struct {
   u64 pc;
@@ -1699,18 +1709,18 @@ typedef enum : i32 {
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout();
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr();
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor))
-    pg_pipe_make();
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor),
+                                                PgError) pg_pipe_make();
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_read_at(PgFileDescriptor file, PgString buf, u64 offset);
 
-[[maybe_unused]] [[nodiscard]] PG_RESULT(PgDirectory)
+[[maybe_unused]] [[nodiscard]] PG_RESULT(PgDirectory, PgError)
     pg_directory_open(PgString name);
 
 [[maybe_unused]] [[nodiscard]] PgError pg_directory_close(PgDirectory dir);
 
-[[maybe_unused]] [[nodiscard]] PG_RESULT(PgDirectoryEntry)
+[[maybe_unused]] [[nodiscard]] PG_RESULT(PgDirectoryEntry, PgError)
     pg_directory_read(PgDirectory *dir);
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -1722,7 +1732,7 @@ pg_dirent_is_directory(PgDirectoryEntry dirent);
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_dirent_name(PgDirectoryEntry dirent);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_file_open(PgString path, PgFileAccess access, u64 mode,
                  bool create_if_not_exists, PgAllocator *allocator);
 
@@ -1732,18 +1742,18 @@ pg_file_close(PgFileDescriptor file);
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_file_truncate(PgFileDescriptor file, u64 size);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_size(PgFileDescriptor file);
 
-[[nodiscard]] static PG_RESULT(u64)
+[[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_read(PgFileDescriptor file, PgString dst);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_write(PgFileDescriptor file, PgString s);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgAio) pg_aio_init();
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgAio, PgError) pg_aio_init();
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
                                      PgAioEventKind interest,
                                      PgAllocator *allocator);
@@ -1756,15 +1766,15 @@ pg_aio_register_interest_fd(PgAio aio, PgFileDescriptor fd,
 pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
                            PgAioEventKind interest);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_aio_wait(PgAio aio, PG_SLICE(PgAioEvent) events_out,
                 PG_OPTION(u32) timeout_ms);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_aio_wait_cqe(PgAio aio, PgRing *cqe, PG_OPTION(u32) timeout_ms);
 
 // TODO: Thread attributes?
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgThread)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgThread, PgError)
     pg_thread_create(PgThreadFn fn, void *fn_data);
 
 [[maybe_unused]] static void pg_thread_yield();
@@ -1830,7 +1840,7 @@ pg_self_exe_get_path(PgAllocator *allocator);
 
 [[nodiscard]] static u64 pg_self_pie_get_offset();
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgDebugInfoIterator)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgDebugInfoIterator, PgError)
     pg_self_debug_info_iterator_make(PgAllocator *allocator);
 
 [[maybe_unused]] static u64
@@ -2069,7 +2079,8 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   // 2 bytes.
   if (c0 <= 0b1101'1110) {
     if (s.len < 2) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
     }
 
     u8 c1 = PG_SLICE_AT(s, 1);
@@ -2077,7 +2088,8 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
     PgRune rune1 = ((PgRune)c1 & 0b0011'1111);
     res.rune = (rune0 << 6) | rune1;
     if (res.rune < 0x80) { // Overlong.
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
     }
     return res;
   }
@@ -2085,7 +2097,8 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   // 3 bytes.
   if (c0 <= 0b1110'1111) {
     if (s.len < 3) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
     }
 
     u8 c1 = PG_SLICE_AT(s, 1);
@@ -2096,7 +2109,8 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
 
     res.rune = (rune0 << 12) | (rune1 << 6) | rune2;
     if (res.rune < 0x0800) { // Overlong.
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
     }
     return res;
   }
@@ -2104,7 +2118,8 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   // 4 bytes.
   if (c0 <= 0b1111'0111) {
     if (s.len < 4) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
     }
 
     u8 c1 = PG_SLICE_AT(s, 1);
@@ -2116,17 +2131,20 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
     PgRune rune3 = ((PgRune)c3 & 0b0011'1111);
     res.rune = (rune0 << 18) | (rune1 << 12) | (rune2 << 6) | rune3;
     if (res.rune < 0x01'00'00) { // Overlong.
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
     }
 
     if (res.rune >= 0x10FFFF) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      res.err = PG_ERR_INVALID_VALUE;
+      return res;
     }
 
     return res;
   }
 
-  return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+  res.err = PG_ERR_INVALID_VALUE;
+  return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_utf8_rune_bytes_count(PgRune c) {
@@ -2153,25 +2171,21 @@ pg_utf8_iterator_next(PgUtf8Iterator *it) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_utf8_count_runes(PgString s) {
-  PG_RESULT(u64) res = {0};
-
   PgUtf8Iterator it = pg_make_utf8_iterator(s);
   u64 len = 0;
   for (;; len++) {
     PgRuneUtf8Result res_rune = pg_utf8_iterator_next(&it);
     if (res_rune.err) {
-      res.err = res_rune.err;
-      return res;
+      return PG_ERR(res_rune.err, u64, PgError);
     }
     if (res_rune.end) {
       break;
     }
   }
 
-  res.value = len;
-  return res;
+  return PG_OK(len, u64, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -2225,9 +2239,8 @@ pg_string_is_ascii_alphabetical(PgString s) {
   return 0b1000'0000 == (byte & 0b1100'0000);
 }
 
-[[nodiscard]] static PG_RESULT(u64) pg_string_find_last_lead_byte(PgString s) {
-  PG_RESULT(u64) res = {0};
-
+[[nodiscard]] static PG_RESULT(u64, PgError)
+    pg_string_find_last_lead_byte(PgString s) {
   for (i64 i = (i64)s.len - 1; i >= 0; i--) {
     u8 byte = PG_SLICE_AT(s, i);
     if (pg_utf8_is_continuation_byte(byte)) {
@@ -2236,37 +2249,33 @@ pg_string_is_ascii_alphabetical(PgString s) {
 
     if (byte <= 0b0111'1111) {
       if ((u64)i + 1 != s.len) {
-        return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+        return PG_ERR(PG_ERR_INVALID_VALUE, u64, PgError);
       }
-      res.value = (u64)i;
-      return res;
+      return PG_OK((u64)i, u64, PgError);
     }
     if (byte <= 0b1101'1110) {
       if ((u64)i + 2 != s.len) {
-        return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+        return PG_ERR(PG_ERR_INVALID_VALUE, u64, PgError);
       }
-      res.value = (u64)i;
-      return res;
+      return PG_OK((u64)i, u64, PgError);
     }
     if (byte <= 0b1110'1111) {
       if ((u64)i + 3 != s.len) {
-        return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+        return PG_ERR(PG_ERR_INVALID_VALUE, u64, PgError);
       }
-      res.value = (u64)i;
-      return res;
+      return PG_OK((u64)i, u64, PgError);
     }
 
     if (byte <= 0b1111'0111) {
       if ((u64)i + 4 != s.len) {
-        return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+        return PG_ERR(PG_ERR_INVALID_VALUE, u64, PgError);
       }
-      res.value = (u64)i;
-      return res;
+      return PG_OK((u64)i, u64, PgError);
     }
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, u64, PgError);
   }
 
-  return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+  return PG_ERR(PG_ERR_INVALID_VALUE, u64, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_OPTION(PgRune)
@@ -2287,12 +2296,12 @@ pg_string_is_ascii_alphabetical(PgString s) {
 [[nodiscard]] static PG_OPTION(PgRune) pg_string_last(PgString s) {
   PG_OPTION(PgRune) res = {0};
 
-  PG_RESULT(u64) res_find = pg_string_find_last_lead_byte(s);
-  if (res_find.err) {
+  PG_RESULT(u64, PgError) res_find = pg_string_find_last_lead_byte(s);
+  if (PG_IS_ERR(res_find)) {
     return res;
   }
 
-  return pg_string_first(PG_SLICE_RANGE_START(s, res_find.value));
+  return pg_string_first(PG_SLICE_RANGE_START(s, PG_UNWRAP(res_find)));
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_string_trim_right(PgString s,
@@ -3335,7 +3344,7 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
     }                                                                          \
   } while (0)
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_net_create_tcp_socket();
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_socket_close(PgFileDescriptor sock);
@@ -3347,7 +3356,7 @@ pg_net_connect_ipv4(PgFileDescriptor sock, PgIpv4Address address);
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_socket_set_timeout(PgFileDescriptor sock, u64 seconds, u64 microseconds);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgIpv4AddressSocket)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgIpv4AddressSocket, PgError)
     pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port,
                                 PgAllocator *allocator);
 
@@ -3362,13 +3371,13 @@ pg_net_socket_enable_reuse(PgFileDescriptor sock);
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_socket_set_blocking(PgFileDescriptor sock, bool blocking);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_net_socket_write(PgFileDescriptor sock, PgString data);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_net_socket_read(PgFileDescriptor sock, PgString data);
 
-[[nodiscard]] static PG_RESULT(u64)
+[[nodiscard]] static PG_RESULT(u64, PgError)
     pg_net_socket_read_non_blocking(PgFileDescriptor socket, PgString dst);
 
 [[maybe_unused]] [[nodiscard]] static PgIpv4AddressAcceptResult
@@ -3377,11 +3386,12 @@ pg_net_tcp_accept(PgFileDescriptor sock);
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_get_socket_error(PgFileDescriptor socket);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor))
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor),
+                                                PgError)
     pg_net_make_socket_pair(PgNetSocketDomain domain, PgNetSocketType type,
                             PgNetSocketOption option);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u32) pg_process_dup();
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u32, PgError) pg_process_dup();
 
 [[nodiscard]] static PgError pg_process_avoid_child_zombies();
 
@@ -3670,20 +3680,16 @@ pg_writer_make_string_builder(u64 cap, PgAllocator *allocator) {
   return w;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_writer_do_write(PgWriter *w, PG_SLICE(u8) src, PgAllocator *allocator) {
-  PG_RESULT(u64) res = {0};
-
   switch (w->kind) {
   case PG_WRITER_KIND_NONE:
-    res.value = src.len;
-    return res;
+    return PG_OK(src.len, u64, PgError);
   case PG_WRITER_KIND_FILE:
     return pg_file_write(w->u.file, src);
   case PG_WRITER_KIND_BYTES: {
     PG_DYN_APPEND_SLICE(&w->u.bytes, src, allocator);
-    res.value = src.len;
-    return res;
+    return PG_OK(src.len, u64, PgError);
   case PG_WRITER_KIND_SOCKET:
     return pg_net_socket_write(w->u.socket, src);
   }
@@ -3700,16 +3706,18 @@ pg_writer_do_write_full(PgWriter *w, PG_SLICE(u8) s, PgAllocator *allocator) {
       break;
     }
 
-    PG_RESULT(u64) res = pg_writer_do_write(w, remaining, allocator);
-    if (res.err) {
-      return res.err;
+    PG_RESULT(u64, PgError) res = pg_writer_do_write(w, remaining, allocator);
+    if (PG_IS_ERR(res)) {
+      return PG_UNWRAP_ERR(res);
     }
 
-    if (0 == res.value) {
+    u64 value = PG_UNWRAP(res);
+
+    if (0 == value) {
       return PG_ERR_IO;
     }
 
-    remaining = PG_SLICE_RANGE_START(remaining, res.value);
+    remaining = PG_SLICE_RANGE_START(remaining, value);
   }
   return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
 }
@@ -3743,11 +3751,11 @@ pg_writer_flush(PgWriter *w, PgAllocator *allocator) {
   PG_ASSERT(0);
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_writer_write(PgWriter *w, PG_SLICE(u8) src, PgAllocator *allocator) {
   PG_ASSERT(w);
 
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
   if (PG_SLICE_IS_EMPTY(src)) {
     return res;
   }
@@ -3766,7 +3774,7 @@ pg_writer_flush(PgWriter *w, PgAllocator *allocator) {
     PgError err = pg_writer_do_write_full(
         w, PG_SLICE_RANGE(src, 0, src.len - w->ring.data.len), allocator);
     if (err) {
-      return PG_ERR(typeof(res), err);
+      return PG_ERR(err, u64, PgError);
     }
     src = PG_SLICE_RANGE(src, 0, src.len % w->ring.data.len);
   }
@@ -3791,7 +3799,7 @@ pg_writer_flush(PgWriter *w, PgAllocator *allocator) {
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_writer_write_u8(PgWriter *w, u8 c, PgAllocator *allocator) {
   PG_SLICE(u8) src = {.data = &c, .len = 1};
-  PG_RESULT(u64) res = pg_writer_write(w, src, allocator);
+  PG_RESULT(u64, PgError) res = pg_writer_write(w, src, allocator);
   if (res.err) {
     return res.err;
   }
@@ -3807,7 +3815,7 @@ pg_writer_write_full(PgWriter *w, PG_SLICE(u8) s, PgAllocator *allocator) {
       break;
     }
 
-    PG_RESULT(u64) res = pg_writer_write(w, remaining, allocator);
+    PG_RESULT(u64, PgError) res = pg_writer_write(w, remaining, allocator);
     if (res.err) {
       return res.err;
     }
@@ -3821,10 +3829,10 @@ pg_writer_write_full(PgWriter *w, PG_SLICE(u8) s, PgAllocator *allocator) {
   return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_reader_do_read(PgReader *r, PG_SLICE(u8) dst) {
   PG_ASSERT(dst.data);
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   switch (r->kind) {
   case PG_READER_KIND_NONE:
@@ -3872,7 +3880,7 @@ pg_buf_reader_try_fill_once(PgReader *r) {
     return 0;
   }
 
-  PG_RESULT(u64) res_read = pg_reader_do_read(r, tmp_slice);
+  PG_RESULT(u64, PgError) res_read = pg_reader_do_read(r, tmp_slice);
   if (PG_ERR_EAGAIN == res_read.err) {
     return 0;
   }
@@ -3889,11 +3897,11 @@ pg_buf_reader_try_fill_once(PgReader *r) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_reader_read(PgReader *r, PG_SLICE(u8) dst) {
   PG_ASSERT(dst.data);
 
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   if (PG_SLICE_IS_EMPTY(dst)) {
     return res;
@@ -3925,7 +3933,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
       break;
     }
 
-    PG_RESULT(u64) res = pg_reader_read(r, remaining);
+    PG_RESULT(u64, PgError) res = pg_reader_read(r, remaining);
     if (res.err) {
       return res.err;
     }
@@ -3939,9 +3947,9 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u8)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u8, PgError)
     pg_reader_read_u8_le(PgReader *r) {
-  PG_RESULT(u8) res = {0};
+  PG_RESULT(u8, PgError) res = {0};
 
   u8 dst[sizeof(res.value)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
@@ -3956,9 +3964,9 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u16)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u16, PgError)
     pg_reader_read_u16_le(PgReader *r) {
-  PG_RESULT(u16) res = {0};
+  PG_RESULT(u16, PgError) res = {0};
 
   u8 dst[sizeof(res.value)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
@@ -3973,9 +3981,9 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u32)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u32, PgError)
     pg_reader_read_u24_le(PgReader *r) {
-  PG_RESULT(u32) res = {0};
+  PG_RESULT(u32, PgError) res = {0};
 
   u8 dst[3] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
@@ -3990,9 +3998,9 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u32)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u32, PgError)
     pg_reader_read_u32_le(PgReader *r) {
-  PG_RESULT(u32) res = {0};
+  PG_RESULT(u32, PgError) res = {0};
 
   u8 dst[sizeof(res.value)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
@@ -4007,9 +4015,9 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_reader_read_u64_le(PgReader *r) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   u8 dst[sizeof(res.value)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
@@ -4026,7 +4034,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
 
 [[nodiscard]] static PgError pg_reader_discard(PgReader *r, u64 count) {
   for (u64 i = 0; i < count; i++) {
-    PG_RESULT(u8) res_u8 = pg_reader_read_u8_le(r);
+    PG_RESULT(u8, PgError) res_u8 = pg_reader_read_u8_le(r);
     if (res_u8.err) {
       return res_u8.err;
     }
@@ -4034,13 +4042,13 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_reader_read_u64_leb128(PgReader *r) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
   u64 shift = 0;
 
   for (u64 _i = 0; _i < 16; _i++) {
-    PG_RESULT(u8) res_u8 = pg_reader_read_u8_le(r);
+    PG_RESULT(u8, PgError) res_u8 = pg_reader_read_u8_le(r);
     if (res_u8.err) {
       res.err = res_u8.err;
       return res;
@@ -4071,7 +4079,7 @@ pg_reader_read_i64_leb128(PgReader *r) {
   u64 shift = 0;
 
   for (u64 _i = 0; _i < 16; _i++) {
-    PG_RESULT(u8) res_u8 = pg_reader_read_u8_le(r);
+    PG_RESULT(u8, PgError) res_u8 = pg_reader_read_u8_le(r);
     if (res_u8.err) {
       res.err = res_u8.err;
       return res;
@@ -4111,10 +4119,10 @@ pg_reader_read_i64_leb128(PgReader *r) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_reader_do_read_non_blocking(PgReader *r, PG_SLICE(u8) dst) {
   PG_ASSERT(dst.data);
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   switch (r->kind) {
   case PG_READER_KIND_NONE:
@@ -4130,10 +4138,10 @@ pg_reader_read_i64_leb128(PgReader *r) {
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_writer_write_from_reader(PgWriter *w, PgReader *r,
                                 PgAllocator *allocator) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   // TODO: Get a hint from the reader?
   u8 tmp[4096] = {0};
@@ -5122,7 +5130,7 @@ pg_adjacency_matrix_print(PgAdjacencyMatrix matrix) {
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_time_ns_now(PgClockKind clock_kind);
 
 // From https://nullprogram.com/blog/2017/09/21/.
@@ -5184,7 +5192,7 @@ pg_rand_string(PgRng *rng, u64 len, PgAllocator *allocator) {
 [[maybe_unused]] [[nodiscard]] static PgRng pg_rand_make() {
   PgRng rng = {0};
   // Rely on ASLR.
-  PG_RESULT(u64) now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
+  PG_RESULT(u64, PgError) now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
   PG_ASSERT(0 == now.err);
   rng.state = (u64)(&pg_rand_make) ^ now.value;
 
@@ -5197,7 +5205,7 @@ pg_file_close(PgFileDescriptor file);
 [[nodiscard]] static u64 pg_os_get_page_size();
 
 [[nodiscard]] i32 pg_os_get_last_error();
-[[nodiscard]] PG_RESULT(PgVoidPtr)
+[[nodiscard]] PG_RESULT(PgVoidPtr, PgError)
     pg_virtual_mem_alloc(u64 size, PgVirtualMemFlags flags);
 [[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
                                              PgVirtualMemFlags flags_new);
@@ -5224,7 +5232,7 @@ pg_arena_make_from_virtual_mem(u64 size) {
   // Page guard after.
   PG_ASSERT(false == ckd_add(&os_alloc_size, os_alloc_size, page_size));
 
-  PG_RESULT(PgVoidPtr)
+  PG_RESULT(PgVoidPtr, PgError)
   res_alloc = pg_virtual_mem_alloc(
       os_alloc_size, PG_VIRTUAL_MEM_FLAGS_READ | PG_VIRTUAL_MEM_FLAGS_WRITE);
   if (res_alloc.err) {
@@ -5379,10 +5387,10 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file, u64 buffer_size,
   return w;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString, PgError)
     pg_file_read_full_from_descriptor(PgFileDescriptor file, u64 size,
                                       PgAllocator *allocator) {
-  PG_RESULT(PgString) res = {0};
+  PG_RESULT(PgString, PgError) res = {0};
 
   PG_DYN(u8) sb = {0};
   PG_DYN_ENSURE_CAP(&sb, size, allocator);
@@ -5393,7 +5401,7 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file, u64 buffer_size,
     }
 
     PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
-    PG_RESULT(u64) res_read = pg_file_read(file, space);
+    PG_RESULT(u64, PgError) res_read = pg_file_read(file, space);
     if (res_read.err) {
       res.err = (PgError)pg_os_get_last_error();
       goto end;
@@ -5420,11 +5428,11 @@ end:
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString, PgError)
     pg_file_read_full_from_descriptor_until_eof(PgFileDescriptor file,
                                                 u64 size_hint,
                                                 PgAllocator *allocator) {
-  PG_RESULT(PgString) res = {0};
+  PG_RESULT(PgString, PgError) res = {0};
 
   PG_DYN(u8) sb = {0};
   PG_DYN_ENSURE_CAP(&sb, size_hint, allocator);
@@ -5434,7 +5442,7 @@ end:
     PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
     PG_ASSERT(space.len);
 
-    PG_RESULT(u64) res_read = pg_file_read(file, space);
+    PG_RESULT(u64, PgError) res_read = pg_file_read(file, space);
     if (res_read.err) {
       res.err = (PgError)pg_os_get_last_error();
       goto end;
@@ -5514,7 +5522,7 @@ pg_file_write_full_with_descriptor(PgFileDescriptor file,
       break;
     }
 
-    PG_RESULT(u64) res_write = pg_file_write(file, remaining);
+    PG_RESULT(u64, PgError) res_write = pg_file_write(file, remaining);
     if (res_write.err) {
       err = (PgError)pg_os_get_last_error();
       goto end;
@@ -5533,11 +5541,11 @@ end:
   return err;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString, PgError)
     pg_file_read_full_from_path(PgString path, PgAllocator *allocator) {
-  PG_RESULT(PgString) res = {0};
+  PG_RESULT(PgString, PgError) res = {0};
 
-  PG_RESULT(PgFileDescriptor)
+  PG_RESULT(PgFileDescriptor, PgError)
   res_file = pg_file_open(path, PG_FILE_ACCESS_READ, 0600, false, allocator);
   if (res_file.err) {
     res.err = res_file.err;
@@ -5546,7 +5554,7 @@ end:
 
   PgFileDescriptor file = res_file.value;
 
-  PG_RESULT(u64) res_size = pg_file_size(file);
+  PG_RESULT(u64, PgError) res_size = pg_file_size(file);
   if (res_size.err) {
     res.err = res_size.err;
     goto end;
@@ -5567,7 +5575,7 @@ pg_file_write_full(PgString path, PgString content, u64 mode,
                    PgAllocator *allocator) {
   PgError err = 0;
 
-  PG_RESULT(PgFileDescriptor)
+  PG_RESULT(PgFileDescriptor, PgError)
   res_file = pg_file_open(path, PG_FILE_ACCESS_WRITE, mode, true, allocator);
   if (res_file.err) {
     err = res_file.err;
@@ -5584,14 +5592,14 @@ pg_file_write_full(PgString path, PgString content, u64 mode,
 }
 
 [[maybe_unused]] [[nodiscard]]
-static PG_RESULT(PgProcess)
+static PG_RESULT(PgProcess, PgError)
     pg_process_spawn(PgString path, PG_SLICE(PgString) args,
                      PgProcessSpawnOptions options, PgAllocator *allocator);
 
 [[maybe_unused]] [[nodiscard]]
 static PG_RESULT(PgProcessStatus)
     pg_process_wait(PgProcess process, u64 stdio_size_hint,
-                    u64 stderr_size_hint, PgAllocator *allocator);
+                    u64 stderr_size_hint, PgAllocator *allocator, PgError);
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src);
@@ -5609,7 +5617,7 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
     PG_SLICE(u8)
     read_slice = {.data = read_buf, .len = PG_STATIC_ARRAY_LEN(read_buf)};
 
-    PG_RESULT(u64) res_read = pg_file_read(src, read_slice);
+    PG_RESULT(u64, PgError) res_read = pg_file_read(src, read_slice);
     if (res_read.err) {
       return res_read.err;
     }
@@ -5646,9 +5654,9 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 #define PG_PIPE_READ 0
 #define PG_PIPE_WRITE 1
 
-[[maybe_unused]] [[nodiscard]] PG_RESULT(PgDirectory)
+[[maybe_unused]] [[nodiscard]] PG_RESULT(PgDirectory, PgError)
     pg_directory_open(PgString name) {
-  PG_RESULT(PgDirectory) res = {0};
+  PG_RESULT(PgDirectory, PgError) res = {0};
   if (name.len > PG_PATH_MAX - 1) {
     return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
@@ -5674,9 +5682,9 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] PG_RESULT(PgDirectoryEntry)
+[[maybe_unused]] [[nodiscard]] PG_RESULT(PgDirectoryEntry, PgError)
     pg_directory_read(PgDirectory *dir) {
-  PG_RESULT(PgDirectoryEntry) res = {0};
+  PG_RESULT(PgDirectoryEntry, PgError) res = {0};
 
   errno = 0;
 
@@ -5714,7 +5722,7 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
   bool ignore_errors = options & PG_WALK_DIRECTORY_KIND_IGNORE_ERRORS;
   bool recurse = options & PG_WALK_DIRECTORY_KIND_RECURSE;
 
-  PG_RESULT(PgDirectory) res_dir = pg_directory_open(name);
+  PG_RESULT(PgDirectory, PgError) res_dir = pg_directory_open(name);
   if (0 != res_dir.err) {
     return res_dir.err;
   }
@@ -5722,7 +5730,7 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
   PgDirectory dir = res_dir.value;
 
   for (;;) {
-    PG_RESULT(PgDirectoryEntry) res_dirent = pg_directory_read(&dir);
+    PG_RESULT(PgDirectoryEntry, PgError) res_dirent = pg_directory_read(&dir);
     if (0 != res_dirent.err) {
       return res_dir.err;
     }
@@ -5740,7 +5748,7 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
     }
 
     if (pg_dirent_is_file(dirent) && (PG_WALK_DIRECTORY_KIND_FILE & options)) {
-      PG_RESULT(PgFileDescriptor)
+      PG_RESULT(PgFileDescriptor, PgError)
       res_fs = pg_aio_register_interest_fs_name(
           aio, name,
           PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED,
@@ -5757,7 +5765,7 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
           aio, name,
           PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED |
               PG_AIO_EVENT_KIND_FILE_CREATED,
-          allocator);
+          allocator, PgError);
       if (0 != res_fs.err && !ignore_errors) {
         return res_fs.err;
       }
@@ -5887,9 +5895,9 @@ end:
 [[maybe_unused]][[nodiscard]]PgError pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex, const struct timespec *time_point);
 #endif
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgThread)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgThread, PgError)
     pg_thread_create(PgThreadFn fn, void *fn_data) {
-  PG_RESULT(PgThread) res = {0};
+  PG_RESULT(PgThread, PgError) res = {0};
 
   i32 ret = pthread_create(&res.value, nullptr, (void *(*)(void *))fn, fn_data);
   if (-1 == ret) {
@@ -5909,10 +5917,11 @@ end:
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor))
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor),
+                                                PgError)
     pg_net_make_socket_pair(PgNetSocketDomain domain, PgNetSocketType type,
                             PgNetSocketOption option) {
-  PG_RESULT(PG_PAIR(PgFileDescriptor)) res = {0};
+  PG_RESULT(PG_PAIR(PgFileDescriptor), PgError) res = {0};
 
   i32 unix_domain = 0;
   switch (domain) {
@@ -5959,9 +5968,9 @@ end:
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor))
-    pg_pipe_make() {
-  PG_RESULT(PG_PAIR(PgFileDescriptor)) res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor),
+                                                PgError) pg_pipe_make() {
+  PG_RESULT(PG_PAIR(PgFileDescriptor), PgError) res = {0};
 
   int fds[2] = {0};
   int ret = pipe(fds);
@@ -5985,8 +5994,8 @@ end:
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u32) pg_process_dup() {
-  PG_RESULT(u32) res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u32, PgError) pg_process_dup() {
+  PG_RESULT(u32, PgError) res = {0};
 
   i32 pid = fork();
 
@@ -6014,8 +6023,9 @@ pg_net_socket_set_timeout(PgFileDescriptor sock, u64 seconds,
   return 0;
 }
 
-[[nodiscard]] static PG_RESULT(PgFileDescriptor) pg_net_create_tcp_socket() {
-  PG_RESULT(PgFileDescriptor) res = {0};
+[[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
+    pg_net_create_tcp_socket() {
+  PG_RESULT(PgFileDescriptor, PgError) res = {0};
 
   int sock_fd = 0;
   do {
@@ -6076,10 +6086,10 @@ static PgError pg_net_connect_ipv4(PgFileDescriptor sock,
 }
 
 [[maybe_unused]] [[nodiscard]]
-static PG_RESULT(PgIpv4AddressSocket)
+static PG_RESULT(PgIpv4AddressSocket, PgError)
     pg_net_dns_resolve_ipv4_tcp(PgString host, u16 port,
                                 PgAllocator *allocator) {
-  PG_RESULT(PgIpv4AddressSocket) res = {0};
+  PG_RESULT(PgIpv4AddressSocket, PgError) res = {0};
 
   struct addrinfo hints = {0};
   hints.ai_socktype = SOCK_STREAM;
@@ -6100,7 +6110,8 @@ static PG_RESULT(PgIpv4AddressSocket)
 
   struct addrinfo *rp = nullptr;
   for (rp = addr_info; rp != nullptr; rp = rp->ai_next) {
-    PG_RESULT(PgFileDescriptor) res_create_socket = pg_net_create_tcp_socket();
+    PG_RESULT(PgFileDescriptor, PgError)
+    res_create_socket = pg_net_create_tcp_socket();
     if (res_create_socket.err) {
       res.err = res_create_socket.err;
       continue;
@@ -6136,14 +6147,14 @@ static PG_RESULT(PgIpv4AddressSocket)
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_net_socket_write(PgFileDescriptor sock, PgString data) {
   i64 n = 0;
   do {
     n = send(sock.fd, data.data, data.len, MSG_NOSIGNAL);
   } while (-1 == n && EINTR == errno);
 
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
   if (n < 0) {
     res.err = (PgError)errno;
   } else {
@@ -6153,14 +6164,14 @@ static PG_RESULT(PgIpv4AddressSocket)
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_net_socket_read(PgFileDescriptor sock, PgString data) {
   i64 n = 0;
   do {
     n = recv(sock.fd, data.data, data.len, 0);
   } while (-1 == n && EINTR == errno);
 
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
   if (n < 0) {
     res.err = (PgError)errno;
   } else {
@@ -6279,10 +6290,10 @@ pg_file_rewind_start(PgFileDescriptor f) {
 // TODO: Review in the context of multiple threads spawning and reaping
 // processes.
 [[maybe_unused]] [[nodiscard]]
-static PG_RESULT(PgProcess)
+static PG_RESULT(PgProcess, PgError)
     pg_process_spawn(PgString path, PG_SLICE(PgString) args,
                      PgProcessSpawnOptions options, PgAllocator *allocator) {
-  PG_RESULT(PgProcess) res = {0};
+  PG_RESULT(PgProcess, PgError) res = {0};
 
   char *path_c = (char *)pg_string_to_cstr(path, allocator);
 
@@ -6431,10 +6442,10 @@ end:
 // TODO: Review in the context of multiple threads spawning and reaping
 // processes.
 [[maybe_unused]] [[nodiscard]]
-static PG_RESULT(PgProcessCaptureStd)
+static PG_RESULT(PgProcessCaptureStd, PgError)
     pg_process_capture_std_io(PgProcess process, u64 stdio_size_hint,
                               u64 stderr_size_hint, PgAllocator *allocator) {
-  PG_RESULT(PgProcessCaptureStd) res = {0};
+  PG_RESULT(PgProcessCaptureStd, PgError) res = {0};
 
   PG_DYN(u8) stdout_sb = {0};
   PG_DYN(u8) stderr_sb = {0};
@@ -6537,12 +6548,12 @@ end:
 }
 
 [[maybe_unused]] [[nodiscard]]
-static PG_RESULT(PgProcessStatus)
+static PG_RESULT(PgProcessStatus, PgError)
     pg_process_wait(PgProcess process, u64 stdio_size_hint,
                     u64 stderr_size_hint, PgAllocator *allocator) {
-  PG_RESULT(PgProcessStatus) res = {0};
+  PG_RESULT(PgProcessStatus, PgError) res = {0};
 
-  PG_RESULT(PgProcessCaptureStd)
+  PG_RESULT(PgProcessCaptureStd, PgError)
   res_capture = pg_process_capture_std_io(process, stdio_size_hint,
                                           stderr_size_hint, allocator);
   if (res_capture.err) {
@@ -6599,11 +6610,11 @@ static PG_RESULT(PgProcessStatus)
   return (i32)res;
 }
 
-[[nodiscard]] PG_RESULT(PgVoidPtr)
+[[nodiscard]] PG_RESULT(PgVoidPtr, PgError)
     pg_virtual_mem_alloc(u64 size, PgVirtualMemFlags flags) {
   PG_ASSERT(size > 0);
 
-  PG_RESULT(PgVoidPtr) res = {0};
+  PG_RESULT(PgVoidPtr, PgError) res = {0};
   res.value = mmap(nullptr, size, pg_virtual_mem_flags_to_os_flags(flags),
                    MAP_ANON | MAP_PRIVATE, -1, 0);
   if ((void *)-1 == res.value) {
@@ -6612,16 +6623,16 @@ static PG_RESULT(PgProcessStatus)
   return res;
 }
 
-[[nodiscard]] PG_RESULT(PgVirtualMemFile)
+[[nodiscard]] PG_RESULT(PgVirtualMemFile, PgError)
     pg_virtual_mem_map_file(PgString path, PgFileAccess access,
                             bool create_if_not_exists) {
-  PG_RESULT(PgVirtualMemFile) res = {0};
+  PG_RESULT(PgVirtualMemFile, PgError) res = {0};
 
-  PG_RESULT(PgFileDescriptor)
+  PG_RESULT(PgFileDescriptor, PgError)
   res_fd = pg_file_open(path, access, 0600, create_if_not_exists, nullptr);
   PG_TRY(fd, res, res_fd);
 
-  PG_RESULT(u64) res_size = pg_file_size(fd);
+  PG_RESULT(u64, PgError) res_size = pg_file_size(fd);
   PG_TRY(size, res, res_size);
 
   i32 prot = 0;
@@ -6679,9 +6690,9 @@ pg_clock_to_linux(PgClockKind clock_kind) {
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_time_ns_now(PgClockKind clock) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   struct timespec ts = {0};
   int ret = 0;
@@ -6735,9 +6746,9 @@ pg_fill_stack_trace(u64 skip, u64 pie_offset,
   return (u64)ret;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_read(PgFileDescriptor file, PgString buf) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   isize n = 0;
   do {
@@ -6753,9 +6764,9 @@ pg_fill_stack_trace(u64 skip, u64 pie_offset,
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_write(PgFileDescriptor file, PgString s) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   isize n = 0;
   do {
@@ -6779,9 +6790,9 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_read_at(PgFileDescriptor file, PgString buf, u64 offset) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   isize n = 0;
   do {
@@ -6797,10 +6808,10 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_file_open(PgString path, PgFileAccess access, u64 mode,
                  bool create_if_not_exists, PgAllocator *) {
-  PG_RESULT(PgFileDescriptor) res = {0};
+  PG_RESULT(PgFileDescriptor, PgError) res = {0};
 
   if (path.len > PG_PATH_MAX - 1) {
     res.err = PG_ERR_INVALID_VALUE;
@@ -6849,9 +6860,9 @@ pg_file_close(PgFileDescriptor file) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_size(PgFileDescriptor file) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
   struct stat st = {0};
 
   int ret = 0;
@@ -6868,9 +6879,9 @@ pg_file_close(PgFileDescriptor file) {
   return res;
 }
 
-[[nodiscard]] static PG_RESULT(u64)
+[[nodiscard]] static PG_RESULT(u64, PgError)
     pg_net_socket_read_non_blocking(PgFileDescriptor socket, PgString dst) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   i64 ret = recv(socket.fd, dst.data, dst.len, MSG_DONTWAIT);
   if (-1 == ret) {
@@ -6936,20 +6947,20 @@ typedef struct {
   u64 len;
 } PgWtf16String;
 
-PG_RESULT_DECL(PgWtf16String) PgWtf16StringResult;
+PG_RESULT_DECL(PgWtf16String, PgError) PgWtf16StringResult;
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_writer_win32_write(PgWriter *w, PG_SLICE(u8) src) {
   PG_ASSERT(nullptr != w);
   if (PG_SLICE_IS_EMPTY(src)) {
-    return (PG_RESULT(u64)){0};
+    return (PG_RESULT(u64, PgError)){0};
   }
 
   PgFileDescriptor file = w->ctx;
   HANDLE handle = file.ptr;
   DWORD n = 0;
   bool has_value = WriteFile(handle, src.data, (DWORD)src.len, &n, nullptr);
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
   if (!has_value) {
     res.err = (PgError)pg_os_get_last_error();
   } else {
@@ -6959,7 +6970,7 @@ PG_RESULT_DECL(PgWtf16String) PgWtf16StringResult;
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_writer_file_write(PgWriter *w, PG_SLICE(u8) src, PgAllocator *) {
   return pg_writer_win32_write(w, src);
 }
@@ -6974,8 +6985,8 @@ PG_RESULT_DECL(PgWtf16String) PgWtf16StringResult;
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
-    pg_time_ns_now(PgClockKind clock_kind) {
-  PG_RESULT(u64) res = {0};
+    pg_time_ns_now(PgClockKind clock_kind, PgError) {
+  PG_RESULT(u64, PgError) res = {0};
 
   switch (clock_kind) {
   case PG_CLOCK_KIND_MONOTONIC: {
@@ -7100,10 +7111,10 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
   return 0;
 }
 
-[[nodiscard]] static PG_RESULT(PgFileDescriptor)
+[[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_file_open(PgString path, PgFileAccess access, u64 mode,
                  bool create_if_not_exists, PgAllocator *allocator) {
-  PG_RESULT(PgFileDescriptor) res = {0};
+  PG_RESULT(PgFileDescriptor, PgError) res = {0};
 
   DWORD desired_access = 0;
   DWORD creation_disposition =
@@ -7154,8 +7165,9 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
   return 0;
 }
 
-[[nodiscard]] static PG_RESULT(u64) pg_file_size(PgFileDescriptor file) {
-  PG_RESULT(u64) res = {0};
+[[nodiscard]] static PG_RESULT(u64, PgError)
+    pg_file_size(PgFileDescriptor file) {
+  PG_RESULT(u64, PgError) res = {0};
 
   LARGE_INTEGER size;
   if (0 == GetFileSizeEx(file.ptr, &size)) {
@@ -7167,9 +7179,9 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
   return res;
 }
 
-[[nodiscard]] static PG_RESULT(u64)
+[[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_read(PgFileDescriptor file, PgString dst) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   if (0 == ReadFile(file.ptr, dst.data, (DWORD)dst.len, (LPDWORD)&res.value,
                     nullptr)) {
@@ -7180,9 +7192,9 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
   return res;
 }
 
-[[nodiscard]] static PG_RESULT(u64)
+[[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_write(PgFileDescriptor file, PgString s) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   if (0 ==
       WriteFile(file.ptr, s.data, (DWORD)s.len, (LPDWORD)&res.value, nullptr)) {
@@ -7193,9 +7205,9 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
   return res;
 }
 
-[[nodiscard]] static PG_RESULT(u64)
+[[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_read_at(PgFileDescriptor file, PgString dst, u64 offset) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   LARGE_INTEGER li_offset;
   li_offset.QuadPart = (LONGLONG)offset;
@@ -7250,9 +7262,10 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgHttpResponseStatusLine)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgHttpResponseStatusLine,
+                                                PgError)
     pg_http_parse_response_status_line(PgString status_line) {
-  PG_RESULT(PgHttpResponseStatusLine) res = {0};
+  PG_RESULT(PgHttpResponseStatusLine, PgError) res = {0};
 
   PgString remaining = status_line;
   {
@@ -7579,9 +7592,9 @@ static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
   return pg_string_trim(res, '-');
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_DYN(PgString))
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_DYN(PgString), PgError)
     pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PgString)) res = {0};
+  PG_RESULT(PG_DYN(PgString), PgError) res = {0};
 
   if (-1 != pg_string_index_of_any_rune(s, PG_S("?#:"))) {
     return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
@@ -7674,9 +7687,10 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
   return PG_DYN_TO_SLICE(PgString, sb);
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_DYN(PgStringKeyValue))
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_DYN(PgStringKeyValue),
+                                                PgError)
     pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PgStringKeyValue)) res = {0};
+  PG_RESULT(PG_DYN(PgStringKeyValue), PgError) res = {0};
 
   PgString remaining = s;
   {
@@ -7711,9 +7725,9 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrlUserInfo)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrlUserInfo, PgError)
     pg_url_parse_user_info(PgString s) {
-  PG_RESULT(PgUrlUserInfo) res = {0};
+  PG_RESULT(PgUrlUserInfo, PgError) res = {0};
   // https://www.rfc-editor.org/rfc/rfc3986#section-3.2.1:
   // Use of the format "user:password" in the userinfo field is
   // deprecated.  Applications should not render as clear text any data
@@ -7729,9 +7743,9 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u16)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u16, PgError)
     pg_url_parse_port(PgString s) {
-  PG_RESULT(u16) res = {0};
+  PG_RESULT(u16, PgError) res = {0};
 
   // Allowed.
   if (PG_SLICE_IS_EMPTY(s)) {
@@ -7749,9 +7763,9 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrlAuthority)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrlAuthority, PgError)
     pg_url_parse_authority(PgString s) {
-  PG_RESULT(PgUrlAuthority) res = {0};
+  PG_RESULT(PgUrlAuthority, PgError) res = {0};
 
   PgString remaining = s;
   // User info, optional.
@@ -7761,7 +7775,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
     remaining = user_info_and_rem.right;
 
     if (user_info_and_rem.consumed) {
-      PG_RESULT(PgUrlUserInfo)
+      PG_RESULT(PgUrlUserInfo, PgError)
       res_user_info = pg_url_parse_user_info(user_info_and_rem.left);
       if (res_user_info.err) {
         res.err = res_user_info.err;
@@ -7784,7 +7798,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
 
   // Port, optional.
   if (host_and_rem.consumed) {
-    PG_RESULT(u16) res_port = pg_url_parse_port(host_and_rem.right);
+    PG_RESULT(u16, PgError) res_port = pg_url_parse_port(host_and_rem.right);
     if (res_port.err) {
       res.err = res_port.err;
       return res;
@@ -7817,9 +7831,9 @@ pg_url_is_scheme_valid(PgString scheme) {
   return true;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrl)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrl, PgError)
     pg_url_parse_after_authority(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PgUrl) res = {0};
+  PG_RESULT(PgUrl, PgError) res = {0};
   PgString remaining = s;
 
   PgStringPairConsumeAny path_components_and_rem =
@@ -7830,7 +7844,7 @@ pg_url_is_scheme_valid(PgString scheme) {
   if (pg_string_starts_with(s, PG_S("/"))) {
     PG_ASSERT(!PG_SLICE_IS_EMPTY(path_components_and_rem.left));
 
-    PG_RESULT(PG_DYN(PgString))
+    PG_RESULT(PG_DYN(PgString), PgError)
     res_path_components =
         pg_url_parse_path_components(path_components_and_rem.left, allocator);
     if (res_path_components.err) {
@@ -7843,7 +7857,7 @@ pg_url_is_scheme_valid(PgString scheme) {
   // Query parameters, optional.
   if (path_components_and_rem.consumed &&
       path_components_and_rem.matched == '?') {
-    PG_RESULT(PG_DYN(PgStringKeyValue))
+    PG_RESULT(PG_DYN(PgStringKeyValue), PgError)
     res_query =
         pg_url_parse_query_parameters(path_components_and_rem.right, allocator);
     if (res_query.err) {
@@ -7864,9 +7878,9 @@ pg_url_is_scheme_valid(PgString scheme) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrl)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrl, PgError)
     pg_url_parse(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PgUrl) res = {0};
+  PG_RESULT(PgUrl, PgError) res = {0};
 
   PgString remaining = s;
 
@@ -7907,7 +7921,7 @@ pg_url_is_scheme_valid(PgString scheme) {
       return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
-    PG_RESULT(PgUrlAuthority)
+    PG_RESULT(PgUrlAuthority, PgError)
     res_authority = pg_url_parse_authority(authority_and_rem.left);
     if (res_authority.err) {
       res.err = res_authority.err;
@@ -7919,7 +7933,7 @@ pg_url_is_scheme_valid(PgString scheme) {
     res.value.password = res_authority.value.user_info.password;
   }
 
-  PG_RESULT(PgUrl)
+  PG_RESULT(PgUrl, PgError)
   res_after_authority = pg_url_parse_after_authority(remaining, allocator);
   if (res_after_authority.err) {
     res.err = res_after_authority.err;
@@ -7940,10 +7954,11 @@ pg_url_is_scheme_valid(PgString scheme) {
   return true;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgHttpRequestStatusLine)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgHttpRequestStatusLine,
+                                                PgError)
     pg_http_parse_request_status_line(PgString status_line,
                                       PgAllocator *allocator) {
-  PG_RESULT(PgHttpRequestStatusLine) res = {0};
+  PG_RESULT(PgHttpRequestStatusLine, PgError) res = {0};
 
   PgStringCut cut = pg_string_cut_rune(status_line, ' ');
   if (!cut.has_value) {
@@ -7980,7 +7995,8 @@ pg_url_is_scheme_valid(PgString scheme) {
     PgString path = pg_string_trim_space(cut.left);
     // Need to clone since the data being parsed is transient.
     path = pg_string_clone(path, allocator);
-    PG_RESULT(PgUrl) res_url = pg_url_parse_after_authority(path, allocator);
+    PG_RESULT(PgUrl, PgError)
+    res_url = pg_url_parse_after_authority(path, allocator);
     if (res_url.err) {
       return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
@@ -8037,9 +8053,9 @@ pg_url_is_scheme_valid(PgString scheme) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgStringKeyValue)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgStringKeyValue, PgError)
     pg_http_parse_header(PgString s) {
-  PG_RESULT(PgStringKeyValue) res = {0};
+  PG_RESULT(PgStringKeyValue, PgError) res = {0};
 
   PgStringCut cut = pg_string_cut_rune(s, ':');
   if (!cut.has_value) {
@@ -8064,13 +8080,13 @@ typedef enum {
   PG_NEWLINE_KIND_CRLF,
 } PgNewlineKind;
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_OPTION(u64))
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_OPTION(u64), PgError)
     pg_reader_read_until_byte_incl(PgReader *r, PG_SLICE(u8) dst, u8 needle) {
   PG_ASSERT(dst.data);
 
   if (0 == r->ring.data.len) { // Simple reader.
-    PG_RESULT(PG_OPTION(u64)) res = {0};
-    PG_RESULT(u64) res_read = pg_reader_read(r, dst);
+    PG_RESULT(PG_OPTION(u64), PgError) res = {0};
+    PG_RESULT(u64, PgError) res_read = pg_reader_read(r, dst);
     if (res_read.err) {
       res.err = res_read.err;
       return res;
@@ -8089,7 +8105,7 @@ typedef enum {
     PG_ASSERT(dst.len >= r->ring.data.len);
 
     for (u64 _i = 0; _i <= 1; _i++) {
-      PG_RESULT(PG_OPTION(u64)) res = {0};
+      PG_RESULT(PG_OPTION(u64), PgError) res = {0};
       PG_OPTION(u64) search_opt = pg_ring_index_of_byte(r->ring, needle);
       if (search_opt.has_value) {
         search_opt.value += 1; // Incl.
@@ -8124,15 +8140,15 @@ typedef enum {
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_OPTION(u64))
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_OPTION(u64), PgError)
     pg_reader_read_until_bytes2_incl(PgReader *r, PG_SLICE(u8) dst, u8 needle0,
                                      u8 needle1) {
   PG_ASSERT(dst.data);
 
   if (0 == r->ring.data.len) { // Simple reader.
-    PG_RESULT(PG_OPTION(u64)) res = {0};
+    PG_RESULT(PG_OPTION(u64), PgError) res = {0};
     // TODO: Multiple reads?
-    PG_RESULT(u64) res_read = pg_reader_read(r, dst);
+    PG_RESULT(u64, PgError) res_read = pg_reader_read(r, dst);
     if (res_read.err) {
       res.err = res_read.err;
       return res;
@@ -8153,7 +8169,7 @@ typedef enum {
     PG_ASSERT(dst.len >= r->ring.data.len);
 
     for (u64 _i = 0; _i <= 1; _i++) {
-      PG_RESULT(PG_OPTION(u64)) res = {0};
+      PG_RESULT(PG_OPTION(u64), PgError) res = {0};
       PG_OPTION(u64)
       search_opt = pg_ring_index_of_bytes2(r->ring, needle0, needle1);
       if (search_opt.has_value) {
@@ -8190,8 +8206,8 @@ typedef enum {
 
 [[nodiscard]] static PG_RESULT(PG_OPTION(u64))
     pg_reader_read_line(PgReader *reader, PgNewlineKind newline_kind,
-                        PgString dst) {
-  PG_RESULT(PG_OPTION(u64)) res = {0};
+                        PgString dst, PgError) {
+  PG_RESULT(PG_OPTION(u64), PgError) res = {0};
   switch (newline_kind) {
   case PG_NEWLINE_KIND_LF:
     res = pg_reader_read_until_byte_incl(reader, dst, '\n');
@@ -8246,7 +8262,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
   };
   // Status line.
   {
-    PG_RESULT(PG_OPTION(u64))
+    PG_RESULT(PG_OPTION(u64), PgError)
     res_read = pg_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
     if (res_read.err) {
       res.err = res_read.err;
@@ -8258,7 +8274,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
 
     PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.value.value);
 
-    PG_RESULT(PgHttpRequestStatusLine)
+    PG_RESULT(PgHttpRequestStatusLine, PgError)
     res_status_line = pg_http_parse_request_status_line(line, allocator);
 
     if (res_status_line.err) {
@@ -8274,7 +8290,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
   // Headers.
   for (u64 i = 0; i < PG_HTTP_HEADERS_MAX; i++) {
     recv_slice.len = PG_STATIC_ARRAY_LEN(recv);
-    PG_RESULT(PG_OPTION(u64))
+    PG_RESULT(PG_OPTION(u64), PgError)
     res_read = pg_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
     if (res_read.err) {
       res.err = res_read.err;
@@ -8290,7 +8306,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
       goto end;
     }
 
-    PG_RESULT(PgStringKeyValue)
+    PG_RESULT(PgStringKeyValue, PgError)
     res_kv = pg_http_parse_header(pg_string_clone(line, allocator));
     if (res_kv.err) {
       res.err = res_kv.err;
@@ -8375,9 +8391,9 @@ pg_http_write_response(PgWriter *w, PgHttpResponse res,
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_http_content_length(PG_SLICE(PgStringKeyValue) headers) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   for (u64 i = 0; i < headers.len; i++) {
     PgStringKeyValue h = PG_SLICE_AT(headers, i);
@@ -9102,9 +9118,9 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_DYN(PgHtmlToken))
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_DYN(PgHtmlToken), PgError)
     pg_html_tokenize(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PgHtmlToken)) res = {0};
+  PG_RESULT(PG_DYN(PgHtmlToken), PgError) res = {0};
   PG_DYN_ENSURE_CAP(&res.value, s.len / 8, allocator);
 
   /* PgString comment_start = PG_S("<!--"); */
@@ -9184,11 +9200,12 @@ pg_html_node_get_next_sibling(PgHtmlNode *node) {
   return PG_CONTAINER_OF(linked_list_node, PgHtmlNode, next_sibling);
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgHtmlNodePtr)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgHtmlNodePtr, PgError)
     pg_html_parse(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PgHtmlNodePtr) res = {0};
+  PG_RESULT(PgHtmlNodePtr, PgError) res = {0};
 
-  PG_RESULT(PG_DYN(PgHtmlToken)) res_tokens = pg_html_tokenize(s, allocator);
+  PG_RESULT(PG_DYN(PgHtmlToken), PgError)
+  res_tokens = pg_html_tokenize(s, allocator);
   if (res_tokens.err) {
     res.err = res_tokens.err;
     return res;
@@ -9353,9 +9370,9 @@ static i32 pg_pool_worker_start_fn(void *data) {
   }
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgThreadPool)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgThreadPool, PgError)
     pg_thread_pool_make(u32 size, PgAllocator *allocator) {
-  PG_RESULT(PgThreadPool) res = {0};
+  PG_RESULT(PgThreadPool, PgError) res = {0};
 
   if (0 != pg_mtx_init(&res.value.tasks_mtx, PG_MUTEX_KIND_PLAIN)) {
     return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
@@ -9371,7 +9388,7 @@ static i32 pg_pool_worker_start_fn(void *data) {
 
   for (u32 i = 0; i < size; i++) {
     PgThread *it = PG_SLICE_AT_PTR(&res.value.workers, i);
-    PG_RESULT(PgThread)
+    PG_RESULT(PgThread, PgError)
     res_thread = pg_thread_create(pg_pool_worker_start_fn, it);
     if (0 != res_thread.err) {
       res.err = res_thread.err;
@@ -9428,9 +9445,9 @@ pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
   return sym.info >> 4;
 }
 
-[[nodiscard]] static PG_RESULT(PG_SLICE(u8))
+[[nodiscard]] static PG_RESULT(PG_SLICE(u8), PgError)
     pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
-  PG_RESULT(PG_SLICE(u8)) res = {0};
+  PG_RESULT(PG_SLICE(u8), PgError) res = {0};
 
   if (section_idx >= elf.section_headers.len) {
     return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
@@ -9452,11 +9469,11 @@ pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
   return res;
 }
 
-[[nodiscard]] static PG_RESULT(PgString)
+[[nodiscard]] static PG_RESULT(PgString, PgError)
     pg_elf_get_sh_string_at(PgElf elf, u32 offset) {
-  PG_RESULT(PgString) res = {0};
+  PG_RESULT(PgString, PgError) res = {0};
 
-  PG_RESULT(PG_SLICE(u8))
+  PG_RESULT(PG_SLICE(u8), PgError)
   res_bytes = pg_elf_get_section_header_bytes(
       elf, elf.header.section_header_shstrtab_index);
   if (res_bytes.err) {
@@ -9481,11 +9498,11 @@ pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString, PgError)
     pg_elf_get_string_at(PgElf elf, u32 offset) {
-  PG_RESULT(PgString) res = {0};
+  PG_RESULT(PgString, PgError) res = {0};
 
-  PG_RESULT(PG_SLICE(u8))
+  PG_RESULT(PG_SLICE(u8), PgError)
   res_bytes =
       pg_elf_get_section_header_bytes(elf, elf.section_header_strtab_idx);
   if (res_bytes.err) {
@@ -9522,7 +9539,8 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
       continue;
     }
 
-    PG_RESULT(PgString) res_str = pg_elf_get_sh_string_at(*elf, section->name);
+    PG_RESULT(PgString, PgError)
+    res_str = pg_elf_get_sh_string_at(*elf, section->name);
     if (res_str.err) {
       continue;
     }
@@ -9536,10 +9554,10 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
   return nullptr;
 }
 
-[[nodiscard]] static PG_RESULT(PG_SLICE(u8))
+[[nodiscard]] static PG_RESULT(PG_SLICE(u8), PgError)
     pg_elf_section_header_find_bytes_by_name_and_kind(
         PgElf elf, PgString name, PgElfSectionHeaderKind kind) {
-  PG_RESULT(PG_SLICE(u8)) res = {0};
+  PG_RESULT(PG_SLICE(u8), PgError) res = {0};
 
   PgElfSectionHeader *section_header =
       pg_elf_section_header_find_ptr_by_name_and_kind(&elf, name, kind);
@@ -9552,9 +9570,9 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
   return pg_elf_get_section_header_bytes(elf, section_idx);
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgElf)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgElf, PgError)
     pg_elf_parse(PG_SLICE(u8) elf_bytes) {
-  PG_RESULT(PgElf) res = {0};
+  PG_RESULT(PgElf, PgError) res = {0};
   res.value.bytes = elf_bytes;
 
   if (elf_bytes.len < sizeof(PgElfHeader)) {
@@ -9600,15 +9618,15 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_SLICE(u8))
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_SLICE(u8), PgError)
     pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
-  PG_RESULT(PG_SLICE(u8)) res = {0};
+  PG_RESULT(PG_SLICE(u8), PgError) res = {0};
 
   if (elf.section_header_text_idx != sym.section_header_table_index) {
     return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
-  PG_RESULT(PG_SLICE(u8))
+  PG_RESULT(PG_SLICE(u8), PgError)
   res_bytes = pg_elf_get_section_header_bytes(elf, elf.section_header_text_idx);
   if (res_bytes.err) {
     res.err = res_bytes.err;
@@ -9632,8 +9650,8 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
 #if defined(__FreeBSD__) || defined(__APPLE__)
 #include <sys/event.h>
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgAio) pg_aio_init() {
-  PG_RESULT(PgAio) res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgAio, PgError) pg_aio_init() {
+  PG_RESULT(PgAio, PgError) res = {0};
 
   i32 ret = kqueue();
   if (-1 == ret) {
@@ -9645,11 +9663,11 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
                                      PgAioEventKind interest,
                                      PgAllocator *allocator) {
-  PG_RESULT(PgFileDescriptor)
+  PG_RESULT(PgFileDescriptor, PgError)
   res = pg_file_open(name, PG_FILE_ACCESS_READ, 0666, false, allocator);
   if (res.err) {
     return res;
@@ -9729,10 +9747,10 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_aio_wait(PgAio aio, PG_SLICE(PgAioEvent) events_out,
                 PG_OPTION(u32) timeout_ms) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
 
   struct kevent eventlist[1024] = {0};
   u64 eventlist_len = PG_MIN(PG_STATIC_ARRAY_LEN(eventlist), events_out.len);
@@ -9783,9 +9801,9 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
 };
 
 // TODO: Use `pg_aio_wait` ?
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_aio_wait_cqe(PgAio aio, PgRing *cqe, PG_OPTION(u32) timeout_ms) {
-  PG_RESULT(u64) res = {0};
+  PG_RESULT(u64, PgError) res = {0};
   u64 can_write_count = pg_ring_can_write_count(*cqe) / sizeof(PgAioEvent);
 
   struct kevent eventlist[1024] = {0};
@@ -10297,14 +10315,14 @@ static const PgString pg_dwarf_form_str[] = {
     [PG_DWARF_FORM_ADDRX4] = PG_S("PG_DWARF_FORM_ADDRX4"),
 };
 
-[[nodiscard]] static PG_RESULT(PG_OPTION(PgDwarfAbbreviationEntry))
+[[nodiscard]] static PG_RESULT(PG_OPTION(PgDwarfAbbreviationEntry), PgError)
     pg_dwarf_parse_abbreviation_entry(PgReader *r, PgAllocator *allocator) {
-  PG_RESULT(PG_OPTION(PgDwarfAbbreviationEntry)) res = {0};
+  PG_RESULT(PG_OPTION(PgDwarfAbbreviationEntry), PgError) res = {0};
   PgDwarfAbbreviationEntry entry = {0};
 
   // Tag.
   {
-    PG_RESULT(u64) res_type = pg_reader_read_u64_leb128(r);
+    PG_RESULT(u64, PgError) res_type = pg_reader_read_u64_leb128(r);
 
     if (res_type.err) {
       res.err = res_type.err;
@@ -10314,7 +10332,7 @@ static const PgString pg_dwarf_form_str[] = {
   }
   // Type.
   {
-    PG_RESULT(u64) res_tag = pg_reader_read_u64_leb128(r);
+    PG_RESULT(u64, PgError) res_tag = pg_reader_read_u64_leb128(r);
     // The end?
     // > The abbreviations for a given compilation unit end with an entry
     // > consisting of a 0 byte for the abbreviation code.
@@ -10329,7 +10347,7 @@ static const PgString pg_dwarf_form_str[] = {
   }
   // Has children.
   {
-    PG_RESULT(u8) res_has_children = pg_reader_read_u8_le(r);
+    PG_RESULT(u8, PgError) res_has_children = pg_reader_read_u8_le(r);
     if (res_has_children.err) {
       res.err = res_has_children.err;
       return res;
@@ -10341,7 +10359,7 @@ static const PgString pg_dwarf_form_str[] = {
   for (u64 _i = 0; _i < PG_DWARF_MAX_ABBREV_ATTRIBUTES; _i++) {
     PgDwarfAttributeForm attribute_form = {0};
 
-    PG_RESULT(u64) res_name = pg_reader_read_u64_leb128(r);
+    PG_RESULT(u64, PgError) res_name = pg_reader_read_u64_leb128(r);
     // The end.
     if (PG_ERR_EOF == res_name.err) {
       return res;
@@ -10352,7 +10370,7 @@ static const PgString pg_dwarf_form_str[] = {
     }
     attribute_form.attribute = res_name.value;
 
-    PG_RESULT(u64) res_form = pg_reader_read_u64_leb128(r);
+    PG_RESULT(u64, PgError) res_form = pg_reader_read_u64_leb128(r);
     if (res_form.err) {
       res.err = res_form.err;
       return res;
@@ -10382,12 +10400,12 @@ static const PgString pg_dwarf_form_str[] = {
   return PG_ERR(typeof(res), PG_ERR_TOO_BIG);
 }
 
-[[nodiscard]] static PG_RESULT(PG_DYN(PgDwarfAbbreviationEntry))
+[[nodiscard]] static PG_RESULT(PG_DYN(PgDwarfAbbreviationEntry), PgError)
     pg_dwarf_parse_abbreviation_entries(PgElf elf, u64 offset,
                                         PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PgDwarfAbbreviationEntry)) res = {0};
+  PG_RESULT(PG_DYN(PgDwarfAbbreviationEntry), PgError) res = {0};
 
-  PG_RESULT(PG_SLICE(u8))
+  PG_RESULT(PG_SLICE(u8), PgError)
   res_bytes = pg_elf_section_header_find_bytes_by_name_and_kind(
       elf, PG_S(".debug_abbrev"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
   if (res_bytes.err) {
@@ -10405,7 +10423,7 @@ static const PgString pg_dwarf_form_str[] = {
   PgReader r = pg_reader_make_from_bytes(bytes);
 
   for (u64 _i = 0; _i < PG_DWARF_MAX_ABBREV; _i++) {
-    PG_RESULT(PG_OPTION(PgDwarfAbbreviationEntry))
+    PG_RESULT(PG_OPTION(PgDwarfAbbreviationEntry), PgError)
     res_abbrev = pg_dwarf_parse_abbreviation_entry(&r, allocator);
     if (res_abbrev.err) {
       res.err = res_abbrev.err;
@@ -10423,14 +10441,14 @@ static const PgString pg_dwarf_form_str[] = {
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(
-    PG_DYN(PG_DYN(PgDwarfRangeListEntry)))
+    PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError)
     pg_dwarf_address_ranges_parse(PG_SLICE(u8) bytes, PG_DYN(u64) addresses,
                                   PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PG_DYN(PgDwarfRangeListEntry))) res = {0};
+  PG_RESULT(PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError) res = {0};
 
   PgReader r = pg_reader_make_from_bytes(bytes);
 
-  PG_RESULT(u32) res_length = pg_reader_read_u32_le(&r);
+  PG_RESULT(u32, PgError) res_length = pg_reader_read_u32_le(&r);
   PG_TRY(length, res, res_length);
   u32 expected_length = 0;
   if (__builtin_add_overflow(length, 4, &expected_length)) {
@@ -10440,28 +10458,28 @@ static const PgString pg_dwarf_form_str[] = {
     return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
-  PG_RESULT(u16) res_version = pg_reader_read_u16_le(&r);
+  PG_RESULT(u16, PgError) res_version = pg_reader_read_u16_le(&r);
   PG_TRY(version, res, res_version);
   if (5 != version) {
     return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
-  PG_RESULT(u8) res_address_size = pg_reader_read_u8_le(&r);
+  PG_RESULT(u8, PgError) res_address_size = pg_reader_read_u8_le(&r);
   PG_TRY(address_size, res, res_address_size);
   if (8 != address_size) {
     return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
-  PG_RESULT(u8) res_segment_selector_size = pg_reader_read_u8_le(&r);
+  PG_RESULT(u8, PgError) res_segment_selector_size = pg_reader_read_u8_le(&r);
   PG_TRY(segment_selector_size, res, res_segment_selector_size);
   PG_UNUSED(segment_selector_size);
 
-  PG_RESULT(u32) res_offset_count = pg_reader_read_u32_le(&r);
+  PG_RESULT(u32, PgError) res_offset_count = pg_reader_read_u32_le(&r);
   PG_TRY(offset_count, res, res_offset_count);
 
   if (0 != offset_count) {
     for (u32 i = 0; i < offset_count; i++) {
-      PG_RESULT(u32) res_offset = pg_reader_read_u32_le(&r);
+      PG_RESULT(u32, PgError) res_offset = pg_reader_read_u32_le(&r);
       PG_TRY(offset, res, res_offset);
       PG_UNUSED(offset);
     }
@@ -10472,7 +10490,7 @@ static const PgString pg_dwarf_form_str[] = {
 
   while (!PG_SLICE_IS_EMPTY(r.u.bytes)) {
     PgDwarfRangeListEntry entry = {0};
-    PG_RESULT(u8) res_kind = pg_reader_read_u8_le(&r);
+    PG_RESULT(u8, PgError) res_kind = pg_reader_read_u8_le(&r);
     if (res_kind.err) {
       res.err = res_kind.err;
       return res;
@@ -10489,7 +10507,7 @@ static const PgString pg_dwarf_form_str[] = {
     } break;
 
     case PG_DWARF_RLE_BASE_ADDRESSX: {
-      PG_RESULT(u64) res_read = pg_reader_read_u64_leb128(&r);
+      PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_leb128(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
@@ -10501,7 +10519,7 @@ static const PgString pg_dwarf_form_str[] = {
     } break;
 
     case PG_DWARF_RLE_STARTX_LENGTH: {
-      PG_RESULT(u64) res_read = pg_reader_read_u64_leb128(&r);
+      PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_leb128(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
@@ -10519,7 +10537,7 @@ static const PgString pg_dwarf_form_str[] = {
     } break;
 
     case PG_DWARF_RLE_OFFSET_PAIR: {
-      PG_RESULT(u64) res_read = pg_reader_read_u64_leb128(&r);
+      PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_leb128(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
@@ -10539,7 +10557,7 @@ static const PgString pg_dwarf_form_str[] = {
     } break;
 
     case PG_DWARF_RLE_STARTX_ENDX: {
-      PG_RESULT(u64) res_read = pg_reader_read_u64_leb128(&r);
+      PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_leb128(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
@@ -10559,7 +10577,7 @@ static const PgString pg_dwarf_form_str[] = {
     } break;
 
     case PG_DWARF_RLE_BASE_ADDRESS: {
-      PG_RESULT(u64) res_read = pg_reader_read_u64_le(&r);
+      PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_le(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
@@ -10571,7 +10589,7 @@ static const PgString pg_dwarf_form_str[] = {
     } break;
 
     case PG_DWARF_RLE_START_END: {
-      PG_RESULT(u64) res_read = pg_reader_read_u64_le(&r);
+      PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_le(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
@@ -10591,7 +10609,7 @@ static const PgString pg_dwarf_form_str[] = {
     } break;
 
     case PG_DWARF_RLE_START_LENGTH: {
-      PG_RESULT(u64) res_read = pg_reader_read_u64_le(&r);
+      PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_le(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
@@ -12196,9 +12214,9 @@ typedef struct {
 } PgCliOption;
 PG_DYN_DECL(PgCliOption);
 PG_SLICE_DECL(PgCliOption);
-PG_RESULT_DECL(PgCliOption);
+PG_RESULT_DECL(PgCliOption, PgError);
 PG_OPTION_DECL(PgCliOption);
-PG_RESULT_DECL(PG_OPTION(PgCliOption));
+PG_RESULT_DECL(PG_OPTION(PgCliOption), PgError);
 
 typedef struct {
   PG_DYN(PgString) plain_arguments;
