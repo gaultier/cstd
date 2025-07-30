@@ -3808,7 +3808,7 @@ static void test_arena() {
     u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 3);
     PG_ASSERT(nullptr == res);
   }
-  // Arena just big enough for allocation..
+  // Arena just big enough for allocation.
   {
     PgArena arena = pg_arena_make_from_virtual_mem(1);
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -3819,6 +3819,19 @@ static void test_arena() {
     // Prevent optimizer from removing all of this.
     volatile u8 *x = res;
     *x += 1;
+  }
+  // Arena too small for reallocation.
+  {
+    PgArena arena = pg_arena_make_from_virtual_mem(1);
+    PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+    u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 1);
+    PG_ASSERT(nullptr != res);
+
+    // 1 -> 2.
+    res = pg_realloc(allocator, res, 1, sizeof(u8), _Alignof(u8), 2);
+    PG_ASSERT(nullptr == res);
   }
 }
 
