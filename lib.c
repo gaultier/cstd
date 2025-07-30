@@ -12027,7 +12027,7 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   static PgString res = {0};
   if (pg_once_do(&once)) {
     char path_c[PG_PATH_MAX] = {0};
-    u32 len = 0;
+    u32 len = PG_STATIC_ARRAY_LEN(path_c);
 
     i32 ret = _NSGetExecutablePath(path_c, &len);
     if (-1 == ret) {
