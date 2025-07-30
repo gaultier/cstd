@@ -1538,7 +1538,6 @@ PG_RESULT_DECL(PG_DYN(PgDebugFunctionDeclaration));
 typedef struct {
   PgDwarfCompilationUnitKind kind;
   PG_DYN(PgDwarfAbbreviationEntry) abbrevs;
-  // PgDwarfRangesDyn range_lists;
   PG_DYN(u64) addresses;
 
   // Only for skeleton unit.
@@ -11895,7 +11894,7 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
-    pg_aio_wait(PgAio aio, PgAioEventSlice events_out,
+    pg_aio_wait(PgAio aio, PG_SLICE(PgAioEvent) events_out,
                 PG_OPTION(u32) timeout_ms) {
   PG_RESULT(u64) res = {0};
 
@@ -11986,12 +11985,13 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgAioEventResult
-pg_aio_fs_wait_one(PgAio aio, PG_OPTION(u32) timeout_ms,
-                   PgAllocator *allocator) {
-  PgAioEventResult res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgAioEvent)
+    pg_aio_fs_wait_one(PgAio aio, PG_OPTION(u32) timeout_ms,
+                       PgAllocator *allocator) {
+  PG_RESULT(PgAioEvent) res = {0};
 
-  PgAioEventSlice events_slice = {
+  PG_SLICE(PgAioEvent)
+  events_slice = {
       .data = &res.value,
       .len = 1,
   };
