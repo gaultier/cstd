@@ -291,13 +291,13 @@ static void test_slice_range() {
 
   PG_DYN(PgString) dyn = {0};
   // Works on empty slices.
-  (void)PG_SLICE_RANGE(PG_DYN_SLICE(PG_SLICE(PgString), dyn), 0, 0);
+  (void)PG_SLICE_RANGE(PG_DYN_TO_SLICE(PG_SLICE(PgString), dyn), 0, 0);
 
   PG_DYN_PUSH(&dyn, PG_S("hello \"world\n\"!"), allocator);
   PG_DYN_PUSH(&dyn, PG_S("日"), allocator);
   PG_DYN_PUSH(&dyn, PG_S("本語"), allocator);
 
-  PG_SLICE(PgString) s = PG_DYN_SLICE(PG_SLICE(PgString), dyn);
+  PG_SLICE(PgString) s = PG_DYN_TO_SLICE(PG_SLICE(PgString), dyn);
   PG_SLICE(PgString) range = PG_SLICE_RANGE_START(s, 1UL);
   PG_ASSERT(2 == range.len);
 
@@ -658,7 +658,7 @@ static void test_dynu8_append_u8_hex_upper() {
     PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0xac, allocator));
     PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0x89, allocator));
 
-    PgString s = PG_DYN_SLICE(PgString, w.u.bytes);
+    PgString s = PG_DYN_TO_SLICE(PgString, w.u.bytes);
     PG_ASSERT(pg_string_eq(s, PG_S("AC89")));
   }
 }
@@ -686,7 +686,7 @@ static void test_url_encode() {
     PgWriter w = pg_writer_make_string_builder(64, allocator);
     PG_ASSERT(0 ==
               pg_writer_url_encode(&w, PG_S("日本語"), PG_S("123"), allocator));
-    PgString encoded = PG_DYN_SLICE(PgString, w.u.bytes);
+    PgString encoded = PG_DYN_TO_SLICE(PgString, w.u.bytes);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=123")));
   }
@@ -695,7 +695,7 @@ static void test_url_encode() {
     PgWriter w = pg_writer_make_string_builder(64, allocator);
     PG_ASSERT(0 ==
               pg_writer_url_encode(&w, PG_S("日本語"), PG_S("foo"), allocator));
-    PgString encoded = PG_DYN_SLICE(PgString, w.u.bytes);
+    PgString encoded = PG_DYN_TO_SLICE(PgString, w.u.bytes);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=foo")));
   }
@@ -2091,7 +2091,7 @@ static void test_log() {
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world",
            pg_log_c_s("foo", PG_S("bar")), pg_log_c_i64("baz", -317));
 
-    PgString out = PG_DYN_SLICE(PgString, logger.writer.u.bytes);
+    PgString out = PG_DYN_TO_SLICE(PgString, logger.writer.u.bytes);
     PG_ASSERT(pg_string_starts_with(out, PG_S("level=info ")));
   }
   // PgLog but the logger level is higher.
@@ -2108,7 +2108,7 @@ static void test_log() {
     pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world",
            pg_log_s(PG_S("foo"), PG_S("bar")));
 
-    PgString out = PG_DYN_SLICE(PgString, logger.writer.u.bytes);
+    PgString out = PG_DYN_TO_SLICE(PgString, logger.writer.u.bytes);
     PG_ASSERT(pg_string_is_empty(out));
   }
 }
@@ -2157,7 +2157,7 @@ static void test_process_no_capture() {
   PgProcessSpawnOptions options = {0};
   PG_RESULT(PgProcess)
   res_spawn = pg_process_spawn(
-      PG_S("git"), PG_DYN_SLICE(PG_SLICE(PgString), args), options, allocator);
+      PG_S("git"), PG_DYN_TO_SLICE(PG_SLICE(PgString), args), options, allocator);
   PG_ASSERT(0 == res_spawn.err);
 
   PgProcess process = res_spawn.value;
@@ -2193,7 +2193,7 @@ static void test_process_capture() {
   };
   PG_RESULT(PgProcess)
   res_spawn = pg_process_spawn(
-      PG_S("git"), PG_DYN_SLICE(PG_SLICE(PgString), args), options, allocator);
+      PG_S("git"), PG_DYN_TO_SLICE(PG_SLICE(PgString), args), options, allocator);
   PG_ASSERT(0 == res_spawn.err);
 
   PgProcess process = res_spawn.value;
@@ -2229,7 +2229,7 @@ static void test_process_stdin() {
   };
   PG_RESULT(PgProcess)
   res_spawn = pg_process_spawn(
-      PG_S("grep"), PG_DYN_SLICE(PG_SLICE(PgString), args), options, allocator);
+      PG_S("grep"), PG_DYN_TO_SLICE(PG_SLICE(PgString), args), options, allocator);
   PG_ASSERT(0 == res_spawn.err);
 
   PgProcess process = res_spawn.value;
@@ -2720,7 +2720,7 @@ static void test_string_escape_js() {
     PgString s = PG_S("hello\t,\n'world'\r\"\v\"🍌");
     Pgu8Dyn sb = {0};
     pg_string_builder_append_js_string_escaped(&sb, s, allocator);
-    PgString out = PG_DYN_SLICE(PgString, sb);
+    PgString out = PG_DYN_TO_SLICE(PgString, sb);
     PgString expected = PG_S("hello\\t,\\n\\'world\\'\\r\\\"\\v\\\"\\u{1f34c}");
 
     PG_ASSERT(pg_string_eq(out, expected));
@@ -2736,7 +2736,7 @@ static void test_string_builder_append_u64() {
   {
     Pgu8Dyn sb = {0};
     pg_string_builder_append_u64(&sb, 0, allocator);
-    PgString out = PG_DYN_SLICE(PgString, sb);
+    PgString out = PG_DYN_TO_SLICE(PgString, sb);
     PgString expected = PG_S("0");
 
     PG_ASSERT(pg_string_eq(out, expected));
@@ -2746,7 +2746,7 @@ static void test_string_builder_append_u64() {
   {
     Pgu8Dyn sb = {0};
     pg_string_builder_append_u64(&sb, 4'056'123'789, allocator);
-    PgString out = PG_DYN_SLICE(PgString, sb);
+    PgString out = PG_DYN_TO_SLICE(PgString, sb);
     PgString expected = PG_S("4056123789");
 
     PG_ASSERT(pg_string_eq(out, expected));
@@ -2760,7 +2760,7 @@ static void test_string_buillder_append_u64_hex() {
 
   Pgu8Dyn sb = {0};
   pg_string_builder_append_u64_hex(&sb, 0x1f34c /* 🍌 */, allocator);
-  PgString out = PG_DYN_SLICE(PgString, sb);
+  PgString out = PG_DYN_TO_SLICE(PgString, sb);
   PgString expected = PG_S("1f34c");
 
   PG_ASSERT(pg_string_eq(out, expected));
@@ -3787,7 +3787,7 @@ static void test_write_u64_hex() {
 
   PgWriter w = pg_writer_make_string_builder(8, allocator);
   PG_ASSERT(0 == pg_writer_write_u64_hex(&w, 0x348e40, allocator));
-  PgString s = PG_DYN_SLICE(PgString, w.u.bytes);
+  PgString s = PG_DYN_TO_SLICE(PgString, w.u.bytes);
   PG_ASSERT(pg_string_eq(PG_S("0x348e40"), s));
 }
 

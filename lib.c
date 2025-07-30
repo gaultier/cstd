@@ -3336,7 +3336,7 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
     }                                                                          \
   } while (0)
 
-#define PG_DYN_SLICE(T, dyn) ((T){.data = (dyn).data, .len = (dyn).len})
+#define PG_DYN_TO_SLICE(T, dyn) ((T){.data = (dyn).data, .len = (dyn).len})
 
 #define PG_DYN_CLONE(dst, src, allocator)                                      \
   do {                                                                         \
@@ -4440,7 +4440,7 @@ pg_u64_to_string(u64 n, PgAllocator *allocator) {
 
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, n, allocator));
 
-  return PG_DYN_SLICE(PgString, w.u.bytes);
+  return PG_DYN_TO_SLICE(PgString, w.u.bytes);
 }
 
 [[maybe_unused]] static void
@@ -4524,7 +4524,7 @@ static PgString pg_bytes_to_hex_string(PG_SLICE(u8) bytes, PgRune sep,
     }
   }
 
-  return PG_DYN_SLICE(PgString, sb);
+  return PG_DYN_TO_SLICE(PgString, sb);
 }
 
 [[maybe_unused]] [[nodiscard]] static u64
@@ -4865,7 +4865,7 @@ pg_net_ipv4_address_to_string(PgIpv4Address address, PgAllocator *allocator) {
   PG_ASSERT(0 == pg_writer_write_u8(&w, ':', allocator));
   PG_ASSERT(0 == pg_writer_write_u64_as_string(&w, address.port, allocator));
 
-  return PG_DYN_SLICE(PgString, w.u.bytes);
+  return PG_DYN_TO_SLICE(PgString, w.u.bytes);
 }
 
 [[maybe_unused]] [[nodiscard]] static u32 pg_u8x4_be_to_u32(PgString s) {
@@ -5333,7 +5333,7 @@ pg_path_join(PgString a, PgString b, PgAllocator *allocator) {
   PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(&sb, sep);
   PG_DYN_APPEND_SLICE_WITHIN_CAPACITY(&sb, b);
 
-  return PG_DYN_SLICE(PgString, sb);
+  return PG_DYN_TO_SLICE(PgString, sb);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString pg_path_base_name(PgString s) {
@@ -5440,7 +5440,7 @@ end:
     return res;
   }
 
-  res.value = PG_DYN_SLICE(PgString, sb);
+  res.value = PG_DYN_TO_SLICE(PgString, sb);
   return res;
 }
 
@@ -5480,7 +5480,7 @@ end:
     return res;
   }
 
-  res.value = PG_DYN_SLICE(PgString, sb);
+  res.value = PG_DYN_TO_SLICE(PgString, sb);
   return res;
 }
 
@@ -6558,8 +6558,8 @@ end:
     close(process.stderr_pipe.fd);
   }
 
-  res.value.stdout_captured = PG_DYN_SLICE(PgString, stdout_sb);
-  res.value.stderr_captured = PG_DYN_SLICE(PgString, stderr_sb);
+  res.value.stdout_captured = PG_DYN_TO_SLICE(PgString, stdout_sb);
+  res.value.stderr_captured = PG_DYN_TO_SLICE(PgString, stderr_sb);
   return res;
 }
 
@@ -7576,7 +7576,7 @@ pg_html_sanitize(PgString s, PgAllocator *allocator) {
     }
   }
 
-  return PG_DYN_SLICE(PgString, res);
+  return PG_DYN_TO_SLICE(PgString, res);
 }
 
 [[maybe_unused]] [[nodiscard]]
@@ -7610,7 +7610,7 @@ static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
       PG_DYN_PUSH(&sb, '-', allocator);
     }
   }
-  PgString res = PG_DYN_SLICE(PgString, sb);
+  PgString res = PG_DYN_TO_SLICE(PgString, sb);
 
   return pg_string_trim(res, '-');
 }
@@ -7709,7 +7709,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
     }
   }
 
-  return PG_DYN_SLICE(PgString, sb);
+  return PG_DYN_TO_SLICE(PgString, sb);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_DYN(PgStringKeyValue))
@@ -8408,7 +8408,7 @@ pg_http_request_to_string(PgHttpRequest req, PgAllocator *allocator) {
 
   PG_ASSERT(0 == pg_http_write_request(&w, req, allocator));
 
-  return PG_DYN_SLICE(PgString, w.u.bytes);
+  return PG_DYN_TO_SLICE(PgString, w.u.bytes);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -9262,7 +9262,7 @@ pg_html_node_get_next_sibling(PgHtmlNode *node) {
     return res;
   }
   PG_SLICE(PgHtmlToken)
-  tokens = PG_DYN_SLICE(PG_SLICE(PgHtmlToken), res_tokens.value);
+  tokens = PG_DYN_TO_SLICE(PG_SLICE(PgHtmlToken), res_tokens.value);
 
   PgHtmlNode *root =
       pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
@@ -12484,7 +12484,7 @@ pg_cli_parse(PG_DYN(PgCliOptionDescription) * descs, int argc, char *argv[],
 
   pg_cli_inject_help_option(descs, allocator);
   PG_SLICE(PgCliOptionDescription)
-  desc_slice = PG_DYN_SLICE(PG_SLICE(PgCliOptionDescription), *descs);
+  desc_slice = PG_DYN_TO_SLICE(PG_SLICE(PgCliOptionDescription), *descs);
 
   for (u64 i = 1 /* Skip exe name */; i < (u64)argc; i++) {
     PgString arg = pg_cstr_to_string(argv[i]);
@@ -12689,7 +12689,7 @@ pg_cli_generate_help(PG_DYN(PgCliOptionDescription) descs, PgString exe_name,
     pg_string_builder_append_string(&sb, PG_S("\n"), allocator);
   }
 
-  return PG_DYN_SLICE(PgString, sb);
+  return PG_DYN_TO_SLICE(PgString, sb);
 }
 
 [[maybe_unused]] static void
