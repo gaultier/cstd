@@ -2934,7 +2934,9 @@ pg_arena_mem_available(PgArena arena) {
 [[maybe_unused]] [[nodiscard]]
 __attribute((malloc, alloc_size(2, 4), alloc_align(3))) static void *
 pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
-  PG_ASSERT(a->start != nullptr);
+  if (nullptr == a->start) {
+    return nullptr;
+  }
 
   const u64 padding = (-(u64)a->start & (align - 1));
   PG_ASSERT(padding <= align);

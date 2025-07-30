@@ -3796,7 +3796,7 @@ static void test_arena() {
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
     PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-    u8 *res = pg_alloc(nullptr, sizeof(u8), _Alignof(u8), 1);
+    u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 1);
     PG_ASSERT(nullptr == res);
   }
 }
