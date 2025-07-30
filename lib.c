@@ -943,6 +943,7 @@ static_assert(32 == sizeof(PgMachoHeader));
 typedef struct {
   PgMachoHeader header;
 } PgMacho;
+PG_RESULT(PgMacho) PgMachoResult;
 
 typedef void (*PgHttpHandler)(PgHttpRequest req, PgReader *reader,
                               PgWriter *writer, PgLogger *logger,
@@ -12039,6 +12040,21 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
 #endif
 
 #ifdef PG_OS_APPLE
+
+[[maybe_unused]] [[nodiscard]] static PgMachoResult
+pg_macho_parse(Pgu8Slice bytes) {
+  PgMachoResult res = {0};
+  PgReader r = pg_reader_make_from_bytes(bytes);
+
+  Pgu32Result res_read_magic = pg_reader_read_u32_le(&r);
+  PG_TRY(magic, res, res_read_magic);
+  if (0xfe'ed'fa'cf != magic) {
+    res.err = PG_ERR_INVALID_VALUE;
+    return res;
+  }
+
+  return res;
+}
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_self_exe_get_path(PgAllocator *allocator) {
