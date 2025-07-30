@@ -908,9 +908,9 @@ static void test_ring_buffer_read_write() {
 
 static void test_ring_buffer_read_write_fuzz() {
 
-  PG_RESULT(PgFileDescriptorPair) res_pipe = pg_pipe_make();
+  PG_RESULT(PG_PAIR(PgFileDescriptor)) res_pipe = pg_pipe_make();
   PG_ASSERT(0 == res_pipe.err);
-  PgFileDescriptorPair oracle = res_pipe.value;
+  PG_PAIR(PgFileDescriptor) oracle = res_pipe.value;
 
   u64 oracle_cap = 0;
   // Get pipe capacity by filling it.
@@ -1547,7 +1547,7 @@ static void test_http_read_request_full_no_content_length() {
       PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1\r\nAccept: "
            "application/json\r\nContent-Type: "
            "text/html\r\n\r\nHello, world!");
-  PG_RESULT(PgFileDescriptorPair)
+  PG_RESULT(PG_PAIR(PgFileDescriptor))
   res_sockets = pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_LOCAL,
                                         PG_NET_SOCKET_TYPE_TCP,
                                         PG_NET_SOCKET_OPTION_NONE);
@@ -1617,7 +1617,7 @@ static void test_http_read_request_full_without_headers() {
 
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\nHello, world!");
-  PG_RESULT(PgFileDescriptorPair)
+  PG_RESULT(PG_PAIR(PgFileDescriptor))
   res_sockets = pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_LOCAL,
                                         PG_NET_SOCKET_TYPE_TCP,
                                         PG_NET_SOCKET_OPTION_NONE);
@@ -1688,7 +1688,7 @@ static void test_http_read_request_full_without_body() {
 
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\n");
-  PG_RESULT(PgFileDescriptorPair)
+  PG_RESULT(PG_PAIR(PgFileDescriptor))
   res_sockets = pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_LOCAL,
                                         PG_NET_SOCKET_TYPE_TCP,
                                         PG_NET_SOCKET_OPTION_NONE);
@@ -1750,7 +1750,7 @@ static void test_http_read_request_no_body_separator() {
            "application/json\r\nContent-Type: "
            "text/html\r\n");
 
-  PG_RESULT(PgFileDescriptorPair)
+  PG_RESULT(PG_PAIR(PgFileDescriptor))
   res_sockets = pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_LOCAL,
                                         PG_NET_SOCKET_TYPE_TCP,
                                         PG_NET_SOCKET_OPTION_NONE);
@@ -2871,7 +2871,7 @@ static void test_aio_tcp_sockets() {
   PG_ASSERT(0 == res_aio.err);
   PgAio aio = res_aio.value;
 
-  PG_RESULT(PgFileDescriptorPair)
+  PG_RESULT(PG_PAIR(PgFileDescriptor))
   res_sockets = pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_LOCAL,
                                         PG_NET_SOCKET_TYPE_TCP,
                                         PG_NET_SOCKET_OPTION_NONE);

@@ -174,7 +174,7 @@ typedef double f64;
 
 #define PG_PAIR_DECL(T)                                                        \
   typedef struct {                                                             \
-    T a, b;                                                                    \
+    T first, second;                                                           \
   } PG_PAIR(T)
 
 #define PG_TRY_ERR(err)                                                        \
@@ -258,6 +258,18 @@ PG_SLICE_DECL(i16);
 PG_SLICE_DECL(i32);
 PG_SLICE_DECL(i64);
 
+PG_PAIR_DECL(u8);
+PG_PAIR_DECL(u16);
+PG_PAIR_DECL(u32);
+PG_PAIR_DECL(u64);
+
+PG_PAIR_DECL(i8);
+PG_PAIR_DECL(i16);
+PG_PAIR_DECL(i32);
+PG_PAIR_DECL(i64);
+
+PG_PAIR_DECL(bool);
+
 typedef char *PgCstr;
 PG_DYN_DECL(PgCstr);
 typedef PG_SLICE(u8) PgString;
@@ -317,11 +329,9 @@ typedef union {
 } PgFileDescriptor;
 PG_RESULT_DECL(PgFileDescriptor);
 PG_OPTION_DECL(PgFileDescriptor);
+PG_PAIR_DECL(PgFileDescriptor);
 
-typedef struct {
-  PgFileDescriptor first, second;
-} PgFileDescriptorPair;
-PG_RESULT_DECL(PgFileDescriptorPair);
+PG_RESULT_DECL(PG_PAIR(PgFileDescriptor));
 
 typedef enum {
   PG_NET_SOCKET_DOMAIN_LOCAL,
@@ -1411,16 +1421,13 @@ typedef enum : u8 {
 } PgDwarfRangeListEntryKind;
 
 typedef struct {
-  u64 a, b;
-} Pgu64Pair;
-
-typedef struct {
   PgDwarfRangeListEntryKind kind;
   union {
-    u32 address_index;  // PG_DWARF_RLE_BASE_ADDRESSX
-    Pgu64Pair pair_u64; // PG_DWARF_RLE_STARTX_LENGTH, PG_DWARF_RLE_OFFSET_PAIR,
-                        // PG_DWARF_RLE_START_END,PG_DWARF_RLE_START_LENGTH
-    u64 u64;            // PG_DWARF_RLE_BASE_ADDRESS
+    u32 address_index; // PG_DWARF_RLE_BASE_ADDRESSX
+    PG_PAIR(u64)
+    pair_u64; // PG_DWARF_RLE_STARTX_LENGTH, PG_DWARF_RLE_OFFSET_PAIR,
+              // PG_DWARF_RLE_START_END,PG_DWARF_RLE_START_LENGTH
+    u64 u64;  // PG_DWARF_RLE_BASE_ADDRESS
   } u;
 } PgDwarfRangeListEntry;
 PG_DYN_DECL(PgDwarfRangeListEntry);
@@ -1690,7 +1697,7 @@ typedef enum : i32 {
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout();
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr();
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptorPair)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor))
     pg_pipe_make();
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
@@ -3382,7 +3389,7 @@ pg_net_tcp_accept(PgFileDescriptor sock);
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_net_get_socket_error(PgFileDescriptor socket);
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptorPair)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor))
     pg_net_make_socket_pair(PgNetSocketDomain domain, PgNetSocketType type,
                             PgNetSocketOption option);
 
@@ -5928,10 +5935,10 @@ end:
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptorPair)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor))
     pg_net_make_socket_pair(PgNetSocketDomain domain, PgNetSocketType type,
                             PgNetSocketOption option) {
-  PG_RESULT(PgFileDescriptorPair) res = {0};
+  PG_RESULT(PG_PAIR(PgFileDescriptor)) res = {0};
 
   i32 unix_domain = 0;
   switch (domain) {
@@ -5978,9 +5985,9 @@ end:
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptorPair)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor))
     pg_pipe_make() {
-  PG_RESULT(PgFileDescriptorPair) res = {0};
+  PG_RESULT(PG_PAIR(PgFileDescriptor)) res = {0};
 
   int fds[2] = {0};
   int ret = pipe(fds);
@@ -10590,14 +10597,14 @@ static const PgString pg_dwarf_form_str[] = {
         res.err = res_read.err;
         return res;
       }
-      entry.u.pair_u64.a = res_read.value;
+      entry.u.pair_u64.first = res_read.value;
 
       res_read = pg_reader_read_u64_leb128(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
       }
-      entry.u.pair_u64.b = res_read.value;
+      entry.u.pair_u64.second = res_read.value;
 
       PG_DYN_PUSH(&ranges, entry, allocator);
     } break;
@@ -10608,16 +10615,16 @@ static const PgString pg_dwarf_form_str[] = {
         res.err = res_read.err;
         return res;
       }
-      entry.u.pair_u64.a = base_address + res_read.value;
+      entry.u.pair_u64.first = base_address + res_read.value;
 
       res_read = pg_reader_read_u64_leb128(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
       }
-      entry.u.pair_u64.b = base_address + res_read.value;
+      entry.u.pair_u64.second = base_address + res_read.value;
 
-      if (entry.u.pair_u64.a != entry.u.pair_u64.b) {
+      if (entry.u.pair_u64.first != entry.u.pair_u64.second) {
         PG_DYN_PUSH(&ranges, entry, allocator);
       }
     } break;
@@ -10628,16 +10635,16 @@ static const PgString pg_dwarf_form_str[] = {
         res.err = res_read.err;
         return res;
       }
-      entry.u.pair_u64.a = base_address + res_read.value;
+      entry.u.pair_u64.first = base_address + res_read.value;
 
       res_read = pg_reader_read_u64_leb128(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
       }
-      entry.u.pair_u64.b = base_address + res_read.value;
+      entry.u.pair_u64.second = base_address + res_read.value;
 
-      if (entry.u.pair_u64.a != entry.u.pair_u64.b) {
+      if (entry.u.pair_u64.first != entry.u.pair_u64.second) {
         PG_DYN_PUSH(&ranges, entry, allocator);
       }
     } break;
@@ -10660,16 +10667,16 @@ static const PgString pg_dwarf_form_str[] = {
         res.err = res_read.err;
         return res;
       }
-      entry.u.pair_u64.a = res_read.value;
+      entry.u.pair_u64.first = res_read.value;
 
       res_read = pg_reader_read_u64_le(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
       }
-      entry.u.pair_u64.b = res_read.value;
+      entry.u.pair_u64.second = res_read.value;
 
-      if (entry.u.pair_u64.a != entry.u.pair_u64.b) {
+      if (entry.u.pair_u64.first != entry.u.pair_u64.second) {
         PG_DYN_PUSH(&ranges, entry, allocator);
       }
     } break;
@@ -10680,14 +10687,14 @@ static const PgString pg_dwarf_form_str[] = {
         res.err = res_read.err;
         return res;
       }
-      entry.u.pair_u64.a = res_read.value;
+      entry.u.pair_u64.first = res_read.value;
 
       res_read = pg_reader_read_u64_leb128(&r);
       if (res_read.err) {
         res.err = res_read.err;
         return res;
       }
-      entry.u.pair_u64.b = res_read.value;
+      entry.u.pair_u64.second = res_read.value;
 
       PG_DYN_PUSH(&ranges, entry, allocator);
     } break;
