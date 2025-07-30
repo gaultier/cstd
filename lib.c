@@ -145,13 +145,13 @@ typedef ssize_t isize;
 typedef float f32;
 typedef double f64;
 
-#define PG_RESULT(T)                                                           \
+#define PG_RESULT_DECL(T)                                                           \
   typedef struct {                                                             \
     PgError err;                                                               \
     T value;                                                                   \
   }
 
-#define PG_OPTION(T)                                                           \
+#define PG_OPTION_DECL(T)                                                           \
   typedef struct {                                                             \
     T value;                                                                   \
     bool has_value;                                                            \
@@ -190,32 +190,32 @@ typedef u64 PgError;
 #define PG_ERR_CLI_FORBIDEN_OPTION_VALUE 0xff'00'03
 #define PG_ERR_CLI_MALFORMED_OPTION 0xff'00'04
 
-PG_RESULT(u8) Pgu8Result;
-PG_RESULT(u16) Pgu16Result;
-PG_RESULT(u32) Pgu32Result;
-PG_RESULT(u64) Pgu64Result;
+PG_RESULT_DECL(u8) Pgu8Result;
+PG_RESULT_DECL(u16) Pgu16Result;
+PG_RESULT_DECL(u32) Pgu32Result;
+PG_RESULT_DECL(u64) Pgu64Result;
 
-PG_RESULT(i8) Pgi8Result;
-PG_RESULT(i16) Pgi16Result;
-PG_RESULT(i32) Pgi32Result;
-PG_RESULT(i64) Pgi64Result;
+PG_RESULT_DECL(i8) Pgi8Result;
+PG_RESULT_DECL(i16) Pgi16Result;
+PG_RESULT_DECL(i32) Pgi32Result;
+PG_RESULT_DECL(i64) Pgi64Result;
 
-PG_RESULT(bool) PgBoolResult;
-PG_OPTION(bool) PgBoolOption;
+PG_RESULT_DECL(bool) PgBoolResult;
+PG_OPTION_DECL(bool) PgBoolOption;
 PG_SLICE(bool) PgBoolSlice;
 PG_DYN(bool) PgBoolDyn;
 
-PG_RESULT(void *) PgVoidPtrResult;
+PG_RESULT_DECL(void *) PgVoidPtrResult;
 
-PG_OPTION(u8) Pgu8Option;
-PG_OPTION(u16) Pgu16Option;
-PG_OPTION(u32) Pgu32Option;
-PG_OPTION(u64) Pgu64Option;
+PG_OPTION_DECL(u8) Pgu8Option;
+PG_OPTION_DECL(u16) Pgu16Option;
+PG_OPTION_DECL(u32) Pgu32Option;
+PG_OPTION_DECL(u64) Pgu64Option;
 
-PG_OPTION(i8) Pgi8Option;
-PG_OPTION(i16) Pgi16Option;
-PG_OPTION(i32) Pgi32Option;
-PG_OPTION(i64) Pgi64Option;
+PG_OPTION_DECL(i8) Pgi8Option;
+PG_OPTION_DECL(i16) Pgi16Option;
+PG_OPTION_DECL(i32) Pgi32Option;
+PG_OPTION_DECL(i64) Pgi64Option;
 
 PG_DYN(u8) Pgu8Dyn;
 PG_DYN(u16) Pgu16Dyn;
@@ -240,22 +240,22 @@ PG_SLICE(i64) Pgi64Slice;
 PG_DYN(char *) PgCstrDyn;
 typedef Pgu8Slice PgString;
 PG_DYN(PgString) PgStringDyn;
-PG_RESULT(PgStringDyn) PgStringDynResult;
+PG_RESULT_DECL(PgStringDyn) PgStringDynResult;
 
 PG_SLICE(void) PgAnySlice;
 PG_DYN(void) PgAnyDyn;
 
-PG_OPTION(Pgu8Slice) Pgu8SliceOption;
-PG_RESULT(Pgu8Slice) Pgu8SliceResult;
+PG_OPTION_DECL(Pgu8Slice) Pgu8SliceOption;
+PG_RESULT_DECL(Pgu8Slice) Pgu8SliceResult;
 
-PG_RESULT(Pgu64Option) Pgu64OptionResult;
+PG_RESULT_DECL(Pgu64Option) Pgu64OptionResult;
 
-PG_RESULT(f64) Pgf64Result;
-PG_OPTION(f64) Pgf64Option;
+PG_RESULT_DECL(f64) Pgf64Result;
+PG_OPTION_DECL(f64) Pgf64Option;
 PG_SLICE(f64) Pgf64Slice;
 PG_DYN(f64) Pgf64Dyn;
 
-PG_RESULT(Pgu64Dyn) Pgu64DynResult;
+PG_RESULT_DECL(Pgu64Dyn) Pgu64DynResult;
 
 #define PG_STATIC_ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -290,13 +290,13 @@ typedef union {
   int fd;
   void *ptr;
 } PgFileDescriptor;
-PG_RESULT(PgFileDescriptor) PgFileDescriptorResult;
-PG_OPTION(PgFileDescriptor) PgFileDescriptorOption;
+PG_RESULT_DECL(PgFileDescriptor) PgFileDescriptorResult;
+PG_OPTION_DECL(PgFileDescriptor) PgFileDescriptorOption;
 
 typedef struct {
   PgFileDescriptor first, second;
 } PgFileDescriptorPair;
-PG_RESULT(PgFileDescriptorPair) PgFileDescriptorPairResult;
+PG_RESULT_DECL(PgFileDescriptorPair) PgFileDescriptorPairResult;
 
 typedef enum {
   PG_NET_SOCKET_DOMAIN_LOCAL,
@@ -327,7 +327,7 @@ static const u64 PG_FILE_ACCESS_ALL =
     PG_FILE_ACCESS_READ | PG_FILE_ACCESS_WRITE | PG_FILE_ACCESS_READ_WRITE;
 
 typedef u32 PgRune;
-PG_OPTION(PgRune) PgRuneOption;
+PG_OPTION_DECL(PgRune) PgRuneOption;
 
 typedef struct {
   PgRune rune;
@@ -518,7 +518,7 @@ typedef enum [[clang::flag_enum]] {
 typedef struct {
   u64 start_incl, end_excl, idx;
 } Pgu64Range;
-PG_OPTION(Pgu64Range) Pgu64RangeOption;
+PG_OPTION_DECL(Pgu64Range) Pgu64RangeOption;
 
 typedef struct {
   i32 exit_status;
@@ -529,12 +529,12 @@ typedef struct {
   // Only if `spawn_options.stderr == PG_CHILD_PROCESS_STD_IO_PIPE`.
   PgString stderr_captured;
 } PgProcessStatus;
-PG_RESULT(PgProcessStatus) PgProcessExitResult;
+PG_RESULT_DECL(PgProcessStatus) PgProcessExitResult;
 
 typedef struct {
   PgString stdout_captured, stderr_captured;
 } PgProcessCaptureStd;
-PG_RESULT(PgProcessCaptureStd) PgProcessCaptureStdResult;
+PG_RESULT_DECL(PgProcessCaptureStd) PgProcessCaptureStdResult;
 
 typedef struct {
   u64 pid;
@@ -545,7 +545,7 @@ typedef struct {
   // Only if `spawn_options.stderr == PG_CHILD_PROCESS_STD_IO_PIPE`.
   PgFileDescriptor stderr_pipe;
 } PgProcess;
-PG_RESULT(PgProcess) PgProcessResult;
+PG_RESULT_DECL(PgProcess) PgProcessResult;
 
 typedef enum {
   PG_CHILD_PROCESS_STD_IO_INHERIT,
@@ -564,7 +564,7 @@ typedef struct {
   PgIpv4Address address;
   PgFileDescriptor socket;
 } PgIpv4AddressSocket;
-PG_RESULT(PgIpv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
+PG_RESULT_DECL(PgIpv4AddressSocket) PgDnsResolveIpv4AddressSocketResult;
 
 typedef struct {
   PgIpv4Address address;
@@ -588,10 +588,10 @@ typedef enum {
 typedef struct {
   PgString key, value;
 } PgStringKeyValue;
-PG_RESULT(PgStringKeyValue) PgStringKeyValueResult;
+PG_RESULT_DECL(PgStringKeyValue) PgStringKeyValueResult;
 PG_DYN(PgStringKeyValue) PgStringKeyValueDyn;
 PG_SLICE(PgStringKeyValue) PgStringKeyValueSlice;
-PG_RESULT(PgStringKeyValueDyn) PgStringDynKeyValueResult;
+PG_RESULT_DECL(PgStringKeyValueDyn) PgStringDynKeyValueResult;
 
 typedef struct {
   PgString scheme;
@@ -619,7 +619,7 @@ typedef struct {
   PgUrl url; // Does not have a scheme, domain, port.
 } PgHttpRequestStatusLine;
 
-PG_RESULT(PgHttpRequestStatusLine) PgHttpRequestStatusLineResult;
+PG_RESULT_DECL(PgHttpRequestStatusLine) PgHttpRequestStatusLineResult;
 
 // `HTTP/1.1 201 Created`.
 typedef struct {
@@ -628,7 +628,7 @@ typedef struct {
   u16 status;
 } PgHttpResponseStatusLine;
 
-PG_RESULT(PgHttpResponseStatusLine) PgHttpResponseStatusLineResult;
+PG_RESULT_DECL(PgHttpResponseStatusLine) PgHttpResponseStatusLineResult;
 
 typedef struct {
   u8 version_major;
@@ -640,15 +640,15 @@ typedef struct {
 typedef struct {
   PgString username, password;
 } PgUrlUserInfo;
-PG_RESULT(PgUrlUserInfo) PgUrlUserInfoResult;
+PG_RESULT_DECL(PgUrlUserInfo) PgUrlUserInfoResult;
 
 typedef struct {
   PgUrlUserInfo user_info;
   PgString host;
   u16 port;
 } PgUrlAuthority;
-PG_RESULT(PgUrlAuthority) PgUrlAuthorityResult;
-PG_RESULT(PgUrl) PgUrlResult;
+PG_RESULT_DECL(PgUrlAuthority) PgUrlAuthorityResult;
+PG_RESULT_DECL(PgUrl) PgUrlResult;
 
 typedef struct {
   bool done;
@@ -736,10 +736,10 @@ typedef struct {
     PgString comment;
   };
 } PgHtmlToken;
-PG_RESULT(PgHtmlToken) PgHtmlTokenResult;
+PG_RESULT_DECL(PgHtmlToken) PgHtmlTokenResult;
 PG_DYN(PgHtmlToken) PgHtmlTokenDyn;
 PG_SLICE(PgHtmlToken) PgHtmlTokenSlice;
-PG_RESULT(PgHtmlTokenDyn) PgHtmlTokenDynResult;
+PG_RESULT_DECL(PgHtmlTokenDyn) PgHtmlTokenDynResult;
 
 typedef enum {
   PG_HTML_PARSE_ERROR_NONE = 0,
@@ -764,7 +764,7 @@ struct PgHtmlNode {
   PgHtmlToken token_start, token_end;
   PgLinkedListNode parent, next_sibling, first_child;
 };
-PG_RESULT(PgHtmlNode *) PgHtmlNodePtrResult;
+PG_RESULT_DECL(PgHtmlNode *) PgHtmlNodePtrResult;
 
 // TODO: Remove and use enum values instead.
 static const u32 PgElfProgramHeaderTypeLoad = 1;
@@ -850,7 +850,7 @@ typedef struct {
 static_assert(64 == sizeof(PgElfSectionHeader));
 PG_DYN(PgElfSectionHeader) PgElfSectionHeaderDyn;
 PG_SLICE(PgElfSectionHeader) PgElfSectionHeaderSlice;
-PG_OPTION(PgElfSectionHeader) PgElfSectionHeaderOption;
+PG_OPTION_DECL(PgElfSectionHeader) PgElfSectionHeaderOption;
 
 typedef enum {
   PG_ELF_KNOWN_SECTION_TEXT,
@@ -926,7 +926,7 @@ typedef struct {
   u32 section_header_text_idx;
   u32 section_header_strtab_idx;
 } PgElf;
-PG_RESULT(PgElf) PgElfResult;
+PG_RESULT_DECL(PgElf) PgElfResult;
 
 typedef struct {
   u32 magic;
@@ -943,7 +943,7 @@ static_assert(32 == sizeof(PgMachoHeader));
 typedef struct {
   PgMachoHeader header;
 } PgMacho;
-PG_RESULT(PgMacho) PgMachoResult;
+PG_RESULT_DECL(PgMacho) PgMachoResult;
 
 typedef void (*PgHttpHandler)(PgHttpRequest req, PgReader *reader,
                               PgWriter *writer, PgLogger *logger,
@@ -957,11 +957,11 @@ typedef struct {
   void *ctx;
 } PgHttpServerOptions;
 
-PG_RESULT(PgString) PgStringResult;
-PG_OPTION(PgString) PgStringOption;
+PG_RESULT_DECL(PgString) PgStringResult;
+PG_OPTION_DECL(PgString) PgStringOption;
 PG_SLICE(PgString) PgStringSlice;
 
-PG_RESULT(PgStringSlice) PgStringSliceResult;
+PG_RESULT_DECL(PgStringSlice) PgStringSliceResult;
 
 #ifdef PG_OS_UNIX
 typedef pthread_t PgThread;
@@ -970,7 +970,7 @@ typedef pthread_t PgThread;
 typedef bool PgThread;
 #endif
 
-PG_RESULT(PgThread) PgThreadResult;
+PG_RESULT_DECL(PgThread) PgThreadResult;
 PG_SLICE(PgThread) PgThreadSlice;
 PG_DYN(PgThread) PgThreadDyn;
 
@@ -1012,7 +1012,7 @@ typedef struct {
 
   bool done;
 } PgThreadPool;
-PG_RESULT(PgThreadPool) PgThreadPoolResult;
+PG_RESULT_DECL(PgThreadPool) PgThreadPoolResult;
 
 typedef enum [[clang::flag_enum]] {
   PG_AIO_EVENT_KIND_NONE = 0,
@@ -1035,8 +1035,8 @@ typedef struct {
 } PgAioEvent;
 PG_DYN(PgAioEvent) PgAioEventDyn;
 PG_SLICE(PgAioEvent) PgAioEventSlice;
-PG_RESULT(PgAioEvent) PgAioEventResult;
-PG_OPTION(PgAioEvent) PgAioEventOption;
+PG_RESULT_DECL(PgAioEvent) PgAioEventResult;
+PG_OPTION_DECL(PgAioEvent) PgAioEventOption;
 
 typedef struct {
   PgFileDescriptor aio;
@@ -1044,7 +1044,7 @@ typedef struct {
   PgFileDescriptorOption inotify;
 #endif
 } PgAio;
-PG_RESULT(PgAio) PgAioResult;
+PG_RESULT_DECL(PgAio) PgAioResult;
 
 typedef struct {
 #ifdef PG_OS_UNIX
@@ -1053,14 +1053,14 @@ typedef struct {
   // TODO: Windows.
 #endif
 } PgDirectory;
-PG_RESULT(PgDirectory) PgDirectoryResult;
+PG_RESULT_DECL(PgDirectory) PgDirectoryResult;
 
 #ifdef PG_OS_UNIX
 typedef struct dirent *PgDirectoryEntry;
 #else
 // TODO: Windows.
 #endif
-PG_RESULT(PgDirectoryEntry) PgDirectoryEntryResult;
+PG_RESULT_DECL(PgDirectoryEntry) PgDirectoryEntryResult;
 
 typedef enum {
   PG_WALK_DIRECTORY_KIND_NONE = 0,
@@ -1404,7 +1404,7 @@ typedef struct {
 PG_DYN(PgDwarfRangeListEntry) PgDwarfRangeListEntryDyn;
 
 PG_DYN(PgDwarfRangeListEntryDyn) PgDwarfRangesDyn;
-PG_RESULT(PgDwarfRangesDyn) PgDwarfRangesDynResult;
+PG_RESULT_DECL(PgDwarfRangesDyn) PgDwarfRangesDynResult;
 
 typedef enum : u8 {
   PG_DWARF_FORM_NONE = 0,
@@ -1491,9 +1491,9 @@ typedef struct {
   PgDwarfAttributeFormDyn attribute_forms;
 } PgDwarfAbbreviationEntry;
 PG_DYN(PgDwarfAbbreviationEntry) PgDwarfAbbreviationEntryDyn;
-PG_OPTION(PgDwarfAbbreviationEntry) PgDwarfAbbreviationEntryOption;
-PG_RESULT(PgDwarfAbbreviationEntryOption) PgDwarfAbbreviationEntryOptionResult;
-PG_RESULT(PgDwarfAbbreviationEntryDyn) PgDwarfAbbreviationEntryDynResult;
+PG_OPTION_DECL(PgDwarfAbbreviationEntry) PgDwarfAbbreviationEntryOption;
+PG_RESULT_DECL(PgDwarfAbbreviationEntryOption) PgDwarfAbbreviationEntryOptionResult;
+PG_RESULT_DECL(PgDwarfAbbreviationEntryDyn) PgDwarfAbbreviationEntryDynResult;
 
 typedef struct {
   u64 low_pc;
@@ -1503,8 +1503,8 @@ typedef struct {
   u64 debug_info_offset;
 } PgDebugFunctionDeclaration;
 PG_DYN(PgDebugFunctionDeclaration) PgDebugFunctionDeclarationDyn;
-PG_OPTION(PgDebugFunctionDeclaration) PgDebugFunctionDeclarationOption;
-PG_RESULT(PgDebugFunctionDeclarationDyn) PgDebugFunctionDeclarationDynResult;
+PG_OPTION_DECL(PgDebugFunctionDeclaration) PgDebugFunctionDeclarationOption;
+PG_RESULT_DECL(PgDebugFunctionDeclarationDyn) PgDebugFunctionDeclarationDynResult;
 
 typedef struct {
   PgDwarfCompilationUnitKind kind;
@@ -1515,14 +1515,14 @@ typedef struct {
   // Only for skeleton unit.
   u64 id;
 } PgDwarfDebugInfoCompilationUnit;
-PG_RESULT(PgDwarfDebugInfoCompilationUnit)
+PG_RESULT_DECL(PgDwarfDebugInfoCompilationUnit)
 PgDwarfDebugInfoCompilationUnitResult;
 
 typedef struct {
   PgFileDescriptor fd;
   Pgu8Slice data;
 } PgVirtualMemFile;
-PG_RESULT(PgVirtualMemFile) PgVirtualMemFileResult;
+PG_RESULT_DECL(PgVirtualMemFile) PgVirtualMemFileResult;
 
 typedef enum {
   PG_DEBUG_ATOM_KIND_NO_DATA,
@@ -1550,8 +1550,8 @@ typedef struct {
   PgDwarfAttributeForm attr_form;
   u64 debug_info_offset;
 } PgDwarfAtom;
-PG_OPTION(PgDwarfAtom) PgDwarfAtomOption;
-PG_RESULT(PgDwarfAtomOption) PgDwarfAtomOptionResult;
+PG_OPTION_DECL(PgDwarfAtom) PgDwarfAtomOption;
+PG_RESULT_DECL(PgDwarfAtomOption) PgDwarfAtomOptionResult;
 
 typedef struct {
   PgVirtualMemFile file;
@@ -1571,7 +1571,7 @@ typedef struct {
   u64 abbrev_attr_form_idx;
   Pgu8Slice debug_info_full;
 } PgDebugInfoIterator;
-PG_RESULT(PgDebugInfoIterator) PgDebugInfoIteratorResult;
+PG_RESULT_DECL(PgDebugInfoIterator) PgDebugInfoIteratorResult;
 
 typedef struct {
   u64 pc;
@@ -6957,7 +6957,7 @@ typedef struct {
   u64 len;
 } PgWtf16String;
 
-PG_RESULT(PgWtf16String) PgWtf16StringResult;
+PG_RESULT_DECL(PgWtf16String) PgWtf16StringResult;
 
 [[maybe_unused]] [[nodiscard]] static Pgu64Result
 pg_writer_win32_write(PgWriter *w, Pgu8Slice src) {
@@ -12053,6 +12053,7 @@ pg_macho_parse(Pgu8Slice bytes) {
     return res;
   }
 
+  // TODO
   return res;
 }
 
@@ -12263,7 +12264,7 @@ typedef struct {
   PgString name_long;
   PgString description;
 } PgCliOptionDescription;
-PG_OPTION(PgCliOptionDescription) PgCliOptionDescriptionOption;
+PG_OPTION_DECL(PgCliOptionDescription) PgCliOptionDescriptionOption;
 PG_DYN(PgCliOptionDescription) PgCliOptionDescriptionDyn;
 PG_SLICE(PgCliOptionDescription) PgCliOptionDescriptionSlice;
 
@@ -12274,9 +12275,9 @@ typedef struct {
 } PgCliOption;
 PG_DYN(PgCliOption) PgCliOptionDyn;
 PG_SLICE(PgCliOption) PgCliOptionSlice;
-PG_RESULT(PgCliOption) PgCliOptionResult;
-PG_OPTION(PgCliOption) PgCliOptionOption;
-PG_RESULT(PgCliOptionOption) PgCliOptionOptionResult;
+PG_RESULT_DECL(PgCliOption) PgCliOptionResult;
+PG_OPTION_DECL(PgCliOption) PgCliOptionOption;
+PG_RESULT_DECL(PgCliOptionOption) PgCliOptionOptionResult;
 
 typedef struct {
   PgStringDyn plain_arguments;
