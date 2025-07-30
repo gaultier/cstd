@@ -9613,9 +9613,9 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
   return pg_elf_get_section_header_bytes(elf, section_idx);
 }
 
-[[maybe_unused]] [[nodiscard]] static PgElfResult pg_elf_parse(PG_SLICE(u8)
-                                                                   elf_bytes) {
-  PgElfResult res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgElf)
+    pg_elf_parse(PG_SLICE(u8) elf_bytes) {
+  PG_RESULT(PgElf) res = {0};
   res.value.bytes = elf_bytes;
 
   if (elf_bytes.len < sizeof(PgElfHeader)) {
@@ -9646,7 +9646,7 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
     PG_SLICE(u8)
     section_headers_bytes =
         PG_SLICE_RANGE(elf_bytes, h.section_header_offset, section_headers_end);
-    res.value.section_headers = (PgElfSectionHeaderDyn){
+    res.value.section_headers = (PG_DYN(PgElfSectionHeader)){
         .data = (void *)section_headers_bytes.data,
         .len = h.section_header_entries_count,
         .cap = h.section_header_entries_count,
@@ -10757,7 +10757,7 @@ static const PgString pg_dwarf_form_str[] = {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgDwarfDebugInfoCompilationUnit)
     pg_dwarf_parse_debug_info(PgElf elf, PgAllocator *allocator) {
-  PgDwarfDebugInfoCompilationUnitResult res = {0};
+  PG_RESULT(PgDwarfDebugInfoCompilationUnit) res = {0};
 
   PG_RESULT(PG_SLICE(u8))
   res_bytes = pg_elf_section_header_find_bytes_by_name_and_kind(
@@ -10807,7 +10807,8 @@ static const PgString pg_dwarf_form_str[] = {
     Pgu64Result res_unit_id = pg_reader_read_u64_le(&r);
     res.value.id = res_unit_id.value;
 
-    PgDwarfAbbreviationEntryDynResult res_abbrevs =
+    PG_RESULT(PG_DYN(PgDwarfAbbreviationEntry))
+    res_abbrevs =
         pg_dwarf_parse_abbreviation_entries(elf, abbrev_offset, allocator);
     if (res_abbrevs.err) {
       res.err = res_abbrevs.err;
@@ -10827,7 +10828,8 @@ static const PgString pg_dwarf_form_str[] = {
       PG_RESULT(u32) res_abbrev_offset = pg_reader_read_u32_le(&r);
       PG_TRY(abbrev_offset, res, res_abbrev_offset);
 
-      PgDwarfAbbreviationEntryDynResult res_abbrevs =
+      PG_RESULT(PG_DYN(PgDwarfAbbreviationEntry))
+      res_abbrevs =
           pg_dwarf_parse_abbreviation_entries(elf, abbrev_offset, allocator);
       if (res_abbrevs.err) {
         res.err = res_abbrevs.err;
@@ -10844,8 +10846,8 @@ static const PgString pg_dwarf_form_str[] = {
           elf, PG_S(".debug_addr"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
       PG_TRY(addresses_bytes, res, res_addresses_bytes);
 
-      Pgu64DynResult res_addresses =
-          pg_dwarf_addresses_parse(addresses_bytes, allocator);
+      PG_RESULT(PG_DYN(u64))
+      res_addresses = pg_dwarf_addresses_parse(addresses_bytes, allocator);
       PG_TRY(addresses, res, res_addresses);
       res.value.addresses = addresses;
     }
@@ -10884,8 +10886,7 @@ pg_dwarf_compilation_unit_get_data_offset(
   }
 }
 
-[[nodiscard]] static PgString pg_dwarf_resolve_string(PG_SLICE(Pgu32)
-                                                          str_offsets,
+[[nodiscard]] static PgString pg_dwarf_resolve_string(PG_SLICE(u32) str_offsets,
                                                       PG_SLICE(u8) str_bytes,
                                                       u64 idx) {
   u32 str_idx = PG_SLICE_AT(str_offsets, idx);
@@ -10893,9 +10894,9 @@ pg_dwarf_compilation_unit_get_data_offset(
 }
 
 [[maybe_unused]] [[nodiscard]]
-static PgDwarfAtomOptionResult
-pg_dwarf_compilation_unit_debug_info_next(PgDebugInfoIterator *it) {
-  PgDwarfAtomOptionResult res = {0};
+static PG_RESULT(PG_OPTION(PgDwarfAtom))
+    pg_dwarf_compilation_unit_debug_info_next(PgDebugInfoIterator *it) {
+  PG_RESULT(PG_OPTION(PgDwarfAtom)) res = {0};
 
   // The end.
   if (PG_SLICE_IS_EMPTY(it->r.u.bytes)) {
@@ -11364,15 +11365,16 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
   return 0;
 }
 
-[[nodiscard]] static PgDebugFunctionDeclarationDynResult
-pg_dwarf_collect_functions(PgDebugInfoIterator *it, PgAllocator *allocator) {
-  PgDebugFunctionDeclarationDynResult res = {0};
+[[nodiscard]] static PG_RESULT(PG_DYN(PgDebugFunctionDeclaration))
+    pg_dwarf_collect_functions(PgDebugInfoIterator *it,
+                               PgAllocator *allocator) {
+  PG_RESULT(PG_DYN(PgDebugFunctionDeclaration)) res = {0};
 
   PgDebugFunctionDeclaration fn = {0};
   u64 current_die_offset = 0;
   for (;;) {
-    PgDwarfAtomOptionResult res_next =
-        pg_dwarf_compilation_unit_debug_info_next(it);
+    PG_RESULT(PG_OPTION(PgDwarfAtom))
+    res_next = pg_dwarf_compilation_unit_debug_info_next(it);
     PG_TRY(next, res, res_next);
 
     // The end.
@@ -12048,9 +12050,9 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
 
 #ifdef PG_OS_APPLE
 
-[[maybe_unused]] [[nodiscard]] static PgMachoResult pg_macho_parse(PG_SLICE(u8)
-                                                                       bytes) {
-  PgMachoResult res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgMacho)
+    pg_macho_parse(PG_SLICE(u8) bytes) {
+  PG_RESULT(PgMacho) res = {0};
   PgReader r = pg_reader_make_from_bytes(bytes);
 
   PG_RESULT(u32) res_read_magic = pg_reader_read_u32_le(&r);
@@ -12090,9 +12092,9 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   return ret;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgDebugInfoIteratorResult
-pg_self_debug_info_iterator_make(PgAllocator *allocator) {
-  PgDebugInfoIteratorResult res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgDebugInfoIterator)
+    pg_self_debug_info_iterator_make(PgAllocator *allocator) {
+  PG_RESULT(PgDebugInfoIterator) res = {0};
 
   PgString exe_path = pg_self_exe_get_path(allocator);
   if (pg_string_is_empty(exe_path)) {
@@ -12101,8 +12103,8 @@ pg_self_debug_info_iterator_make(PgAllocator *allocator) {
 
   // TODO: Only read the relevant parts.
   // Depending on the size of the executable.
-  PgVirtualMemFileResult res_file =
-      pg_virtual_mem_map_file(exe_path, PG_FILE_ACCESS_READ, false);
+  PG_RESULT(PgVirtualMemFile)
+  res_file = pg_virtual_mem_map_file(exe_path, PG_FILE_ACCESS_READ, false);
   PG_TRY(file, res, res_file);
   res.value.file = file;
 
@@ -12247,9 +12249,9 @@ end:
   return err;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgAioEventOption
-pg_aio_cqe_dequeue(PgRing *cqe) {
-  PgAioEventOption res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_OPTION(PgAioEvent)
+    pg_aio_cqe_dequeue(PgRing *cqe) {
+  PG_OPTION(PgAioEvent) res = {0};
   if (pg_ring_can_read_count(*cqe) < sizeof(PgAioEvent)) {
     return res;
   }
@@ -12271,24 +12273,24 @@ typedef struct {
   PgString name_long;
   PgString description;
 } PgCliOptionDescription;
-PG_OPTION_DECL(PgCliOptionDescription) PgCliOptionDescriptionOption;
-PG_DYN_DECL(PgCliOptionDescription) PgCliOptionDescriptionDyn;
-PG_SLICE_DECL(PgCliOptionDescription) PgCliOptionDescriptionSlice;
+PG_OPTION_DECL(PgCliOptionDescription);
+PG_DYN_DECL(PgCliOptionDescription);
+PG_SLICE_DECL(PgCliOptionDescription);
 
 typedef struct {
   PgCliOptionDescription description;
-  PgStringDyn values;
+  PG_DYN(PgString) values;
   PgError err;
 } PgCliOption;
-PG_DYN_DECL(PgCliOption) PgCliOptionDyn;
-PG_SLICE_DECL(PgCliOption) PgCliOptionSlice;
-PG_RESULT_DECL(PgCliOption) PgCliOptionResult;
-PG_OPTION_DECL(PgCliOption) PgCliOptionOption;
-PG_RESULT_DECL(PgCliOptionOption) PgCliOptionOptionResult;
+PG_DYN_DECL(PgCliOption);
+PG_SLICE_DECL(PgCliOption);
+PG_RESULT_DECL(PgCliOption);
+PG_OPTION_DECL(PgCliOption);
+PG_RESULT_DECL(PG_OPTION(PgCliOption));
 
 typedef struct {
-  PgStringDyn plain_arguments;
-  PgCliOptionDyn options;
+  PG_DYN(PgString) plain_arguments;
+  PG_DYN(PgCliOption) options;
 
   // Error reporting.
   PgError err;
@@ -12312,9 +12314,10 @@ typedef struct {
   return !dash_opt.has_value;
 }
 
-[[nodiscard]] static PgCliOptionDescriptionOption
-pg_cli_desc_find_by_name(PgCliOptionDescriptionSlice descs, PgString name) {
-  PgCliOptionDescriptionOption res = {0};
+[[nodiscard]] static PG_OPTION(PgCliOptionDescription)
+    pg_cli_desc_find_by_name(PG_SLICE(PgCliOptionDescription) descs,
+                             PgString name) {
+  PG_OPTION(PgCliOptionDescription) res = {0};
 
   for (u64 i = 0; i < descs.len; i++) {
     PgCliOptionDescription it = PG_SLICE_AT(descs, i);
@@ -12329,7 +12332,7 @@ pg_cli_desc_find_by_name(PgCliOptionDescriptionSlice descs, PgString name) {
 }
 
 [[nodiscard]] static PgCliOption *
-pg_cli_options_find_by_name(PgCliOptionDyn options, PgString name_short,
+pg_cli_options_find_by_name(PG_DYN(PgCliOption) options, PgString name_short,
                             PgString name_long) {
   for (u64 i = 0; i < options.len; i++) {
     PgCliOption *it = PG_SLICE_AT_PTR(&options, i);
@@ -12342,13 +12345,12 @@ pg_cli_options_find_by_name(PgCliOptionDyn options, PgString name_short,
   return nullptr;
 }
 
-[[nodiscard]] static PgError
-pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
-                               PgCliOptionDyn *options,
-                               PgCliOptionDescriptionSlice descs, char **argv,
-                               u64 *argv_idx, PgAllocator *allocator) {
-  PgCliOptionDescriptionOption desc_has_value =
-      pg_cli_desc_find_by_name(descs, opt_name);
+[[nodiscard]] static PgError pg_cli_handle_one_short_option(
+    PgString opt_name, bool with_opt_value_allowed,
+    PG_DYN(PgCliOption) * options, PG_SLICE(PgCliOptionDescription) descs,
+    char **argv, u64 *argv_idx, PgAllocator *allocator) {
+  PG_OPTION(PgCliOptionDescription)
+  desc_has_value = pg_cli_desc_find_by_name(descs, opt_name);
   if (!desc_has_value.has_value) {
     return PG_ERR_CLI_UNKNOWN_OPTION;
   }
@@ -12396,8 +12398,8 @@ pg_cli_handle_one_short_option(PgString opt_name, bool with_opt_value_allowed,
 }
 
 [[nodiscard]] static PgError
-pg_cli_handle_one_long_option(PgString opt_name, PgCliOptionDyn *options,
-                              PgCliOptionDescriptionSlice descs,
+pg_cli_handle_one_long_option(PgString opt_name, PG_DYN(PgCliOption) * options,
+                              PG_SLICE(PgCliOptionDescription) descs,
                               PgAllocator *allocator) {
   PgString opt_value = {0};
   PgStringCut cut = pg_string_cut_rune(opt_name, '=');
@@ -12406,8 +12408,8 @@ pg_cli_handle_one_long_option(PgString opt_name, PgCliOptionDyn *options,
     opt_value = cut.right;
   }
 
-  PgCliOptionDescriptionOption desc_has_value =
-      pg_cli_desc_find_by_name(descs, opt_name);
+  PG_OPTION(PgCliOptionDescription)
+  desc_has_value = pg_cli_desc_find_by_name(descs, opt_name);
   if (!desc_has_value.has_value) {
     return PG_ERR_CLI_UNKNOWN_OPTION;
   }
@@ -12443,7 +12445,7 @@ pg_cli_handle_one_long_option(PgString opt_name, PgCliOptionDyn *options,
   return 0;
 }
 
-static void pg_cli_inject_help_option(PgCliOptionDescriptionDyn *descs,
+static void pg_cli_inject_help_option(PG_DYN(PgCliOptionDescription) * descs,
                                       PgAllocator *allocator) {
   PgCliOptionDescription desc = {
       .name_short = PG_S("h"),
@@ -12455,13 +12457,13 @@ static void pg_cli_inject_help_option(PgCliOptionDescriptionDyn *descs,
 }
 
 [[maybe_unused]] [[nodiscard]] static PgCliParseResult
-pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
+pg_cli_parse(PG_DYN(PgCliOptionDescription) * descs, int argc, char *argv[],
              PgAllocator *allocator) {
   PgCliParseResult res = {0};
 
   pg_cli_inject_help_option(descs, allocator);
-  PgCliOptionDescriptionSlice desc_slice =
-      PG_DYN_SLICE(PgCliOptionDescriptionSlice, *descs);
+  PG_SLICE(PgCliOptionDescription)
+  desc_slice = PG_DYN_SLICE(PG_SLICE(PgCliOptionDescription), *descs);
 
   for (u64 i = 1 /* Skip exe name */; i < (u64)argc; i++) {
     PgString arg = pg_cstr_to_string(argv[i]);
@@ -12566,7 +12568,7 @@ pg_cli_parse(PgCliOptionDescriptionDyn *descs, int argc, char *argv[],
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
-pg_cli_generate_help(PgCliOptionDescriptionDyn descs, PgString exe_name,
+pg_cli_generate_help(PG_DYN(PgCliOptionDescription) descs, PgString exe_name,
                      PgString description, PgString plain_arguments_description,
                      PgAllocator *allocator) {
   Pgu8Dyn sb = {0};
@@ -12703,22 +12705,22 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
 [[maybe_unused]] static void pg_stack_trace_print_dwarf(u64 skip) {
   static _Atomic PgOnce once = false;
   static PgArena arena = {0};
-  static PgDebugFunctionDeclarationDyn fns = {0};
+  static PG_DYN(PgDebugFunctionDeclaration) fns = {0};
 
   if (pg_once_do(&once)) {
     arena = pg_arena_make_from_virtual_mem(512 * PG_KiB);
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
     PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-    PgDebugInfoIteratorResult res_debug =
-        pg_self_debug_info_iterator_make(allocator);
+    PG_RESULT(PgDebugInfoIterator)
+    res_debug = pg_self_debug_info_iterator_make(allocator);
     if (res_debug.err) {
       goto end;
     }
     PgDebugInfoIterator it = res_debug.value;
 
-    PgDebugFunctionDeclarationDynResult res_fns =
-        pg_dwarf_collect_functions(&it, allocator);
+    PG_RESULT(PG_DYN(PgDebugFunctionDeclaration))
+    res_fns = pg_dwarf_collect_functions(&it, allocator);
     if (res_fns.err) {
       goto end_debug;
     }
@@ -12739,8 +12741,8 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
 
     for (u32 i = 0; i < stack_trace_len; i++) {
       u64 addr = PG_C_ARRAY_AT(stack_trace, PG_STACK_TRACE_MAX, i);
-      PgDebugFunctionDeclarationOption fn_opt =
-          pg_dwarf_find_function_by_addr(fns, addr);
+      PG_OPTION(PgDebugFunctionDeclaration)
+      fn_opt = pg_dwarf_find_function_by_addr(fns, addr);
 
       fprintf(stderr, "[%u] at: %#" PRIx64, i, addr);
       if (fn_opt.has_value) {
