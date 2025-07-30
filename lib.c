@@ -1418,7 +1418,7 @@ typedef struct {
 PG_DYN_DECL(PgDwarfRangeListEntry);
 
 PG_DYN_DECL(PG_DYN(PgDwarfRangeListEntry));
-PG_RESULT_DECL(PG_DYN(PgDwarfRangeListEntry));
+PG_RESULT_DECL(PG_DYN(PG_DYN(PgDwarfRangeListEntry)));
 
 typedef enum : u8 {
   PG_DWARF_FORM_NONE = 0,
@@ -10492,10 +10492,11 @@ static const PgString pg_dwarf_form_str[] = {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_DYN(PgDwarfRangeListEntry))
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(
+    PG_DYN(PG_DYN(PgDwarfRangeListEntry)))
     pg_dwarf_address_ranges_parse(PG_SLICE(u8) bytes, Pgu64Dyn addresses,
                                   PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PgDwarfRangeListEntry)) res = {0};
+  PG_RESULT(PG_DYN(PG_DYN(PgDwarfRangeListEntry))) res = {0};
 
   PgReader r = pg_reader_make_from_bytes(bytes);
 
