@@ -3689,12 +3689,13 @@ static void test_self() {
 
   {
     u64 offset = pg_self_pie_get_offset();
+    fprintf(stderr, "[D001] %" PRIu64 "\n", offset);
     PG_ASSERT(offset > 0xffff);
   }
   // Do it twice to check that it works with the `once` mechanism.
   {
     u64 offset = pg_self_pie_get_offset();
-    PG_ASSERT(offset > 0xffff);
+    PG_ASSERT(offset >= 0xffffUL);
   }
 
   {

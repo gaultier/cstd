@@ -2966,15 +2966,14 @@ pg_try_arena_realloc(PgArena *a, void *ptr, u64 elem_count_old, u64 size,
   const u64 padding = (-(u64)a->start & (align - 1));
   PG_ASSERT(padding <= align);
 
-  void *res = a->start + padding;
   u64 delta_count = elem_count_new - elem_count_old;
   bool eligible_for_bump_optimization =
       // Should be no padding between array elements.
       0 == padding &&
-      // Array pointer check.
-      // TODO
+      // Is the array the last arena allocation?
+      ptr + elem_count_old * size == a->start &&
       // Bound check.
-      (res + delta_count * size <= (void *)a->end);
+      (ptr + elem_count_new * size <= (void *)a->end);
 
   if (eligible_for_bump_optimization) { // Optimization.
     // This is the case of growing the array which is at the end of the arena.
@@ -2983,6 +2982,8 @@ pg_try_arena_realloc(PgArena *a, void *ptr, u64 elem_count_old, u64 size,
     a->start += size * delta_count;
     return ptr;
   }
+
+  void *res = a->start + padding;
 
   if (res + size * elem_count_new > (void *)a->end) {
     // ENOMEM.
@@ -11279,7 +11280,7 @@ pg_dwarf_abbreviation_entry_is_function_like(PgDwarfAbbreviationEntry abbrev) {
          PG_DWARF_TAG_INLINED_SUBROUTINE == abbrev.tag;
 }
 
-[[nodiscard]] static bool
+[[maybe_unused]] [[nodiscard]] static bool
 pg_dwarf_attribute_is_name_like(PgDwarfAttribute attribute) {
   return PG_DWARF_AT_NAME == attribute ||
          PG_DWARF_AT_ABSTRACT_ORIGIN == attribute;
@@ -12042,7 +12043,8 @@ pg_self_exe_get_path(PgAllocator *allocator) {
 }
 
 [[nodiscard]] static u64 pg_self_pie_get_offset() {
-  return _dyld_get_image_vmaddr_slide(0);
+  intptr_t ret = _dyld_get_image_vmaddr_slide(0);
+  return ret;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgDebugInfoIteratorResult
