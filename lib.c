@@ -177,6 +177,9 @@ typedef double f64;
     T first, second;                                                           \
   } PG_PAIR(T)
 
+#define PG_ERR(T, E)                                                           \
+  (T) { .err = E }
+
 #define PG_TRY_ERR(err)                                                        \
   if (err) {                                                                   \
     return err;                                                                \
@@ -2066,8 +2069,7 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   // 2 bytes.
   if (c0 <= 0b1101'1110) {
     if (s.len < 2) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     u8 c1 = PG_SLICE_AT(s, 1);
@@ -2075,8 +2077,7 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
     PgRune rune1 = ((PgRune)c1 & 0b0011'1111);
     res.rune = (rune0 << 6) | rune1;
     if (res.rune < 0x80) { // Overlong.
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     return res;
   }
@@ -2084,8 +2085,7 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   // 3 bytes.
   if (c0 <= 0b1110'1111) {
     if (s.len < 3) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     u8 c1 = PG_SLICE_AT(s, 1);
@@ -2096,8 +2096,7 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
 
     res.rune = (rune0 << 12) | (rune1 << 6) | rune2;
     if (res.rune < 0x0800) { // Overlong.
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     return res;
   }
@@ -2105,8 +2104,7 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
   // 4 bytes.
   if (c0 <= 0b1111'0111) {
     if (s.len < 4) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     u8 c1 = PG_SLICE_AT(s, 1);
@@ -2118,20 +2116,17 @@ pg_utf8_iterator_peek_next(PgUtf8Iterator it) {
     PgRune rune3 = ((PgRune)c3 & 0b0011'1111);
     res.rune = (rune0 << 18) | (rune1 << 12) | (rune2 << 6) | rune3;
     if (res.rune < 0x01'00'00) { // Overlong.
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     if (res.rune >= 0x10FFFF) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     return res;
   }
 
-  res.err = PG_ERR_INVALID_VALUE;
-  return res;
+  return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
 }
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_utf8_rune_bytes_count(PgRune c) {
@@ -2241,24 +2236,21 @@ pg_string_is_ascii_alphabetical(PgString s) {
 
     if (byte <= 0b0111'1111) {
       if ((u64)i + 1 != s.len) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
+        return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
       }
       res.value = (u64)i;
       return res;
     }
     if (byte <= 0b1101'1110) {
       if ((u64)i + 2 != s.len) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
+        return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
       }
       res.value = (u64)i;
       return res;
     }
     if (byte <= 0b1110'1111) {
       if ((u64)i + 3 != s.len) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
+        return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
       }
       res.value = (u64)i;
       return res;
@@ -2266,18 +2258,15 @@ pg_string_is_ascii_alphabetical(PgString s) {
 
     if (byte <= 0b1111'0111) {
       if ((u64)i + 4 != s.len) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
+        return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
       }
       res.value = (u64)i;
       return res;
     }
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
-  res.err = PG_ERR_INVALID_VALUE;
-  return res;
+  return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_OPTION(PgRune)
@@ -3777,8 +3766,7 @@ pg_writer_flush(PgWriter *w, PgAllocator *allocator) {
     PgError err = pg_writer_do_write_full(
         w, PG_SLICE_RANGE(src, 0, src.len - w->ring.data.len), allocator);
     if (err) {
-      res.err = err;
-      return res;
+      return PG_ERR(typeof(res), err);
     }
     src = PG_SLICE_RANGE(src, 0, src.len % w->ring.data.len);
   }
@@ -3792,8 +3780,7 @@ pg_writer_flush(PgWriter *w, PgAllocator *allocator) {
     // room in the ring buffer, carry on.
     PgError err = pg_writer_flush(w, allocator);
     if (err) {
-      res.err = err;
-      return res;
+      return PG_ERR(typeof(res), err);
     }
   }
   PG_ASSERT(src.len == pg_ring_write_bytes(&w->ring, src));
@@ -3844,8 +3831,7 @@ pg_writer_write_full(PgWriter *w, PG_SLICE(u8) s, PgAllocator *allocator) {
     return res;
   case PG_READER_KIND_BYTES: {
     if (PG_SLICE_IS_EMPTY(r->u.bytes)) {
-      res.err = PG_ERR_EOF;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_EOF);
     }
 
     u64 n = PG_MIN(dst.len, r->u.bytes.len);
@@ -3963,8 +3949,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   PgError err = pg_reader_read_full(r, dst_slice);
 
   if (err) {
-    res.err = err;
-    return res;
+    return PG_ERR(typeof(res), err);
   }
 
   res.value = *(typeof(res.value) *)(dst);
@@ -3981,8 +3966,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   PgError err = pg_reader_read_full(r, dst_slice);
 
   if (err) {
-    res.err = err;
-    return res;
+    return PG_ERR(typeof(res), err);
   }
 
   res.value = *(typeof(res.value) *)(dst);
@@ -3999,8 +3983,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   PgError err = pg_reader_read_full(r, dst_slice);
 
   if (err) {
-    res.err = err;
-    return res;
+    return PG_ERR(typeof(res), err);
   }
 
   res.value = (dst[2] << 16) | (dst[1] << 8) | dst[0];
@@ -4017,8 +4000,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   PgError err = pg_reader_read_full(r, dst_slice);
 
   if (err) {
-    res.err = err;
-    return res;
+    return PG_ERR(typeof(res), err);
   }
 
   res.value = *(typeof(res.value) *)(dst);
@@ -4035,8 +4017,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   PgError err = pg_reader_read_full(r, dst_slice);
 
   if (err) {
-    res.err = err;
-    return res;
+    return PG_ERR(typeof(res), err);
   }
 
   res.value = *(typeof(res.value) *)(dst);
@@ -4076,8 +4057,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
 
     shift += 7;
     if (shift > 56) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
   }
 
@@ -4102,8 +4082,7 @@ pg_reader_read_i64_leb128(PgReader *r) {
     // End?
     if (0 == (byte & 0x80)) {
       if (0 != (res.value & 0xff)) {
-        res.err = PG_ERR_INVALID_VALUE;
-        return res;
+        return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
       }
       res.value |= byte;
       break;
@@ -4111,15 +4090,13 @@ pg_reader_read_i64_leb128(PgReader *r) {
 
     // Data would be overriden?
     if (0 != (res.value & 0xffff'ff00)) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     res.value <<= 8;
     res.value |= (byte & 0x7F);
     if (shift >= 56 - 7) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     shift += 7;
   }
@@ -4176,8 +4153,7 @@ pg_reader_read_i64_leb128(PgReader *r) {
   // WARN: In that case, there is data loss.
   // Not all readers support putting back data that could not be written out.
   if (res.value != dst.len) {
-    res.err = PG_ERR_IO;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_IO);
   }
 
   return res;
@@ -5674,8 +5650,7 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
     pg_directory_open(PgString name) {
   PG_RESULT(PgDirectory) res = {0};
   if (name.len > PG_PATH_MAX - 1) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   u8 name_c[PG_PATH_MAX] = {0};
@@ -6120,8 +6095,7 @@ static PG_RESULT(PgIpv4AddressSocket)
   } while (-1 == res_getaddrinfo && EINTR == errno);
 
   if (-1 == res_getaddrinfo) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   struct addrinfo *rp = nullptr;
@@ -6156,8 +6130,7 @@ static PG_RESULT(PgIpv4AddressSocket)
   freeaddrinfo(addr_info);
 
   if (nullptr == rp) { // No address succeeded.
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   return res;
@@ -7286,8 +7259,7 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
     PG_OPTION(PgString)
     consume_opt = pg_string_consume_string(remaining, PG_S("HTTP/"));
     if (!consume_opt.has_value) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     remaining = consume_opt.value;
   }
@@ -7295,12 +7267,10 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
   {
     PgParseNumberResult res_major = pg_string_parse_u64(remaining, 10, true);
     if (!res_major.present) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     if (res_major.n > 3) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     res.value.version_major = (u8)res_major.n;
     remaining = res_major.remaining;
@@ -7309,8 +7279,7 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
   {
     PG_OPTION(PgString) consume_opt = pg_string_consume_rune(remaining, '.');
     if (!consume_opt.has_value) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     remaining = consume_opt.value;
   }
@@ -7318,12 +7287,10 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
   {
     PgParseNumberResult res_minor = pg_string_parse_u64(remaining, 10, true);
     if (!res_minor.present) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     if (res_minor.n > 9) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     res.value.version_minor = (u8)res_minor.n;
     remaining = res_minor.remaining;
@@ -7332,8 +7299,7 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
   {
     PG_OPTION(PgString) consume_opt = pg_string_consume_rune(remaining, ' ');
     if (!consume_opt.has_value) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     remaining = consume_opt.value;
   }
@@ -7342,12 +7308,10 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
     PgParseNumberResult res_status_code =
         pg_string_parse_u64(remaining, 10, true);
     if (!res_status_code.present) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     if (res_status_code.n < 100 || res_status_code.n > 599) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     res.value.status = (u16)res_status_code.n;
     remaining = res_status_code.remaining;
@@ -7620,8 +7584,7 @@ static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
   PG_RESULT(PG_DYN(PgString)) res = {0};
 
   if (-1 != pg_string_index_of_any_rune(s, PG_S("?#:"))) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   if (PG_SLICE_IS_EMPTY(s)) {
@@ -7629,8 +7592,7 @@ static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
   }
 
   if (!pg_string_starts_with(s, PG_S("/"))) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_DYN(PgString) components = {0};
@@ -7720,8 +7682,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
   {
     PG_OPTION(PgString) consume_question_opt = pg_string_consume_rune(s, '?');
     if (!consume_question_opt.has_value) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     remaining = consume_question_opt.value;
   }
@@ -7762,8 +7723,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
   // reject such data when it is received.
 
   if (PG_SLICE_IS_EMPTY(s)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   return res;
@@ -7780,12 +7740,10 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
 
   PgParseNumberResult port_parse = pg_string_parse_u64(s, 10, true);
   if (!PG_SLICE_IS_EMPTY(port_parse.remaining)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
   if (port_parse.n > UINT16_MAX) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
   res.value = (u16)port_parse.n;
   return res;
@@ -7820,8 +7778,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
     remaining = host_and_rem.right;
     res.value.host = host_and_rem.left;
     if (PG_SLICE_IS_EMPTY(res.value.host)) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
   }
 
@@ -7920,13 +7877,11 @@ pg_url_is_scheme_valid(PgString scheme) {
     remaining = scheme_and_rem.right;
 
     if (!scheme_and_rem.consumed) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     if (!pg_url_is_scheme_valid(scheme_and_rem.left)) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     res.value.scheme = scheme_and_rem.left;
   }
@@ -7938,8 +7893,7 @@ pg_url_is_scheme_valid(PgString scheme) {
     PG_OPTION(PgString)
     res_consume = pg_string_consume_string(remaining, PG_S("//"));
     if (!res_consume.has_value) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     remaining = res_consume.value;
   }
@@ -7950,8 +7904,7 @@ pg_url_is_scheme_valid(PgString scheme) {
   remaining = authority_and_rem.right;
   {
     if (PG_SLICE_IS_EMPTY(authority_and_rem.left)) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     PG_RESULT(PgUrlAuthority)
@@ -7994,8 +7947,7 @@ pg_url_is_scheme_valid(PgString scheme) {
 
   PgStringCut cut = pg_string_cut_rune(status_line, ' ');
   if (!cut.has_value) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   // Method.
@@ -8030,8 +7982,7 @@ pg_url_is_scheme_valid(PgString scheme) {
     path = pg_string_clone(path, allocator);
     PG_RESULT(PgUrl) res_url = pg_url_parse_after_authority(path, allocator);
     if (res_url.err) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     res.value.url = res_url.value;
@@ -8042,8 +7993,7 @@ pg_url_is_scheme_valid(PgString scheme) {
     PG_OPTION(PgString)
     consume_opt = pg_string_consume_string(remaining, PG_S("HTTP/"));
     if (!consume_opt.has_value) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     remaining = consume_opt.value;
   }
@@ -8051,12 +8001,10 @@ pg_url_is_scheme_valid(PgString scheme) {
   {
     PgParseNumberResult res_major = pg_string_parse_u64(remaining, 10, true);
     if (!res_major.present) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     if (res_major.n > 3) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     res.value.version_major = (u8)res_major.n;
     remaining = res_major.remaining;
@@ -8065,8 +8013,7 @@ pg_url_is_scheme_valid(PgString scheme) {
   {
     PG_OPTION(PgString) consume_opt = pg_string_consume_rune(remaining, '.');
     if (!consume_opt.has_value) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     remaining = consume_opt.value;
   }
@@ -8074,20 +8021,17 @@ pg_url_is_scheme_valid(PgString scheme) {
   {
     PgParseNumberResult res_minor = pg_string_parse_u64(remaining, 10, true);
     if (!res_minor.present) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     if (res_minor.n > 9) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     res.value.version_minor = (u8)res_minor.n;
     remaining = res_minor.remaining;
   }
 
   if (!PG_SLICE_IS_EMPTY(remaining)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   return res;
@@ -8099,20 +8043,17 @@ pg_url_is_scheme_valid(PgString scheme) {
 
   PgStringCut cut = pg_string_cut_rune(s, ':');
   if (!cut.has_value) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   res.value.key = pg_string_trim_space(cut.left);
   if (pg_string_is_empty(res.value.key)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   res.value.value = pg_string_trim_space(cut.right);
   if (pg_string_is_empty(res.value.value)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   return res;
@@ -8163,16 +8104,14 @@ typedef enum {
 
       // Do not overwrite data.
       if (pg_ring_is_full(r->ring)) {
-        res.err = PG_ERR_TOO_BIG;
-        return res;
+        return PG_ERR(typeof(res), PG_ERR_TOO_BIG);
       }
 
       // TODO: Should we do multiple reads?
       u64 ring_size_before = pg_ring_can_read_count(r->ring);
       PgError err = pg_buf_reader_try_fill_once(r);
       if (err) {
-        res.err = err;
-        return res;
+        return PG_ERR(typeof(res), err);
       }
 
       u64 ring_size_after = pg_ring_can_read_count(r->ring);
@@ -8229,16 +8168,14 @@ typedef enum {
 
       // Do not overwrite data.
       if (pg_ring_is_full(r->ring)) {
-        res.err = PG_ERR_TOO_BIG;
-        return res;
+        return PG_ERR(typeof(res), PG_ERR_TOO_BIG);
       }
 
       // TODO: Should we do multiple reads?
       u64 ring_size_before = pg_ring_can_read_count(r->ring);
       PgError err = pg_buf_reader_try_fill_once(r);
       if (err) {
-        res.err = err;
-        return res;
+        return PG_ERR(typeof(res), err);
       }
 
       u64 ring_size_after = pg_ring_can_read_count(r->ring);
@@ -8316,8 +8253,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
       return res;
     }
     if (!res_read.value.has_value) {
-      res.err = PG_ERR_EOF;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_EOF);
     }
 
     PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.value.value);
@@ -8345,8 +8281,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
       return res;
     }
     if (!res_read.value.has_value) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.value.value);
@@ -8366,8 +8301,7 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
   }
 
   // Too many headers.
-  res.err = PG_ERR_TOO_BIG;
-  return res;
+  return PG_ERR(typeof(res), PG_ERR_TOO_BIG);
 
 end:
   res.done = true;
@@ -8454,12 +8388,10 @@ pg_http_write_response(PgWriter *w, PgHttpResponse res,
 
     PgParseNumberResult res_parse = pg_string_parse_u64(h.value, 10, true);
     if (!res_parse.present) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     if (!pg_string_is_empty(res_parse.remaining)) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     res.value = res_parse.n;
@@ -9426,13 +9358,11 @@ static i32 pg_pool_worker_start_fn(void *data) {
   PG_RESULT(PgThreadPool) res = {0};
 
   if (0 != pg_mtx_init(&res.value.tasks_mtx, PG_MUTEX_KIND_PLAIN)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   if (0 != pg_cnd_init(&res.value.tasks_cnd)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   res.value.workers.len = size;
@@ -9503,21 +9433,18 @@ pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
   PG_RESULT(PG_SLICE(u8)) res = {0};
 
   if (section_idx >= elf.section_headers.len) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PgElfSectionHeader section = PG_SLICE_AT(elf.section_headers, section_idx);
 
   u64 end = 0;
   if (__builtin_add_overflow(section.offset, section.size, &end)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   if (end >= elf.bytes.len) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   res.value = PG_SLICE_RANGE(elf.bytes, section.offset, end);
@@ -9539,16 +9466,14 @@ pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
   PG_SLICE(u8) bytes = res_bytes.value;
 
   if (offset >= bytes.len) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_SLICE(u8) at = PG_SLICE_RANGE_START(bytes, offset);
   PG_OPTION(PgString) s = pg_str0_to_string(at);
 
   if (!s.has_value) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   res.value = s.value;
@@ -9570,16 +9495,14 @@ pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
   PG_SLICE(u8) bytes = res_bytes.value;
 
   if (offset >= bytes.len) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_SLICE(u8) at = PG_SLICE_RANGE_START(bytes, offset);
 
   PgBytesCut cut = pg_bytes_cut_byte(at, 0);
   if (!cut.has_value) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   res.value = cut.left;
@@ -9635,8 +9558,7 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
   res.value.bytes = elf_bytes;
 
   if (elf_bytes.len < sizeof(PgElfHeader)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
   pg_memcpy(&res.value.header, elf_bytes.data, sizeof(res.value.header));
 
@@ -9647,15 +9569,13 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
     if (__builtin_mul_overflow(h.section_header_entries_count,
                                h.section_header_entry_size,
                                &section_headers_size)) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     u64 section_headers_end = 0;
     if (__builtin_add_overflow(h.section_header_offset, section_headers_size,
                                &section_headers_end)) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     PG_ASSERT(h.section_header_offset <= section_headers_end);
 
@@ -9685,8 +9605,7 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
   PG_RESULT(PG_SLICE(u8)) res = {0};
 
   if (elf.section_header_text_idx != sym.section_header_table_index) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_RESULT(PG_SLICE(u8))
@@ -9698,14 +9617,12 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
   PG_SLICE(u8) bytes = res_bytes.value;
 
   if (sym.value >= bytes.len) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   u64 end = 0;
   if (__builtin_add_overflow(sym.value, sym.size, &end)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   res.value = PG_SLICE_RANGE(bytes, sym.value, end);
@@ -10462,8 +10379,7 @@ static const PgString pg_dwarf_form_str[] = {
     PG_DYN_PUSH(&entry.attribute_forms, attribute_form, allocator);
   }
 
-  res.err = PG_ERR_TOO_BIG;
-  return res;
+  return PG_ERR(typeof(res), PG_ERR_TOO_BIG);
 }
 
 [[nodiscard]] static PG_RESULT(PG_DYN(PgDwarfAbbreviationEntry))
@@ -10481,8 +10397,7 @@ static const PgString pg_dwarf_form_str[] = {
   PG_SLICE(u8) bytes = res_bytes.value;
 
   if (offset >= bytes.len) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
   bytes = PG_SLICE_RANGE_START(bytes, offset);
   PG_DYN_ENSURE_CAP(&res.value, bytes.len / 4, allocator);
@@ -10504,8 +10419,7 @@ static const PgString pg_dwarf_form_str[] = {
     }
   }
 
-  res.err = PG_ERR_TOO_BIG;
-  return res;
+  return PG_ERR(typeof(res), PG_ERR_TOO_BIG);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(
@@ -10520,26 +10434,22 @@ static const PgString pg_dwarf_form_str[] = {
   PG_TRY(length, res, res_length);
   u32 expected_length = 0;
   if (__builtin_add_overflow(length, 4, &expected_length)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
   if (expected_length != bytes.len) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_RESULT(u16) res_version = pg_reader_read_u16_le(&r);
   PG_TRY(version, res, res_version);
   if (5 != version) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_RESULT(u8) res_address_size = pg_reader_read_u8_le(&r);
   PG_TRY(address_size, res, res_address_size);
   if (8 != address_size) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_RESULT(u8) res_segment_selector_size = pg_reader_read_u8_le(&r);
@@ -10699,14 +10609,12 @@ static const PgString pg_dwarf_form_str[] = {
     } break;
 
     default:
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
   }
 
   if (!PG_SLICE_IS_EMPTY(r.u.bytes)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   if (!PG_SLICE_IS_EMPTY(ranges)) {
@@ -10726,26 +10634,22 @@ static const PgString pg_dwarf_form_str[] = {
   PG_TRY(length, res, res_length);
   u32 expected_length = 0;
   if (__builtin_add_overflow(length, 4, &expected_length)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
   if (expected_length != bytes.len) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_RESULT(u16) res_version = pg_reader_read_u16_le(&r);
   PG_TRY(version, res, res_version);
   if (5 != version) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_RESULT(u8) res_address_size = pg_reader_read_u8_le(&r);
   PG_TRY(address_size, res, res_address_size);
   if (8 != address_size) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_RESULT(u8) res_segment_selector_size = pg_reader_read_u8_le(&r);
@@ -10756,8 +10660,7 @@ static const PgString pg_dwarf_form_str[] = {
   }
 
   if (0 != (r.u.bytes.len % 8)) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
   PG_DYN_ENSURE_CAP(&res.value, r.u.bytes.len / 8, allocator);
 
@@ -10794,8 +10697,7 @@ static const PgString pg_dwarf_form_str[] = {
   // DWARF 64 bits?
   if (0xffff'ffff == size) {
     // Unsupported for now.
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   // Version.
@@ -10803,8 +10705,7 @@ static const PgString pg_dwarf_form_str[] = {
   PG_TRY(version, res, res_version);
   // Only expect v5.
   if (5 != version) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_RESULT(u8) res_unit_kind = pg_reader_read_u8_le(&r);
@@ -10935,8 +10836,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
     }
 
     if (entry_idx >= it->unit.abbrevs.len + 1) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
 
     PgDwarfAbbreviationEntry abbrev =
@@ -11085,8 +10985,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
 
     PgError err = pg_reader_discard(&it->r, length);
     if (err) {
-      res.err = err;
-      return res;
+      return PG_ERR(typeof(res), err);
     }
   } break;
 
@@ -11161,8 +11060,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
     };
     PgError err = pg_reader_read_full(&it->r, dst);
     if (err) {
-      res.err = err;
-      return res;
+      return PG_ERR(typeof(res), err);
     }
 
     res.value.value.kind = PG_DEBUG_ATOM_KIND_U128;
@@ -11304,8 +11202,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
 
   case PG_DWARF_FORM_NONE:
   default:
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   PG_ASSERT(0 == res.err);
@@ -11694,13 +11591,11 @@ pg_self_debug_info_iterator_make(PgAllocator *allocator) {
     PG_TRY(str_offsets_bytes, res, res_str_offsets_bytes);
     // Check that the header is present.
     if (str_offsets_bytes.len < 8) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     str_offsets_bytes = PG_SLICE_RANGE_START(str_offsets_bytes, 8);
     if (0 != (str_offsets_bytes.len % 4)) {
-      res.err = PG_ERR_INVALID_VALUE;
-      return res;
+      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
     }
     // TODO: Should we check alignment (`0 != ((u64)str_offsets_bytes.data %
     // 4`)?
@@ -11743,8 +11638,7 @@ end:
   PG_RESULT(PgFileDescriptor) res = {0};
 
   if (0 == name.len) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   u32 interest_linux = 0;
@@ -11825,8 +11719,7 @@ pg_aio_ensure_inotify(PgAio *aio) {
 
   PgError err = pg_aio_ensure_inotify(aio);
   if (err) {
-    res.err = err;
-    return res;
+    return PG_ERR(typeof(res), err);
   }
 
   res = pg_aio_inotify_register_interest(*aio, name, interest);
@@ -11836,8 +11729,7 @@ pg_aio_ensure_inotify(PgAio *aio) {
 
   err = pg_aio_register_interest_fd(*aio, res.value, interest);
   if (err) {
-    res.err = err;
-    return res;
+    return PG_ERR(typeof(res), err);
   }
 
   return res;
@@ -12079,8 +11971,7 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
   PG_RESULT(u32) res_read_magic = pg_reader_read_u32_le(&r);
   PG_TRY(magic, res, res_read_magic);
   if (0xfe'ed'fa'cf != magic) {
-    res.err = PG_ERR_INVALID_VALUE;
-    return res;
+    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
   }
 
   // TODO
