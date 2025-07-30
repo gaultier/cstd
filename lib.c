@@ -5199,9 +5199,14 @@ pg_file_close(PgFileDescriptor file);
 
 [[maybe_unused]] [[nodiscard]] static PgArena
 pg_arena_make_from_virtual_mem(u64 size) {
-  PG_ASSERT(size > 0);
+  if (0 == size) {
+    return (PgArena){0};
+  }
 
   u64 page_size = pg_os_get_page_size();
+  PG_ASSERT(0 != page_size);
+  PG_ASSERT(0 == (page_size % 2));
+
   u64 size_rounded_up_to_page_size = pg_round_up_multiple_of(size, page_size);
   PG_ASSERT(0 == size_rounded_up_to_page_size % page_size);
 

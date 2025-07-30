@@ -3778,12 +3778,25 @@ static void test_write_u64_hex() {
 }
 
 static void test_arena() {
-
   // Empty arena.
   {
     PgArenaAllocator arena_allocator = {0};
     PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
     u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 1);
+    PG_ASSERT(nullptr == res);
+  }
+  // Null allocator.
+  {
+    u8 *res = pg_alloc(nullptr, sizeof(u8), _Alignof(u8), 1);
+    PG_ASSERT(nullptr == res);
+  }
+  // Arena of size 0.
+  {
+    PgArena arena = pg_arena_make_from_virtual_mem(0);
+    PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+    u8 *res = pg_alloc(nullptr, sizeof(u8), _Alignof(u8), 1);
     PG_ASSERT(nullptr == res);
   }
 }
