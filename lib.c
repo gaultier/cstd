@@ -2960,34 +2960,41 @@ pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
 [[maybe_unused]] [[nodiscard]]
 __attribute((malloc, alloc_size(4, 6), alloc_align(5))) static void *
 pg_try_arena_realloc(PgArena *a, void *ptr, u64 elem_count_old, u64 size,
-                     u64 align, u64 count) {
+                     u64 align, u64 elem_count_new) {
   PG_ASSERT((u64)a->start >= (u64)ptr);
-
-  u64 array_end = (u64)ptr + elem_count_old * size;
 
   const u64 padding = (-(u64)a->start & (align - 1));
   PG_ASSERT(padding <= align);
 
   void *res = a->start + padding;
-  if (res + size * count > (void *)a->end) {
-    // ENOMEM.
-    return nullptr;
-  }
+  u64 delta_count = elem_count_new - elem_count_old;
+  bool eligible_for_bump_optimization =
+      // Should be no padding between array elements.
+      0 == padding &&
+      // Array pointer check.
+      // TODO
+      // Bound check.
+      (res + delta_count * size <= (void *)a->end);
 
-  if ((u64)a->start == array_end) { // Optimization.
+  if (eligible_for_bump_optimization) { // Optimization.
     // This is the case of growing the array which is at the end of the arena.
     // In that case we can simply bump the arena pointer and avoid any copies.
     PG_ASSERT(0 == padding);
-    a->start += size * (count - elem_count_old);
+    a->start += size * delta_count;
     return ptr;
+  }
+
+  if (res + size * elem_count_new > (void *)a->end) {
+    // ENOMEM.
+    return nullptr;
   }
 
   PG_ASSERT(res != nullptr);
   PG_ASSERT(res <= (void *)a->end);
 
-  pg_memmove(res, ptr, size * count);
+  pg_memmove(res, ptr, size * elem_count_new);
 
-  a->start += padding + count * size;
+  a->start += padding + elem_count_new * size;
   PG_ASSERT(a->start <= a->end);
   PG_ASSERT((u64)a->start % align == 0); // Aligned.
 

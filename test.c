@@ -221,15 +221,14 @@ static void test_dyn_ensure_cap() {
     PG_ASSERT(1 == dyn.len);
     PG_ASSERT(2 == dyn.cap);
 
-    u64 arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(2 == arena_size_expected);
-    PG_ASSERT(dyn.cap == arena_size_expected);
+    u64 arena_size = arena_cap - ((u64)arena.end - (u64)arena.start);
+    PG_ASSERT(2 == arena_size);
+    PG_ASSERT(dyn.cap == arena_size);
 
     u64 desired_cap = 13;
     PG_DYN_ENSURE_CAP(&dyn, desired_cap, allocator);
     PG_ASSERT(16 == dyn.cap);
-    arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(16 == arena_size_expected);
+    PG_ASSERT(16 == pg_arena_mem_use(arena));
   }
   // General case.
   {
@@ -246,23 +245,20 @@ static void test_dyn_ensure_cap() {
     PG_DYN_PUSH(&dummy, 2, allocator);
     PG_DYN_PUSH(&dummy, 3, allocator);
 
-    u64 arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(2 + 2 == arena_size_expected);
+    PG_ASSERT(2 + 2 == pg_arena_mem_use(arena));
 
     // This triggers a new allocation.
     PG_DYN_PUSH(&dummy, 4, allocator);
     PG_ASSERT(3 == dummy.len);
     PG_ASSERT(4 == dummy.cap);
 
-    arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(2 + 4 == arena_size_expected);
+    PG_ASSERT(2 + 4 == pg_arena_mem_use(arena));
 
     u64 desired_cap = 13;
     PG_DYN_ENSURE_CAP(&dyn, desired_cap, allocator);
     PG_ASSERT(16 == dyn.cap);
 
-    arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(16 + 6 == arena_size_expected);
+    PG_ASSERT(16 + 6 == pg_arena_mem_use(arena));
   }
 }
 
@@ -3832,6 +3828,24 @@ static void test_arena() {
     // 1 -> 2.
     res = pg_realloc(allocator, res, 1, sizeof(u8), _Alignof(u8), 2);
     PG_ASSERT(nullptr == res);
+  }
+  // Arena just big enough for reallocation, using the bump code path for
+  // optimization.
+  {
+    PgArena arena = pg_arena_make_from_virtual_mem(2);
+    PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+    u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 1);
+    PG_ASSERT(nullptr != res);
+
+    // 1 -> 2.
+    res = pg_realloc(allocator, res, 1, sizeof(u8), _Alignof(u8), 2);
+
+    PG_ASSERT(nullptr != res);
+    // Prevent optimizer from removing all of this.
+    volatile u8 *x = res + 1;
+    *x += 1;
   }
 }
 
