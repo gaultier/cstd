@@ -210,6 +210,18 @@ typedef double f64;
     (V).u._value;                                                              \
   })
 
+#define PG_IF_LET_OK(I, V)                                                     \
+  if (PG_IS_OK(V))                                                             \
+    for (bool PG_PRIVATE_NAME(once) = true; PG_PRIVATE_NAME(once);)            \
+      for (typeof(V._ok) I = V._ok; PG_PRIVATE_NAME(once);                     \
+           PG_PRIVATE_NAME(once) = false)
+
+#define if_let_Err(I, V)                                                       \
+  if (is_err(V))                                                               \
+    for (bool PG_PRIVATE_NAME(once) = true; PG_PRIVATE_NAME(once);)            \
+      for (typeof(V._err) I = V._err; PG_PRIVATE_NAME(once);                   \
+           PG_PRIVATE_NAME(once) = false)
+
 #define PG_ERR_RETURN(E)                                                       \
   {                                                                            \
     if ((E)) {                                                                 \
@@ -5575,7 +5587,7 @@ static PG_RESULT(PgProcess, PgError)
 [[maybe_unused]] [[nodiscard]]
 static PG_RESULT(PgProcessStatus, PgError)
     pg_process_wait(PgProcess process, u64 stdio_size_hint,
-                    u64 stderr_size_hint, PgAllocator *allocator, PgError);
+                    u64 stderr_size_hint, PgAllocator *allocator);
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src);
@@ -5879,8 +5891,6 @@ end:
                                                 PgError)
     pg_net_make_socket_pair(PgNetSocketDomain domain, PgNetSocketType type,
                             PgNetSocketOption option) {
-  PG_RESULT(PG_PAIR(PgFileDescriptor), PgError) res = {0};
-
   i32 unix_domain = 0;
   switch (domain) {
   case PG_NET_SOCKET_DOMAIN_LOCAL:
@@ -5948,8 +5958,6 @@ end:
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u32, PgError) pg_process_dup() {
-  PG_RESULT(u32, PgError) res = {0};
-
   i32 pid = fork();
 
   if (-1 == pid) {
@@ -5976,8 +5984,6 @@ pg_net_socket_set_timeout(PgFileDescriptor sock, u64 seconds,
 
 [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_net_create_tcp_socket() {
-  PG_RESULT(PgFileDescriptor, PgError) res = {0};
-
   i32 sock_fd = 0;
   do {
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -6122,14 +6128,11 @@ static PG_RESULT(PgIpv4AddressSocket, PgError)
     n = recv(sock.fd, data.data, data.len, 0);
   } while (-1 == n && EINTR == errno);
 
-  PG_RESULT(u64, PgError) res = {0};
   if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.value = (u64)n;
+    return PG_ERR(errno, u64, PgError);
   }
 
-  return res;
+  return PG_OK((u64)n, u64, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
