@@ -7767,7 +7767,7 @@ pg_url_is_scheme_valid(PgString scheme) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrl, PgError)
     pg_url_parse_after_authority(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PgUrl, PgError) res = {0};
+  PgUrl res = {0};
   PgString remaining = s;
 
   PgStringPairConsumeAny path_components_and_rem =
@@ -7781,11 +7781,10 @@ pg_url_is_scheme_valid(PgString scheme) {
     PG_RESULT(PG_DYN(PgString), PgError)
     res_path_components =
         pg_url_parse_path_components(path_components_and_rem.left, allocator);
-    if (res_path_components.err) {
-      res.err = res_path_components.err;
-      return res;
+    PG_IF_LET_ERR(err, res_path_components) {
+      return PG_ERR(err, PgUrl, PgError);
     }
-    res.value.path_components = res_path_components.value;
+    res.path_components = PG_UNWRAP(res_path_components);
   }
 
   // Query parameters, optional.
@@ -7794,22 +7793,19 @@ pg_url_is_scheme_valid(PgString scheme) {
     PG_RESULT(PG_DYN(PgStringKeyValue), PgError)
     res_query =
         pg_url_parse_query_parameters(path_components_and_rem.right, allocator);
-    if (res_query.err) {
-      res.err = res_query.err;
-      return res;
-    }
-    res.value.query_parameters = res_query.value;
+    PG_IF_LET_ERR(err, res_query) { return PG_ERR(err, PgUrl, PgError); }
+    res.query_parameters = PG_UNWRAP(res_query);
   }
 
   // TODO: fragments.
 
-  PG_ASSERT(PG_SLICE_IS_EMPTY(res.value.scheme));
-  PG_ASSERT(PG_SLICE_IS_EMPTY(res.value.username));
-  PG_ASSERT(PG_SLICE_IS_EMPTY(res.value.password));
-  PG_ASSERT(PG_SLICE_IS_EMPTY(res.value.host));
-  PG_ASSERT(0 == res.value.port);
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.scheme));
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.username));
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.password));
+  PG_ASSERT(PG_SLICE_IS_EMPTY(res.host));
+  PG_ASSERT(0 == res.port);
 
-  return res;
+  return PG_OK(res, PgUrl, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrl, PgError)
