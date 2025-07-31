@@ -202,6 +202,21 @@ typedef double f64;
     (V).u._value;                                                              \
   })
 
+#define PG_TRY_ERR(V)                                                          \
+  ({                                                                           \
+    if (PG_IS_ERR(V)) {                                                        \
+      return (V).u._err;                                                       \
+    }                                                                          \
+    (V).u._value;                                                              \
+  })
+
+#define PG_ERR_RETURN(E)                                                       \
+  {                                                                            \
+    if ((E)) {                                                                 \
+      return (E);                                                              \
+    }                                                                          \
+  }
+
 // TODO: Separate error type?
 typedef u64 PgError;
 #define PG_ERR_EOF 4095
@@ -1086,7 +1101,7 @@ PG_OPTION_DECL(PgAioEvent);
 typedef struct {
   PgFileDescriptor aio;
 #ifdef PG_OS_LINUX
-  PgFileDescriptorOption inotify;
+  PG_OPTION(PgFileDescriptor) inotify;
 #endif
 } PgAio;
 PG_RESULT_DECL(PgAio, PgError);
@@ -3901,10 +3916,8 @@ pg_buf_reader_try_fill_once(PgReader *r) {
     pg_reader_read(PgReader *r, PG_SLICE(u8) dst) {
   PG_ASSERT(dst.data);
 
-  PG_RESULT(u64, PgError) res = {0};
-
   if (PG_SLICE_IS_EMPTY(dst)) {
-    return res;
+    return PG_OK(0, u64, PgError);
   }
 
   if (0 == r->ring.data.len) { // Simple reader.
@@ -3915,8 +3928,8 @@ pg_buf_reader_try_fill_once(PgReader *r) {
   if (0 == pg_ring_can_read_count(r->ring)) {
     // Do a real read to re-fill the ring buffer.
     PgError err = pg_buf_reader_try_fill_once(r);
-    if (PG_IS_ERR(res)) {
-      return PG_UNWRAP_ERR(res);
+    if (err) {
+      return PG_ERR(err, u64, PgError);
     }
   }
 
@@ -4125,20 +4138,22 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   PgString dst = {.data = tmp, .len = PG_STATIC_ARRAY_LEN(tmp)};
 
   res = pg_reader_read(r, dst);
-  if (res.err) {
+  if (PG_IS_ERR(res)) {
     return res;
   }
-  dst.len = res.value;
+  dst.len = PG_UNWRAP(res);
 
   res = pg_writer_write(w, dst, allocator);
-  if (res.err) {
+  if (PG_IS_ERR(res)) {
     return res;
   }
+  u64 value = PG_UNWRAP(res);
 
   // WARN: In that case, there is data loss.
   // Not all readers support putting back data that could not be written out.
-  if (res.value != dst.len) {
-    return PG_ERR(typeof(res), PG_ERR_IO);
+  // FIXME: We could simply retry the writes N times.
+  if (value != dst.len) {
+    return PG_ERR(PG_ERR_IO, u64, PgError);
   }
 
   return res;
@@ -4164,8 +4179,8 @@ pg_writer_write_u64_as_string(PgWriter *w, u64 n, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_writer_write_u128_as_string(PgWriter *w, u128 n, PgAllocator *allocator) {
-  PG_TRY_ERR(pg_writer_write_u64_as_string(w, n >> 64, allocator));
-  PG_TRY_ERR(pg_writer_write_u64_as_string(w, n & UINT64_MAX, allocator));
+  PG_ERR_RETURN(pg_writer_write_u64_as_string(w, n >> 64, allocator));
+  PG_ERR_RETURN(pg_writer_write_u64_as_string(w, n & UINT64_MAX, allocator));
 
   return 0;
 }
@@ -4435,7 +4450,7 @@ static PgError pg_writer_write_u64_hex(PgWriter *w, u64 n,
     n >>= 8;
   } while (n);
 
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S("0x"), allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("0x"), allocator));
   return pg_writer_write_full(w, PG_SLICE_RANGE_START(tmp_slice, idx),
                               allocator);
 }
@@ -5170,8 +5185,8 @@ pg_rand_string(PgRng *rng, u64 len, PgAllocator *allocator) {
   PgRng rng = {0};
   // Rely on ASLR.
   PG_RESULT(u64, PgError) now = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC);
-  PG_ASSERT(0 == now.err);
-  rng.state = (u64)(&pg_rand_make) ^ now.value;
+  u64 value = PG_UNWRAP(now);
+  rng.state = (u64)(&pg_rand_make) ^ value;
 
   return rng;
 }
@@ -9877,15 +9892,15 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
 static PgError pg_debug_print_function(PgWriter *w,
                                        PgDebugFunctionDeclaration fn,
                                        PgAllocator *allocator) {
-  PG_TRY_ERR(pg_writer_write_u64_hex(w, fn.debug_info_offset, allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, fn.file, allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, fn.name, allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S(":"), allocator));
-  PG_TRY_ERR(pg_writer_write_u64_hex(w, fn.low_pc, allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S("-"), allocator));
-  PG_TRY_ERR(pg_writer_write_u64_hex(w, fn.high_pc, allocator));
+  PG_ERR_RETURN(pg_writer_write_u64_hex(w, fn.debug_info_offset, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(":"), allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, fn.file, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(":"), allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, fn.name, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(":"), allocator));
+  PG_ERR_RETURN(pg_writer_write_u64_hex(w, fn.low_pc, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("-"), allocator));
+  PG_ERR_RETURN(pg_writer_write_u64_hex(w, fn.high_pc, allocator));
 
   return 0;
 }
@@ -9895,13 +9910,13 @@ static PgError pg_debug_print_functions(PgWriter *w,
                                         PG_DYN(PgDebugFunctionDeclaration) fns,
                                         PgAllocator *allocator) {
   for (u64 i = 0; i < fns.len; i++) {
-    PG_TRY_ERR(pg_writer_write_full(w, PG_S("["), allocator));
-    PG_TRY_ERR(pg_writer_write_u64_as_string(w, i, allocator));
-    PG_TRY_ERR(pg_writer_write_full(w, PG_S("]"), allocator));
-    PG_TRY_ERR(pg_debug_print_function(w, PG_SLICE_AT(fns, i), allocator));
-    PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("["), allocator));
+    PG_ERR_RETURN(pg_writer_write_u64_as_string(w, i, allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("]"), allocator));
+    PG_ERR_RETURN(pg_debug_print_function(w, PG_SLICE_AT(fns, i), allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
   }
-  PG_TRY_ERR(pg_writer_flush(w, allocator));
+  PG_ERR_RETURN(pg_writer_flush(w, allocator));
   return 0;
 }
 
@@ -11224,52 +11239,52 @@ pg_dwarf_attribute_is_name_like(PgDwarfAttribute attribute) {
 
 [[maybe_unused]] [[maybe_unused]] static PgError
 pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S("type="), allocator));
-  PG_TRY_ERR(pg_writer_write_u64_as_string(w, atom.abbrev.type, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("type="), allocator));
+  PG_ERR_RETURN(pg_writer_write_u64_as_string(w, atom.abbrev.type, allocator));
 
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S(" tag="), allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" tag="), allocator));
   PgString tag_str = pg_dwarf_tag_str[atom.abbrev.tag];
-  PG_TRY_ERR(pg_writer_write_full(w, tag_str, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, tag_str, allocator));
 
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S(" attribute="), allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" attribute="), allocator));
   PgString attr_str = pg_dwarf_attribute_str[atom.attr_form.attribute];
-  PG_TRY_ERR(pg_writer_write_full(w, attr_str, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, attr_str, allocator));
 
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S(" form="), allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" form="), allocator));
   PgString form_str = pg_dwarf_form_str[atom.attr_form.form];
-  PG_TRY_ERR(pg_writer_write_full(w, form_str, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, form_str, allocator));
 
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S(" value="), allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" value="), allocator));
   switch (atom.kind) {
   case PG_DEBUG_ATOM_KIND_NO_DATA:
     break;
   case PG_DEBUG_ATOM_KIND_U8:
-    PG_TRY_ERR(pg_writer_write_u64_hex(w, (u64)atom.u.u8, allocator));
+    PG_ERR_RETURN(pg_writer_write_u64_hex(w, (u64)atom.u.u8, allocator));
     break;
   case PG_DEBUG_ATOM_KIND_U16:
-    PG_TRY_ERR(pg_writer_write_u64_hex(w, (u64)atom.u.u16, allocator));
+    PG_ERR_RETURN(pg_writer_write_u64_hex(w, (u64)atom.u.u16, allocator));
     break;
   case PG_DEBUG_ATOM_KIND_U32:
-    PG_TRY_ERR(pg_writer_write_u64_hex(w, (u64)atom.u.u32, allocator));
+    PG_ERR_RETURN(pg_writer_write_u64_hex(w, (u64)atom.u.u32, allocator));
     break;
   case PG_DEBUG_ATOM_KIND_U64:
-    PG_TRY_ERR(pg_writer_write_u64_hex(w, atom.u.u64, allocator));
+    PG_ERR_RETURN(pg_writer_write_u64_hex(w, atom.u.u64, allocator));
     break;
   case PG_DEBUG_ATOM_KIND_I64:
-    PG_TRY_ERR(pg_writer_write_i64_as_string(w, atom.u.u64, allocator));
+    PG_ERR_RETURN(pg_writer_write_i64_as_string(w, atom.u.u64, allocator));
     break;
   case PG_DEBUG_ATOM_KIND_BYTES:
-    PG_TRY_ERR(pg_writer_write_full(w, atom.u.bytes, allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, atom.u.bytes, allocator));
     break;
   case PG_DEBUG_ATOM_KIND_U128:
-    PG_TRY_ERR(pg_writer_write_u128_as_string(w, atom.u.u128, allocator));
+    PG_ERR_RETURN(pg_writer_write_u128_as_string(w, atom.u.u128, allocator));
     break;
   default:
     PG_ASSERT(0);
   }
 
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
-  PG_TRY_ERR(pg_writer_flush(w, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
+  PG_ERR_RETURN(pg_writer_flush(w, allocator));
 
   return 0;
 }
@@ -11352,39 +11367,40 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
 pg_dwarf_compilation_unit_print_abbreviations(
     PgWriter *w, PgDwarfDebugInfoCompilationUnit unit, PgAllocator *allocator) {
   PgString kind_str = pg_dwarf_compilation_unit_kind_to_str[unit.kind];
-  PG_TRY_ERR(pg_writer_write_full(w, kind_str, allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S(" abbrev_entries_len="), allocator));
-  PG_TRY_ERR(pg_writer_write_u64_as_string(w, unit.abbrevs.len, allocator));
-  PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, kind_str, allocator));
+  PG_ERR_RETURN(
+      pg_writer_write_full(w, PG_S(" abbrev_entries_len="), allocator));
+  PG_ERR_RETURN(pg_writer_write_u64_as_string(w, unit.abbrevs.len, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
 
   for (u64 i = 0; i < unit.abbrevs.len; i++) {
     PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, i);
 
-    PG_TRY_ERR(pg_writer_write_full(w, PG_S("type="), allocator));
-    PG_TRY_ERR(pg_writer_write_u64_as_string(w, abbrev.type, allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("type="), allocator));
+    PG_ERR_RETURN(pg_writer_write_u64_as_string(w, abbrev.type, allocator));
 
-    PG_TRY_ERR(pg_writer_write_full(w, PG_S(" tag="), allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" tag="), allocator));
     PgString tag_str = pg_dwarf_tag_str[abbrev.tag];
-    PG_TRY_ERR(pg_writer_write_full(w, tag_str, allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, tag_str, allocator));
 
-    PG_TRY_ERR(pg_writer_write_full(w, PG_S(" forms_len="), allocator));
-    PG_TRY_ERR(pg_writer_write_u64_as_string(w, abbrev.attribute_forms.len,
-                                             allocator));
-    PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" forms_len="), allocator));
+    PG_ERR_RETURN(pg_writer_write_u64_as_string(w, abbrev.attribute_forms.len,
+                                                allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
 
     for (u64 j = 0; j < abbrev.attribute_forms.len; j++) {
       PgDwarfAttributeForm attr_form = PG_SLICE_AT(abbrev.attribute_forms, j);
 
-      PG_TRY_ERR(pg_writer_write_full(w, PG_S("  attribute="), allocator));
+      PG_ERR_RETURN(pg_writer_write_full(w, PG_S("  attribute="), allocator));
       PgString attr_str = pg_dwarf_attribute_str[attr_form.attribute];
-      PG_TRY_ERR(pg_writer_write_full(w, attr_str, allocator));
+      PG_ERR_RETURN(pg_writer_write_full(w, attr_str, allocator));
 
-      PG_TRY_ERR(pg_writer_write_full(w, PG_S(" form="), allocator));
+      PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" form="), allocator));
       PgString form_str = pg_dwarf_form_str[attr_form.form];
-      PG_TRY_ERR(pg_writer_write_full(w, form_str, allocator));
-      PG_TRY_ERR(pg_writer_write_full(w, PG_S("\n"), allocator));
+      PG_ERR_RETURN(pg_writer_write_full(w, form_str, allocator));
+      PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
     }
-    PG_TRY_ERR(pg_writer_flush(w, allocator));
+    PG_ERR_RETURN(pg_writer_flush(w, allocator));
   }
   return 0;
 }
