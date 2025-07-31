@@ -5856,15 +5856,14 @@ end:
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgThread, PgError)
     pg_thread_create(PgThreadFn fn, void *fn_data) {
-  PG_RESULT(PgThread, PgError) res = {0};
+  PgThread thread = {0};
 
-  i32 ret = pthread_create(&res.value, nullptr, (void *(*)(void *))fn, fn_data);
+  i32 ret = pthread_create(&thread, nullptr, (void *(*)(void *))fn, fn_data);
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, PgThread, PgError);
   }
 
-  return res;
+  return PG_OK(thread, PgThread, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] PgError pg_thread_join(PgThread thread) {
@@ -5918,29 +5917,24 @@ end:
   i32 fds[2] = {0};
   i32 ret = socketpair(unix_domain, unix_type, unix_option, fds);
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, PG_PAIR(PgFileDescriptor), PgError);
   }
 
-  res.value.first.fd = fds[0];
-  res.value.second.fd = fds[1];
-  return res;
+  PG_PAIR(PgFileDescriptor) pair = {.first.fd = fds[0], .second.fd = fds[1]};
+  return PG_OK(pair, PG_PAIR(PgFileDescriptor), PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_PAIR(PgFileDescriptor),
                                                 PgError) pg_pipe_make() {
-  PG_RESULT(PG_PAIR(PgFileDescriptor), PgError) res = {0};
-
   int fds[2] = {0};
   int ret = pipe(fds);
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, PG_PAIR(PgFileDescriptor), PgError);
   }
 
-  res.value.first.fd = fds[PG_PIPE_READ];
-  res.value.second.fd = fds[PG_PIPE_WRITE];
-  return res;
+  PG_PAIR(PgFileDescriptor)
+  pair = {.first.fd = fds[PG_PIPE_READ], .second.fd = fds[PG_PIPE_WRITE]};
+  return PG_OK(pair, PG_PAIR(PgFileDescriptor), PgError);
 }
 
 [[nodiscard]] static PgError pg_process_avoid_child_zombies() {
@@ -5959,12 +5953,10 @@ end:
   i32 pid = fork();
 
   if (-1 == pid) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, u32, PgError);
   }
 
-  res.value = (u32)pid;
-  return res;
+  return PG_OK((u32)pid, u32, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -5986,19 +5978,17 @@ pg_net_socket_set_timeout(PgFileDescriptor sock, u64 seconds,
     pg_net_create_tcp_socket() {
   PG_RESULT(PgFileDescriptor, PgError) res = {0};
 
-  int sock_fd = 0;
+  i32 sock_fd = 0;
   do {
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
   } while (-1 == sock_fd && EINTR == errno);
 
   if (-1 == sock_fd) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, PgFileDescriptor, PgError);
   }
 
-  res.value.fd = sock_fd;
-
-  return res;
+  PgFileDescriptor fd = {.fd = sock_fd};
+  return PG_OK(fd, PgFileDescriptor, PgError);
 }
 
 [[nodiscard]]
@@ -6064,43 +6054,48 @@ static PG_RESULT(PgIpv4AddressSocket, PgError)
   } while (-1 == res_getaddrinfo && EINTR == errno);
 
   if (-1 == res_getaddrinfo) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgIpv4AddressSocket, PgError);
   }
 
   struct addrinfo *rp = nullptr;
   for (rp = addr_info; rp != nullptr; rp = rp->ai_next) {
     PG_RESULT(PgFileDescriptor, PgError)
     res_create_socket = pg_net_create_tcp_socket();
-    if (res_create_socket.err) {
-      res.err = res_create_socket.err;
+    if (PG_IS_ERR(res_create_socket)) {
+      res = PG_ERR(PG_UNWRAP_ERR(res_create_socket), PgIpv4AddressSocket,
+                   PgError);
       continue;
     }
+
+    PgFileDescriptor socket = PG_UNWRAP(res_create_socket);
 
     // TODO: Use pg_net_connect_ipv4?
     int ret = 0;
     do {
-      ret = connect(res_create_socket.value.fd, rp->ai_addr, rp->ai_addrlen);
+      ret = connect(socket.fd, rp->ai_addr, rp->ai_addrlen);
     } while (-1 == ret && EINTR == errno);
 
     if (-1 == ret) {
       if (EINPROGRESS != errno) {
-        (void)pg_net_socket_close(res_create_socket.value);
+        (void)pg_net_socket_close(socket);
         continue;
       }
     }
 
-    res.value.socket = res_create_socket.value;
-
-    res.value.address.ip =
-        ntohl(((struct sockaddr_in *)(void *)rp->ai_addr)->sin_addr.s_addr);
-    res.value.address.port = port;
+    PgIpv4AddressSocket addr_socket = {
+        .socket = socket,
+        .address.ip =
+            ntohl(((struct sockaddr_in *)(void *)rp->ai_addr)->sin_addr.s_addr),
+        .address.port = port,
+    };
+    res = PG_OK(addr_socket, PgIpv4AddressSocket, PgError);
     break;
   }
 
   freeaddrinfo(addr_info);
 
   if (nullptr == rp) { // No address succeeded.
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgIpv4AddressSocket, PgError);
   }
 
   return res;
@@ -6113,14 +6108,11 @@ static PG_RESULT(PgIpv4AddressSocket, PgError)
     n = send(sock.fd, data.data, data.len, MSG_NOSIGNAL);
   } while (-1 == n && EINTR == errno);
 
-  PG_RESULT(u64, PgError) res = {0};
   if (n < 0) {
-    res.err = (PgError)errno;
-  } else {
-    res.value = (u64)n;
+    return PG_ERR(errno, u64, PgError);
   }
 
-  return res;
+  return PG_OK((u64)n, u64, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
