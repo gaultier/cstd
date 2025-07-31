@@ -6572,25 +6572,31 @@ static PG_RESULT(PgProcessStatus, PgError)
   PG_ASSERT(size > 0);
 
   PG_RESULT(PgVoidPtr, PgError) res = {0};
-  res.value = mmap(nullptr, size, pg_virtual_mem_flags_to_os_flags(flags),
-                   MAP_ANON | MAP_PRIVATE, -1, 0);
-  if ((void *)-1 == res.value) {
-    res.err = (PgError)pg_os_get_last_error();
+  PgVoidPtr ret = mmap(nullptr, size, pg_virtual_mem_flags_to_os_flags(flags),
+                       MAP_ANON | MAP_PRIVATE, -1, 0);
+  if ((void *)-1 == ret) {
+    return PG_ERR(errno, PgVoidPtr, PgError);
   }
-  return res;
+
+  return PG_OK(ret, PgVoidPtr, PgError);
 }
 
 [[nodiscard]] PG_RESULT(PgVirtualMemFile, PgError)
     pg_virtual_mem_map_file(PgString path, PgFileAccess access,
                             bool create_if_not_exists) {
-  PG_RESULT(PgVirtualMemFile, PgError) res = {0};
+  PgError err = 0;
 
   PG_RESULT(PgFileDescriptor, PgError)
   res_fd = pg_file_open(path, access, 0600, create_if_not_exists, nullptr);
-  PG_TRY(fd, res, res_fd);
+  PG_IF_LET_ERR(err, res_fd) { return PG_ERR(err, PgVirtualMemFile, PgError); }
+  PgFileDescriptor fd = PG_UNWRAP(res_fd);
 
   PG_RESULT(u64, PgError) res_size = pg_file_size(fd);
-  PG_TRY(size, res, res_size);
+  PG_IF_LET_ERR(_err, res_size) {
+    err = _err;
+    goto err_end;
+  }
+  u64 size = PG_UNWRAP(res_size);
 
   i32 prot = 0;
   switch (access) {
@@ -6611,13 +6617,16 @@ static PG_RESULT(PgProcessStatus, PgError)
 
   u8 *mem = mmap(nullptr, size, prot, MAP_PRIVATE, fd.fd, 0);
   if ((void *)-1 == mem) {
-    res.err = (PgError)pg_os_get_last_error();
+    err = errno;
+    goto err_end;
   }
 
-  res.value.fd = fd;
-  res.value.data.data = mem;
-  res.value.data.len = size;
-  return res;
+  PgVirtualMemFile res = {.fd = fd, .data = {.data = mem, .len = size}};
+  return PG_OK(res, PgVirtualMemFile, PgError);
+
+err_end:
+  (void)pg_file_close(fd);
+  return PG_ERR(err, PgVirtualMemFile, PgError);
 }
 
 [[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
