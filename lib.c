@@ -7883,34 +7883,34 @@ pg_url_is_scheme_valid(PgString scheme) {
                                                 PgError)
     pg_http_parse_request_status_line(PgString status_line,
                                       PgAllocator *allocator) {
-  PG_RESULT(PgHttpRequestStatusLine, PgError) res = {0};
+  PgHttpRequestStatusLine res = {0};
 
   PgStringCut cut = pg_string_cut_rune(status_line, ' ');
   if (!cut.has_value) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpRequestStatusLine, PgError);
   }
 
   // Method.
   {
     PgString method = pg_string_trim_space(cut.left);
     if (pg_string_eq(method, PG_S("OPTIONS"))) {
-      res.value.method = PG_HTTP_METHOD_OPTIONS;
+      res.method = PG_HTTP_METHOD_OPTIONS;
     } else if (pg_string_eq(method, PG_S("GET"))) {
-      res.value.method = PG_HTTP_METHOD_GET;
+      res.method = PG_HTTP_METHOD_GET;
     } else if (pg_string_eq(method, PG_S("HEAD"))) {
-      res.value.method = PG_HTTP_METHOD_HEAD;
+      res.method = PG_HTTP_METHOD_HEAD;
     } else if (pg_string_eq(method, PG_S("POST"))) {
-      res.value.method = PG_HTTP_METHOD_POST;
+      res.method = PG_HTTP_METHOD_POST;
     } else if (pg_string_eq(method, PG_S("PUT"))) {
-      res.value.method = PG_HTTP_METHOD_PUT;
+      res.method = PG_HTTP_METHOD_PUT;
     } else if (pg_string_eq(method, PG_S("DELETE"))) {
-      res.value.method = PG_HTTP_METHOD_DELETE;
+      res.method = PG_HTTP_METHOD_DELETE;
     } else if (pg_string_eq(method, PG_S("TRACE"))) {
-      res.value.method = PG_HTTP_METHOD_TRACE;
+      res.method = PG_HTTP_METHOD_TRACE;
     } else if (pg_string_eq(method, PG_S("CONNECT"))) {
-      res.value.method = PG_HTTP_METHOD_CONNECT;
+      res.method = PG_HTTP_METHOD_CONNECT;
     } else {
-      res.value.method = PG_HTTP_METHOD_EXTENSION;
+      res.method = PG_HTTP_METHOD_EXTENSION;
     }
   }
 
@@ -7922,11 +7922,11 @@ pg_url_is_scheme_valid(PgString scheme) {
     path = pg_string_clone(path, allocator);
     PG_RESULT(PgUrl, PgError)
     res_url = pg_url_parse_after_authority(path, allocator);
-    if (res_url.err) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    PG_IF_LET_ERR(err, res_url) {
+      return PG_ERR(err, PgHttpRequestStatusLine, PgError);
     }
 
-    res.value.url = res_url.value;
+    res.url = PG_UNWRAP(res_url);
   }
 
   PgString remaining = pg_string_trim_space(cut.right);
@@ -7934,7 +7934,7 @@ pg_url_is_scheme_valid(PgString scheme) {
     PG_OPTION(PgString)
     consume_opt = pg_string_consume_string(remaining, PG_S("HTTP/"));
     if (!consume_opt.has_value) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpRequestStatusLine, PgError);
     }
     remaining = consume_opt.value;
   }
@@ -7942,19 +7942,19 @@ pg_url_is_scheme_valid(PgString scheme) {
   {
     PgParseNumberResult res_major = pg_string_parse_u64(remaining, 10, true);
     if (!res_major.present) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpRequestStatusLine, PgError);
     }
     if (res_major.n > 3) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpRequestStatusLine, PgError);
     }
-    res.value.version_major = (u8)res_major.n;
+    res.version_major = (u8)res_major.n;
     remaining = res_major.remaining;
   }
 
   {
     PG_OPTION(PgString) consume_opt = pg_string_consume_rune(remaining, '.');
     if (!consume_opt.has_value) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpRequestStatusLine, PgError);
     }
     remaining = consume_opt.value;
   }
@@ -7962,20 +7962,20 @@ pg_url_is_scheme_valid(PgString scheme) {
   {
     PgParseNumberResult res_minor = pg_string_parse_u64(remaining, 10, true);
     if (!res_minor.present) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpRequestStatusLine, PgError);
     }
     if (res_minor.n > 9) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpRequestStatusLine, PgError);
     }
-    res.value.version_minor = (u8)res_minor.n;
+    res.version_minor = (u8)res_minor.n;
     remaining = res_minor.remaining;
   }
 
   if (!PG_SLICE_IS_EMPTY(remaining)) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpRequestStatusLine, PgError);
   }
 
-  return res;
+  return PG_OK(res, PgHttpRequestStatusLine, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgStringKeyValue, PgError)
