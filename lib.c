@@ -190,9 +190,9 @@ typedef double f64;
 
 #define PG_IS_OK(V) (V)._ok
 
-#define PG_UNWRAP(V) (PG_IS_OK(V) ? (V).u._value : PG_ASSERT(0))
+#define PG_UNWRAP(V) ((PG_IS_OK(V) ? (void)0 : PG_ASSERT(0)), (V).u._value)
 
-#define PG_UNWRAP_ERR(V) (PG_IS_ERR(V) ? (V).u._err : PG_ASSERT(0))
+#define PG_UNWRAP_ERR(V) ((PG_IS_ERR(V) ? (void)0 : PG_ASSERT(0)), (V).u._err)
 
 #define PG_TRY(V, T, E)                                                        \
   ({                                                                           \
@@ -5227,12 +5227,8 @@ pg_arena_make_from_virtual_mem(u64 size) {
   PG_RESULT(PgVoidPtr, PgError)
   res_alloc = pg_virtual_mem_alloc(
       os_alloc_size, PG_VIRTUAL_MEM_FLAGS_READ | PG_VIRTUAL_MEM_FLAGS_WRITE);
-  if (res_alloc.err) {
-    // TODO: Better error handling.
-    PG_ASSERT(0);
-  }
-  PG_ASSERT(res_alloc.value);
-  u8 *alloc = res_alloc.value;
+  u8 *alloc = PG_UNWRAP(res_alloc);
+  PG_ASSERT(nullptr != alloc);
 
   u64 page_guard_before = (u64)alloc;
 
@@ -5382,8 +5378,7 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file, u64 buffer_size,
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString, PgError)
     pg_file_read_full_from_descriptor(PgFileDescriptor file, u64 size,
                                       PgAllocator *allocator) {
-  PG_RESULT(PgString, PgError) res = {0};
-
+  PgError err = {0};
   PG_DYN(u8) sb = {0};
   PG_DYN_ENSURE_CAP(&sb, size, allocator);
 
@@ -5394,14 +5389,14 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file, u64 buffer_size,
 
     PgString space = {.data = sb.data + sb.len, .len = sb.cap - sb.len};
     PG_RESULT(u64, PgError) res_read = pg_file_read(file, space);
-    if (res_read.err) {
-      res.err = (PgError)pg_os_get_last_error();
+    if (PG_IS_ERR(res_read)) {
+      err = (PgError)pg_os_get_last_error();
       goto end;
     }
 
-    u64 read_n = res_read.value;
+    u64 read_n = PG_UNWRAP(res_read);
     if (0 == read_n) {
-      res.err = (PgError)PG_ERR_INVALID_VALUE;
+      err = PG_ERR_INVALID_VALUE;
       goto end;
     }
 
@@ -5411,20 +5406,19 @@ pg_writer_make_from_file_descriptor(PgFileDescriptor file, u64 buffer_size,
   }
 
 end:
-  if (res.err && sb.data) {
+  if (err && sb.data) {
     pg_free(allocator, sb.data);
-    return res;
+    return PG_ERR(err, PgString, PgError);
   }
 
-  res.value = PG_DYN_TO_SLICE(PgString, sb);
-  return res;
+  return PG_OK(PG_DYN_TO_SLICE(PgString, sb), PgString, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString, PgError)
     pg_file_read_full_from_descriptor_until_eof(PgFileDescriptor file,
                                                 u64 size_hint,
                                                 PgAllocator *allocator) {
-  PG_RESULT(PgString, PgError) res = {0};
+  PgError err = 0;
 
   PG_DYN(u8) sb = {0};
   PG_DYN_ENSURE_CAP(&sb, size_hint, allocator);
@@ -5435,12 +5429,12 @@ end:
     PG_ASSERT(space.len);
 
     PG_RESULT(u64, PgError) res_read = pg_file_read(file, space);
-    if (res_read.err) {
-      res.err = (PgError)pg_os_get_last_error();
+    if (PG_IS_ERR(res_read)) {
+      err = (PgError)pg_os_get_last_error();
       goto end;
     }
 
-    u64 read_n = res_read.value;
+    u64 read_n = PG_UNWRAP(res_read);
     if (0 == read_n) {
       goto end;
     }
@@ -5451,13 +5445,12 @@ end:
   }
 
 end:
-  if (res.err && sb.data) {
+  if (err && sb.data) {
     pg_free(allocator, sb.data);
-    return res;
+    return PG_ERR(err, PgString, PgError);
   }
 
-  res.value = PG_DYN_TO_SLICE(PgString, sb);
-  return res;
+  return PG_OK(PG_DYN_TO_SLICE(PgString, sb), PgString, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgReader
@@ -5515,14 +5508,14 @@ pg_file_write_full_with_descriptor(PgFileDescriptor file,
     }
 
     PG_RESULT(u64, PgError) res_write = pg_file_write(file, remaining);
-    if (res_write.err) {
+    if (PG_IS_ERR(res_write)) {
       err = (PgError)pg_os_get_last_error();
       goto end;
     }
 
-    u64 write_n = res_write.value;
+    u64 write_n = PG_UNWRAP(res_write);
     if (0 == write_n) {
-      err = (PgError)PG_ERR_INVALID_VALUE;
+      err = PG_ERR_INVALID_VALUE;
       goto end;
     }
 
@@ -5539,20 +5532,19 @@ end:
 
   PG_RESULT(PgFileDescriptor, PgError)
   res_file = pg_file_open(path, PG_FILE_ACCESS_READ, 0600, false, allocator);
-  if (res_file.err) {
-    res.err = res_file.err;
-    return res;
+  if (PG_IS_ERR(res_file)) {
+    return PG_ERR(PG_UNWRAP_ERR(res_file), PgString, PgError);
   }
 
-  PgFileDescriptor file = res_file.value;
+  PgFileDescriptor file = PG_UNWRAP(res_file);
 
   PG_RESULT(u64, PgError) res_size = pg_file_size(file);
-  if (res_size.err) {
-    res.err = res_size.err;
+  if (PG_IS_ERR(res_size)) {
+    res = PG_ERR(PG_UNWRAP_ERR(res_size), PgString, PgError);
     goto end;
   }
 
-  u64 size = res_size.value;
+  u64 size = PG_UNWRAP(res_size);
 
   res = pg_file_read_full_from_descriptor(file, size, allocator);
 
@@ -5565,22 +5557,14 @@ end:
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_file_write_full(PgString path, PgString content, u64 mode,
                    PgAllocator *allocator) {
-  PgError err = 0;
+  PgFileDescriptor file = PG_TRY_ERR(
+      pg_file_open(path, PG_FILE_ACCESS_WRITE, mode, true, allocator));
 
-  PG_RESULT(PgFileDescriptor, PgError)
-  res_file = pg_file_open(path, PG_FILE_ACCESS_WRITE, mode, true, allocator);
-  if (res_file.err) {
-    err = res_file.err;
-    return err;
-  }
+  PG_ERR_RETURN(pg_file_write_full_with_descriptor(file, content));
 
-  PgFileDescriptor file = res_file.value;
+  PG_ERR_RETURN(pg_file_close(file));
 
-  err = pg_file_write_full_with_descriptor(file, content);
-
-  (void)pg_file_close(file);
-
-  return err;
+  return 0;
 }
 
 [[maybe_unused]] [[nodiscard]]
@@ -5589,7 +5573,7 @@ static PG_RESULT(PgProcess, PgError)
                      PgProcessSpawnOptions options, PgAllocator *allocator);
 
 [[maybe_unused]] [[nodiscard]]
-static PG_RESULT(PgProcessStatus)
+static PG_RESULT(PgProcessStatus, PgError)
     pg_process_wait(PgProcess process, u64 stdio_size_hint,
                     u64 stderr_size_hint, PgAllocator *allocator, PgError);
 
