@@ -6271,7 +6271,7 @@ static PG_RESULT(PgProcess, PgError)
     if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdin_capture) {
       int ret = pipe(stdin_pipe);
       if (-1 == ret) {
-        res.err = (PgError)errno;
+        res = PG_ERR(errno, PgProcess, PgError);
         goto end;
       }
     }
@@ -6282,7 +6282,7 @@ static PG_RESULT(PgProcess, PgError)
     if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stdout_capture) {
       int ret = pipe(stdout_pipe);
       if (-1 == ret) {
-        res.err = (PgError)errno;
+        res = PG_ERR(errno, PgProcess, PgError);
         goto end;
       }
     }
@@ -6293,7 +6293,7 @@ static PG_RESULT(PgProcess, PgError)
     if (PG_CHILD_PROCESS_STD_IO_PIPE == options.stderr_capture) {
       int ret = pipe(stderr_pipe);
       if (-1 == ret) {
-        res.err = (PgError)errno;
+        res = PG_ERR(errno, PgProcess, PgError);
         goto end;
       }
     }
@@ -6302,7 +6302,7 @@ static PG_RESULT(PgProcess, PgError)
   int pid = fork();
 
   if (-1 == pid) {
-    res.err = (PgError)errno;
+    res = PG_ERR(errno, PgProcess, PgError);
     goto end;
   }
 
@@ -6361,10 +6361,12 @@ static PG_RESULT(PgProcess, PgError)
   }
 
   PG_ASSERT(pid > 0); // Parent.
-  res.value.pid = (u64)pid;
-  res.value.stdin_pipe.fd = stdin_pipe[PG_PIPE_WRITE];
-  res.value.stdout_pipe.fd = stdout_pipe[PG_PIPE_READ];
-  res.value.stderr_pipe.fd = stderr_pipe[PG_PIPE_READ];
+  PgProcess process = {0};
+  process.pid = (u64)pid;
+  process.stdin_pipe.fd = stdin_pipe[PG_PIPE_WRITE];
+  process.stdout_pipe.fd = stdout_pipe[PG_PIPE_READ];
+  process.stderr_pipe.fd = stderr_pipe[PG_PIPE_READ];
+  res = PG_OK(process, PgProcess, PgError);
 
 end:
   for (u64 i = 0; i < args_c.len; i++) {
@@ -6382,7 +6384,7 @@ end:
     close(stderr_pipe[PG_PIPE_WRITE]);
   }
 
-  if (res.err) {
+  if (PG_IS_ERR(res)) {
     if (stdin_pipe[PG_PIPE_WRITE]) {
       close(stdin_pipe[PG_PIPE_WRITE]);
     }
@@ -6438,7 +6440,7 @@ static PG_RESULT(PgProcessCaptureStd, PgError)
 
     int res_poll = poll(pollfds, pollfds_len, -1);
     if (-1 == res_poll) {
-      res.err = (PgError)errno;
+      res = PG_ERR(errno, PgProcessCaptureStd, PgError);
       goto end;
     }
 
@@ -6470,7 +6472,7 @@ static PG_RESULT(PgProcessCaptureStd, PgError)
       u8 tmp[4096] = {0};
       ssize_t read_n = read(pollfd.fd, tmp, PG_STATIC_ARRAY_LEN(tmp));
       if (-1 == read_n) {
-        res.err = (PgError)errno;
+        res = PG_ERR(errno, PgProcessCaptureStd, PgError);
         goto end;
       }
       if (0 == read_n) {
@@ -6485,7 +6487,7 @@ static PG_RESULT(PgProcessCaptureStd, PgError)
   }
 
 end:
-  if (res.err) {
+  if (PG_IS_ERR(res)) {
     pg_free(allocator, stdout_sb.data);
     pg_free(allocator, stderr_sb.data);
   }
@@ -6500,9 +6502,10 @@ end:
     close(process.stderr_pipe.fd);
   }
 
-  res.value.stdout_captured = PG_DYN_TO_SLICE(PgString, stdout_sb);
-  res.value.stderr_captured = PG_DYN_TO_SLICE(PgString, stderr_sb);
-  return res;
+  PgProcessCaptureStd capture = {0};
+  capture.stdout_captured = PG_DYN_TO_SLICE(PgString, stdout_sb);
+  capture.stderr_captured = PG_DYN_TO_SLICE(PgString, stderr_sb);
+  return PG_OK(capture, PgProcessCaptureStd, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]]
@@ -6571,7 +6574,6 @@ static PG_RESULT(PgProcessStatus, PgError)
     pg_virtual_mem_alloc(u64 size, PgVirtualMemFlags flags) {
   PG_ASSERT(size > 0);
 
-  PG_RESULT(PgVoidPtr, PgError) res = {0};
   PgVoidPtr ret = mmap(nullptr, size, pg_virtual_mem_flags_to_os_flags(flags),
                        MAP_ANON | MAP_PRIVATE, -1, 0);
   if ((void *)-1 == ret) {
@@ -6658,8 +6660,6 @@ pg_clock_to_linux(PgClockKind clock_kind) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_time_ns_now(PgClockKind clock) {
-  PG_RESULT(u64, PgError) res = {0};
-
   struct timespec ts = {0};
   int ret = 0;
   do {
@@ -6667,13 +6667,12 @@ pg_clock_to_linux(PgClockKind clock_kind) {
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, u64, PgError);
   }
 
-  res.value = (u64)ts.tv_sec * PG_Seconds + (u64)ts.tv_nsec;
+  u64 res = (u64)ts.tv_sec * PG_Seconds + (u64)ts.tv_nsec;
 
-  return res;
+  return PG_OK(res, u64, PgError);
 }
 
 [[maybe_unused]] static u64
@@ -6714,38 +6713,30 @@ pg_fill_stack_trace(u64 skip, u64 pie_offset,
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_read(PgFileDescriptor file, PgString buf) {
-  PG_RESULT(u64, PgError) res = {0};
-
   isize n = 0;
   do {
     n = read(file.fd, buf.data, buf.len);
   } while (-1 == n && EINTR == errno);
 
   if (-1 == n) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, u64, PgError);
   }
 
-  res.value = (u64)n;
-  return res;
+  return PG_OK((u64)n, u64, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_write(PgFileDescriptor file, PgString s) {
-  PG_RESULT(u64, PgError) res = {0};
-
   isize n = 0;
   do {
     n = write(file.fd, s.data, s.len);
   } while (-1 == n && EINTR == errno);
 
   if (-1 == n) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, u64, PgError);
   }
 
-  res.value = (u64)n;
-  return res;
+  return PG_OK((u64)n, u64, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -6758,29 +6749,23 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_read_at(PgFileDescriptor file, PgString buf, u64 offset) {
-  PG_RESULT(u64, PgError) res = {0};
-
   isize n = 0;
   do {
     n = pread(file.fd, buf.data, buf.len, (off_t)offset);
   } while (-1 == n && EINTR == errno);
 
   if (-1 == n) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, u64, PgError);
   }
 
-  res.value = (u64)n;
-  return res;
+  return PG_OK((u64)n, u64, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_file_open(PgString path, PgFileAccess access, u64 mode,
                  bool create_if_not_exists, PgAllocator *) {
-  PG_RESULT(PgFileDescriptor, PgError) res = {0};
-
   if (path.len > PG_PATH_MAX - 1) {
-    res.err = PG_ERR_INVALID_VALUE;
+    return PG_ERR(errno, PgFileDescriptor, PgError);
   }
 
   int flags = 0;
@@ -6807,14 +6792,12 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
   pg_memcpy(path_c, path.data, path.len);
 
   int fd = open((char *)path_c, flags, mode ? mode : 0600);
-
   if (-1 == fd) {
-    res.err = (PgError)pg_os_get_last_error();
-    return res;
+    return PG_ERR(errno, PgFileDescriptor, PgError);
   }
 
-  res.value.fd = fd;
-  return res;
+  PgFileDescriptor res = {.fd = fd};
+  return PG_OK(res, PgFileDescriptor, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -6828,7 +6811,6 @@ pg_file_close(PgFileDescriptor file) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_file_size(PgFileDescriptor file) {
-  PG_RESULT(u64, PgError) res = {0};
   struct stat st = {0};
 
   int ret = 0;
@@ -6837,27 +6819,20 @@ pg_file_close(PgFileDescriptor file) {
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
-    res.err = (PgError)pg_os_get_last_error();
-    return res;
+    return PG_ERR(errno, u64, PgError);
   }
 
-  res.value = (u64)st.st_size;
-  return res;
+  return PG_OK(st.st_size, u64, PgError);
 }
 
 [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_net_socket_read_non_blocking(PgFileDescriptor socket, PgString dst) {
-  PG_RESULT(u64, PgError) res = {0};
-
   i64 ret = recv(socket.fd, dst.data, dst.len, MSG_DONTWAIT);
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, u64, PgError);
   }
 
-  res.value = (u64)ret;
-
-  return res;
+  return PG_OK((u64)ret, u64, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -7231,14 +7206,14 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgHttpResponseStatusLine,
                                                 PgError)
     pg_http_parse_response_status_line(PgString status_line) {
-  PG_RESULT(PgHttpResponseStatusLine, PgError) res = {0};
+  PgHttpResponseStatusLine res = {0};
 
   PgString remaining = status_line;
   {
     PG_OPTION(PgString)
     consume_opt = pg_string_consume_string(remaining, PG_S("HTTP/"));
     if (!consume_opt.has_value) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpResponseStatusLine, PgError);
     }
     remaining = consume_opt.value;
   }
@@ -7246,19 +7221,19 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
   {
     PgParseNumberResult res_major = pg_string_parse_u64(remaining, 10, true);
     if (!res_major.present) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpResponseStatusLine, PgError);
     }
     if (res_major.n > 3) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpResponseStatusLine, PgError);
     }
-    res.value.version_major = (u8)res_major.n;
+    res.version_major = (u8)res_major.n;
     remaining = res_major.remaining;
   }
 
   {
     PG_OPTION(PgString) consume_opt = pg_string_consume_rune(remaining, '.');
     if (!consume_opt.has_value) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpResponseStatusLine, PgError);
     }
     remaining = consume_opt.value;
   }
@@ -7266,19 +7241,19 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
   {
     PgParseNumberResult res_minor = pg_string_parse_u64(remaining, 10, true);
     if (!res_minor.present) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpResponseStatusLine, PgError);
     }
     if (res_minor.n > 9) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpResponseStatusLine, PgError);
     }
-    res.value.version_minor = (u8)res_minor.n;
+    res.version_minor = (u8)res_minor.n;
     remaining = res_minor.remaining;
   }
 
   {
     PG_OPTION(PgString) consume_opt = pg_string_consume_rune(remaining, ' ');
     if (!consume_opt.has_value) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpResponseStatusLine, PgError);
     }
     remaining = consume_opt.value;
   }
@@ -7287,19 +7262,19 @@ PgString static pg_http_method_to_string(PgHttpMethod m) {
     PgParseNumberResult res_status_code =
         pg_string_parse_u64(remaining, 10, true);
     if (!res_status_code.present) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpResponseStatusLine, PgError);
     }
     if (res_status_code.n < 100 || res_status_code.n > 599) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgHttpResponseStatusLine, PgError);
     }
-    res.value.status = (u16)res_status_code.n;
+    res.status = (u16)res_status_code.n;
     remaining = res_status_code.remaining;
   }
 
   // TODO: Should we keep the human-readable status code around or validate
   // it?
 
-  return res;
+  return PG_OK(res, PgHttpResponseStatusLine, PgError);
 }
 
 [[maybe_unused]]
@@ -7560,23 +7535,22 @@ static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_DYN(PgString), PgError)
     pg_url_parse_path_components(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PgString), PgError) res = {0};
 
   if (-1 != pg_string_index_of_any_rune(s, PG_S("?#:"))) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_DYN(PgString), PgError);
   }
 
   if (PG_SLICE_IS_EMPTY(s)) {
-    return res;
+    return PG_OK({}, PG_DYN(PgString), PgError);
   }
 
   if (!pg_string_starts_with(s, PG_S("/"))) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_DYN(PgString), PgError);
   }
 
-  PG_DYN(PgString) components = {0};
-
+  PG_DYN(PgString) res = {0};
   PgSplitIterator split_it_slash = pg_string_split_string(s, PG_S("/"));
+
   for (u64 i = 0; i < s.len; i++) { // Bound.
     PG_OPTION(PgString) split_opt = pg_string_split_next(&split_it_slash);
     if (!split_opt.has_value) {
@@ -7587,11 +7561,10 @@ static PgString pg_html_make_slug(PgString s, PgAllocator *allocator) {
       continue;
     }
 
-    PG_DYN_PUSH(&components, split_opt.value, allocator);
+    PG_DYN_PUSH(&res, split_opt.value, allocator);
   }
 
-  res.value = components;
-  return res;
+  return PG_OK(res, PG_DYN(PgString), PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
@@ -7656,13 +7629,13 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_DYN(PgStringKeyValue),
                                                 PgError)
     pg_url_parse_query_parameters(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PgStringKeyValue), PgError) res = {0};
+  PG_DYN(PgStringKeyValue) res = {0};
 
   PgString remaining = s;
   {
     PG_OPTION(PgString) consume_question_opt = pg_string_consume_rune(s, '?');
     if (!consume_question_opt.has_value) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PG_DYN(PgStringKeyValue), PgError);
     }
     remaining = consume_question_opt.value;
   }
@@ -7679,8 +7652,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
     PgString v = res_consume_eq.consumed ? res_consume_eq.right : PG_S("");
 
     if (!PG_SLICE_IS_EMPTY(k)) {
-      PG_DYN_PUSH(&res.value, ((PgStringKeyValue){.key = k, .value = v}),
-                  allocator);
+      PG_DYN_PUSH(&res, ((PgStringKeyValue){.key = k, .value = v}), allocator);
     }
 
     if (!res_consume_and.consumed) {
@@ -7688,7 +7660,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
     }
   }
 
-  return res;
+  return PG_OK(res, PG_DYN(PgStringKeyValue), PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrlUserInfo, PgError)
@@ -7703,7 +7675,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
   // reject such data when it is received.
 
   if (PG_SLICE_IS_EMPTY(s)) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgUrlUserInfo, PgError);
   }
 
   return res;
@@ -7711,22 +7683,20 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u16, PgError)
     pg_url_parse_port(PgString s) {
-  PG_RESULT(u16, PgError) res = {0};
-
   // Allowed.
   if (PG_SLICE_IS_EMPTY(s)) {
-    return res;
+    return PG_OK(0, u16, PgError);
   }
 
   PgParseNumberResult port_parse = pg_string_parse_u64(s, 10, true);
   if (!PG_SLICE_IS_EMPTY(port_parse.remaining)) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, u16, PgError);
   }
   if (port_parse.n > UINT16_MAX) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, u16, PgError);
   }
-  res.value = (u16)port_parse.n;
-  return res;
+
+  return PG_OK((u16)port_parse.n, u16, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrlAuthority, PgError)
