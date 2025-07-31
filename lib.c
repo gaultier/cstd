@@ -7701,7 +7701,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrlAuthority, PgError)
     pg_url_parse_authority(PgString s) {
-  PG_RESULT(PgUrlAuthority, PgError) res = {0};
+  PgUrlAuthority res = {0};
 
   PgString remaining = s;
   // User info, optional.
@@ -7713,11 +7713,10 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
     if (user_info_and_rem.consumed) {
       PG_RESULT(PgUrlUserInfo, PgError)
       res_user_info = pg_url_parse_user_info(user_info_and_rem.left);
-      if (res_user_info.err) {
-        res.err = res_user_info.err;
-        return res;
+      PG_IF_LET_ERR(err, res_user_info) {
+        return PG_ERR(err, PgUrlAuthority, PgError);
       }
-      res.value.user_info = res_user_info.value;
+      res.user_info = PG_UNWRAP(res_user_info);
     }
   }
 
@@ -7726,23 +7725,22 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
       pg_string_consume_until_rune_incl(remaining, ':');
   {
     remaining = host_and_rem.right;
-    res.value.host = host_and_rem.left;
-    if (PG_SLICE_IS_EMPTY(res.value.host)) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    res.host = host_and_rem.left;
+    if (PG_SLICE_IS_EMPTY(res.host)) {
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgUrlAuthority, PgError);
     }
   }
 
   // Port, optional.
   if (host_and_rem.consumed) {
     PG_RESULT(u16, PgError) res_port = pg_url_parse_port(host_and_rem.right);
-    if (res_port.err) {
-      res.err = res_port.err;
-      return res;
+    PG_IF_LET_ERR(err, res_port) {
+      return PG_ERR(err, PgUrlAuthority, PgError);
     }
-    res.value.port = res_port.value;
+    res.port = PG_UNWRAP(res_port);
   }
 
-  return res;
+  return PG_OK(res, PgUrlAuthority, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
