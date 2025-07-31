@@ -233,6 +233,8 @@ typedef double f64;
     }                                                                          \
   }
 
+#define PG_SOME(V, T) ((T){.has_value = true, .value = V})
+
 // TODO: Separate error type?
 typedef u64 PgError;
 #define PG_ERR_EOF 4095
@@ -7980,24 +7982,24 @@ pg_url_is_scheme_valid(PgString scheme) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgStringKeyValue, PgError)
     pg_http_parse_header(PgString s) {
-  PG_RESULT(PgStringKeyValue, PgError) res = {0};
+  PgStringKeyValue res = {0};
 
   PgStringCut cut = pg_string_cut_rune(s, ':');
   if (!cut.has_value) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgStringKeyValue, PgError);
   }
 
-  res.value.key = pg_string_trim_space(cut.left);
-  if (pg_string_is_empty(res.value.key)) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+  res.key = pg_string_trim_space(cut.left);
+  if (pg_string_is_empty(res.key)) {
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgStringKeyValue, PgError);
   }
 
-  res.value.value = pg_string_trim_space(cut.right);
-  if (pg_string_is_empty(res.value.value)) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+  res.value = pg_string_trim_space(cut.right);
+  if (pg_string_is_empty(res.value)) {
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgStringKeyValue, PgError);
   }
 
-  return res;
+  return PG_OK(res, PgStringKeyValue, PgError);
 }
 
 typedef enum {
@@ -8012,20 +8014,16 @@ typedef enum {
   if (0 == r->ring.data.len) { // Simple reader.
     PG_RESULT(PG_OPTION(u64), PgError) res = {0};
     PG_RESULT(u64, PgError) res_read = pg_reader_read(r, dst);
-    if (res_read.err) {
-      res.err = res_read.err;
-      return res;
+    PG_IF_LET_ERR(err, res_read) {
+      return PG_ERR(err, PG_OPTION(u64), PgError);
     }
 
-    PG_SLICE(u8) haystack = PG_SLICE_RANGE(dst, 0, res_read.value);
+    u64 read_count = PG_UNWRAP(res_read);
+
+    PG_SLICE(u8) haystack = PG_SLICE_RANGE(dst, 0, read_count);
     PG_OPTION(u64) search_opt = pg_bytes_index_of_byte(haystack, needle);
-    if (!search_opt.has_value) {
-      return res;
-    }
 
-    res.value.has_value = true;
-    res.value.value = search_opt.value;
-    return res;
+    return PG_OK(search_opt, PG_OPTION(u64), PgError);
   } else { // Buffered reader.
     PG_ASSERT(dst.len >= r->ring.data.len);
 
@@ -8038,21 +8036,19 @@ typedef enum {
                       &r->ring, PG_SLICE_RANGE(dst, 0, search_opt.value)) ==
                   search_opt.value);
 
-        res.value.has_value = true;
-        res.value.value = search_opt.value;
-        return res;
+        return PG_OK(search_opt, PG_OPTION(u64), PgError);
       }
 
       // Do not overwrite data.
       if (pg_ring_is_full(r->ring)) {
-        return PG_ERR(typeof(res), PG_ERR_TOO_BIG);
+        return PG_ERR(PG_ERR_TOO_BIG, PG_OPTION(u64), PgError);
       }
 
       // TODO: Should we do multiple reads?
       u64 ring_size_before = pg_ring_can_read_count(r->ring);
       PgError err = pg_buf_reader_try_fill_once(r);
       if (err) {
-        return PG_ERR(typeof(res), err);
+        return PG_ERR(err, PG_OPTION(u64), PgError);
       }
 
       u64 ring_size_after = pg_ring_can_read_count(r->ring);
@@ -8071,25 +8067,19 @@ typedef enum {
   PG_ASSERT(dst.data);
 
   if (0 == r->ring.data.len) { // Simple reader.
-    PG_RESULT(PG_OPTION(u64), PgError) res = {0};
     // TODO: Multiple reads?
     PG_RESULT(u64, PgError) res_read = pg_reader_read(r, dst);
-    if (res_read.err) {
-      res.err = res_read.err;
-      return res;
+    PG_IF_LET_ERR(err, res_read) {
+      return PG_ERR(err, PG_OPTION(u64), PgError);
     }
 
+    u64 read_count = PG_UNWRAP(res_read);
     u8 needle_data[2] = {needle0, needle1};
     PG_SLICE(u8) needle = {.data = needle_data, .len = 2};
-    PG_SLICE(u8) haystack = PG_SLICE_RANGE(dst, 0, res_read.value);
+    PG_SLICE(u8) haystack = PG_SLICE_RANGE(dst, 0, read_count);
     PG_OPTION(u64) search_opt = pg_bytes_index_of_bytes(haystack, needle);
-    if (!search_opt.has_value) {
-      return res;
-    }
 
-    res.value.has_value = true;
-    res.value.value = search_opt.value;
-    return res;
+    return PG_OK(search_opt, PG_OPTION(u64), PgError);
   } else {
     PG_ASSERT(dst.len >= r->ring.data.len);
 
@@ -8102,21 +8092,19 @@ typedef enum {
         PG_ASSERT(pg_ring_read_bytes(
                       &r->ring, PG_SLICE_RANGE(dst, 0, search_opt.value)) ==
                   search_opt.value);
-        res.value.has_value = true;
-        res.value.value = search_opt.value;
-        return res;
+        return PG_OK(search_opt, PG_OPTION(u64), PgError);
       }
 
       // Do not overwrite data.
       if (pg_ring_is_full(r->ring)) {
-        return PG_ERR(typeof(res), PG_ERR_TOO_BIG);
+        return PG_ERR(PG_ERR_TOO_BIG, PG_OPTION(u64), PgError);
       }
 
       // TODO: Should we do multiple reads?
       u64 ring_size_before = pg_ring_can_read_count(r->ring);
       PgError err = pg_buf_reader_try_fill_once(r);
       if (err) {
-        return PG_ERR(typeof(res), err);
+        return PG_ERR(err, PG_OPTION(u64), PgError);
       }
 
       u64 ring_size_after = pg_ring_can_read_count(r->ring);
@@ -8129,47 +8117,48 @@ typedef enum {
   }
 }
 
-[[nodiscard]] static PG_RESULT(PG_OPTION(u64))
+[[nodiscard]] static PG_RESULT(PG_OPTION(u64), PgError)
     pg_reader_read_line(PgReader *reader, PgNewlineKind newline_kind,
-                        PgString dst, PgError) {
-  PG_RESULT(PG_OPTION(u64), PgError) res = {0};
+                        PgString dst) {
+  PG_OPTION(u64) read_count_opt = {0};
+
   switch (newline_kind) {
   case PG_NEWLINE_KIND_LF:
-    res = pg_reader_read_until_byte_incl(reader, dst, '\n');
+    read_count_opt = PG_TRY(pg_reader_read_until_byte_incl(reader, dst, '\n'),
+                            PG_OPTION(u64), PgError);
     break;
   case PG_NEWLINE_KIND_CRLF:
-    res = pg_reader_read_until_bytes2_incl(reader, dst, '\r', '\n');
+    read_count_opt =
+        PG_TRY(pg_reader_read_until_bytes2_incl(reader, dst, '\r', '\n'),
+               PG_OPTION(u64), PgError);
     break;
   default:
     PG_ASSERT(0);
   }
 
-  if (res.err) {
-    return res;
-  }
-  if (!res.value.has_value) {
-    return res;
+  if (!read_count_opt.has_value) {
+    return PG_OK(read_count_opt, PG_OPTION(u64), PgError);
   }
 
   switch (newline_kind) {
   case PG_NEWLINE_KIND_LF: {
-    PG_ASSERT(res.value.value >= 1);
-    PG_ASSERT('\n' == PG_SLICE_AT(dst, res.value.value - 1));
+    PG_ASSERT(read_count_opt.value >= 1);
+    PG_ASSERT('\n' == PG_SLICE_AT(dst, read_count_opt.value - 1));
     // Trim.
-    res.value.value -= 1;
+    read_count_opt.value -= 1;
   } break;
   case PG_NEWLINE_KIND_CRLF: {
-    PG_ASSERT(res.value.value >= 2);
-    PG_ASSERT('\r' == PG_SLICE_AT(dst, res.value.value - 2));
-    PG_ASSERT('\n' == PG_SLICE_AT(dst, res.value.value - 1));
+    PG_ASSERT(read_count_opt.value.value.value >= 2);
+    PG_ASSERT('\r' == PG_SLICE_AT(dst, read_count_opt.value - 2));
+    PG_ASSERT('\n' == PG_SLICE_AT(dst, read_count_opt.value - 1));
     // Trim.
-    res.value.value -= 2;
+    read_count_opt.value -= 2;
   } break;
   default:
     PG_ASSERT(0);
   }
 
-  return res;
+  return PG_OK(read_count_opt, PG_OPTION(u64), PgError);
 }
 
 #define PG_HTTP_LINE_MAX_LEN 4096
