@@ -5593,26 +5593,24 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
     PG_SLICE(u8)
     read_slice = {.data = read_buf, .len = PG_STATIC_ARRAY_LEN(read_buf)};
 
-    PG_RESULT(u64, PgError) res_read = pg_file_read(src, read_slice);
-    if (res_read.err) {
-      return res_read.err;
-    }
-    if (0 == res_read.value) {
+    u64 read_count = PG_TRY_ERR(pg_file_read(src, read_slice));
+    // EOF.
+    if (0 == read_count) {
       return (PgError)0;
     }
 
-    if (offset > res_read.value) {
+    if (offset > read_count) {
       // Keep reading and do not write yet.
 
-      offset -= res_read.value;
+      offset -= read_count;
       continue;
     }
 
-    PG_ASSERT(offset <= res_read.value);
+    PG_ASSERT(offset <= read_count);
 
     PG_SLICE(u8)
     write_slice = {.data = read_slice.data + offset,
-                   .len = res_read.value - offset};
+                   .len = read_count - offset};
     PgError err = pg_file_write_full_with_descriptor(dst, write_slice);
     if (err) {
       return err;
@@ -5632,21 +5630,19 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 
 [[maybe_unused]] [[nodiscard]] PG_RESULT(PgDirectory, PgError)
     pg_directory_open(PgString name) {
-  PG_RESULT(PgDirectory, PgError) res = {0};
   if (name.len > PG_PATH_MAX - 1) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgDirectory, PgError);
   }
 
   u8 name_c[PG_PATH_MAX] = {0};
   pg_memcpy(name_c, name.data, name.len);
 
-  res.value.dir = opendir((char *)name_c);
-  if (!res.value.dir) {
-    res.err = (PgError)errno;
-    return res;
+  DIR *dir = opendir((char *)name_c);
+  if (!dir) {
+    return PG_ERR(errno, PgDirectory, PgError);
   }
 
-  return res;
+  return PG_OK((PgDirectory){.dir = dir}, PgDirectory, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] PgError pg_directory_close(PgDirectory dir) {
@@ -5660,20 +5656,19 @@ pg_file_copy_with_descriptors_until_eof(PgFileDescriptor dst,
 
 [[maybe_unused]] [[nodiscard]] PG_RESULT(PgDirectoryEntry, PgError)
     pg_directory_read(PgDirectory *dir) {
-  PG_RESULT(PgDirectoryEntry, PgError) res = {0};
 
+  // Need to set `errno` to 0 to detect EOF.
   errno = 0;
 
-  res.value = readdir(dir->dir);
-  if (!res.value && 0 == errno) {
-    return res; // EOF
+  struct dirent *entry = readdir(dir->dir);
+  if (!entry && 0 == errno) {
+    return PG_OK({}, PgDirectoryEntry, PgError); // EOF
   }
-  if (!res.value) {
-    res.err = (PgError)errno;
-    return res;
+  if (!entry) {
+    return PG_ERR(errno, PgDirectoryEntry, PgError);
   }
 
-  return res;
+  return PG_OK(entry, PgDirectoryEntry, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -5698,24 +5693,14 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
   bool ignore_errors = options & PG_WALK_DIRECTORY_KIND_IGNORE_ERRORS;
   bool recurse = options & PG_WALK_DIRECTORY_KIND_RECURSE;
 
-  PG_RESULT(PgDirectory, PgError) res_dir = pg_directory_open(name);
-  if (0 != res_dir.err) {
-    return res_dir.err;
-  }
-
-  PgDirectory dir = res_dir.value;
+  PgDirectory dir = PG_TRY_ERR(pg_directory_open(name));
 
   for (;;) {
-    PG_RESULT(PgDirectoryEntry, PgError) res_dirent = pg_directory_read(&dir);
-    if (0 != res_dirent.err) {
-      return res_dir.err;
-    }
-
-    if (!res_dirent.value) {
+    PgDirectoryEntry dirent = PG_TRY_ERR(pg_directory_read(&dir));
+    if (!dirent) {
       break; // EOF.
     }
 
-    PgDirectoryEntry dirent = res_dirent.value;
     PgString name = pg_dirent_name(dirent);
 
     // Do not visit parent.
@@ -5729,21 +5714,21 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
           aio, name,
           PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED,
           allocator);
-      if (0 != res_fs.err && !ignore_errors) {
-        return res_fs.err;
+      if (PG_IS_ERR(res_fs) && !ignore_errors) {
+        return PG_UNWRAP_ERR(res_fs);
       }
     }
 
     if (pg_dirent_is_directory(dirent) &&
         (PG_WALK_DIRECTORY_KIND_DIRECTORY & options)) {
-      PG_RESULT(PgFileDescriptor)
+      PG_RESULT(PgFileDescriptor, PgError)
       res_fs = pg_aio_register_interest_fs_name(
           aio, name,
           PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED |
               PG_AIO_EVENT_KIND_FILE_CREATED,
-          allocator, PgError);
-      if (0 != res_fs.err && !ignore_errors) {
-        return res_fs.err;
+          allocator);
+      if (PG_IS_ERR(res_fs) && !ignore_errors) {
+        return PG_UNWRAP_ERR(res_fs);
       }
     }
 
@@ -5756,9 +5741,7 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
     }
   }
 
-  if (0 != pg_directory_close(dir)) {
-    return res_dir.err;
-  }
+  PG_ERR_RETURN(pg_directory_close(dir));
 
   return 0;
 }
