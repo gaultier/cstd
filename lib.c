@@ -7810,7 +7810,7 @@ pg_url_is_scheme_valid(PgString scheme) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgUrl, PgError)
     pg_url_parse(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PgUrl, PgError) res = {0};
+  PgUrl res = {0};
 
   PgString remaining = s;
 
@@ -7821,13 +7821,13 @@ pg_url_is_scheme_valid(PgString scheme) {
     remaining = scheme_and_rem.right;
 
     if (!scheme_and_rem.consumed) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgUrl, PgError);
     }
 
     if (!pg_url_is_scheme_valid(scheme_and_rem.left)) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgUrl, PgError);
     }
-    res.value.scheme = scheme_and_rem.left;
+    res.scheme = scheme_and_rem.left;
   }
 
   // Assume `://` as separator between the scheme and authority.
@@ -7837,7 +7837,7 @@ pg_url_is_scheme_valid(PgString scheme) {
     PG_OPTION(PgString)
     res_consume = pg_string_consume_string(remaining, PG_S("//"));
     if (!res_consume.has_value) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgUrl, PgError);
     }
     remaining = res_consume.value;
   }
@@ -7848,31 +7848,26 @@ pg_url_is_scheme_valid(PgString scheme) {
   remaining = authority_and_rem.right;
   {
     if (PG_SLICE_IS_EMPTY(authority_and_rem.left)) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgUrl, PgError);
     }
 
     PG_RESULT(PgUrlAuthority, PgError)
     res_authority = pg_url_parse_authority(authority_and_rem.left);
-    if (res_authority.err) {
-      res.err = res_authority.err;
-      return res;
-    }
-    res.value.host = res_authority.value.host;
-    res.value.port = res_authority.value.port;
-    res.value.username = res_authority.value.user_info.username;
-    res.value.password = res_authority.value.user_info.password;
+    PG_IF_LET_ERR(err, res_authority) { return PG_ERR(err, PgUrl, PgError); }
+    PgUrlAuthority auth = PG_UNWRAP(res_authority);
+    res.host = auth.host;
+    res.port = auth.port;
+    res.username = auth.user_info.username;
+    res.password = auth.user_info.password;
   }
 
-  PG_RESULT(PgUrl, PgError)
-  res_after_authority = pg_url_parse_after_authority(remaining, allocator);
-  if (res_after_authority.err) {
-    res.err = res_after_authority.err;
-    return res;
-  }
-  res.value.path_components = res_after_authority.value.path_components;
-  res.value.query_parameters = res_after_authority.value.query_parameters;
+  PgUrl after_auth = PG_TRY(pg_url_parse_after_authority(remaining, allocator),
+                            PgUrl, PgError);
 
-  return res;
+  res.path_components = after_auth.path_components;
+  res.query_parameters = after_auth.query_parameters;
+
+  return PG_OK(res, PgUrl, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool pg_http_url_is_valid(PgUrl u) {
