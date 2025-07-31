@@ -90,6 +90,10 @@
 #define PG_PRIVATE_CONCAT2(a, b) a##b
 #define PG_PAD(n) u8 PG_PRIVATE_NAME(_padding)[n]
 
+#define PG_TOKEN_CONCAT_EX(x, y) x##y
+#define PG_TOKEN_CONCAT(x, y) PG_TOKEN_CONCAT_EX(x, y)
+#define PG_UNIQUIFY(x) PG_TOKEN_CONCAT(x, __LINE__)
+
 #define PG_PATH_MAX 4096
 // TODO: Probably need higher values.
 #define PG_DWARF_MAX_ABBREV 4096
@@ -212,15 +216,15 @@ typedef double f64;
 
 #define PG_IF_LET_OK(I, V)                                                     \
   if (PG_IS_OK(V))                                                             \
-    for (bool PG_PRIVATE_NAME(once) = true; PG_PRIVATE_NAME(once);)            \
-      for (typeof(V._ok) I = V._ok; PG_PRIVATE_NAME(once);                     \
-           PG_PRIVATE_NAME(once) = false)
+    for (bool PG_UNIQUIFY(once) = true; PG_UNIQUIFY(once);)                    \
+      for (typeof(V._ok) I = V._ok; PG_UNIQUIFY(once);                         \
+           PG_UNIQUIFY(once) = false)
 
-#define if_let_Err(I, V)                                                       \
-  if (is_err(V))                                                               \
-    for (bool PG_PRIVATE_NAME(once) = true; PG_PRIVATE_NAME(once);)            \
-      for (typeof(V._err) I = V._err; PG_PRIVATE_NAME(once);                   \
-           PG_PRIVATE_NAME(once) = false)
+#define PG_IF_LET_ERR(I, V)                                                    \
+  if (PG_IS_ERR(V))                                                            \
+    for (bool PG_UNIQUIFY(once) = true; PG_UNIQUIFY(once);)                    \
+      for (typeof(V.u._err) I = V.u._err; PG_UNIQUIFY(once);                   \
+           PG_UNIQUIFY(once) = false)
 
 #define PG_ERR_RETURN(E)                                                       \
   {                                                                            \
@@ -6505,14 +6509,11 @@ end:
 static PG_RESULT(PgProcessStatus, PgError)
     pg_process_wait(PgProcess process, u64 stdio_size_hint,
                     u64 stderr_size_hint, PgAllocator *allocator) {
-  PG_RESULT(PgProcessStatus, PgError) res = {0};
-
   PG_RESULT(PgProcessCaptureStd, PgError)
   res_capture = pg_process_capture_std_io(process, stdio_size_hint,
                                           stderr_size_hint, allocator);
-  if (res_capture.err) {
-    res.err = res_capture.err;
-    return res;
+  PG_IF_LET_ERR(err, res_capture) {
+    return PG_ERR(err, PgProcessStatus, PgError);
   }
 
   int status = 0;
@@ -6522,20 +6523,22 @@ static PG_RESULT(PgProcessStatus, PgError)
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, PgProcessStatus, PgError);
   }
 
-  res.value.exit_status = WEXITSTATUS(status);
-  res.value.exited = WIFEXITED(status);
-  res.value.signaled = WIFSIGNALED(status);
-  res.value.signal = WTERMSIG(status);
-  res.value.core_dumped = WCOREDUMP(status);
-  res.value.stopped = WIFSTOPPED(status);
-  res.value.stdout_captured = res_capture.value.stdout_captured;
-  res.value.stderr_captured = res_capture.value.stderr_captured;
+  PgProcessCaptureStd capture = PG_UNWRAP(res_capture);
 
-  return res;
+  PgProcessStatus res = {0};
+  res.exit_status = WEXITSTATUS(status);
+  res.exited = WIFEXITED(status);
+  res.signaled = WIFSIGNALED(status);
+  res.signal = WTERMSIG(status);
+  res.core_dumped = WCOREDUMP(status);
+  res.stopped = WIFSTOPPED(status);
+  res.stdout_captured = capture.stdout_captured;
+  res.stderr_captured = capture.stderr_captured;
+
+  return PG_OK(res, PgProcessStatus, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin() {
