@@ -196,6 +196,9 @@ typedef double f64;
 
 #define PG_UNWRAP(V) ((PG_IS_OK(V) ? (void)0 : PG_ASSERT(0)), (V).u._value)
 
+#define PG_UNWRAP_OR_DEFAULT(V)                                                \
+  (PG_IS_OK(V) ? (V).u._value : (typeof((V).u._value)){})
+
 #define PG_UNWRAP_ERR(V) ((PG_IS_ERR(V) ? (void)0 : PG_ASSERT(0)), (V).u._err)
 
 #define PG_TRY(V, T, E)                                                        \
@@ -8178,27 +8181,30 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
   {
     PG_RESULT(PG_OPTION(u64), PgError)
     res_read = pg_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
-    if (res_read.err) {
-      res.err = res_read.err;
+    PG_IF_LET_ERR(err, res_read) {
+      res.err = err;
       return res;
     }
-    if (!res_read.value.has_value) {
-      return PG_ERR(typeof(res), PG_ERR_EOF);
+    PG_OPTION(u64) read_opt = PG_UNWRAP(res_read);
+    if (!read_opt.has_value) {
+      res.err = PG_ERR_EOF;
+      return res;
     }
 
-    PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.value.value);
+    PgString line = PG_SLICE_RANGE(recv_slice, 0, read_opt.value);
 
     PG_RESULT(PgHttpRequestStatusLine, PgError)
     res_status_line = pg_http_parse_request_status_line(line, allocator);
 
-    if (res_status_line.err) {
-      res.err = res_status_line.err;
+    PG_IF_LET_ERR(err, res_status_line) {
+      res.err = err;
       return res;
     }
-    res.req.method = res_status_line.value.method;
-    res.req.url = res_status_line.value.url;
-    res.req.version_major = res_status_line.value.version_major;
-    res.req.version_minor = res_status_line.value.version_minor;
+    PgHttpRequestStatusLine status_line = PG_UNWRAP(res_status_line);
+    res.req.method = status_line.method;
+    res.req.url = status_line.url;
+    res.req.version_major = status_line.version_major;
+    res.req.version_minor = status_line.version_minor;
   }
 
   // Headers.
@@ -8206,15 +8212,17 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
     recv_slice.len = PG_STATIC_ARRAY_LEN(recv);
     PG_RESULT(PG_OPTION(u64), PgError)
     res_read = pg_reader_read_line(reader, PG_NEWLINE_KIND_CRLF, recv_slice);
-    if (res_read.err) {
-      res.err = res_read.err;
+    PG_IF_LET_ERR(err, res_read) {
+      res.err = err;
       return res;
     }
-    if (!res_read.value.has_value) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    PG_OPTION(u64) read_opt = PG_UNWRAP(res_read);
+    if (!read_opt.has_value) {
+      res.err = PG_ERR_EOF;
+      return res;
     }
 
-    PgString line = PG_SLICE_RANGE(recv_slice, 0, res_read.value.value);
+    PgString line = PG_SLICE_RANGE(recv_slice, 0, read_opt.value);
 
     if (0 == line.len) { // `\r\n\r\n`.
       goto end;
@@ -8222,16 +8230,18 @@ pg_http_read_request(PgReader *reader, PgAllocator *allocator) {
 
     PG_RESULT(PgStringKeyValue, PgError)
     res_kv = pg_http_parse_header(pg_string_clone(line, allocator));
-    if (res_kv.err) {
-      res.err = res_kv.err;
+    PG_IF_LET_ERR(err, res_kv) {
+      res.err = err;
       return res;
     }
+    PgStringKeyValue kv = PG_UNWRAP(res_kv);
 
-    PG_DYN_PUSH(&res.req.headers, res_kv.value, allocator);
+    PG_DYN_PUSH(&res.req.headers, kv, allocator);
   }
 
   // Too many headers.
-  return PG_ERR(typeof(res), PG_ERR_TOO_BIG);
+  res.err = PG_ERR_TOO_BIG;
+  return res;
 
 end:
   res.done = true;
@@ -8318,13 +8328,13 @@ pg_http_write_response(PgWriter *w, PgHttpResponse res,
 
     PgParseNumberResult res_parse = pg_string_parse_u64(h.value, 10, true);
     if (!res_parse.present) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, u64, PgError);
     }
     if (!pg_string_is_empty(res_parse.remaining)) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, u64, PgError);
     }
 
-    res.value = res_parse.n;
+    return PG_OK(res_parse.n, u64, PgError);
     return res;
   }
   return res;
@@ -8339,7 +8349,8 @@ pg_log_make_logger_stdout(PgLogLevel level, PgLogFormat format,
                                                     allocator),
       .format = format,
       // TODO: Consider using `rtdsc` or such.
-      .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).value,
+      .monotonic_epoch =
+          PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC)),
       .allocator = allocator,
   };
 
@@ -8516,8 +8527,10 @@ pg_logger_do_log(PgLogger *logger, PgLogLevel level, PgString msg,
                  PgAllocator *allocator, i32 args_count, ...) {
   // Ignore clock errors.
   u64 monotonic_ns =
-      pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).value - logger->monotonic_epoch;
-  u64 timestamp_ns = pg_time_ns_now(PG_CLOCK_KIND_REALTIME).value;
+      PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC)) -
+      logger->monotonic_epoch;
+  u64 timestamp_ns =
+      PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_REALTIME));
 
   PgError err = 0;
 
@@ -9034,17 +9047,15 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_DYN(PgHtmlToken), PgError)
     pg_html_tokenize(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PgHtmlToken), PgError) res = {0};
-  PG_DYN_ENSURE_CAP(&res.value, s.len / 8, allocator);
+  PG_DYN(PgHtmlToken) res = {0};
+  PG_DYN_ENSURE_CAP(&res, s.len / 8, allocator);
 
-  /* PgString comment_start = PG_S("<!--"); */
-  /* PgString comment_end = PG_S("-->"); */
   PgRune tag_start = '<';
   u64 pos = 0;
   for (;;) {
     PG_OPTION(PgRune) first_opt = pg_string_first(PG_SLICE_RANGE_START(s, pos));
     if (!first_opt.has_value) { // EOF.
-      return res;
+      return PG_OK(res, PG_DYN(PgHtmlToken), PgError);
     }
 
     PgRune first = first_opt.value;
@@ -9054,14 +9065,14 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
 
     // Tag.
     if (tag_start == first) {
-      res.err = pg_html_tokenize_tag(s, &pos, &res.value, allocator);
-      if (res.err) {
-        return res;
+      PgError err = pg_html_tokenize_tag(s, &pos, &res.value, allocator);
+      if (err) {
+        return PG_ERR(err, PG_DYN(PgHtmlToken), PgError);
       }
 
-      res.err = pg_html_tokenize_data(s, &pos, &res.value, allocator);
-      if (res.err) {
-        return res;
+      err = pg_html_tokenize_data(s, &pos, &res.value, allocator);
+      if (err) {
+        return PG_ERR(err, PG_DYN(PgHtmlToken), PgError);
       }
     }
   }
