@@ -9472,35 +9472,35 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgElf, PgError)
     pg_elf_parse(PG_SLICE(u8) elf_bytes) {
-  PG_RESULT(PgElf, PgError) res = {0};
-  res.value.bytes = elf_bytes;
+  PgElf res = {0};
+  res.bytes = elf_bytes;
 
   if (elf_bytes.len < sizeof(PgElfHeader)) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgElf, PgError);
   }
-  pg_memcpy(&res.value.header, elf_bytes.data, sizeof(res.value.header));
+  pg_memcpy(&res.header, elf_bytes.data, sizeof(res.header));
 
   // Section headers.
   {
-    PgElfHeader h = res.value.header;
+    PgElfHeader h = res.header;
     u64 section_headers_size = 0;
     if (__builtin_mul_overflow(h.section_header_entries_count,
                                h.section_header_entry_size,
                                &section_headers_size)) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgElf, PgError);
     }
 
     u64 section_headers_end = 0;
     if (__builtin_add_overflow(h.section_header_offset, section_headers_size,
                                &section_headers_end)) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgElf, PgError);
     }
     PG_ASSERT(h.section_header_offset <= section_headers_end);
 
     PG_SLICE(u8)
     section_headers_bytes =
         PG_SLICE_RANGE(elf_bytes, h.section_header_offset, section_headers_end);
-    res.value.section_headers = (PG_DYN(PgElfSectionHeader)){
+    res.section_headers = (PG_DYN(PgElfSectionHeader)){
         .data = (void *)section_headers_bytes.data,
         .len = h.section_header_entries_count,
         .cap = h.section_header_entries_count,
@@ -9508,14 +9508,14 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
 
     PgElfSectionHeader *section_text =
         pg_elf_section_header_find_ptr_by_name_and_kind(
-            &res.value, PG_S(".text"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+            &res, PG_S(".text"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
     if (section_text) {
-      u32 idx = section_text - res.value.section_headers.data;
-      res.value.section_header_text_idx = idx;
+      u32 idx = section_text - res.section_headers.data;
+      res.section_header_text_idx = idx;
     }
   }
 
-  return res;
+  return PG_OK(res, PgElf, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_SLICE(u8), PgError)
@@ -9523,28 +9523,24 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
   PG_RESULT(PG_SLICE(u8), PgError) res = {0};
 
   if (elf.section_header_text_idx != sym.section_header_table_index) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_SLICE(u8), PgError);
   }
 
-  PG_RESULT(PG_SLICE(u8), PgError)
-  res_bytes = pg_elf_get_section_header_bytes(elf, elf.section_header_text_idx);
-  if (res_bytes.err) {
-    res.err = res_bytes.err;
-    return res;
-  }
-  PG_SLICE(u8) bytes = res_bytes.value;
+  PG_SLICE(u8)
+  bytes =
+      PG_TRY(pg_elf_get_section_header_bytes(elf, elf.section_header_text_idx),
+             PG_SLICE(u8), PgError);
 
   if (sym.value >= bytes.len) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_SLICE(u8), PgError);
   }
 
   u64 end = 0;
   if (__builtin_add_overflow(sym.value, sym.size, &end)) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_SLICE(u8), PgError);
   }
 
-  res.value = PG_SLICE_RANGE(bytes, sym.value, end);
-  return res;
+  return PG_OK(PG_SLICE_RANGE(bytes, sym.value, end), PG_SLICE(u8), PgError);
 }
 
 #if defined(__FreeBSD__) || defined(__APPLE__)
