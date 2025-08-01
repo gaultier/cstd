@@ -8015,7 +8015,6 @@ typedef enum {
   PG_ASSERT(dst.data);
 
   if (0 == r->ring.data.len) { // Simple reader.
-    PG_RESULT(PG_OPTION(u64), PgError) res = {0};
     PG_RESULT(u64, PgError) res_read = pg_reader_read(r, dst);
     PG_IF_LET_ERR(err, res_read) {
       return PG_ERR(err, PG_OPTION(u64), PgError);
@@ -9387,8 +9386,6 @@ pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
 
 [[nodiscard]] static PG_RESULT(PgString, PgError)
     pg_elf_get_sh_string_at(PgElf elf, u32 offset) {
-  PG_RESULT(PgString, PgError) res = {0};
-
   PG_SLICE(u8)
   bytes = PG_TRY(pg_elf_get_section_header_bytes(
                      elf, elf.header.section_header_shstrtab_index),
@@ -9410,8 +9407,6 @@ pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString, PgError)
     pg_elf_get_string_at(PgElf elf, u32 offset) {
-  PG_RESULT(PgString, PgError) res = {0};
-
   PG_SLICE(u8)
   bytes = PG_TRY(
       pg_elf_get_section_header_bytes(elf, elf.section_header_strtab_idx),
@@ -9445,11 +9440,12 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
 
     PG_RESULT(PgString, PgError)
     res_str = pg_elf_get_sh_string_at(*elf, section->name);
-    if (res_str.err) {
+    if (PG_IS_ERR(res_str)) {
       continue;
     }
 
-    if (!pg_string_eq(res_str.value, name)) {
+    PgString value = PG_UNWRAP(res_str);
+    if (!pg_string_eq(value, name)) {
       continue;
     }
 
