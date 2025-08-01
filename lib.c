@@ -8151,7 +8151,7 @@ typedef enum {
     read_count_opt.value -= 1;
   } break;
   case PG_NEWLINE_KIND_CRLF: {
-    PG_ASSERT(read_count_opt.value.value.value >= 2);
+    PG_ASSERT(read_count_opt.value >= 2);
     PG_ASSERT('\r' == PG_SLICE_AT(dst, read_count_opt.value - 2));
     PG_ASSERT('\n' == PG_SLICE_AT(dst, read_count_opt.value - 1));
     // Trim.
@@ -9065,12 +9065,12 @@ static PgError pg_html_tokenize_data(PgString s, u64 *pos,
 
     // Tag.
     if (tag_start == first) {
-      PgError err = pg_html_tokenize_tag(s, &pos, &res.value, allocator);
+      PgError err = pg_html_tokenize_tag(s, &pos, &res, allocator);
       if (err) {
         return PG_ERR(err, PG_DYN(PgHtmlToken), PgError);
       }
 
-      err = pg_html_tokenize_data(s, &pos, &res.value, allocator);
+      err = pg_html_tokenize_data(s, &pos, &res, allocator);
       if (err) {
         return PG_ERR(err, PG_DYN(PgHtmlToken), PgError);
       }
@@ -9127,16 +9127,11 @@ pg_html_node_get_next_sibling(PgHtmlNode *node) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgHtmlNodePtr, PgError)
     pg_html_parse(PgString s, PgAllocator *allocator) {
-  PG_RESULT(PgHtmlNodePtr, PgError) res = {0};
-
   PG_RESULT(PG_DYN(PgHtmlToken), PgError)
   res_tokens = pg_html_tokenize(s, allocator);
-  if (res_tokens.err) {
-    res.err = res_tokens.err;
-    return res;
-  }
+  PG_IF_LET_ERR(err, res_tokens) { return PG_ERR(err, PgHtmlNodePtr, PgError); }
   PG_SLICE(PgHtmlToken)
-  tokens = PG_DYN_TO_SLICE(PG_SLICE(PgHtmlToken), res_tokens.value);
+  tokens = PG_DYN_TO_SLICE(PG_SLICE(PgHtmlToken), PG_UNWRAP(res_tokens));
 
   PgHtmlNode *root =
       pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
@@ -9213,9 +9208,8 @@ pg_html_node_get_next_sibling(PgHtmlNode *node) {
 
   PG_ASSERT(pg_linked_list_is_empty(&root->next_sibling));
   PG_ASSERT(pg_linked_list_is_empty(&root->parent));
-  res.value = root;
   PG_ASSERT(root->parent.next == &root->parent);
-  return res;
+  return PG_OK(root, PgHtmlNodePtr, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static bool
@@ -9297,33 +9291,33 @@ static i32 pg_pool_worker_start_fn(void *data) {
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgThreadPool, PgError)
     pg_thread_pool_make(u32 size, PgAllocator *allocator) {
-  PG_RESULT(PgThreadPool, PgError) res = {0};
+  PgThreadPool res = {0};
 
-  if (0 != pg_mtx_init(&res.value.tasks_mtx, PG_MUTEX_KIND_PLAIN)) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+  if (0 != pg_mtx_init(&res.tasks_mtx, PG_MUTEX_KIND_PLAIN)) {
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgThreadPool, PgError);
   }
 
-  if (0 != pg_cnd_init(&res.value.tasks_cnd)) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+  if (0 != pg_cnd_init(&res.tasks_cnd)) {
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgThreadPool, PgError);
   }
 
-  res.value.workers.len = size;
-  res.value.workers.data =
+  res.workers.len = size;
+  res.workers.data =
       pg_alloc(allocator, sizeof(PgThread), _Alignof(PgThread), size);
 
   for (u32 i = 0; i < size; i++) {
-    PgThread *it = PG_SLICE_AT_PTR(&res.value.workers, i);
+    PgThread *it = PG_SLICE_AT_PTR(&res.workers, i);
     PG_RESULT(PgThread, PgError)
     res_thread = pg_thread_create(pg_pool_worker_start_fn, it);
-    if (0 != res_thread.err) {
-      res.err = res_thread.err;
-      return res;
+
+    PG_IF_LET_ERR(err, res_thread) {
+      return PG_ERR(err, PgThreadPool, PgError);
     }
 
-    PG_SLICE_AT(res.value.workers, i) = res_thread.value;
+    PG_SLICE_AT(res.workers, i) = PG_UNWRAP(res_thread);
   }
 
-  return res;
+  return PG_OK(res, PgThreadPool, PgError);
 }
 
 [[maybe_unused]]
@@ -9372,84 +9366,69 @@ pg_elf_symbol_get_bind(PgElfSymbolTableEntry sym) {
 
 [[nodiscard]] static PG_RESULT(PG_SLICE(u8), PgError)
     pg_elf_get_section_header_bytes(PgElf elf, u32 section_idx) {
-  PG_RESULT(PG_SLICE(u8), PgError) res = {0};
-
   if (section_idx >= elf.section_headers.len) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_SLICE(u8), PgError);
   }
 
   PgElfSectionHeader section = PG_SLICE_AT(elf.section_headers, section_idx);
 
   u64 end = 0;
   if (__builtin_add_overflow(section.offset, section.size, &end)) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_SLICE(u8), PgError);
   }
 
   if (end >= elf.bytes.len) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_SLICE(u8), PgError);
   }
 
-  res.value = PG_SLICE_RANGE(elf.bytes, section.offset, end);
-
-  return res;
+  return PG_OK(PG_SLICE_RANGE(elf.bytes, section.offset, end), PG_SLICE(u8),
+               PgError);
 }
 
 [[nodiscard]] static PG_RESULT(PgString, PgError)
     pg_elf_get_sh_string_at(PgElf elf, u32 offset) {
   PG_RESULT(PgString, PgError) res = {0};
 
-  PG_RESULT(PG_SLICE(u8), PgError)
-  res_bytes = pg_elf_get_section_header_bytes(
-      elf, elf.header.section_header_shstrtab_index);
-  if (res_bytes.err) {
-    res.err = res_bytes.err;
-    return res;
-  }
-  PG_SLICE(u8) bytes = res_bytes.value;
+  PG_SLICE(u8)
+  bytes = PG_TRY(pg_elf_get_section_header_bytes(
+                     elf, elf.header.section_header_shstrtab_index),
+                 PgString, PgError);
 
   if (offset >= bytes.len) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgString, PgError);
   }
 
   PG_SLICE(u8) at = PG_SLICE_RANGE_START(bytes, offset);
   PG_OPTION(PgString) s = pg_str0_to_string(at);
 
   if (!s.has_value) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgString, PgError);
   }
 
-  res.value = s.value;
-
-  return res;
+  return PG_OK(s.value, PgString, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgString, PgError)
     pg_elf_get_string_at(PgElf elf, u32 offset) {
   PG_RESULT(PgString, PgError) res = {0};
 
-  PG_RESULT(PG_SLICE(u8), PgError)
-  res_bytes =
-      pg_elf_get_section_header_bytes(elf, elf.section_header_strtab_idx);
-  if (res_bytes.err) {
-    res.err = res_bytes.err;
-    return res;
-  }
-  PG_SLICE(u8) bytes = res_bytes.value;
+  PG_SLICE(u8)
+  bytes = PG_TRY(
+      pg_elf_get_section_header_bytes(elf, elf.section_header_strtab_idx),
+      PgString, PgError);
 
   if (offset >= bytes.len) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgString, PgError);
   }
 
   PG_SLICE(u8) at = PG_SLICE_RANGE_START(bytes, offset);
 
   PgBytesCut cut = pg_bytes_cut_byte(at, 0);
   if (!cut.has_value) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgString, PgError);
   }
 
-  res.value = cut.left;
-
-  return res;
+  return PG_OK(cut.left, PgString, PgError);
 }
 
 [[nodiscard]] static PgElfSectionHeader *
