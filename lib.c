@@ -236,7 +236,7 @@ typedef double f64;
     }                                                                          \
   }
 
-#define PG_SOME(V, T) ((T){.has_value = true, .value = V})
+#define PG_SOME(V, T) ((PG_OPTION(T)){.has_value = true, .value = V})
 
 // TODO: Separate error type?
 typedef u64 PgError;
@@ -10213,18 +10213,16 @@ static const PgString pg_dwarf_form_str[] = {
 
 [[nodiscard]] static PG_RESULT(PG_OPTION(PgDwarfAbbreviationEntry), PgError)
     pg_dwarf_parse_abbreviation_entry(PgReader *r, PgAllocator *allocator) {
-  PG_RESULT(PG_OPTION(PgDwarfAbbreviationEntry), PgError) res = {0};
   PgDwarfAbbreviationEntry entry = {0};
 
   // Tag.
   {
     PG_RESULT(u64, PgError) res_type = pg_reader_read_u64_leb128(r);
-
-    if (res_type.err) {
-      res.err = res_type.err;
-      return res;
+    PG_IF_LET_ERR(err, res_type) {
+      return PG_ERR(err, PG_OPTION(PgDwarfAbbreviationEntry), PgError);
     }
-    entry.type = res_type.value;
+
+    entry.type = PG_UNWRAP(res_type);
   }
   // Type.
   {
@@ -10232,23 +10230,22 @@ static const PgString pg_dwarf_form_str[] = {
     // The end?
     // > The abbreviations for a given compilation unit end with an entry
     // > consisting of a 0 byte for the abbreviation code.
-    if (PG_ERR_EOF == res_tag.err && 0 == entry.type) {
-      return res;
+    PG_IF_LET_ERR(err, res_tag) {
+      if (PG_ERR_EOF == err && 0 == entry.type) {
+        return PG_OK({}, PG_OPTION(PgDwarfAbbreviationEntry), PgError);
+      }
+      return PG_ERR(err, PG_OPTION(PgDwarfAbbreviationEntry), PgError);
     }
-    if (res_tag.err) {
-      res.err = res_tag.err;
-      return res;
-    }
-    entry.tag = res_tag.value;
+
+    entry.tag = PG_UNWRAP(res_tag);
   }
   // Has children.
   {
     PG_RESULT(u8, PgError) res_has_children = pg_reader_read_u8_le(r);
-    if (res_has_children.err) {
-      res.err = res_has_children.err;
-      return res;
+    PG_IF_LET_ERR(err, res_has_children) {
+      return PG_ERR(err, PG_OPTION(PgDwarfAbbreviationEntry), PgError);
     }
-    entry.has_children = res_has_children.value;
+    entry.has_children = PG_UNWRAP(res_has_children);
   }
 
   // Attributes.
@@ -10256,44 +10253,40 @@ static const PgString pg_dwarf_form_str[] = {
     PgDwarfAttributeForm attribute_form = {0};
 
     PG_RESULT(u64, PgError) res_name = pg_reader_read_u64_leb128(r);
-    // The end.
-    if (PG_ERR_EOF == res_name.err) {
-      return res;
+    PG_IF_LET_ERR(err, res_name) {
+      // The end.
+      if (PG_ERR_EOF == err) {
+        return PG_OK(PG_SOME(entry, PgDwarfAbbreviationEntry),
+                     PG_OPTION(PgDwarfAbbreviationEntry), PgError);
+      }
+      return PG_ERR(err, PG_OPTION(PgDwarfAbbreviationEntry), PgError);
     }
-    if (res_name.err) {
-      res.err = res_name.err;
-      return res;
-    }
-    attribute_form.attribute = res_name.value;
+    attribute_form.attribute = PG_UNWRAP(res_name);
 
     PG_RESULT(u64, PgError) res_form = pg_reader_read_u64_leb128(r);
-    if (res_form.err) {
-      res.err = res_form.err;
-      return res;
+    PG_IF_LET_ERR(err, res_form) {
+      return PG_ERR(err, PG_OPTION(PgDwarfAbbreviationEntry), PgError);
     }
-    attribute_form.form = res_form.value;
+    attribute_form.form = PG_UNWRAP(res_form);
 
     // End.
     if (0 == attribute_form.attribute && 0 == attribute_form.form) {
-      res.value.has_value = true;
-      res.value.value = entry;
-      return res;
+      return PG_OK(PG_SOME(entry, PgDwarfAbbreviationEntry),
+                   PG_OPTION(PgDwarfAbbreviationEntry), PgError);
     }
 
     // Need to read one more field?
     if (PG_DWARF_FORM_IMPLICIT_CONST == attribute_form.form) {
-      PG_RESULT(i64) res_value = pg_reader_read_i64_leb128(r);
-      if (res_value.err) {
-        res.err = res_value.err;
-        return res;
+      PG_RESULT(i64, PgError) res_value = pg_reader_read_i64_leb128(r);
+      PG_IF_LET_ERR(err, res_value) {
+        return PG_ERR(err, PG_OPTION(PgDwarfAbbreviationEntry), PgError);
       }
-      i64 value = res_value.value;
-      attribute_form.u.value = value;
+      attribute_form.u.value = PG_UNWRAP(res_value);
     }
     PG_DYN_PUSH(&entry.attribute_forms, attribute_form, allocator);
   }
 
-  return PG_ERR(typeof(res), PG_ERR_TOO_BIG);
+  return PG_ERR(PG_ERR_TOO_BIG, PG_OPTION(PgDwarfAbbreviationEntry), PgError);
 }
 
 [[nodiscard]] static PG_RESULT(PG_DYN(PgDwarfAbbreviationEntry), PgError)
