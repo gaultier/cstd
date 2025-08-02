@@ -10292,41 +10292,40 @@ static const PgString pg_dwarf_form_str[] = {
 [[nodiscard]] static PG_RESULT(PG_DYN(PgDwarfAbbreviationEntry), PgError)
     pg_dwarf_parse_abbreviation_entries(PgElf elf, u64 offset,
                                         PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PgDwarfAbbreviationEntry), PgError) res = {0};
+  PG_DYN(PgDwarfAbbreviationEntry) res = {0};
 
   PG_RESULT(PG_SLICE(u8), PgError)
   res_bytes = pg_elf_section_header_find_bytes_by_name_and_kind(
       elf, PG_S(".debug_abbrev"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
-  if (res_bytes.err) {
-    res.err = res_bytes.err;
-    return res;
+  PG_IF_LET_ERR(err, res_bytes) {
+    return PG_ERR(err, PG_DYN(PgDwarfAbbreviationEntry), PgError);
   }
-  PG_SLICE(u8) bytes = res_bytes.value;
+  PG_SLICE(u8) bytes = PG_UNWRAP(res_bytes);
 
   if (offset >= bytes.len) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_DYN(PgDwarfAbbreviationEntry),
+                  PgError);
   }
   bytes = PG_SLICE_RANGE_START(bytes, offset);
-  PG_DYN_ENSURE_CAP(&res.value, bytes.len / 4, allocator);
+  PG_DYN_ENSURE_CAP(&res, bytes.len / 4, allocator);
 
   PgReader r = pg_reader_make_from_bytes(bytes);
 
   for (u64 _i = 0; _i < PG_DWARF_MAX_ABBREV; _i++) {
     PG_RESULT(PG_OPTION(PgDwarfAbbreviationEntry), PgError)
     res_abbrev = pg_dwarf_parse_abbreviation_entry(&r, allocator);
-    if (res_abbrev.err) {
-      res.err = res_abbrev.err;
-      return res;
+    PG_IF_LET_ERR(err, res_abbrev) {
+      return PG_ERR(err, PG_DYN(PgDwarfAbbreviationEntry), PgError);
     }
-    if (res_abbrev.value.has_value) {
-      PgDwarfAbbreviationEntry abbrev = res_abbrev.value.value;
-      PG_DYN_PUSH(&res.value, abbrev, allocator);
+    PG_OPTION(PgDwarfAbbreviationEntry) abbrev_opt = PG_UNWRAP(res_abbrev);
+    if (abbrev_opt.has_value) {
+      PG_DYN_PUSH(&res, abbrev_opt.value, allocator);
     } else { // The end.
-      return res;
+      return PG_OK(res, PG_DYN(PgDwarfAbbreviationEntry), PgError);
     }
   }
 
-  return PG_ERR(typeof(res), PG_ERR_TOO_BIG);
+  return PG_ERR(PG_ERR_TOO_BIG, PG_DYN(PgDwarfAbbreviationEntry), PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(
