@@ -9520,8 +9520,6 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PG_SLICE(u8), PgError)
     pg_elf_symbol_get_program_text(PgElf elf, PgElfSymbolTableEntry sym) {
-  PG_RESULT(PG_SLICE(u8), PgError) res = {0};
-
   if (elf.section_header_text_idx != sym.section_header_table_index) {
     return PG_ERR(PG_ERR_INVALID_VALUE, PG_SLICE(u8), PgError);
   }
@@ -10332,44 +10330,62 @@ static const PgString pg_dwarf_form_str[] = {
     PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError)
     pg_dwarf_address_ranges_parse(PG_SLICE(u8) bytes, PG_DYN(u64) addresses,
                                   PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError) res = {0};
+  PG_DYN(PG_DYN(PgDwarfRangeListEntry)) res = {0};
 
   PgReader r = pg_reader_make_from_bytes(bytes);
 
   PG_RESULT(u32, PgError) res_length = pg_reader_read_u32_le(&r);
-  PG_TRY(length, res, res_length);
+  PG_IF_LET_ERR(err, res_length) {
+    return PG_ERR(err, PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError);
+  }
+  u32 length = PG_UNWRAP(res_length);
   u32 expected_length = 0;
   if (__builtin_add_overflow(length, 4, &expected_length)) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_DYN(PG_DYN(PgDwarfRangeListEntry)),
+                  PgError);
   }
   if (expected_length != bytes.len) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_DYN(PG_DYN(PgDwarfRangeListEntry)),
+                  PgError);
   }
 
   PG_RESULT(u16, PgError) res_version = pg_reader_read_u16_le(&r);
-  PG_TRY(version, res, res_version);
+  PG_IF_LET_ERR(err, res_version) {
+    return PG_ERR(err, PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError);
+  }
+  u16 version = PG_UNWRAP(res_version);
   if (5 != version) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_DYN(PG_DYN(PgDwarfRangeListEntry)),
+                  PgError);
   }
 
   PG_RESULT(u8, PgError) res_address_size = pg_reader_read_u8_le(&r);
-  PG_TRY(address_size, res, res_address_size);
+  PG_IF_LET_ERR(err, res_address_size) {
+    return PG_ERR(err, PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError);
+  }
+  u8 address_size = PG_UNWRAP(res_address_size);
   if (8 != address_size) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PG_DYN(PG_DYN(PgDwarfRangeListEntry)),
+                  PgError);
   }
 
   PG_RESULT(u8, PgError) res_segment_selector_size = pg_reader_read_u8_le(&r);
-  PG_TRY(segment_selector_size, res, res_segment_selector_size);
-  PG_UNUSED(segment_selector_size);
+  PG_IF_LET_ERR(err, res_segment_selector_size) {
+    return PG_ERR(err, PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError);
+  }
 
   PG_RESULT(u32, PgError) res_offset_count = pg_reader_read_u32_le(&r);
-  PG_TRY(offset_count, res, res_offset_count);
+  PG_IF_LET_ERR(err, res_offset_count) {
+    return PG_ERR(err, PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError);
+  }
+  u32 offset_count = PG_UNWRAP(res_offset_count);
 
   if (0 != offset_count) {
     for (u32 i = 0; i < offset_count; i++) {
       PG_RESULT(u32, PgError) res_offset = pg_reader_read_u32_le(&r);
-      PG_TRY(offset, res, res_offset);
-      PG_UNUSED(offset);
+      PG_IF_LET_ERR(err, res_offset) {
+        return PG_ERR(err, PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError);
+      }
     }
   }
   u64 base_address = 0;
@@ -10379,16 +10395,15 @@ static const PgString pg_dwarf_form_str[] = {
   while (!PG_SLICE_IS_EMPTY(r.u.bytes)) {
     PgDwarfRangeListEntry entry = {0};
     PG_RESULT(u8, PgError) res_kind = pg_reader_read_u8_le(&r);
-    if (res_kind.err) {
-      res.err = res_kind.err;
-      return res;
+    PG_IF_LET_ERR(err, res_kind) {
+      return PG_ERR(err, PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError);
     }
-    entry.kind = res_kind.value;
+    entry.kind = PG_UNWRAP(res_kind);
 
     switch (entry.kind) {
     case PG_DWARF_RLE_END_OF_LIST: {
       if (!PG_SLICE_IS_EMPTY(ranges)) {
-        PG_DYN_PUSH(&res.value, ranges, allocator);
+        PG_DYN_PUSH(&res, ranges, allocator);
       }
       ranges = (PG_DYN(PgDwarfRangeListEntry)){0};
       base_address = 0;
@@ -10396,13 +10411,13 @@ static const PgString pg_dwarf_form_str[] = {
 
     case PG_DWARF_RLE_BASE_ADDRESSX: {
       PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_leb128(&r);
-      if (res_read.err) {
-        res.err = res_read.err;
-        return res;
+      PG_IF_LET_ERR(err, res_read) {
+        return PG_ERR(err, PG_DYN(PG_DYN(PgDwarfRangeListEntry)), PgError);
       }
-      base_address = PG_SLICE_AT(addresses, res_read.value);
+      u64 read_count = PG_UNWRAP(res_read);
+      base_address = PG_SLICE_AT(addresses, read_count);
 
-      entry.u.u64 = res_read.value;
+      entry.u.u64 = base_address;
       PG_DYN_PUSH(&ranges, entry, allocator);
     } break;
 
