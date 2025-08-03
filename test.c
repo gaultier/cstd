@@ -1425,101 +1425,110 @@ static void test_http_parse_request_status_line() {
 
   // Empty.
   {
-    PG_ASSERT(pg_http_parse_request_status_line(PG_S(""), allocator).err);
+    PG_ASSERT(
+        PG_ERR_INVALID_VALUE ==
+        PG_UNWRAP_ERR(pg_http_parse_request_status_line(PG_S(""), allocator)));
   }
   // Missing prefix.
   {
-    PG_ASSERT(pg_http_parse_request_status_line(PG_S("GE"), allocator).err);
-    PG_ASSERT(pg_http_parse_request_status_line(PG_S("abc"), allocator).err);
-    PG_ASSERT(pg_http_parse_request_status_line(PG_S("123 "), allocator).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(
+                  pg_http_parse_request_status_line(PG_S("GE"), allocator)));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(
+                  pg_http_parse_request_status_line(PG_S("abc"), allocator)));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(
+                  pg_http_parse_request_status_line(PG_S("123 "), allocator)));
   }
   // Missing slash.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET HTTP1.1"), allocator).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET HTTP1.1"), allocator)));
   }
   // Missing major version.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/.1"), allocator)
-            .err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/.1"), allocator)));
   }
   // Missing `.`.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/11"), allocator)
-            .err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/11"), allocator)));
   }
   // Missing minor version.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/1."), allocator)
-            .err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/1."), allocator)));
   }
   // Invalid major version.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/abc.1"), allocator)
-            .err);
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/4.1"), allocator)
-            .err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/abc.1"), allocator)));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/4.1"), allocator)));
   }
   // Invalid minor version.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/1.10"), allocator)
-            .err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/1.10"), allocator)));
   }
   // Valid, short.
   {
-    PG_RESULT(PgHttpRequestStatusLine)
+    PG_RESULT(PgHttpRequestStatusLine, PgError)
     res = pg_http_parse_request_status_line(PG_S("GET / HTTP/2.0"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(PG_HTTP_METHOD_GET == res.value.method);
-    PG_ASSERT(2 == res.value.version_major);
-    PG_ASSERT(0 == res.value.version_minor);
-    PG_ASSERT(0 == res.value.url.path_components.len);
-    PG_ASSERT(0 == res.value.url.query_parameters.len);
+    PgHttpRequestStatusLine status_line = PG_UNWRAP(res);
+    PG_ASSERT(PG_HTTP_METHOD_GET == status_line.method);
+    PG_ASSERT(2 == status_line.version_major);
+    PG_ASSERT(0 == status_line.version_minor);
+    PG_ASSERT(0 == status_line.url.path_components.len);
+    PG_ASSERT(0 == status_line.url.query_parameters.len);
   }
   // Valid, short with query parameters.
   {
-    PG_RESULT(PgHttpRequestStatusLine)
+    PG_RESULT(PgHttpRequestStatusLine, PgError)
     res = pg_http_parse_request_status_line(PG_S("GET /?foo=bar& HTTP/2.0"),
                                             allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(PG_HTTP_METHOD_GET == res.value.method);
-    PG_ASSERT(2 == res.value.version_major);
-    PG_ASSERT(0 == res.value.version_minor);
-    PG_ASSERT(0 == res.value.url.path_components.len);
-    PG_ASSERT(1 == res.value.url.query_parameters.len);
-    PgStringKeyValue kv0 = PG_SLICE_AT(res.value.url.query_parameters, 0);
+    PgHttpRequestStatusLine status_line = PG_UNWRAP(res);
+    PG_ASSERT(PG_HTTP_METHOD_GET == status_line.method);
+    PG_ASSERT(2 == status_line.version_major);
+    PG_ASSERT(0 == status_line.version_minor);
+    PG_ASSERT(0 == status_line.url.path_components.len);
+    PG_ASSERT(1 == status_line.url.query_parameters.len);
+    PgStringKeyValue kv0 = PG_SLICE_AT(status_line.url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
   }
   // Valid, short, 0.9.
   {
-    PG_RESULT(PgHttpRequestStatusLine)
+    PG_RESULT(PgHttpRequestStatusLine, PgError)
     res = pg_http_parse_request_status_line(PG_S("GET / HTTP/0.9"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(PG_HTTP_METHOD_GET == res.value.method);
-    PG_ASSERT(0 == res.value.version_major);
-    PG_ASSERT(9 == res.value.version_minor);
-    PG_ASSERT(0 == res.value.url.path_components.len);
-    PG_ASSERT(0 == res.value.url.query_parameters.len);
+    PgHttpRequestStatusLine status_line = PG_UNWRAP(res);
+    PG_ASSERT(PG_HTTP_METHOD_GET == status_line.method);
+    PG_ASSERT(0 == status_line.version_major);
+    PG_ASSERT(9 == status_line.version_minor);
+    PG_ASSERT(0 == status_line.url.path_components.len);
+    PG_ASSERT(0 == status_line.url.query_parameters.len);
   }
   // Valid, long.
   {
-    PG_RESULT(PgHttpRequestStatusLine)
+    PG_RESULT(PgHttpRequestStatusLine, PgError)
     res = pg_http_parse_request_status_line(
         PG_S("GET /foo/bar/baz?hey HTTP/1.1"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(PG_HTTP_METHOD_GET == res.value.method);
-    PG_ASSERT(1 == res.value.version_major);
-    PG_ASSERT(1 == res.value.version_minor);
-    PG_ASSERT(3 == res.value.url.path_components.len);
-    PG_ASSERT(1 == res.value.url.query_parameters.len);
-    PgStringKeyValue kv0 = PG_SLICE_AT(res.value.url.query_parameters, 0);
+    PgHttpRequestStatusLine status_line = PG_UNWRAP(res);
+    PG_ASSERT(PG_HTTP_METHOD_GET == status_line.method);
+    PG_ASSERT(1 == status_line.version_major);
+    PG_ASSERT(1 == status_line.version_minor);
+    PG_ASSERT(3 == status_line.url.path_components.len);
+    PG_ASSERT(1 == status_line.url.query_parameters.len);
+    PgStringKeyValue kv0 = PG_SLICE_AT(status_line.url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("hey")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("")));
   }
@@ -1544,32 +1553,35 @@ static void test_http_parse_header() {
   }
   // Multiple colons.
   {
-    PG_RESULT(PgStringKeyValue)
+    PG_RESULT(PgStringKeyValue, PgError)
     res = pg_http_parse_header(PG_S("foo: bar : baz"));
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(res.value.key, PG_S("foo")));
-    PG_ASSERT(pg_string_eq(res.value.value, PG_S("bar : baz")));
+    PgStringKeyValue kv = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(kv.key, PG_S("foo")));
+    PG_ASSERT(pg_string_eq(kv.value, PG_S("bar : baz")));
   }
   // Valid, one space before the value.
   {
-    PG_RESULT(PgStringKeyValue) res = pg_http_parse_header(PG_S("foo: bar"));
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(res.value.key, PG_S("foo")));
-    PG_ASSERT(pg_string_eq(res.value.value, PG_S("bar")));
+    PG_RESULT(PgStringKeyValue, PgError)
+    res = pg_http_parse_header(PG_S("foo: bar"));
+    PgStringKeyValue kv = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(kv.key, PG_S("foo")));
+    PG_ASSERT(pg_string_eq(kv.value, PG_S("bar")));
   }
   // Valid, no space before the value.
   {
-    PG_RESULT(PgStringKeyValue) res = pg_http_parse_header(PG_S("foo:bar"));
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(res.value.key, PG_S("foo")));
-    PG_ASSERT(pg_string_eq(res.value.value, PG_S("bar")));
+    PG_RESULT(PgStringKeyValue, PgError)
+    res = pg_http_parse_header(PG_S("foo:bar"));
+    PgStringKeyValue kv = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(kv.key, PG_S("foo")));
+    PG_ASSERT(pg_string_eq(kv.value, PG_S("bar")));
   }
   // Valid, multiple spaces before the value.
   {
-    PG_RESULT(PgStringKeyValue) res = pg_http_parse_header(PG_S("foo:   bar"));
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(res.value.key, PG_S("foo")));
-    PG_ASSERT(pg_string_eq(res.value.value, PG_S("bar")));
+    PG_RESULT(PgStringKeyValue, PgError)
+    res = pg_http_parse_header(PG_S("foo:   bar"));
+    PgStringKeyValue kv = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(kv.key, PG_S("foo")));
+    PG_ASSERT(pg_string_eq(kv.value, PG_S("bar")));
   }
 }
 
