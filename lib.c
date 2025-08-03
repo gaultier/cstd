@@ -11952,13 +11952,10 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
 
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
-  PG_RESULT(u64) res_size = pg_file_size(src);
-  if (res_size.err) {
-    return res_size.err;
-  }
-
+  PG_RESULT(u64, PgError) res_size = pg_file_size(src);
+  PG_IF_LET_ERR(err, res_size) { return err; }
   i64 offset = 0;
-  u64 size = res_size.value;
+  u64 size = PG_UNWRAP(res_size);
 
   for (u64 _i = 0; _i < size; _i++) {
     i64 ret = 0;
@@ -11969,7 +11966,7 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
     if (-1 == ret) {
       // TODO: Perhaps fallback to `read(2)` + `write(2)` in case of
       // `EINVAL` or `ENOSYS`.
-      return (PgError)errno;
+      PG_IF_LET_ERR(errno, res_size) { return err; }
     }
 
     size -= (u64)ret;
