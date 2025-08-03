@@ -11710,7 +11710,7 @@ end:
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgAio, PgError) pg_aio_init() {
-  PG_RESULT(PgAio, PgError) res = {0};
+  PgAio res = {0};
 
   i32 ret = 0;
   do {
@@ -11718,12 +11718,11 @@ end:
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, PgAio, PgError);
   }
 
-  res.value.aio.fd = ret;
-  return res;
+  res.aio.fd = ret;
+  return PG_OK(res, PgAio, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -11734,13 +11733,11 @@ pg_aio_ensure_inotify(PgAio *aio) {
     return 0;
   }
 
-  PG_RESULT(PgFileDescriptor) res = pg_aio_inotify_init();
-  if (0 != res.err) {
-    return res.err;
-  }
+  PG_RESULT(PgFileDescriptor, PgError) res = pg_aio_inotify_init();
+  PG_IF_LET_ERR(err, res) { return err; }
 
   aio->inotify.has_value = true;
-  aio->inotify.value = res.value;
+  aio->inotify.value = PG_UNWRAP(res);
 
   return 0;
 }
