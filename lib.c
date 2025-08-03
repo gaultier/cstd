@@ -3966,14 +3966,8 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
     }
 
     PG_RESULT(u64, PgError) res = pg_reader_read(r, remaining);
-    if (PG_IS_ERR(res)) {
-      return PG_UNWRAP_ERR(res);
-    }
+    PG_IF_LET_ERR(err, res) { return err; }
     u64 value = PG_UNWRAP(res);
-
-    if (0 == value) {
-      return PG_ERR_IO;
-    }
 
     remaining = PG_SLICE_RANGE_START(remaining, value);
   }
