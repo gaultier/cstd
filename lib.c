@@ -6467,6 +6467,8 @@ static PG_RESULT(PgProcessCaptureStd, PgError)
 
       // Not sure why/how it could happen?
       if (0 == (pollfd.revents & (POLLIN | POLLHUP))) {
+        close(pollfd.fd);
+        fd->fd = 0;
         continue;
       }
 
