@@ -11966,7 +11966,7 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
     if (-1 == ret) {
       // TODO: Perhaps fallback to `read(2)` + `write(2)` in case of
       // `EINVAL` or `ENOSYS`.
-      PG_IF_LET_ERR(errno, res_size) { return err; }
+      return (PgError)errno;
     }
 
     size -= (u64)ret;
