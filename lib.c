@@ -11753,8 +11753,6 @@ pg_aio_ensure_inotify(PgAio *aio) {
     return PG_ERR(err, PgFileDescriptor, PgError);
   }
 
-  PgFileDescriptor res = {0};
-
   PgFileDescriptor fd =
       PG_TRY(pg_aio_inotify_register_interest(*aio, name, interest),
              PgFileDescriptor, PgError);
@@ -12101,14 +12099,14 @@ static PgError pg_http_server_start(PgHttpServerOptions options,
     return err;
   }
 
-  PG_RESULT(PgFileDescriptor) res_create = pg_net_create_tcp_socket();
-  if (res_create.err) {
+  PG_RESULT(PgFileDescriptor, PgError) res_create = pg_net_create_tcp_socket();
+  PG_IF_LET_ERR(err, res_create) {
     pg_log(logger, PG_LOG_LEVEL_ERROR,
            "http server: failed to create tcp socket",
            pg_log_c_u16("port", options.port), pg_log_c_err("err", err));
-    return res_create.err;
+    return err;
   }
-  PgFileDescriptor server_socket = res_create.value;
+  PgFileDescriptor server_socket = PG_UNWRAP(res_create);
 
   err = pg_net_socket_enable_reuse(server_socket);
   if (err) {
@@ -12148,18 +12146,18 @@ static PgError pg_http_server_start(PgHttpServerOptions options,
       goto end;
     }
 
-    PG_RESULT(u32) res_proc_dup = pg_process_dup();
-    if (res_proc_dup.err) {
+    PG_RESULT(u32, PgError) res_proc_dup = pg_process_dup();
+    PG_IF_LET_ERR(err, res_proc_dup) {
       pg_log(
           logger, PG_LOG_LEVEL_ERROR,
           "http server: failed to spawn new process to handle new connection",
-          pg_log_c_u16("port", options.port),
-          pg_log_c_err("err", res_proc_dup.err));
+          pg_log_c_u16("port", options.port), pg_log_c_err("err", err));
       (void)pg_net_socket_close(res_accept.socket);
       continue;
     }
 
-    if (0 == res_proc_dup.value) { // Child.
+    u32 proc = PG_UNWRAP(res_proc_dup);
+    if (0 == proc) { // Child.
       PgArena arena =
           pg_arena_make_from_virtual_mem(options.http_handler_arena_mem);
       PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
@@ -12171,7 +12169,7 @@ static PgError pg_http_server_start(PgHttpServerOptions options,
       exit(0);
     }
 
-    PG_ASSERT(res_proc_dup.value); // Parent.
+    PG_ASSERT(proc); // Parent.
 
     (void)pg_net_socket_close(res_accept.socket);
   }
@@ -12644,19 +12642,21 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
     PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-    PG_RESULT(PgDebugInfoIterator)
+    PG_RESULT(PgDebugInfoIterator, PgError)
     res_debug = pg_self_debug_info_iterator_make(allocator);
-    if (res_debug.err) {
+    PG_IF_LET_ERR(err, res_debug) {
+      PG_UNUSED(err);
       goto end;
     }
-    PgDebugInfoIterator it = res_debug.value;
+    PgDebugInfoIterator it = PG_UNWRAP(res_debug);
 
-    PG_RESULT(PG_DYN(PgDebugFunctionDeclaration))
+    PG_RESULT(PG_DYN(PgDebugFunctionDeclaration), PgError)
     res_fns = pg_dwarf_collect_functions(&it, allocator);
-    if (res_fns.err) {
+    PG_IF_LET_ERR(err, res_fns) {
+      PG_UNUSED(err);
       goto end_debug;
     }
-    fns = res_fns.value;
+    fns = PG_UNWRAP(res_fns);
     goto end;
 
   end_debug:
