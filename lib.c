@@ -11817,11 +11817,9 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_aio_wait(PgAio aio, PG_SLICE(PgAioEvent) events_out,
                 PG_OPTION(u32) timeout_ms) {
-  PG_RESULT(u64) res = {0};
-
   struct epoll_event events[1024] = {0};
   u64 events_len = PG_MIN(events_out.len, PG_STATIC_ARRAY_LEN(events));
 
@@ -11832,11 +11830,10 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, u64, PgError);
   }
 
-  res.value = (u64)ret;
+  u64 res = (u64)ret;
 
   for (u64 i = 0; i < (u64)ret; i++) {
     struct epoll_event e =
@@ -11858,13 +11855,11 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
     }
   }
 
-  return res;
+  return PG_OK(res, u64, PgError);
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_aio_wait_cqe(PgAio aio, PgRing *cqe, PG_OPTION(u32) timeout_ms) {
-  PG_RESULT(u64) res = {0};
-
   struct epoll_event events[1024] = {0};
   u64 can_write_count = pg_ring_can_write_count(*cqe) / sizeof(PgAioEvent);
   u64 events_len = PG_MIN(can_write_count, PG_STATIC_ARRAY_LEN(events));
@@ -11876,11 +11871,10 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, u64, PgError);
   }
 
-  res.value = (u64)ret;
+  u64 res = (u64)ret;
 
   for (u64 i = 0; i < (u64)ret; i++) {
     struct epoll_event e =
@@ -11906,57 +11900,54 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
     PG_ASSERT(sizeof(ev) == pg_ring_write_bytes(cqe, ev_bytes));
   }
 
-  return res;
+  return PG_OK(res, u64, PgError);
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgAioEvent)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgAioEvent, PgError)
     pg_aio_fs_wait_one(PgAio aio, PG_OPTION(u32) timeout_ms,
                        PgAllocator *allocator) {
-  PG_RESULT(PgAioEvent) res = {0};
+  PgAioEvent res = {0};
 
   PG_SLICE(PgAioEvent)
   events_slice = {
-      .data = &res.value,
+      .data = &res,
       .len = 1,
   };
 
-  PG_RESULT(u64) res_wait = pg_aio_wait(aio, events_slice, timeout_ms);
-  PG_ASSERT(0 == res_wait.err);
-  events_slice.len = res_wait.value;
+  PG_RESULT(u64, PgError) res_wait = pg_aio_wait(aio, events_slice, timeout_ms);
+  PG_IF_LET_ERR(err, res_wait) { return PG_ERR(err, PgAioEvent, PgError); }
+  events_slice.len = PG_UNWRAP(res_wait);
 
-  if (res.value.kind & PG_AIO_EVENT_KIND_READABLE) {
+  if (res.kind & PG_AIO_EVENT_KIND_READABLE) {
     u8 inev_data[sizeof(struct inotify_event) + 4096 + 1] = {0};
     PG_SLICE(u8)
     inev_slice = {
         .data = inev_data,
         .len = PG_STATIC_ARRAY_LEN(inev_data),
     };
-    PG_RESULT(u64) res_read = pg_file_read(res.value.fd, inev_slice);
-    if (res_read.err) {
-      res.err = res_read.err;
-      return res;
-    }
-    PG_ASSERT(res_read.value >= sizeof(struct inotify_event));
+    PG_RESULT(u64, PgError) res_read = pg_file_read(res.fd, inev_slice);
+    PG_IF_LET_ERR(err, res_read) { return PG_ERR(err, PgAioEvent, PgError); }
+    PG_ASSERT(PG_UNWRAP(res_read) >= sizeof(struct inotify_event));
 
     struct inotify_event inev = *(struct inotify_event *)inev_data;
-    res.value = (PgAioEvent){0};
+    res = (PgAioEvent){0};
     if (inev.mask & IN_CREATE) {
-      res.value.kind |= PG_AIO_EVENT_KIND_FILE_CREATED;
+      res.kind |= PG_AIO_EVENT_KIND_FILE_CREATED;
     }
     if (inev.mask & IN_MODIFY) {
-      res.value.kind |= PG_AIO_EVENT_KIND_FILE_MODIFIED;
+      res.kind |= PG_AIO_EVENT_KIND_FILE_MODIFIED;
     }
     if (inev.mask & IN_DELETE) {
-      res.value.kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
+      res.kind |= PG_AIO_EVENT_KIND_FILE_DELETED;
     }
 
     if (0 != inev.len) {
-      res.value.name = pg_string_make(inev.len, allocator);
-      pg_memcpy(res.value.name.data, inev_data + sizeof(inev), inev.len);
+      res.name = pg_string_make(inev.len, allocator);
+      pg_memcpy(res.name.data, inev_data + sizeof(inev), inev.len);
     }
   }
 
-  return res;
+  return PG_OK(res, PgAioEvent, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
