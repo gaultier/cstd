@@ -11742,30 +11742,29 @@ pg_aio_ensure_inotify(PgAio *aio) {
   return 0;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
                                      PgAioEventKind interest,
                                      PgAllocator *allocator) {
-  (void)allocator; // Unused on Linux.
-
-  PG_RESULT(PgFileDescriptor) res = {0};
+  PG_UNUSED(allocator); // Unused on Linux.
 
   PgError err = pg_aio_ensure_inotify(aio);
   if (err) {
-    return PG_ERR(typeof(res), err);
+    return PG_ERR(err, PgFileDescriptor, PgError);
   }
 
-  res = pg_aio_inotify_register_interest(*aio, name, interest);
-  if (res.err) {
-    return res;
-  }
+  PgFileDescriptor res = {0};
 
-  err = pg_aio_register_interest_fd(*aio, res.value, interest);
+  PgFileDescriptor fd =
+      PG_TRY(pg_aio_inotify_register_interest(*aio, name, interest),
+             PgFileDescriptor, PgError);
+
+  err = pg_aio_register_interest_fd(*aio, fd, interest);
   if (err) {
-    return PG_ERR(typeof(res), err);
+    return PG_ERR(err, PgFileDescriptor, PgError);
   }
 
-  return res;
+  return PG_OK(fd, PgFileDescriptor, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
