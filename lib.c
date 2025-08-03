@@ -203,18 +203,20 @@ typedef double f64;
 
 #define PG_TRY(V, T, E)                                                        \
   ({                                                                           \
-    if (PG_IS_ERR(V)) {                                                        \
-      return PG_ERR((V).u._err, T, E);                                         \
+    typeof(V) __res__ = (V);                                                   \
+    if (PG_IS_ERR(__res__)) {                                                  \
+      return PG_ERR(__res__.u._err, T, E);                                     \
     }                                                                          \
-    (V).u._value;                                                              \
+    __res__.u._value;                                                          \
   })
 
 #define PG_TRY_ERR(V)                                                          \
   ({                                                                           \
-    if (PG_IS_ERR(V)) {                                                        \
-      return (V).u._err;                                                       \
+    typeof(V) __res__ = (V);                                                   \
+    if (PG_IS_ERR(__res__)) {                                                  \
+      return __res__.u._err;                                                   \
     }                                                                          \
-    (V).u._value;                                                              \
+    __res__.u._value;                                                          \
   })
 
 #define PG_IF_LET_OK(I, V)                                                     \

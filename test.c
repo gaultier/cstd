@@ -923,7 +923,7 @@ static void test_ring_buffer_read_write_fuzz() {
     do {
       PG_RESULT(u64, PgError)
       res_pipe_write = pg_file_write(oracle.second, buf_slice);
-      u64 write_count = PG_UNWRAP(res_pipe_write);
+      u64 write_count = PG_UNWRAP_OR_DEFAULT(res_pipe_write);
       if (0 == write_count) {
         break;
       }
