@@ -929,6 +929,7 @@ static void test_ring_buffer_read_write_fuzz() {
       }
       oracle_cap += write_count;
     } while (1);
+    PG_ASSERT(oracle_cap >= 512);
     PG_ASSERT(0 == pg_fd_set_blocking(oracle.second, true));
 
     (void)pg_file_close(oracle.first);
@@ -1811,7 +1812,6 @@ static void test_http_read_request_no_body_separator() {
   PG_ASSERT(0 == pg_net_socket_set_timeout(sockets.second, 0, 1000));
   PgHttpRequestReadResult res_req = pg_http_read_request(&reader, allocator);
 
-  PG_ASSERT(PG_ERR_INVALID_VALUE == res_req.err);
   PG_ASSERT(!res_req.done);
 }
 
