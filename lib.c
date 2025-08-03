@@ -11303,24 +11303,27 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
   return 0;
 }
 
-[[nodiscard]] static PG_RESULT(PG_DYN(PgDebugFunctionDeclaration))
+[[nodiscard]] static PG_RESULT(PG_DYN(PgDebugFunctionDeclaration), PgError)
     pg_dwarf_collect_functions(PgDebugInfoIterator *it,
                                PgAllocator *allocator) {
-  PG_RESULT(PG_DYN(PgDebugFunctionDeclaration)) res = {0};
+  PG_DYN(PgDebugFunctionDeclaration) res = {0};
 
   PgDebugFunctionDeclaration fn = {0};
   u64 current_die_offset = 0;
   for (;;) {
-    PG_RESULT(PG_OPTION(PgDwarfAtom))
+    PG_RESULT(PG_OPTION(PgDwarfAtom), PgError)
     res_next = pg_dwarf_compilation_unit_debug_info_next(it);
-    PG_TRY(next, res, res_next);
+    PG_IF_LET_ERR(err, res_next) {
+      return PG_ERR(err, PG_DYN(PgDebugFunctionDeclaration), PgError);
+    }
+    PG_OPTION(PgDwarfAtom) next = PG_UNWRAP(res_next);
 
     // The end.
     if (!next.has_value) {
       if (!pg_string_is_empty(fn.name) && fn.high_pc) {
-        PG_DYN_PUSH(&res.value, fn, allocator);
+        PG_DYN_PUSH(&res, fn, allocator);
       }
-      return res;
+      return PG_OK(res, PG_DYN(PgDebugFunctionDeclaration), PgError);
     }
 
     PgDwarfAtom atom = next.value;
@@ -11328,8 +11331,7 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
         pg_writer_make_from_file_descriptor(pg_os_stderr(), 0, nullptr);
     (void)pg_dwarf_atom_println(&w, atom, nullptr);
     fprintf(stderr, "[D000] %" PRIu64 " %.*s %#" PRIx64 " %#" PRIx64 "\n",
-            res.value.len, (i32)fn.name.len, fn.name.data, fn.low_pc,
-            fn.high_pc);
+            res.len, (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
     fflush(stderr);
 
     // Only interested in functions.
@@ -11344,10 +11346,9 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
     // TODO: ignore inlined, external.
     if (current_die_offset != atom.debug_info_offset) {
       fprintf(stderr, "[D002] %" PRIu64 " %.*s %#" PRIx64 " %#" PRIx64 "\n",
-              res.value.len, (i32)fn.name.len, fn.name.data, fn.low_pc,
-              fn.high_pc);
+              res.len, (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
       fflush(stderr);
-      PG_DYN_PUSH(&res.value, fn, allocator);
+      PG_DYN_PUSH(&res, fn, allocator);
       fn = (PgDebugFunctionDeclaration){0};
 
       current_die_offset = atom.debug_info_offset;
@@ -11356,14 +11357,12 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
     if (PG_DWARF_AT_LOW_PC == atom.attr_form.attribute) {
       fn.low_pc = PG_SLICE_AT(it->unit.addresses, atom.u.u64);
       fprintf(stderr, "[D011] %" PRIu64 " %.*s %#" PRIx64 " %#" PRIx64 "\n",
-              res.value.len, (i32)fn.name.len, fn.name.data, fn.low_pc,
-              fn.high_pc);
+              res.len, (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
       fflush(stderr);
     } else if (PG_DWARF_AT_NAME == atom.attr_form.attribute) {
       fn.name = pg_string_clone(atom.u.bytes, allocator);
       fprintf(stderr, "[D010] %" PRIu64 " %.*s %#" PRIx64 " %#" PRIx64 "\n",
-              res.value.len, (i32)fn.name.len, fn.name.data, fn.low_pc,
-              fn.high_pc);
+              res.len, (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
       fflush(stderr);
     } else if (PG_DWARF_AT_HIGH_PC == atom.attr_form.attribute) {
       fn.high_pc = fn.low_pc + atom.u.u64;
@@ -11374,7 +11373,7 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
     }
   }
 
-  return res;
+  return PG_OK(res, PG_DYN(PgDebugFunctionDeclaration), PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -11466,13 +11465,14 @@ pg_self_exe_get_path(PgAllocator *allocator) {
     PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
     PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-    PG_RESULT(PgFileDescriptor)
+    PG_RESULT(PgFileDescriptor, PgError)
     res_fd = pg_file_open(PG_S("/proc/self/maps"), PG_FILE_ACCESS_READ, 0600,
                           false, allocator);
-    if (0 != res_fd.err) {
+    PG_IF_LET_ERR(err, res_fd) {
+      PG_UNUSED(err);
       goto end_once;
     }
-    PgFileDescriptor fd = res_fd.value;
+    PgFileDescriptor fd = PG_UNWRAP(res_fd);
 
     PgReader r = pg_reader_make_from_file(fd, 512, allocator);
 
@@ -11481,15 +11481,17 @@ pg_self_exe_get_path(PgAllocator *allocator) {
     for (u64 _i = 0; _i < max_lines; _i++) {
       u8 line[512] = {0};
       PgString line_slice = PG_SLICE_FROM_C(line);
-      PG_OPTION(u64)
+      PG_RESULT(PG_OPTION(u64), PgError)
       res_line = pg_reader_read_line(&r, PG_NEWLINE_KIND_LF, line_slice);
-      if (0 != res_line.err) {
+      PG_IF_LET_ERR(err, res_line) {
+        PG_UNUSED(err);
         goto end_file;
       }
-      if (!res_line.value.has_value) {
+      PG_OPTION(u64) line_opt = PG_UNWRAP(res_line);
+      if (!line_opt.has_value) {
         goto end_file;
       }
-      line_slice.len = res_line.value.value;
+      line_slice.len = line_opt.value;
 
       PgStringCut cut_space = pg_string_cut_rune(line_slice, ' ');
       if (!cut_space.has_value) {
@@ -11541,9 +11543,9 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   return res;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgDebugInfoIteratorResult
-pg_self_debug_info_iterator_make(PgAllocator *allocator) {
-  PgDebugInfoIteratorResult res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgDebugInfoIterator, PgError)
+    pg_self_debug_info_iterator_make(PgAllocator *allocator) {
+  PgDebugInfoIterator res = {0};
 
   PgString exe_path = pg_self_exe_get_path(allocator);
   if (pg_string_is_empty(exe_path)) {
