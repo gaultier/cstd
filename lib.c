@@ -10758,31 +10758,32 @@ pg_dwarf_compilation_unit_get_data_offset(
 }
 
 [[maybe_unused]] [[nodiscard]]
-static PG_RESULT(PG_OPTION(PgDwarfAtom))
+static PG_RESULT(PG_OPTION(PgDwarfAtom), PgError)
     pg_dwarf_compilation_unit_debug_info_next(PgDebugInfoIterator *it) {
-  PG_RESULT(PG_OPTION(PgDwarfAtom)) res = {0};
+  PgDwarfAtom res = {0};
 
   // The end.
   if (PG_SLICE_IS_EMPTY(it->r.u.bytes)) {
-    return res;
+    return PG_OK({}, PG_OPTION(PgDwarfAtom), PgError);
   }
 
   PG_ASSERT(it->r.u.bytes.data >= it->debug_info_full.data);
   u64 offset = it->r.u.bytes.data - it->debug_info_full.data;
 
-  res.value.has_value = true;
-
   if (!it->abbrev_opt.has_value ||
       it->abbrev_attr_form_idx >= it->abbrev_opt.value.attribute_forms.len) {
-    PG_RESULT(u64) res_entry_idx = pg_reader_read_u64_leb128(&it->r);
-    PG_TRY(entry_idx, res, res_entry_idx);
+    PG_RESULT(u64, PgError) res_entry_idx = pg_reader_read_u64_leb128(&it->r);
+    PG_IF_LET_ERR(err, res_entry_idx) {
+      return PG_ERR(err, PG_OPTION(PgDwarfAtom), PgError);
+    }
+    u64 entry_idx = PG_UNWRAP(res_entry_idx);
     if (0 == entry_idx) {
       // Null entry (?)
-      return res;
+      return PG_OK(PG_SOME(res, PgDwarfAtom), PG_OPTION(PgDwarfAtom), PgError);
     }
 
     if (entry_idx >= it->unit.abbrevs.len + 1) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      return PG_ERR(PG_ERR_INVALID_VALUE, PG_OPTION(PgDwarfAtom), PgError);
     }
 
     PgDwarfAbbreviationEntry abbrev =
@@ -10795,16 +10796,16 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
 
   PG_ASSERT(it->abbrev_opt.has_value);
   PgDwarfAbbreviationEntry abbrev = it->abbrev_opt.value;
-  res.value.value.abbrev = abbrev;
-  res.value.value.debug_info_offset = offset;
+  res.abbrev = abbrev;
+  res.debug_info_offset = offset;
 
   if (PG_SLICE_IS_EMPTY(abbrev.attribute_forms)) {
-    return res;
+    return PG_OK(PG_SOME(res, PgDwarfAtom), PG_OPTION(PgDwarfAtom), PgError);
   }
 
   PgDwarfAttributeForm attr_form =
       PG_SLICE_AT(abbrev.attribute_forms, it->abbrev_attr_form_idx);
-  res.value.value.attr_form = attr_form;
+  res.attr_form = attr_form;
   it->abbrev_attr_form_idx += 1;
 
   switch (attr_form.form) {
@@ -10812,43 +10813,53 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom))
     PG_ASSERT(0 && "todo");
 
   case PG_DWARF_FORM_INDIRECT: {
-    PG_RESULT(u64) res_read = pg_reader_read_u64_leb128(&it->r);
-    PG_TRY(val, res, res_read);
+    PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_leb128(&it->r);
+    PG_IF_LET_ERR(err, res_read) {
+      return PG_ERR(err, PG_OPTION(PgDwarfAtom), PgError);
+    }
 
-    res.value.value.kind = PG_DEBUG_ATOM_KIND_U64;
-    res.value.value.u.u64 = val;
+    res.kind = PG_DEBUG_ATOM_KIND_U64;
+    res.u.u64 = PG_UNWRAP(res_read);
   } break;
 
   case PG_DWARF_FORM_BLOCK: {
-    PG_RESULT(u64) res_read = pg_reader_read_u64_leb128(&it->r);
-    PG_TRY(val, res, res_read);
+    PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_leb128(&it->r);
+    PG_IF_LET_ERR(err, res_read) {
+      return PG_ERR(err, PG_OPTION(PgDwarfAtom), PgError);
+    }
 
-    res.value.value.kind = PG_DEBUG_ATOM_KIND_U64;
-    res.value.value.u.u64 = val;
+    res.kind = PG_DEBUG_ATOM_KIND_U64;
+    res.u.u64 = PG_UNWRAP(res_read);
   } break;
 
   case PG_DWARF_FORM_REF_SIG8: {
-    PG_RESULT(u64) res_read = pg_reader_read_u64_le(&it->r);
-    PG_TRY(val, res, res_read);
+    PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_le(&it->r);
+    PG_IF_LET_ERR(err, res_read) {
+      return PG_ERR(err, PG_OPTION(PgDwarfAtom), PgError);
+    }
 
-    res.value.value.kind = PG_DEBUG_ATOM_KIND_U64;
-    res.value.value.u.u64 = val;
+    res.kind = PG_DEBUG_ATOM_KIND_U64;
+    res.u.u64 = PG_UNWRAP(res_read);
   } break;
 
   case PG_DWARF_FORM_REF_SUP8: {
-    PG_RESULT(u64) res_read = pg_reader_read_u64_le(&it->r);
-    PG_TRY(val, res, res_read);
+    PG_RESULT(u64, PgError) res_read = pg_reader_read_u64_le(&it->r);
+    PG_IF_LET_ERR(err, res_read) {
+      return PG_ERR(err, PG_OPTION(PgDwarfAtom), PgError);
+    }
 
-    res.value.value.kind = PG_DEBUG_ATOM_KIND_U64;
-    res.value.value.u.u64 = val;
+    res.kind = PG_DEBUG_ATOM_KIND_U64;
+    res.u.u64 = PG_UNWRAP(res_read);
   } break;
 
   case PG_DWARF_FORM_REF_SUP4: {
-    PG_RESULT(u32) res_read = pg_reader_read_u32_le(&it->r);
-    PG_TRY(val, res, res_read);
+    PG_RESULT(u32, PgError) res_read = pg_reader_read_u32_le(&it->r);
+    PG_IF_LET_ERR(err, res_read) {
+      return PG_ERR(err, PG_OPTION(PgDwarfAtom), PgError);
+    }
 
-    res.value.value.kind = PG_DEBUG_ATOM_KIND_U32;
-    res.value.value.u.u32 = val;
+    res.kind = PG_DEBUG_ATOM_KIND_U32;
+    res.u.u32 = PG_UNWRAP(res_read);
   } break;
 
   case PG_DWARF_FORM_FLAG: {
