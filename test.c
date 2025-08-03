@@ -10,7 +10,9 @@ static void test_rune_bytes_count() {
 }
 
 static void test_utf8_count() {
-  PG_ASSERT(2 == pg_utf8_count_runes(PG_S("🚀🛸")).value);
+  PG_RESULT(u64, PgError) res = pg_utf8_count_runes(PG_S("🚀🛸"));
+  u64 count = PG_UNWRAP(res);
+  PG_ASSERT(2 == count);
 }
 
 static void test_string_last() {
@@ -19,7 +21,7 @@ static void test_string_last() {
     PG_ASSERT(!pg_string_last(PG_S("")).has_value);
   }
   {
-    PgRuneOption res = pg_string_last(PG_S("朝日新聞デジタル聞"));
+    PG_OPTION(PgRune) res = pg_string_last(PG_S("朝日新聞デジタル聞"));
     PG_ASSERT(res.has_value);
     PG_ASSERT(0x805e /* 聞 */ == res.value);
   }
@@ -31,7 +33,7 @@ static void test_string_first() {
     PG_ASSERT(!pg_string_first(PG_S("")).has_value);
   }
   {
-    PgRuneOption first_opt = pg_string_first(PG_S("聞デジタル"));
+    PG_OPTION(PgRune) first_opt = pg_string_first(PG_S("聞デジタル"));
     PG_ASSERT(first_opt.has_value);
     PG_ASSERT(0x805e /* 聞 */ == first_opt.value);
   }
@@ -159,19 +161,19 @@ static void test_string_split_byte() {
   PgSplitIterator it = pg_string_split_string(s, PG_S("."));
 
   {
-    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_OPTION(PgString) split_opt = pg_string_split_next(&it);
     PG_ASSERT(true == split_opt.has_value);
     PG_ASSERT(pg_string_eq(split_opt.value, PG_S("hello")));
   }
 
   {
-    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_OPTION(PgString) split_opt = pg_string_split_next(&it);
     PG_ASSERT(true == split_opt.has_value);
     PG_ASSERT(pg_string_eq(split_opt.value, PG_S("world")));
   }
 
   {
-    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_OPTION(PgString) split_opt = pg_string_split_next(&it);
     PG_ASSERT(true == split_opt.has_value);
     PG_ASSERT(pg_string_eq(split_opt.value, PG_S("foobar")));
   }
@@ -185,19 +187,19 @@ static void test_string_split_string() {
   PgSplitIterator it = pg_string_split_string(s, PG_S("🚀🛸"));
 
   {
-    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_OPTION(PgString) split_opt = pg_string_split_next(&it);
     PG_ASSERT(true == split_opt.has_value);
     PG_ASSERT(pg_string_eq(split_opt.value, PG_S("hello")));
   }
 
   {
-    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_OPTION(PgString) split_opt = pg_string_split_next(&it);
     PG_ASSERT(true == split_opt.has_value);
     PG_ASSERT(pg_string_eq(split_opt.value, PG_S("world🚀little")));
   }
 
   {
-    PgStringOption split_opt = pg_string_split_next(&it);
+    PG_OPTION(PgString) split_opt = pg_string_split_next(&it);
     PG_ASSERT(true == split_opt.has_value);
     PG_ASSERT(pg_string_eq(split_opt.value, PG_S("thing !")));
   }
@@ -221,15 +223,14 @@ static void test_dyn_ensure_cap() {
     PG_ASSERT(1 == dyn.len);
     PG_ASSERT(2 == dyn.cap);
 
-    u64 arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(2 == arena_size_expected);
-    PG_ASSERT(dyn.cap == arena_size_expected);
+    u64 arena_size = arena_cap - ((u64)arena.end - (u64)arena.start);
+    PG_ASSERT(2 == arena_size);
+    PG_ASSERT(dyn.cap == arena_size);
 
     u64 desired_cap = 13;
     PG_DYN_ENSURE_CAP(&dyn, desired_cap, allocator);
     PG_ASSERT(16 == dyn.cap);
-    arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(16 == arena_size_expected);
+    PG_ASSERT(16 == pg_arena_mem_use(arena));
   }
   // General case.
   {
@@ -246,23 +247,20 @@ static void test_dyn_ensure_cap() {
     PG_DYN_PUSH(&dummy, 2, allocator);
     PG_DYN_PUSH(&dummy, 3, allocator);
 
-    u64 arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(2 + 2 == arena_size_expected);
+    PG_ASSERT(2 + 2 == pg_arena_mem_use(arena));
 
     // This triggers a new allocation.
     PG_DYN_PUSH(&dummy, 4, allocator);
     PG_ASSERT(3 == dummy.len);
     PG_ASSERT(4 == dummy.cap);
 
-    arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(2 + 4 == arena_size_expected);
+    PG_ASSERT(2 + 4 == pg_arena_mem_use(arena));
 
     u64 desired_cap = 13;
     PG_DYN_ENSURE_CAP(&dyn, desired_cap, allocator);
     PG_ASSERT(16 == dyn.cap);
 
-    arena_size_expected = arena_cap - ((u64)arena.end - (u64)arena.start);
-    PG_ASSERT(16 + 6 == arena_size_expected);
+    PG_ASSERT(16 + 6 == pg_arena_mem_use(arena));
   }
 }
 
@@ -293,16 +291,16 @@ static void test_slice_range() {
     PG_ASSERT(PG_SLICE_IS_EMPTY(PG_SLICE_RANGE(s, 100, 300)));
   }
 
-  PgStringDyn dyn = {0};
+  PG_DYN(PgString) dyn = {0};
   // Works on empty slices.
-  (void)PG_SLICE_RANGE(PG_DYN_SLICE(PgStringSlice, dyn), 0, 0);
+  (void)PG_SLICE_RANGE(PG_DYN_TO_SLICE(PG_SLICE(PgString), dyn), 0, 0);
 
   PG_DYN_PUSH(&dyn, PG_S("hello \"world\n\"!"), allocator);
   PG_DYN_PUSH(&dyn, PG_S("日"), allocator);
   PG_DYN_PUSH(&dyn, PG_S("本語"), allocator);
 
-  PgStringSlice s = PG_DYN_SLICE(PgStringSlice, dyn);
-  PgStringSlice range = PG_SLICE_RANGE_START(s, 1UL);
+  PG_SLICE(PgString) s = PG_DYN_TO_SLICE(PG_SLICE(PgString), dyn);
+  PG_SLICE(PgString) range = PG_SLICE_RANGE_START(s, 1UL);
   PG_ASSERT(2 == range.len);
 
   PG_ASSERT(pg_string_eq(PG_SLICE_AT(s, 1), PG_SLICE_AT(range, 0)));
@@ -313,9 +311,9 @@ static void test_utf8_iterator() {
   // Empty.
   {
     PgString s = PG_S("");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
-    PG_ASSERT(0 == res_count.err);
-    PG_ASSERT(0 == res_count.value);
+    PG_RESULT(u64, PgError) res_count = pg_utf8_count_runes(s);
+    u64 count = PG_UNWRAP(res_count);
+    PG_ASSERT(0 == count);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
 
@@ -326,9 +324,9 @@ static void test_utf8_iterator() {
   }
   {
     PgString s = PG_S("2匹の🀅🂣©");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
-    PG_ASSERT(0 == res_count.err);
-    PG_ASSERT(6 == res_count.value);
+    PG_RESULT(u64, PgError) res_count = pg_utf8_count_runes(s);
+    u64 count = PG_UNWRAP(res_count);
+    PG_ASSERT(6 == count);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
 
@@ -371,9 +369,9 @@ static void test_utf8_iterator() {
   // Null byte.
   {
     PgString s = PG_S("\x1\x0");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
-    PG_ASSERT(0 == res_count.err);
-    PG_ASSERT(2 == res_count.value);
+    PG_RESULT(u64, PgError) res_count = pg_utf8_count_runes(s);
+    u64 count = PG_UNWRAP(res_count);
+    PG_ASSERT(2 == count);
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
     PgRuneUtf8Result res = {0};
@@ -391,8 +389,8 @@ static void test_utf8_iterator() {
   // Forbidden byte.
   {
     PgString s = PG_S("\x1\xc0");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
-    PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
+    PG_RESULT(u64, PgError) res_count = pg_utf8_count_runes(s);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res_count));
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
     PgRuneUtf8Result res = {0};
@@ -405,8 +403,8 @@ static void test_utf8_iterator() {
   // Forbidden byte.
   {
     PgString s = PG_S("\x1\xf5");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
-    PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
+    PG_RESULT(u64, PgError) res_count = pg_utf8_count_runes(s);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res_count));
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
     PgRuneUtf8Result res = {0};
@@ -419,8 +417,8 @@ static void test_utf8_iterator() {
   // Continuation byte but EOF.
   {
     PgString s = PG_S("\x1\x80");
-    Pgu64Result res_count = pg_utf8_count_runes(s);
-    PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
+    PG_RESULT(u64, PgError) res_count = pg_utf8_count_runes(s);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res_count));
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
     PgRuneUtf8Result res = {0};
@@ -435,8 +433,8 @@ static void test_utf8_iterator() {
     PgString s = PG_S("\x1🀅");
     s.len -= 1; // Early EOF.
 
-    Pgu64Result res_count = pg_utf8_count_runes(s);
-    PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
+    PG_RESULT(u64, PgError) res_count = pg_utf8_count_runes(s);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res_count));
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
     PgRuneUtf8Result res = {0};
@@ -450,8 +448,8 @@ static void test_utf8_iterator() {
   {
     PgString s = PG_S("\x1\xf4\x90\x90\x90");
 
-    Pgu64Result res_count = pg_utf8_count_runes(s);
-    PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
+    PG_RESULT(u64, PgError) res_count = pg_utf8_count_runes(s);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res_count));
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
     PgRuneUtf8Result res = {0};
@@ -465,8 +463,8 @@ static void test_utf8_iterator() {
   {
     PgString s = PG_S("\x1\xc0\x80");
 
-    Pgu64Result res_count = pg_utf8_count_runes(s);
-    PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
+    PG_RESULT(u64, PgError) res_count = pg_utf8_count_runes(s);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res_count));
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
     PgRuneUtf8Result res = {0};
@@ -480,8 +478,8 @@ static void test_utf8_iterator() {
   {
     PgString s = PG_S("\x2F\xC0\xAE\x2E\x2F");
 
-    Pgu64Result res_count = pg_utf8_count_runes(s);
-    PG_ASSERT(PG_ERR_INVALID_VALUE == res_count.err);
+    PG_RESULT(u64, PgError) res_count = pg_utf8_count_runes(s);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res_count));
 
     PgUtf8Iterator it = pg_make_utf8_iterator(s);
     PgRuneUtf8Result res = {0};
@@ -495,16 +493,17 @@ static void test_utf8_iterator() {
 
 static void test_string_consume() {
   {
-    PgStringOption consume_opt = pg_string_consume_rune(PG_S(""), '{');
+    PG_OPTION(PgString) consume_opt = pg_string_consume_rune(PG_S(""), '{');
     PG_ASSERT(!consume_opt.has_value);
   }
   {
-    PgStringOption consume_opt = pg_string_consume_rune(PG_S("[1,2]"), '{');
+    PG_OPTION(PgString)
+    consume_opt = pg_string_consume_rune(PG_S("[1,2]"), '{');
     PG_ASSERT(!consume_opt.has_value);
   }
   {
-    PgStringOption res =
-        pg_string_consume_rune(PG_S("🍌[1,2]"), 0x1f34c /* 🍌 */);
+    PG_OPTION(PgString)
+    res = pg_string_consume_rune(PG_S("🍌[1,2]"), 0x1f34c /* 🍌 */);
     PG_ASSERT(res.has_value);
     PG_ASSERT(pg_string_eq(PG_S("[1,2]"), res.value));
   }
@@ -512,42 +511,67 @@ static void test_string_consume() {
 
 static void test_string_parse_u64() {
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S(""));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S(""), 10, true);
     PG_ASSERT(!num_res.present);
     PG_ASSERT(0 == num_res.remaining.len);
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("🍌"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("🍌"), 10, true);
     PG_ASSERT(!num_res.present);
     PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("🍌123🍌"));
+    PgParseNumberResult num_res =
+        pg_string_parse_u64(PG_S("🍌123🍌"), 10, true);
     PG_ASSERT(!num_res.present);
     PG_ASSERT(pg_string_eq(PG_S("🍌123🍌"), num_res.remaining));
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0123"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0123"), 10, true);
     PG_ASSERT(!num_res.present);
     PG_ASSERT(pg_string_eq(PG_S("0123"), num_res.remaining));
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0"), 10, true);
     PG_ASSERT(num_res.present);
     PG_ASSERT(pg_string_eq(PG_S(""), num_res.remaining));
     PG_ASSERT(0 == num_res.n);
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0🍌"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("0🍌"), 10, true);
     PG_ASSERT(num_res.present);
     PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
     PG_ASSERT(0 == num_res.n);
   }
   {
-    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("123🍌"));
+    PgParseNumberResult num_res = pg_string_parse_u64(PG_S("123🍌"), 10, true);
     PG_ASSERT(num_res.present);
     PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
     PG_ASSERT(123 == num_res.n);
+  }
+  // Allow leading zero.
+  {
+    PgParseNumberResult num_res =
+        pg_string_parse_u64(PG_S("0123🍌"), 10, false);
+    PG_ASSERT(num_res.present);
+    PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
+    PG_ASSERT(123 == num_res.n);
+  }
+  // Base 16, valid.
+  {
+    PgParseNumberResult num_res =
+        pg_string_parse_u64(PG_S("012f🍌"), 16, false);
+    PG_ASSERT(num_res.present);
+    PG_ASSERT(pg_string_eq(PG_S("🍌"), num_res.remaining));
+    PG_ASSERT(0x12f == num_res.n);
+  }
+  // Base 16, non hex characters.
+  {
+    PgParseNumberResult num_res =
+        pg_string_parse_u64(PG_S("012g🍌"), 16, false);
+    PG_ASSERT(num_res.present);
+    PG_ASSERT(pg_string_eq(PG_S("g🍌"), num_res.remaining));
+    PG_ASSERT(0x12 == num_res.n);
   }
 }
 
@@ -636,7 +660,7 @@ static void test_dynu8_append_u8_hex_upper() {
     PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0xac, allocator));
     PG_ASSERT(0 == pg_writer_write_u8_hex_upper(&w, 0x89, allocator));
 
-    PgString s = PG_DYN_SLICE(PgString, w.u.bytes);
+    PgString s = PG_DYN_TO_SLICE(PgString, w.u.bytes);
     PG_ASSERT(pg_string_eq(s, PG_S("AC89")));
   }
 }
@@ -664,7 +688,7 @@ static void test_url_encode() {
     PgWriter w = pg_writer_make_string_builder(64, allocator);
     PG_ASSERT(0 ==
               pg_writer_url_encode(&w, PG_S("日本語"), PG_S("123"), allocator));
-    PgString encoded = PG_DYN_SLICE(PgString, w.u.bytes);
+    PgString encoded = PG_DYN_TO_SLICE(PgString, w.u.bytes);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=123")));
   }
@@ -673,7 +697,7 @@ static void test_url_encode() {
     PgWriter w = pg_writer_make_string_builder(64, allocator);
     PG_ASSERT(0 ==
               pg_writer_url_encode(&w, PG_S("日本語"), PG_S("foo"), allocator));
-    PgString encoded = PG_DYN_SLICE(PgString, w.u.bytes);
+    PgString encoded = PG_DYN_TO_SLICE(PgString, w.u.bytes);
 
     PG_ASSERT(pg_string_eq(encoded, PG_S("%E6%97%A5%E6%9C%AC%E8%AA%9E=foo")));
   }
@@ -834,7 +858,7 @@ static void test_ring_buffer_read_write() {
     // Read all.
     {
       u8 tmp[12] = {0};
-      Pgu8Slice tmp_slice = {.data = tmp, PG_STATIC_ARRAY_LEN(tmp)};
+      PG_SLICE(u8) tmp_slice = {.data = tmp, PG_STATIC_ARRAY_LEN(tmp)};
       PG_ASSERT(11 == pg_ring_read_bytes(&rg, tmp_slice));
       PG_ASSERT(
           pg_bytes_eq(PG_S("hello world"), PG_SLICE_RANGE(tmp_slice, 0, 11)));
@@ -854,7 +878,7 @@ static void test_ring_buffer_read_write() {
     PG_ASSERT(12 == pg_ring_can_write_count(rg));
 
     u8 tmp[1] = {0};
-    Pgu8Slice tmp_slice = {.data = tmp, 1};
+    PG_SLICE(u8) tmp_slice = {.data = tmp, 1};
     PG_ASSERT(0 == pg_ring_read_bytes(&rg, tmp_slice));
   }
   // Write to full ring buffer.
@@ -866,7 +890,7 @@ static void test_ring_buffer_read_write() {
     PG_ASSERT(12 == pg_ring_can_write_count(rg));
 
     u8 tmp[1] = {99};
-    Pgu8Slice tmp_slice = {.data = tmp, 1};
+    PG_SLICE(u8) tmp_slice = {.data = tmp, 1};
 
     // Fill.
     for (u64 i = 0; i < 12; i++) {
@@ -886,31 +910,33 @@ static void test_ring_buffer_read_write() {
 
 static void test_ring_buffer_read_write_fuzz() {
 
-  PgFileDescriptorPairResult res_pipe = pg_pipe_make();
-  PG_ASSERT(0 == res_pipe.err);
-  PgFileDescriptorPair oracle = res_pipe.value;
-
   u64 oracle_cap = 0;
   // Get pipe capacity by filling it.
   {
+    PG_RESULT(PG_PAIR(PgFileDescriptor), PgError) res_pipe = pg_pipe_make();
+    PG_PAIR(PgFileDescriptor) oracle = PG_UNWRAP(res_pipe);
+
     PG_ASSERT(0 == pg_fd_set_blocking(oracle.second, false));
 
     u8 buf[512 * PG_KiB] = {0};
-    Pgu8Slice buf_slice = {.data = buf, .len = PG_STATIC_ARRAY_LEN(buf)};
+    PG_SLICE(u8) buf_slice = {.data = buf, .len = PG_STATIC_ARRAY_LEN(buf)};
     do {
-      Pgu64Result res_pipe_write = pg_file_write(oracle.second, buf_slice);
-      if (0 == res_pipe_write.value) {
+      PG_RESULT(u64, PgError)
+      res_pipe_write = pg_file_write(oracle.second, buf_slice);
+      u64 write_count = PG_UNWRAP_OR_DEFAULT(res_pipe_write);
+      if (0 == write_count) {
         break;
       }
-      oracle_cap += res_pipe_write.value;
+      oracle_cap += write_count;
     } while (1);
+    PG_ASSERT(oracle_cap >= 512);
     PG_ASSERT(0 == pg_fd_set_blocking(oracle.second, true));
 
-    // Empty the pipe.
-    Pgu64Result res_pipe_read = pg_file_read(oracle.first, buf_slice);
-    PG_ASSERT(0 == res_pipe_read.err);
-    PG_ASSERT(oracle_cap == res_pipe_read.value);
+    (void)pg_file_close(oracle.first);
+    (void)pg_file_close(oracle.second);
   }
+  PG_RESULT(PG_PAIR(PgFileDescriptor), PgError) res_pipe = pg_pipe_make();
+  PG_PAIR(PgFileDescriptor) oracle = PG_UNWRAP(res_pipe);
 
   PgArena arena_ring = pg_arena_make_from_virtual_mem(oracle_cap);
   PgArenaAllocator arena_allocator_ring = pg_make_arena_allocator(&arena_ring);
@@ -939,9 +965,9 @@ static void test_ring_buffer_read_write_fuzz() {
     if (can_write > 0 && src.len > 0) {
       PG_ASSERT(n_write == PG_MIN(can_write, src.len));
 
-      Pgu64Result res_write = pg_file_write(oracle.second, src);
-      PG_ASSERT(0 == res_write.err);
-      PG_ASSERT(res_write.value == n_write);
+      PG_RESULT(u64, PgError) res_write = pg_file_write(oracle.second, src);
+      u64 oracle_write_count = PG_UNWRAP(res_write);
+      PG_ASSERT(oracle_write_count == n_write);
     }
 
     u64 can_read = pg_ring_can_read_count(rg);
@@ -949,9 +975,9 @@ static void test_ring_buffer_read_write_fuzz() {
     if (can_read > 0 && dst.len > 0) {
       PG_ASSERT(n_read == PG_MIN(can_read, dst.len));
 
-      Pgu64Result res_read = pg_file_read(oracle.first, dst);
-      PG_ASSERT(0 == res_read.err);
-      PG_ASSERT(res_read.value == n_read);
+      PG_RESULT(u64, PgError) res_read = pg_file_read(oracle.first, dst);
+      u64 oracle_read_count = PG_UNWRAP(res_read);
+      PG_ASSERT(oracle_read_count == n_read);
     }
   }
 }
@@ -962,234 +988,245 @@ static void test_url_parse() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   {
-    PgUrlResult res = pg_url_parse(PG_S(""), allocator);
-    PG_ASSERT(0 != res.err);
+    PG_RESULT(PgUrl, PgError) res = pg_url_parse(PG_S(""), allocator);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("x"), allocator);
-    PG_ASSERT(0 != res.err);
+    PG_RESULT(PgUrl, PgError) res = pg_url_parse(PG_S("x"), allocator);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http:"), allocator);
-    PG_ASSERT(0 != res.err);
+    PG_RESULT(PgUrl, PgError) res = pg_url_parse(PG_S("http:"), allocator);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http:/"), allocator);
-    PG_ASSERT(0 != res.err);
+    PG_RESULT(PgUrl, PgError) res = pg_url_parse(PG_S("http:/"), allocator);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://"), allocator);
-    PG_ASSERT(0 != res.err);
+    PG_RESULT(PgUrl, PgError) res = pg_url_parse(PG_S("http://"), allocator);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("://"), allocator);
-    PG_ASSERT(0 != res.err);
+    PG_RESULT(PgUrl, PgError) res = pg_url_parse(PG_S("://"), allocator);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a"), res.value.host));
-    PG_ASSERT(0 == res.value.path_components.len);
-    PG_ASSERT(0 == res.value.port);
+    PG_RESULT(PgUrl, PgError) res = pg_url_parse(PG_S("http://a"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a"), url.host));
+    PG_ASSERT(0 == url.path_components.len);
+    PG_ASSERT(0 == url.port);
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a:"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a"), res.value.host));
-    PG_ASSERT(0 == res.value.path_components.len);
-    PG_ASSERT(0 == res.value.port);
+    PG_RESULT(PgUrl, PgError) res = pg_url_parse(PG_S("http://a:"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a"), url.host));
+    PG_ASSERT(0 == url.path_components.len);
+    PG_ASSERT(0 == url.port);
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a:/"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a"), res.value.host));
-    PG_ASSERT(0 == res.value.path_components.len);
-    PG_ASSERT(0 == res.value.port);
+    PG_RESULT(PgUrl, PgError) res = pg_url_parse(PG_S("http://a:/"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a"), url.host));
+    PG_ASSERT(0 == url.path_components.len);
+    PG_ASSERT(0 == url.port);
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a:bc"), allocator);
-    PG_ASSERT(0 != res.err);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://a:bc"), allocator);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://abc:0"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("abc"), res.value.host));
-    PG_ASSERT(0 == res.value.path_components.len);
-    PG_ASSERT(0 == res.value.port);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://abc:0"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("abc"), url.host));
+    PG_ASSERT(0 == url.path_components.len);
+    PG_ASSERT(0 == url.port);
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://abc:999999"), allocator);
-    PG_ASSERT(0 != res.err);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://abc:999999"), allocator);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res));
   }
 
   // Invalid scheme.
   {
-    PgUrlResult res = pg_url_parse(PG_S("1abc://a:80/"), allocator);
-    PG_ASSERT(0 != res.err);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("1abc://a:80/"), allocator);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a:80"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a"), res.value.host));
-    PG_ASSERT(0 == res.value.path_components.len);
-    PG_ASSERT(80 == res.value.port);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://a:80"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a"), url.host));
+    PG_ASSERT(0 == url.path_components.len);
+    PG_ASSERT(80 == url.port);
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a.b.c:80/foo"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a.b.c"), res.value.host));
-    PG_ASSERT(80 == res.value.port);
-    PG_ASSERT(1 == res.value.path_components.len);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://a.b.c:80/foo"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a.b.c"), url.host));
+    PG_ASSERT(80 == url.port);
+    PG_ASSERT(1 == url.path_components.len);
 
-    PgString path_component0 = PG_SLICE_AT(res.value.path_components, 0);
+    PgString path_component0 = PG_SLICE_AT(url.path_components, 0);
     PG_ASSERT(pg_string_eq(PG_S("foo"), path_component0));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a.b.c:80/"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a.b.c"), res.value.host));
-    PG_ASSERT(80 == res.value.port);
-    PG_ASSERT(0 == res.value.path_components.len);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://a.b.c:80/"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a.b.c"), url.host));
+    PG_ASSERT(80 == url.port);
+    PG_ASSERT(0 == url.path_components.len);
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a.b.c/foo/bar/baz"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a.b.c"), res.value.host));
-    PG_ASSERT(0 == res.value.port);
-    PG_ASSERT(3 == res.value.path_components.len);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://a.b.c/foo/bar/baz"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a.b.c"), url.host));
+    PG_ASSERT(0 == url.port);
+    PG_ASSERT(3 == url.path_components.len);
 
-    PgString path_component0 = PG_SLICE_AT(res.value.path_components, 0);
+    PgString path_component0 = PG_SLICE_AT(url.path_components, 0);
     PG_ASSERT(pg_string_eq(PG_S("foo"), path_component0));
 
-    PgString path_component1 = PG_SLICE_AT(res.value.path_components, 1);
+    PgString path_component1 = PG_SLICE_AT(url.path_components, 1);
     PG_ASSERT(pg_string_eq(PG_S("bar"), path_component1));
 
-    PgString path_component2 = PG_SLICE_AT(res.value.path_components, 2);
+    PgString path_component2 = PG_SLICE_AT(url.path_components, 2);
     PG_ASSERT(pg_string_eq(PG_S("baz"), path_component2));
   }
 
   // PgUrl parameters.
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a/?foo"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a"), res.value.host));
-    PG_ASSERT(0 == res.value.port);
-    PG_ASSERT(0 == res.value.path_components.len);
-    PG_ASSERT(1 == res.value.query_parameters.len);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://a/?foo"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a"), url.host));
+    PG_ASSERT(0 == url.port);
+    PG_ASSERT(0 == url.path_components.len);
+    PG_ASSERT(1 == url.query_parameters.len);
 
-    PgStringKeyValue kv0 = PG_SLICE_AT(res.value.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("")));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a/?"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a"), res.value.host));
-    PG_ASSERT(0 == res.value.port);
-    PG_ASSERT(0 == res.value.path_components.len);
-    PG_ASSERT(0 == res.value.query_parameters.len);
+    PG_RESULT(PgUrl, PgError) res = pg_url_parse(PG_S("http://a/?"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a"), url.host));
+    PG_ASSERT(0 == url.port);
+    PG_ASSERT(0 == url.path_components.len);
+    PG_ASSERT(0 == url.query_parameters.len);
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a/?foo=bar"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a"), res.value.host));
-    PG_ASSERT(0 == res.value.port);
-    PG_ASSERT(0 == res.value.path_components.len);
-    PG_ASSERT(1 == res.value.query_parameters.len);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://a/?foo=bar"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a"), url.host));
+    PG_ASSERT(0 == url.port);
+    PG_ASSERT(0 == url.path_components.len);
+    PG_ASSERT(1 == url.query_parameters.len);
 
-    PgStringKeyValue kv0 = PG_SLICE_AT(res.value.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
   }
   {
-    PgUrlResult res = pg_url_parse(PG_S("http://a/?foo=bar&"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a"), res.value.host));
-    PG_ASSERT(0 == res.value.port);
-    PG_ASSERT(0 == res.value.path_components.len);
-    PG_ASSERT(1 == res.value.query_parameters.len);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://a/?foo=bar&"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a"), url.host));
+    PG_ASSERT(0 == url.port);
+    PG_ASSERT(0 == url.path_components.len);
+    PG_ASSERT(1 == url.query_parameters.len);
 
-    PgStringKeyValue kv0 = PG_SLICE_AT(res.value.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
   }
   {
-    PgUrlResult res =
-        pg_url_parse(PG_S("http://a/?foo=bar&hello=world"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a"), res.value.host));
-    PG_ASSERT(0 == res.value.port);
-    PG_ASSERT(0 == res.value.path_components.len);
-    PG_ASSERT(2 == res.value.query_parameters.len);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://a/?foo=bar&hello=world"), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a"), url.host));
+    PG_ASSERT(0 == url.port);
+    PG_ASSERT(0 == url.path_components.len);
+    PG_ASSERT(2 == url.query_parameters.len);
 
-    PgStringKeyValue kv0 = PG_SLICE_AT(res.value.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
 
-    PgStringKeyValue kv1 = PG_SLICE_AT(res.value.query_parameters, 1);
+    PgStringKeyValue kv1 = PG_SLICE_AT(url.query_parameters, 1);
     PG_ASSERT(pg_string_eq(kv1.key, PG_S("hello")));
     PG_ASSERT(pg_string_eq(kv1.value, PG_S("world")));
   }
   {
-    PgUrlResult res =
-        pg_url_parse(PG_S("http://a/?foo=bar&hello=world&a="), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(PG_S("http"), res.value.scheme));
-    PG_ASSERT(0 == res.value.username.len);
-    PG_ASSERT(0 == res.value.password.len);
-    PG_ASSERT(pg_string_eq(PG_S("a"), res.value.host));
-    PG_ASSERT(0 == res.value.port);
-    PG_ASSERT(0 == res.value.path_components.len);
-    PG_ASSERT(3 == res.value.query_parameters.len);
+    PG_RESULT(PgUrl, PgError)
+    res = pg_url_parse(PG_S("http://a/?foo=bar&hello=world&a="), allocator);
+    PgUrl url = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(PG_S("http"), url.scheme));
+    PG_ASSERT(0 == url.username.len);
+    PG_ASSERT(0 == url.password.len);
+    PG_ASSERT(pg_string_eq(PG_S("a"), url.host));
+    PG_ASSERT(0 == url.port);
+    PG_ASSERT(0 == url.path_components.len);
+    PG_ASSERT(3 == url.query_parameters.len);
 
-    PgStringKeyValue kv0 = PG_SLICE_AT(res.value.query_parameters, 0);
+    PgStringKeyValue kv0 = PG_SLICE_AT(url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
 
-    PgStringKeyValue kv1 = PG_SLICE_AT(res.value.query_parameters, 1);
+    PgStringKeyValue kv1 = PG_SLICE_AT(url.query_parameters, 1);
     PG_ASSERT(pg_string_eq(kv1.key, PG_S("hello")));
     PG_ASSERT(pg_string_eq(kv1.value, PG_S("world")));
 
-    PgStringKeyValue kv2 = PG_SLICE_AT(res.value.query_parameters, 2);
+    PgStringKeyValue kv2 = PG_SLICE_AT(url.query_parameters, 2);
     PG_ASSERT(pg_string_eq(kv2.key, PG_S("a")));
     PG_ASSERT(pg_string_eq(kv2.value, PG_S("")));
   }
@@ -1202,49 +1239,57 @@ static void test_url_parse_relative_path() {
 
   // Empty.
   {
-    PgStringDynResult res = pg_url_parse_path_components(PG_S(""), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(0 == res.value.len);
+    PG_RESULT(PG_DYN(PgString), PgError)
+    res = pg_url_parse_path_components(PG_S(""), allocator);
+    PG_DYN(PgString) components = PG_UNWRAP(res);
+    PG_ASSERT(0 == components.len);
   }
   // Forbidden characters.
   {
-    PG_ASSERT(pg_url_parse_path_components(PG_S("/foo?bar"), allocator).err);
-    PG_ASSERT(pg_url_parse_path_components(PG_S("/foo:1234"), allocator).err);
-    PG_ASSERT(pg_url_parse_path_components(PG_S("/foo#bar"), allocator).err);
+
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(
+                  pg_url_parse_path_components(PG_S("/foo?bar"), allocator)));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(
+                  pg_url_parse_path_components(PG_S("/foo:1234"), allocator)));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(
+                  pg_url_parse_path_components(PG_S("/foo#bar"), allocator)));
   }
   // Must start with slash and it does not.
   {
-    PgStringDynResult res =
-        pg_url_parse_path_components(PG_S("foo"), allocator);
-    PG_ASSERT(res.err);
+    PG_RESULT(PG_DYN(PgString), PgError)
+    res = pg_url_parse_path_components(PG_S("foo"), allocator);
+    PG_ASSERT(PG_ERR_INVALID_VALUE == PG_UNWRAP_ERR(res));
   }
   // Must start with slash and it does.
   {
-    PgStringDynResult res =
-        pg_url_parse_path_components(PG_S("/foo"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(1 == res.value.len);
-    PG_ASSERT(pg_string_eq(PG_S("foo"), PG_SLICE_AT(res.value, 0)));
+    PG_RESULT(PG_DYN(PgString), PgError)
+    res = pg_url_parse_path_components(PG_S("/foo"), allocator);
+    PG_DYN(PgString) components = PG_UNWRAP(res);
+    PG_ASSERT(1 == components.len);
+    PG_ASSERT(pg_string_eq(PG_S("foo"), PG_SLICE_AT(components, 0)));
   }
   // Simple path with a few components.
   {
-    PgStringDynResult res =
-        pg_url_parse_path_components(PG_S("/foo/bar/baz"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(3 == res.value.len);
-    PG_ASSERT(pg_string_eq(PG_S("foo"), PG_SLICE_AT(res.value, 0)));
-    PG_ASSERT(pg_string_eq(PG_S("bar"), PG_SLICE_AT(res.value, 1)));
-    PG_ASSERT(pg_string_eq(PG_S("baz"), PG_SLICE_AT(res.value, 2)));
+    PG_RESULT(PG_DYN(PgString), PgError)
+    res = pg_url_parse_path_components(PG_S("/foo/bar/baz"), allocator);
+    PG_DYN(PgString) components = PG_UNWRAP(res);
+    PG_ASSERT(3 == components.len);
+    PG_ASSERT(pg_string_eq(PG_S("foo"), PG_SLICE_AT(components, 0)));
+    PG_ASSERT(pg_string_eq(PG_S("bar"), PG_SLICE_AT(components, 1)));
+    PG_ASSERT(pg_string_eq(PG_S("baz"), PG_SLICE_AT(components, 2)));
   }
   // Simple path with a few components with trailing slash.
   {
-    PgStringDynResult res =
-        pg_url_parse_path_components(PG_S("/foo/bar/baz/"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(3 == res.value.len);
-    PG_ASSERT(pg_string_eq(PG_S("foo"), PG_SLICE_AT(res.value, 0)));
-    PG_ASSERT(pg_string_eq(PG_S("bar"), PG_SLICE_AT(res.value, 1)));
-    PG_ASSERT(pg_string_eq(PG_S("baz"), PG_SLICE_AT(res.value, 2)));
+    PG_RESULT(PG_DYN(PgString), PgError)
+    res = pg_url_parse_path_components(PG_S("/foo/bar/baz/"), allocator);
+    PG_DYN(PgString) components = PG_UNWRAP(res);
+    PG_ASSERT(3 == components.len);
+    PG_ASSERT(pg_string_eq(PG_S("foo"), PG_SLICE_AT(components, 0)));
+    PG_ASSERT(pg_string_eq(PG_S("bar"), PG_SLICE_AT(components, 1)));
+    PG_ASSERT(pg_string_eq(PG_S("baz"), PG_SLICE_AT(components, 2)));
   }
 }
 
@@ -1279,83 +1324,98 @@ static void test_http_request_to_string() {
 static void test_http_parse_response_status_line() {
   // Empty.
   {
-    PG_ASSERT(pg_http_parse_response_status_line(PG_S("")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(PG_S(""))));
   }
   // Missing prefix.
   {
-    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTT")).err);
-    PG_ASSERT(pg_http_parse_response_status_line(PG_S("abc")).err);
-    PG_ASSERT(pg_http_parse_response_status_line(PG_S("/1.1")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(PG_S("HTT"))));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(PG_S("abc"))));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(PG_S("/1.1"))));
   }
   // Missing slash.
   {
-    PG_ASSERT(
-        pg_http_parse_response_status_line(PG_S("HTTP1.1 201 Created")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(
+                  PG_S("HTTP1.1 201 Created"))));
   }
   // Missing major version.
   {
-    PG_ASSERT(
-        pg_http_parse_response_status_line(PG_S("HTTP/.1 201 Created")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(
+                  PG_S("HTTP/.1 201 Created"))));
   }
   // Missing `.`.
   {
-    PG_ASSERT(
-        pg_http_parse_response_status_line(PG_S("HTTP/11 201 Created")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(
+                  PG_S("HTTP/11 201 Created"))));
   }
   // Missing minor version.
   {
-    PG_ASSERT(
-        pg_http_parse_response_status_line(PG_S("HTTP/1. 201 Created")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(
+                  PG_S("HTTP/1. 201 Created"))));
   }
   // Missing status code.
   {
-    PG_ASSERT(pg_http_parse_response_status_line(PG_S("HTTP/1.1 Created")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(
+                  PG_S("HTTP/1.1 Created"))));
   }
   // Invalid major version.
   {
-    PG_ASSERT(
-        pg_http_parse_response_status_line(PG_S("HTTP/abc.1 201 Created")).err);
-    PG_ASSERT(
-        pg_http_parse_response_status_line(PG_S("HTTP/4.1 201 Created")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(
+                  PG_S("HTTP/abc.1 201 Created"))));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(
+                  PG_S("HTTP/4.1 201 Created"))));
   }
   // Invalid minor version.
   {
-    PG_ASSERT(
-        pg_http_parse_response_status_line(PG_S("HTTP/1.10 201 Created")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(
+                  PG_S("HTTP/1.10 201 Created"))));
   }
   // Invalid status code.
   {
-    PG_ASSERT(
-        pg_http_parse_response_status_line(PG_S("HTTP/1.1 99 Created")).err);
-    PG_ASSERT(
-        pg_http_parse_response_status_line(PG_S("HTTP/1.1 600 Created")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(
+                  PG_S("HTTP/1.1 99 Created"))));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_response_status_line(
+                  PG_S("HTTP/1.1 600 Created"))));
   }
   // Valid, short.
   {
-    PgHttpResponseStatusLineResult res =
-        pg_http_parse_response_status_line(PG_S("HTTP/2.0 201"));
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(2 == res.value.version_major);
-    PG_ASSERT(0 == res.value.version_minor);
-    PG_ASSERT(201 == res.value.status);
+    PG_RESULT(PgHttpResponseStatusLine, PgError)
+    res = pg_http_parse_response_status_line(PG_S("HTTP/2.0 201"));
+    PgHttpResponseStatusLine status_line = PG_UNWRAP(res);
+    PG_ASSERT(2 == status_line.version_major);
+    PG_ASSERT(0 == status_line.version_minor);
+    PG_ASSERT(201 == status_line.status);
   }
   // Valid, short, 0.9.
   {
-    PgHttpResponseStatusLineResult res =
-        pg_http_parse_response_status_line(PG_S("HTTP/0.9 201"));
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(0 == res.value.version_major);
-    PG_ASSERT(9 == res.value.version_minor);
-    PG_ASSERT(201 == res.value.status);
+    PG_RESULT(PgHttpResponseStatusLine, PgError)
+    res = pg_http_parse_response_status_line(PG_S("HTTP/0.9 201"));
+    PgHttpResponseStatusLine status_line = PG_UNWRAP(res);
+    PG_ASSERT(0 == status_line.version_major);
+    PG_ASSERT(9 == status_line.version_minor);
+    PG_ASSERT(201 == status_line.status);
   }
   // Valid, long.
   {
-    PgHttpResponseStatusLineResult res =
-        pg_http_parse_response_status_line(PG_S("HTTP/1.1 404 Not found"));
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(1 == res.value.version_major);
-    PG_ASSERT(1 == res.value.version_minor);
-    PG_ASSERT(404 == res.value.status);
+    PG_RESULT(PgHttpResponseStatusLine, PgError)
+    res = pg_http_parse_response_status_line(PG_S("HTTP/1.1 404 Not found"));
+    PgHttpResponseStatusLine status_line = PG_UNWRAP(res);
+    PG_ASSERT(1 == status_line.version_major);
+    PG_ASSERT(1 == status_line.version_minor);
+    PG_ASSERT(404 == status_line.status);
   }
 }
 
@@ -1366,99 +1426,110 @@ static void test_http_parse_request_status_line() {
 
   // Empty.
   {
-    PG_ASSERT(pg_http_parse_request_status_line(PG_S(""), allocator).err);
+    PG_ASSERT(
+        PG_ERR_INVALID_VALUE ==
+        PG_UNWRAP_ERR(pg_http_parse_request_status_line(PG_S(""), allocator)));
   }
   // Missing prefix.
   {
-    PG_ASSERT(pg_http_parse_request_status_line(PG_S("GE"), allocator).err);
-    PG_ASSERT(pg_http_parse_request_status_line(PG_S("abc"), allocator).err);
-    PG_ASSERT(pg_http_parse_request_status_line(PG_S("123 "), allocator).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(
+                  pg_http_parse_request_status_line(PG_S("GE"), allocator)));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(
+                  pg_http_parse_request_status_line(PG_S("abc"), allocator)));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(
+                  pg_http_parse_request_status_line(PG_S("123 "), allocator)));
   }
   // Missing slash.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET HTTP1.1"), allocator).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET HTTP1.1"), allocator)));
   }
   // Missing major version.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/.1"), allocator)
-            .err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/.1"), allocator)));
   }
   // Missing `.`.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/11"), allocator)
-            .err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/11"), allocator)));
   }
   // Missing minor version.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/1."), allocator)
-            .err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/1."), allocator)));
   }
   // Invalid major version.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/abc.1"), allocator)
-            .err);
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/4.1"), allocator)
-            .err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/abc.1"), allocator)));
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/4.1"), allocator)));
   }
   // Invalid minor version.
   {
-    PG_ASSERT(
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/1.10"), allocator)
-            .err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_request_status_line(
+                  PG_S("GET / HTTP/1.10"), allocator)));
   }
   // Valid, short.
   {
-    PgHttpRequestStatusLineResult res =
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/2.0"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(PG_HTTP_METHOD_GET == res.value.method);
-    PG_ASSERT(2 == res.value.version_major);
-    PG_ASSERT(0 == res.value.version_minor);
-    PG_ASSERT(0 == res.value.url.path_components.len);
-    PG_ASSERT(0 == res.value.url.query_parameters.len);
+    PG_RESULT(PgHttpRequestStatusLine, PgError)
+    res = pg_http_parse_request_status_line(PG_S("GET / HTTP/2.0"), allocator);
+    PgHttpRequestStatusLine status_line = PG_UNWRAP(res);
+    PG_ASSERT(PG_HTTP_METHOD_GET == status_line.method);
+    PG_ASSERT(2 == status_line.version_major);
+    PG_ASSERT(0 == status_line.version_minor);
+    PG_ASSERT(0 == status_line.url.path_components.len);
+    PG_ASSERT(0 == status_line.url.query_parameters.len);
   }
   // Valid, short with query parameters.
   {
-    PgHttpRequestStatusLineResult res = pg_http_parse_request_status_line(
-        PG_S("GET /?foo=bar& HTTP/2.0"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(PG_HTTP_METHOD_GET == res.value.method);
-    PG_ASSERT(2 == res.value.version_major);
-    PG_ASSERT(0 == res.value.version_minor);
-    PG_ASSERT(0 == res.value.url.path_components.len);
-    PG_ASSERT(1 == res.value.url.query_parameters.len);
-    PgStringKeyValue kv0 = PG_SLICE_AT(res.value.url.query_parameters, 0);
+    PG_RESULT(PgHttpRequestStatusLine, PgError)
+    res = pg_http_parse_request_status_line(PG_S("GET /?foo=bar& HTTP/2.0"),
+                                            allocator);
+    PgHttpRequestStatusLine status_line = PG_UNWRAP(res);
+    PG_ASSERT(PG_HTTP_METHOD_GET == status_line.method);
+    PG_ASSERT(2 == status_line.version_major);
+    PG_ASSERT(0 == status_line.version_minor);
+    PG_ASSERT(0 == status_line.url.path_components.len);
+    PG_ASSERT(1 == status_line.url.query_parameters.len);
+    PgStringKeyValue kv0 = PG_SLICE_AT(status_line.url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("foo")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("bar")));
   }
   // Valid, short, 0.9.
   {
-    PgHttpRequestStatusLineResult res =
-        pg_http_parse_request_status_line(PG_S("GET / HTTP/0.9"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(PG_HTTP_METHOD_GET == res.value.method);
-    PG_ASSERT(0 == res.value.version_major);
-    PG_ASSERT(9 == res.value.version_minor);
-    PG_ASSERT(0 == res.value.url.path_components.len);
-    PG_ASSERT(0 == res.value.url.query_parameters.len);
+    PG_RESULT(PgHttpRequestStatusLine, PgError)
+    res = pg_http_parse_request_status_line(PG_S("GET / HTTP/0.9"), allocator);
+    PgHttpRequestStatusLine status_line = PG_UNWRAP(res);
+    PG_ASSERT(PG_HTTP_METHOD_GET == status_line.method);
+    PG_ASSERT(0 == status_line.version_major);
+    PG_ASSERT(9 == status_line.version_minor);
+    PG_ASSERT(0 == status_line.url.path_components.len);
+    PG_ASSERT(0 == status_line.url.query_parameters.len);
   }
   // Valid, long.
   {
-    PgHttpRequestStatusLineResult res = pg_http_parse_request_status_line(
+    PG_RESULT(PgHttpRequestStatusLine, PgError)
+    res = pg_http_parse_request_status_line(
         PG_S("GET /foo/bar/baz?hey HTTP/1.1"), allocator);
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(PG_HTTP_METHOD_GET == res.value.method);
-    PG_ASSERT(1 == res.value.version_major);
-    PG_ASSERT(1 == res.value.version_minor);
-    PG_ASSERT(3 == res.value.url.path_components.len);
-    PG_ASSERT(1 == res.value.url.query_parameters.len);
-    PgStringKeyValue kv0 = PG_SLICE_AT(res.value.url.query_parameters, 0);
+    PgHttpRequestStatusLine status_line = PG_UNWRAP(res);
+    PG_ASSERT(PG_HTTP_METHOD_GET == status_line.method);
+    PG_ASSERT(1 == status_line.version_major);
+    PG_ASSERT(1 == status_line.version_minor);
+    PG_ASSERT(3 == status_line.url.path_components.len);
+    PG_ASSERT(1 == status_line.url.query_parameters.len);
+    PgStringKeyValue kv0 = PG_SLICE_AT(status_line.url.query_parameters, 0);
     PG_ASSERT(pg_string_eq(kv0.key, PG_S("hey")));
     PG_ASSERT(pg_string_eq(kv0.value, PG_S("")));
   }
@@ -1467,47 +1538,55 @@ static void test_http_parse_request_status_line() {
 static void test_http_parse_header() {
   // Empty.
   {
-    PG_ASSERT(pg_http_parse_header(PG_S("")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_header(PG_S(""))));
   }
   // Missing `:`.
   {
-    PG_ASSERT(pg_http_parse_header(PG_S("foo bar")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_header(PG_S("foo bar"))));
   }
   // Missing key.
   {
-    PG_ASSERT(pg_http_parse_header(PG_S(":bcd")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_header(PG_S(":bcd"))));
   }
   // Missing value.
   {
-    PG_ASSERT(pg_http_parse_header(PG_S("foo:")).err);
+    PG_ASSERT(PG_ERR_INVALID_VALUE ==
+              PG_UNWRAP_ERR(pg_http_parse_header(PG_S("foo:"))));
   }
   // Multiple colons.
   {
-    PgStringKeyValueResult res = pg_http_parse_header(PG_S("foo: bar : baz"));
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(res.value.key, PG_S("foo")));
-    PG_ASSERT(pg_string_eq(res.value.value, PG_S("bar : baz")));
+    PG_RESULT(PgStringKeyValue, PgError)
+    res = pg_http_parse_header(PG_S("foo: bar : baz"));
+    PgStringKeyValue kv = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(kv.key, PG_S("foo")));
+    PG_ASSERT(pg_string_eq(kv.value, PG_S("bar : baz")));
   }
   // Valid, one space before the value.
   {
-    PgStringKeyValueResult res = pg_http_parse_header(PG_S("foo: bar"));
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(res.value.key, PG_S("foo")));
-    PG_ASSERT(pg_string_eq(res.value.value, PG_S("bar")));
+    PG_RESULT(PgStringKeyValue, PgError)
+    res = pg_http_parse_header(PG_S("foo: bar"));
+    PgStringKeyValue kv = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(kv.key, PG_S("foo")));
+    PG_ASSERT(pg_string_eq(kv.value, PG_S("bar")));
   }
   // Valid, no space before the value.
   {
-    PgStringKeyValueResult res = pg_http_parse_header(PG_S("foo:bar"));
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(res.value.key, PG_S("foo")));
-    PG_ASSERT(pg_string_eq(res.value.value, PG_S("bar")));
+    PG_RESULT(PgStringKeyValue, PgError)
+    res = pg_http_parse_header(PG_S("foo:bar"));
+    PgStringKeyValue kv = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(kv.key, PG_S("foo")));
+    PG_ASSERT(pg_string_eq(kv.value, PG_S("bar")));
   }
   // Valid, multiple spaces before the value.
   {
-    PgStringKeyValueResult res = pg_http_parse_header(PG_S("foo:   bar"));
-    PG_ASSERT(0 == res.err);
-    PG_ASSERT(pg_string_eq(res.value.key, PG_S("foo")));
-    PG_ASSERT(pg_string_eq(res.value.value, PG_S("bar")));
+    PG_RESULT(PgStringKeyValue, PgError)
+    res = pg_http_parse_header(PG_S("foo:   bar"));
+    PgStringKeyValue kv = PG_UNWRAP(res);
+    PG_ASSERT(pg_string_eq(kv.key, PG_S("foo")));
+    PG_ASSERT(pg_string_eq(kv.value, PG_S("bar")));
   }
 }
 
@@ -1520,16 +1599,15 @@ static void test_http_read_request_full_no_content_length() {
       PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1\r\nAccept: "
            "application/json\r\nContent-Type: "
            "text/html\r\n\r\nHello, world!");
-  PgFileDescriptorPairResult res_sockets = pg_net_make_socket_pair(
-      PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
-      PG_NET_SOCKET_OPTION_NONE);
-  PG_ASSERT(0 == res_sockets.err);
+  PG_RESULT(PG_PAIR(PgFileDescriptor), PgError)
+  res_sockets = pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_LOCAL,
+                                        PG_NET_SOCKET_TYPE_TCP,
+                                        PG_NET_SOCKET_OPTION_NONE);
+  PG_PAIR(PgFileDescriptor) sockets = PG_UNWRAP(res_sockets);
 
-  PG_ASSERT(0 == pg_file_write_full_with_descriptor(res_sockets.value.first,
-                                                    req_str));
+  PG_ASSERT(0 == pg_file_write_full_with_descriptor(sockets.first, req_str));
 
-  PgReader reader =
-      pg_reader_make_from_socket(res_sockets.value.second, 512, allocator);
+  PgReader reader = pg_reader_make_from_socket(sockets.second, 512, allocator);
   PgHttpRequestReadResult res_req = pg_http_read_request(&reader, allocator);
 
   PG_ASSERT(!res_req.err);
@@ -1573,8 +1651,8 @@ static void test_http_read_request_full_no_content_length() {
 #if 0
   {
     u8 body[128] = {0};
-    Pgu8Slice body_slice = {.data = body, .len = PG_STATIC_ARRAY_LEN(body)};
-    Pgu64Result res_read = pg_buf_reader_read(&buf_reader, body_slice);
+    PG_SLICE(u8) body_slice = {.data = body, .len = PG_STATIC_ARRAY_LEN(body)};
+    PG_RESULT(u64) res_read = pg_buf_reader_read(&buf_reader, body_slice);
     PG_ASSERT(!res_read.err);
     body_slice.len = res_read.res;
     PG_ASSERT(pg_string_eq(PG_S("Hello, world!"), body_slice));
@@ -1589,16 +1667,15 @@ static void test_http_read_request_full_without_headers() {
 
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\nHello, world!");
-  PgFileDescriptorPairResult res_sockets = pg_net_make_socket_pair(
-      PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
-      PG_NET_SOCKET_OPTION_NONE);
-  PG_ASSERT(0 == res_sockets.err);
+  PG_RESULT(PG_PAIR(PgFileDescriptor), PgError)
+  res_sockets = pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_LOCAL,
+                                        PG_NET_SOCKET_TYPE_TCP,
+                                        PG_NET_SOCKET_OPTION_NONE);
+  PG_PAIR(PgFileDescriptor) sockets = PG_UNWRAP(res_sockets);
 
-  PG_ASSERT(0 == pg_file_write_full_with_descriptor(res_sockets.value.first,
-                                                    req_str));
+  PG_ASSERT(0 == pg_file_write_full_with_descriptor(sockets.first, req_str));
 
-  PgReader reader =
-      pg_reader_make_from_socket(res_sockets.value.second, 512, allocator);
+  PgReader reader = pg_reader_make_from_socket(sockets.second, 512, allocator);
   PgHttpRequestReadResult res_req = pg_http_read_request(&reader, allocator);
 
   PG_ASSERT(!res_req.err);
@@ -1639,11 +1716,11 @@ static void test_http_read_request_full_without_headers() {
     PG_ASSERT(expected.len == pg_ring_can_read_count(buf_reader.ring));
 
     u8 tmp[64] = {0};
-    Pgu8Slice tmp_slice = {
+    PG_SLICE(u8) tmp_slice = {
         .data = tmp,
         .len = PG_STATIC_ARRAY_LEN(tmp),
     };
-    Pgu64Result res_read = pg_buf_reader_read(&buf_reader, tmp_slice);
+    PG_RESULT(u64) res_read = pg_buf_reader_read(&buf_reader, tmp_slice);
     PG_ASSERT(0 == res_read.err);
     PG_ASSERT(expected.len == res_read.res);
     tmp_slice.len = res_read.res;
@@ -1659,16 +1736,15 @@ static void test_http_read_request_full_without_body() {
 
   PgString req_str = PG_S("PUT /info/download/index.mp3?foo=bar&baz HTTP/1.1"
                           "\r\n\r\n");
-  PgFileDescriptorPairResult res_sockets = pg_net_make_socket_pair(
-      PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
-      PG_NET_SOCKET_OPTION_NONE);
-  PG_ASSERT(0 == res_sockets.err);
+  PG_RESULT(PG_PAIR(PgFileDescriptor), PgError)
+  res_sockets = pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_LOCAL,
+                                        PG_NET_SOCKET_TYPE_TCP,
+                                        PG_NET_SOCKET_OPTION_NONE);
+  PG_PAIR(PgFileDescriptor) sockets = PG_UNWRAP(res_sockets);
 
-  PG_ASSERT(0 == pg_file_write_full_with_descriptor(res_sockets.value.first,
-                                                    req_str));
+  PG_ASSERT(0 == pg_file_write_full_with_descriptor(sockets.first, req_str));
 
-  PgReader reader =
-      pg_reader_make_from_socket(res_sockets.value.second, 512, allocator);
+  PgReader reader = pg_reader_make_from_socket(sockets.second, 512, allocator);
   PgHttpRequestReadResult res_req = pg_http_read_request(&reader, allocator);
 
   PG_ASSERT(!res_req.err);
@@ -1720,24 +1796,22 @@ static void test_http_read_request_no_body_separator() {
            "application/json\r\nContent-Type: "
            "text/html\r\n");
 
-  PgFileDescriptorPairResult res_sockets = pg_net_make_socket_pair(
-      PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
-      PG_NET_SOCKET_OPTION_NONE);
-  PG_ASSERT(0 == res_sockets.err);
+  PG_RESULT(PG_PAIR(PgFileDescriptor), PgError)
+  res_sockets = pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_LOCAL,
+                                        PG_NET_SOCKET_TYPE_TCP,
+                                        PG_NET_SOCKET_OPTION_NONE);
+  PG_PAIR(PgFileDescriptor) sockets = PG_UNWRAP(res_sockets);
 
-  PG_ASSERT(0 == pg_file_write_full_with_descriptor(res_sockets.value.first,
-                                                    req_str));
+  PG_ASSERT(0 == pg_file_write_full_with_descriptor(sockets.first, req_str));
 
-  PgReader reader =
-      pg_reader_make_from_socket(res_sockets.value.second, 512, allocator);
+  PgReader reader = pg_reader_make_from_socket(sockets.second, 512, allocator);
   // HACK: Since reads are blocking, to be able to test a partial request, and
   // have the parser finish, we set a timeout. In reality the http handler would
   // timeout. Still, this way we can check that parsing the request yields an
   // error.
-  PG_ASSERT(0 == pg_net_socket_set_timeout(res_sockets.value.second, 0, 1000));
+  PG_ASSERT(0 == pg_net_socket_set_timeout(sockets.second, 0, 1000));
   PgHttpRequestReadResult res_req = pg_http_read_request(&reader, allocator);
 
-  PG_ASSERT(PG_ERR_INVALID_VALUE == res_req.err);
   PG_ASSERT(!res_req.done);
 }
 
@@ -1908,7 +1982,7 @@ static void test_http_request_response() {
   PgAioEventSlice events_watch = PG_SLICE_MAKE(PgAioEvent, 3, &arena);
 
   for (u64 _i = 0; _i <= 128; _i++) {
-    Pgu64Result res_wait = pg_aio_queue_wait(queue, events_watch, -1, arena);
+    PG_RESULT(u64) res_wait = pg_aio_queue_wait(queue, events_watch, -1, arena);
     PG_ASSERT(0 == res_wait.err);
 
     for (u64 i = 0; i < res_wait.res; i++) {
@@ -2053,14 +2127,15 @@ static void test_log() {
         .writer = pg_writer_make_string_builder(4 * PG_KiB, allocator),
         .format = PG_LOG_FORMAT_LOGFMT,
         // TODO: Consider using `rtdsc` or such.
-        .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).value,
+        .monotonic_epoch =
+            PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC)),
         .allocator = allocator,
     };
 
     pg_log(&logger, PG_LOG_LEVEL_INFO, "hello world",
            pg_log_c_s("foo", PG_S("bar")), pg_log_c_i64("baz", -317));
 
-    PgString out = PG_DYN_SLICE(PgString, logger.writer.u.bytes);
+    PgString out = PG_DYN_TO_SLICE(PgString, logger.writer.u.bytes);
     PG_ASSERT(pg_string_starts_with(out, PG_S("level=info ")));
   }
   // PgLog but the logger level is higher.
@@ -2070,14 +2145,15 @@ static void test_log() {
         .writer = pg_writer_make_string_builder(4 * PG_KiB, allocator),
         .format = PG_LOG_FORMAT_LOGFMT,
         // TODO: Consider using `rtdsc` or such.
-        .monotonic_epoch = pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC).value,
+        .monotonic_epoch =
+            PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC)),
         .allocator = allocator,
     };
 
     pg_log(&logger, PG_LOG_LEVEL_DEBUG, "hello world",
            pg_log_s(PG_S("foo"), PG_S("bar")));
 
-    PgString out = PG_DYN_SLICE(PgString, logger.writer.u.bytes);
+    PgString out = PG_DYN_TO_SLICE(PgString, logger.writer.u.bytes);
     PG_ASSERT(pg_string_is_empty(out));
   }
 }
@@ -2120,20 +2196,21 @@ static void test_process_no_capture() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgStringDyn args = {0};
+  PG_DYN(PgString) args = {0};
   PG_DYN_PUSH(&args, PG_S("ls-files"), allocator);
 
   PgProcessSpawnOptions options = {0};
-  PgProcessResult res_spawn = pg_process_spawn(
-      PG_S("git"), PG_DYN_SLICE(PgStringSlice, args), options, allocator);
-  PG_ASSERT(0 == res_spawn.err);
+  PG_RESULT(PgProcess, PgError)
+  res_spawn =
+      pg_process_spawn(PG_S("git"), PG_DYN_TO_SLICE(PG_SLICE(PgString), args),
+                       options, allocator);
 
-  PgProcess process = res_spawn.value;
+  PgProcess process = PG_UNWRAP(res_spawn);
 
-  PgProcessExitResult res_wait = pg_process_wait(process, 0, 0, allocator);
-  PG_ASSERT(0 == res_wait.err);
+  PG_RESULT(PgProcessStatus, PgError)
+  res_wait = pg_process_wait(process, 0, 0, allocator);
 
-  PgProcessStatus status = res_wait.value;
+  PgProcessStatus status = PG_UNWRAP(res_wait);
   PG_ASSERT(0 == status.exit_status);
   PG_ASSERT(0 == status.signal);
   PG_ASSERT(status.exited);
@@ -2151,23 +2228,24 @@ static void test_process_capture() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgStringDyn args = {0};
+  PG_DYN(PgString) args = {0};
   PG_DYN_PUSH(&args, PG_S("ls-files"), allocator);
 
   PgProcessSpawnOptions options = {
       .stdout_capture = PG_CHILD_PROCESS_STD_IO_PIPE,
       .stderr_capture = PG_CHILD_PROCESS_STD_IO_PIPE,
   };
-  PgProcessResult res_spawn = pg_process_spawn(
-      PG_S("git"), PG_DYN_SLICE(PgStringSlice, args), options, allocator);
-  PG_ASSERT(0 == res_spawn.err);
+  PG_RESULT(PgProcess, PgError)
+  res_spawn =
+      pg_process_spawn(PG_S("git"), PG_DYN_TO_SLICE(PG_SLICE(PgString), args),
+                       options, allocator);
 
-  PgProcess process = res_spawn.value;
+  PgProcess process = PG_UNWRAP(res_spawn);
 
-  PgProcessExitResult res_wait = pg_process_wait(process, 100, 0, allocator);
-  PG_ASSERT(0 == res_wait.err);
+  PG_RESULT(PgProcessStatus, PgError)
+  res_wait = pg_process_wait(process, 100, 0, allocator);
 
-  PgProcessStatus status = res_wait.value;
+  PgProcessStatus status = PG_UNWRAP(res_wait);
   PG_ASSERT(0 == status.exit_status);
   PG_ASSERT(0 == status.signal);
   PG_ASSERT(status.exited);
@@ -2184,7 +2262,7 @@ static void test_process_stdin() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgStringDyn args = {0};
+  PG_DYN(PgString) args = {0};
   PG_DYN_PUSH(&args, PG_S("lo wo"), allocator);
 
   PgProcessSpawnOptions options = {
@@ -2192,24 +2270,24 @@ static void test_process_stdin() {
       .stdout_capture = PG_CHILD_PROCESS_STD_IO_PIPE,
       .stderr_capture = PG_CHILD_PROCESS_STD_IO_PIPE,
   };
-  PgProcessResult res_spawn = pg_process_spawn(
-      PG_S("grep"), PG_DYN_SLICE(PgStringSlice, args), options, allocator);
-  PG_ASSERT(0 == res_spawn.err);
+  PG_RESULT(PgProcess, PgError)
+  res_spawn =
+      pg_process_spawn(PG_S("grep"), PG_DYN_TO_SLICE(PG_SLICE(PgString), args),
+                       options, allocator);
 
-  PgProcess process = res_spawn.value;
+  PgProcess process = PG_UNWRAP(res_spawn);
 
   PgString msg = PG_S("hello world");
-  Pgu64Result res_write = pg_file_write(process.stdin_pipe, msg);
-  PG_ASSERT(0 == res_write.err);
-  PG_ASSERT(msg.len == res_write.value);
+  PG_RESULT(u64, PgError) res_write = pg_file_write(process.stdin_pipe, msg);
+  PG_ASSERT(msg.len == PG_UNWRAP(res_write));
 
   PG_ASSERT(0 == pg_file_close(process.stdin_pipe));
   process.stdin_pipe.fd = 0;
 
-  PgProcessExitResult res_wait = pg_process_wait(process, 0, 0, allocator);
-  PG_ASSERT(0 == res_wait.err);
+  PG_RESULT(PgProcessStatus, PgError)
+  res_wait = pg_process_wait(process, 0, 0, allocator);
 
-  PgProcessStatus status = res_wait.value;
+  PgProcessStatus status = PG_UNWRAP(res_wait);
   PG_ASSERT(0 == status.exit_status);
   PG_ASSERT(0 == status.signal);
   PG_ASSERT(status.exited);
@@ -2263,10 +2341,9 @@ static void test_html_tokenize_no_attributes() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgString s = PG_S("<html>🍌foo</html>");
-  PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
-  PG_ASSERT(0 == res.err);
+  PG_RESULT(PG_DYN(PgHtmlToken), PgError) res = pg_html_tokenize(s, allocator);
 
-  PgHtmlTokenDyn tokens = res.value;
+  PG_DYN(PgHtmlToken) tokens = PG_UNWRAP(res);
   PG_ASSERT(3 == tokens.len);
 
   {
@@ -2300,10 +2377,9 @@ static void test_html_tokenize_with_attributes() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgString s = PG_S("<html id=\"bar🍌\" class=\"ba/z\"  > foo  </html>");
-  PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
-  PG_ASSERT(0 == res.err);
+  PG_RESULT(PG_DYN(PgHtmlToken), PgError) res = pg_html_tokenize(s, allocator);
 
-  PgHtmlTokenDyn tokens = res.value;
+  PG_DYN(PgHtmlToken) tokens = PG_UNWRAP(res);
   PG_ASSERT(3 == tokens.len);
 
   {
@@ -2357,10 +2433,9 @@ static void test_html_tokenize_with_key_no_value() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgString s = PG_S("<html aria-hidden>foo</html>");
-  PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
-  PG_ASSERT(0 == res.err);
+  PG_RESULT(PG_DYN(PgHtmlToken), PgError) res = pg_html_tokenize(s, allocator);
 
-  PgHtmlTokenDyn tokens = res.value;
+  PG_DYN(PgHtmlToken) tokens = PG_UNWRAP(res);
   PG_ASSERT(3 == tokens.len);
 
   {
@@ -2405,10 +2480,9 @@ static void test_html_tokenize_nested() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgString s = PG_S("<html id=\"bar\" > foo <span>bar</span> </html>");
-  PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
-  PG_ASSERT(0 == res.err);
+  PG_RESULT(PG_DYN(PgHtmlToken), PgError) res = pg_html_tokenize(s, allocator);
 
-  PgHtmlTokenDyn tokens = res.value;
+  PG_DYN(PgHtmlToken) tokens = PG_UNWRAP(res);
   /* PG_ASSERT(7 == tokens.len); */
 
   {
@@ -2477,10 +2551,9 @@ static void test_html_tokenize_with_doctype() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgString s = PG_S("<!DOCTYPE html> <html></html>");
-  PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
-  PG_ASSERT(0 == res.err);
+  PG_RESULT(PG_DYN(PgHtmlToken), PgError) res = pg_html_tokenize(s, allocator);
 
-  PgHtmlTokenDyn tokens = res.value;
+  PG_DYN(PgHtmlToken) tokens = PG_UNWRAP(res);
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 0);
     PG_ASSERT(PG_HTML_TOKEN_KIND_DOCTYPE == token.kind);
@@ -2509,10 +2582,9 @@ static void test_html_tokenize_with_comment() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgString s = PG_S("<html> <!-- hello world --> </html>");
-  PgHtmlTokenDynResult res = pg_html_tokenize(s, allocator);
-  PG_ASSERT(0 == res.err);
+  PG_RESULT(PG_DYN(PgHtmlToken), PgError) res = pg_html_tokenize(s, allocator);
 
-  PgHtmlTokenDyn tokens = res.value;
+  PG_DYN(PgHtmlToken) tokens = PG_UNWRAP(res);
   {
     PgHtmlToken token = PG_SLICE_AT(tokens, 0);
     PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind);
@@ -2550,10 +2622,9 @@ static void test_html_parse() {
       "    <img src=\"git_web_ui_link.png\" alt=\"Link in Github's web UI\" />"
       "  </body>"
       "</html>");
-  PgHtmlNodePtrResult res_parse = pg_html_parse(s, allocator);
-  PG_ASSERT(0 == res_parse.err);
+  PG_RESULT(PgHtmlNodePtr, PgError) res_parse = pg_html_parse(s, allocator);
 
-  PgHtmlNode *root = res_parse.value;
+  PgHtmlNode *root = PG_UNWRAP(res_parse);
   PG_ASSERT(!pg_linked_list_is_empty(&root->first_child));
   PG_ASSERT(pg_linked_list_is_empty(&root->next_sibling));
 
@@ -2634,10 +2705,9 @@ static void test_html_parse_title_with_html_content() {
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
   PgString s = PG_S("<h2>Hello <code>world</code></h2>");
-  PgHtmlNodePtrResult res_parse = pg_html_parse(s, allocator);
-  PG_ASSERT(0 == res_parse.err);
+  PG_RESULT(PgHtmlNodePtr, PgError) res_parse = pg_html_parse(s, allocator);
 
-  PgHtmlNode *root = res_parse.value;
+  PgHtmlNode *root = PG_UNWRAP(res_parse);
   PG_ASSERT(!pg_linked_list_is_empty(&root->first_child));
   PG_ASSERT(pg_linked_list_is_empty(&root->next_sibling));
 
@@ -2683,7 +2753,7 @@ static void test_string_escape_js() {
     PgString s = PG_S("hello\t,\n'world'\r\"\v\"🍌");
     Pgu8Dyn sb = {0};
     pg_string_builder_append_js_string_escaped(&sb, s, allocator);
-    PgString out = PG_DYN_SLICE(PgString, sb);
+    PgString out = PG_DYN_TO_SLICE(PgString, sb);
     PgString expected = PG_S("hello\\t,\\n\\'world\\'\\r\\\"\\v\\\"\\u{1f34c}");
 
     PG_ASSERT(pg_string_eq(out, expected));
@@ -2699,7 +2769,7 @@ static void test_string_builder_append_u64() {
   {
     Pgu8Dyn sb = {0};
     pg_string_builder_append_u64(&sb, 0, allocator);
-    PgString out = PG_DYN_SLICE(PgString, sb);
+    PgString out = PG_DYN_TO_SLICE(PgString, sb);
     PgString expected = PG_S("0");
 
     PG_ASSERT(pg_string_eq(out, expected));
@@ -2709,7 +2779,7 @@ static void test_string_builder_append_u64() {
   {
     Pgu8Dyn sb = {0};
     pg_string_builder_append_u64(&sb, 4'056'123'789, allocator);
-    PgString out = PG_DYN_SLICE(PgString, sb);
+    PgString out = PG_DYN_TO_SLICE(PgString, sb);
     PgString expected = PG_S("4056123789");
 
     PG_ASSERT(pg_string_eq(out, expected));
@@ -2723,7 +2793,7 @@ static void test_string_buillder_append_u64_hex() {
 
   Pgu8Dyn sb = {0};
   pg_string_builder_append_u64_hex(&sb, 0x1f34c /* 🍌 */, allocator);
-  PgString out = PG_DYN_SLICE(PgString, sb);
+  PgString out = PG_DYN_TO_SLICE(PgString, sb);
   PgString expected = PG_S("1f34c");
 
   PG_ASSERT(pg_string_eq(out, expected));
@@ -2775,10 +2845,10 @@ static i32 test_thread_fn(void *data) {
 
 static void test_thread() {
   u64 n = 1;
-  PgThreadResult res_thread = pg_thread_create(test_thread_fn, &n);
-  PG_ASSERT(!res_thread.err);
+  PG_RESULT(PgThread, PgError)
+  res_thread = pg_thread_create(test_thread_fn, &n);
 
-  PgThread thread = res_thread.value;
+  PgThread thread = PG_UNWRAP(res_thread);
 
   PG_ASSERT(0 == pg_thread_join(thread));
   PG_ASSERT(42 == n);
@@ -2806,14 +2876,14 @@ static void test_aio_peer(PgAio aio, PgWriter *w, PgReader *r,
   } break;
   case AIO_PEER_STATE_SENT_HELLO: {
     u8 recv[1024] = {0};
-    Pgu8Slice recv_slice = {
+    PG_SLICE(u8)
+    recv_slice = {
         .data = recv,
         .len = PG_STATIC_ARRAY_LEN(recv),
     };
-    Pgu64Result res = pg_reader_read(r, recv_slice);
-    PG_ASSERT(0 == res.err);
+    PG_RESULT(u64, PgError) res = pg_reader_read(r, recv_slice);
 
-    recv_slice.len = res.value;
+    recv_slice.len = PG_UNWRAP(res);
     PG_ASSERT(pg_bytes_eq(recv_slice, PG_S("hello world")));
 
     *state = AIO_PEER_STATE_DONE;
@@ -2830,16 +2900,16 @@ static void test_aio_tcp_sockets() {
 
   PgRing cqe = pg_ring_make(sizeof(PgAioEvent) * 16, allocator);
 
-  PgAioResult res_aio = pg_aio_init();
-  PG_ASSERT(0 == res_aio.err);
-  PgAio aio = res_aio.value;
+  PG_RESULT(PgAio, PgError) res_aio = pg_aio_init();
+  PgAio aio = PG_UNWRAP(res_aio);
 
-  PgFileDescriptorPairResult res_sockets = pg_net_make_socket_pair(
-      PG_NET_SOCKET_DOMAIN_LOCAL, PG_NET_SOCKET_TYPE_TCP,
-      PG_NET_SOCKET_OPTION_NONE);
-  PG_ASSERT(0 == res_sockets.err);
-  PgFileDescriptor client_fd = res_sockets.value.first;
-  PgFileDescriptor server_fd = res_sockets.value.second;
+  PG_RESULT(PG_PAIR(PgFileDescriptor), PgError)
+  res_sockets = pg_net_make_socket_pair(PG_NET_SOCKET_DOMAIN_LOCAL,
+                                        PG_NET_SOCKET_TYPE_TCP,
+                                        PG_NET_SOCKET_OPTION_NONE);
+  PG_PAIR(PgFileDescriptor) sockets = PG_UNWRAP(res_sockets);
+  PgFileDescriptor client_fd = sockets.first;
+  PgFileDescriptor server_fd = sockets.second;
 
   PG_ASSERT(0 == pg_aio_register_interest_fd(aio, client_fd,
                                              PG_AIO_EVENT_KIND_WRITABLE));
@@ -2855,12 +2925,12 @@ static void test_aio_tcp_sockets() {
 
   for (u64 _i = 0; _i < 32; _i++) {
     Pgu32Option timeout_opt = {0};
-    Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
-    PG_ASSERT(0 == res_wait.err);
-    PG_ASSERT(0 != res_wait.value);
+    PG_RESULT(u64, PgError) res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
+    u64 wait = PG_UNWRAP(res_wait);
+    PG_ASSERT(0 != wait);
 
-    for (u64 i = 0; i < res_wait.value; i++) {
-      PgAioEventOption event_opt = pg_aio_cqe_dequeue(&cqe);
+    for (u64 i = 0; i < wait; i++) {
+      PG_OPTION(PgAioEvent) event_opt = pg_aio_cqe_dequeue(&cqe);
       PG_ASSERT(event_opt.has_value);
 
       PgAioEvent event = event_opt.value;
@@ -2901,7 +2971,7 @@ static void test_watch_directory() {
 
   for (u64 _i = 0; _i < 4; _i++) {
     Pgu32Option timeout_opt = {0};
-    Pgu64Result res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
+    PG_RESULT(u64) res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
     PG_ASSERT(0 == res_wait.err);
     if (0 == res_wait.res) {
       continue;
@@ -2925,7 +2995,7 @@ static void test_cli_options_parse() {
 
   // No options, only plain arguments.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -2961,7 +3031,7 @@ static void test_cli_options_parse() {
   }
   // Some short option with value given.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3003,7 +3073,7 @@ static void test_cli_options_parse() {
 
   // All short options given.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3047,7 +3117,7 @@ static void test_cli_options_parse() {
 
   // Short options given, coalesced.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3103,7 +3173,7 @@ static void test_cli_options_parse() {
 
   // Short option given without argument but one was expected.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3142,7 +3212,7 @@ static void test_cli_options_parse() {
 
   // Missing required option.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3173,7 +3243,7 @@ static void test_cli_options_parse() {
 
   // Malformed option.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3196,7 +3266,7 @@ static void test_cli_options_parse() {
 
   // Malformed option.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3219,7 +3289,7 @@ static void test_cli_options_parse() {
 
   // Treat everything after `--` as plain arguments.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3258,7 +3328,7 @@ static void test_cli_options_parse() {
 
   // Short options given, coalesced, repeated.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3317,7 +3387,7 @@ static void test_cli_options_parse() {
 
   // Short options repeated without value: noop.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3362,7 +3432,7 @@ static void test_cli_options_parse() {
 
   // Unknown option passed, coalesced.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3385,7 +3455,7 @@ static void test_cli_options_parse() {
 
   // Unknown option passed.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3407,7 +3477,7 @@ static void test_cli_options_parse() {
   }
   // Long option given.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3455,7 +3525,7 @@ static void test_cli_options_parse() {
   }
   // Long & short options given.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3512,7 +3582,7 @@ static void test_cli_options_parse() {
 
   // Repeated, same long & short option given.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3560,7 +3630,7 @@ static void test_cli_options_parse() {
   }
   // Help, short form.
   {
-    PgCliOptionDescriptionDyn descs = {0};
+    PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
                 ((PgCliOptionDescription){
                     .name_short = PG_S("v"),
@@ -3618,7 +3688,7 @@ static void test_cli_options_help() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgCliOptionDescriptionDyn descs = {0};
+  PG_DYN(PgCliOptionDescription) descs = {0};
   PG_DYN_PUSH(&descs,
               ((PgCliOptionDescription){
                   .name_short = PG_S("v"),
@@ -3661,7 +3731,178 @@ static void test_cli_options_help() {
   PG_ASSERT(pg_string_eq(expected, help));
 }
 
+static void test_self() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  {
+    u64 offset = pg_self_pie_get_offset();
+    PG_ASSERT(offset > 0xffff);
+  }
+  // Do it twice to check that it works with the `once` mechanism.
+  {
+    u64 offset = pg_self_pie_get_offset();
+    PG_ASSERT(offset >= 0xffffUL);
+  }
+
+  {
+    PgString exe_path = pg_self_exe_get_path(allocator);
+    PG_ASSERT(pg_string_contains(exe_path, PG_S("cstd/test")));
+  }
+
+  // Do it twice to check that it works with the `once` mechanism.
+  {
+    PgString exe_path = pg_self_exe_get_path(nullptr);
+    PG_ASSERT(pg_string_contains(exe_path, PG_S("cstd/test")));
+  }
+}
+
+[[maybe_unused]]
+static void test_debug_info() {
+  PgArena arena = pg_arena_make_from_virtual_mem(16 * PG_MiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PG_RESULT(PgDebugInfoIterator, PgError)
+  res_it = pg_self_debug_info_iterator_make(allocator);
+  PgDebugInfoIterator it = PG_UNWRAP(res_it);
+
+  PgDwarfDebugInfoCompilationUnit unit = it.unit;
+  PG_ASSERT(PG_DWARF_COMPILATION_UNIT_COMPILE == unit.kind);
+  PG_ASSERT(unit.abbrevs.len > 0);
+
+  {
+    PgWriter w =
+        pg_writer_make_from_file_descriptor(pg_os_stdout(), 1024, allocator);
+    (void)pg_dwarf_compilation_unit_print_abbreviations(&w, unit, nullptr);
+  }
+
+  PgArena fn_arena = pg_arena_make_from_virtual_mem(512 * PG_KiB);
+  PgArenaAllocator fn_arena_allocator = pg_make_arena_allocator(&fn_arena);
+  PgAllocator *fn_allocator =
+      pg_arena_allocator_as_allocator(&fn_arena_allocator);
+  PG_RESULT(PG_DYN(PgDebugFunctionDeclaration), PgError)
+  res_fns = pg_dwarf_collect_functions(&it, fn_allocator);
+  PG_DYN(PgDebugFunctionDeclaration) fns = PG_UNWRAP(res_fns);
+  PG_ASSERT(fns.len > 0);
+
+  PG_ASSERT(0 == pg_arena_release(&arena));
+  pg_self_debug_info_iterator_release(it);
+
+  {
+    PgWriter w =
+        pg_writer_make_from_file_descriptor(pg_os_stderr(), 1024, allocator);
+    PG_ASSERT(0 == pg_debug_print_functions(&w, fns, nullptr));
+    pg_stack_trace_print_dwarf(1);
+  }
+}
+
+static void test_u64_leb128() {
+  u8 input[] = {0xC0, 0x9c, 0xD2, 0x01};
+  PG_SLICE(u8) input_slice = PG_SLICE_FROM_C(input);
+
+  PgReader r = pg_reader_make_from_bytes(input_slice);
+  PG_RESULT(u64, PgError) res = pg_reader_read_u64_leb128(&r);
+  PG_ASSERT(PG_SLICE_IS_EMPTY(r.u.bytes));
+  PG_ASSERT(0x348e40 == PG_UNWRAP(res));
+}
+
+static void test_write_u64_hex() {
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PgWriter w = pg_writer_make_string_builder(8, allocator);
+  PG_ASSERT(0 == pg_writer_write_u64_hex(&w, 0x348e40, allocator));
+  PgString s = PG_DYN_TO_SLICE(PgString, w.u.bytes);
+  PG_ASSERT(pg_string_eq(PG_S("0x348e40"), s));
+}
+
+static void test_arena() {
+  // Empty arena.
+  {
+    PgArenaAllocator arena_allocator = {0};
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+    u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 1);
+    PG_ASSERT(nullptr == res);
+  }
+  // Null allocator.
+  {
+    u8 *res = pg_alloc(nullptr, sizeof(u8), _Alignof(u8), 1);
+    PG_ASSERT(nullptr == res);
+  }
+  // Arena of size 0.
+  {
+    PgArena arena = pg_arena_make_from_virtual_mem(0);
+    PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+    u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 1);
+    PG_ASSERT(nullptr == res);
+  }
+  // Arena too small for allocation.
+  {
+    PgArena arena = pg_arena_make_from_virtual_mem(2);
+    PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+    u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 3);
+    PG_ASSERT(nullptr == res);
+  }
+  // Arena just big enough for allocation.
+  {
+    PgArena arena = pg_arena_make_from_virtual_mem(1);
+    PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+    u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 1);
+    PG_ASSERT(nullptr != res);
+    // Prevent optimizer from removing all of this.
+    volatile u8 *x = res;
+    *x += 1;
+  }
+  // Arena too small for reallocation.
+  {
+    PgArena arena = pg_arena_make_from_virtual_mem(1);
+    PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+    u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 1);
+    PG_ASSERT(nullptr != res);
+
+    // 1 -> 2.
+    res = pg_realloc(allocator, res, 1, sizeof(u8), _Alignof(u8), 2);
+    PG_ASSERT(nullptr == res);
+  }
+  // Arena just big enough for reallocation, using the bump code path for
+  // optimization.
+  {
+    PgArena arena = pg_arena_make_from_virtual_mem(2);
+    PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+    PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+    u8 *res = pg_alloc(allocator, sizeof(u8), _Alignof(u8), 1);
+    PG_ASSERT(nullptr != res);
+
+    // 1 -> 2.
+    res = pg_realloc(allocator, res, 1, sizeof(u8), _Alignof(u8), 2);
+
+    PG_ASSERT(nullptr != res);
+    // Prevent optimizer from removing all of this.
+    volatile u8 *x = res + 1;
+    *x += 1;
+  }
+}
+
 int main() {
+  test_arena();
+  test_u64_leb128();
+  test_write_u64_hex();
+  test_self();
+#if 0
+  test_debug_info();
+#endif
   test_rune_bytes_count();
   test_utf8_count();
   test_string_last();
