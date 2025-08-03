@@ -11546,83 +11546,94 @@ pg_self_exe_get_path(PgAllocator *allocator) {
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgDebugInfoIterator, PgError)
     pg_self_debug_info_iterator_make(PgAllocator *allocator) {
   PgDebugInfoIterator res = {0};
+  PgError err = 0;
 
   PgString exe_path = pg_self_exe_get_path(allocator);
   if (pg_string_is_empty(exe_path)) {
-    return res;
+    return PG_OK(res, PgDebugInfoIterator, PgError);
   }
 
   // TODO: Only read the relevant parts.
   // Depending on the size of the executable.
-  PgVirtualMemFileResult res_file =
-      pg_virtual_mem_map_file(exe_path, PG_FILE_ACCESS_READ, false);
-  PG_TRY(file, res, res_file);
-  res.value.file = file;
+  PG_RESULT(PgVirtualMemFile, PgError)
+  res_file = pg_virtual_mem_map_file(exe_path, PG_FILE_ACCESS_READ, false);
+  PG_IF_LET_ERR(err, res_file) {
+    return PG_ERR(err, PgDebugInfoIterator, PgError);
+  }
+  res.file = PG_UNWRAP(res_file);
 
   // TODO: Other formats.
   // Parse ELF.
   {
-    PgElfResult res_elf = pg_elf_parse(file.data);
-    if (res_elf.err) {
-      res.err = res_elf.err;
+    PG_RESULT(PgElf, PgError) res_elf = pg_elf_parse(res.file.data);
+    PG_IF_LET_ERR(_err, res_elf) {
+      err = _err;
       goto end;
     }
-    res.value.elf = res_elf.value;
+    res.elf = PG_UNWRAP(res_elf);
   }
 
   // Parse compilation unit.
   {
-    PgDwarfDebugInfoCompilationUnitResult res_unit =
-        pg_dwarf_parse_debug_info(res.value.elf, allocator);
-    if (res_unit.err) {
-      res.err = res_unit.err;
+    PG_RESULT(PgDwarfDebugInfoCompilationUnit, PgError)
+    res_unit = pg_dwarf_parse_debug_info(res.elf, allocator);
+    PG_IF_LET_ERR(_err, res_unit) {
+      err = _err;
       goto end;
     }
-    res.value.unit = res_unit.value;
+    res.unit = PG_UNWRAP(res_unit);
   }
 
   // Setup reader on `.debug_info`.
   {
-    PG_RESULT(PG_SLICE(u8))
+    PG_RESULT(PG_SLICE(u8), PgError)
     res_info_bytes = pg_elf_section_header_find_bytes_by_name_and_kind(
-        res.value.elf, PG_S(".debug_info"),
-        PG_ELF_SECTION_HEADER_KIND_PROGBITS);
-    if (res_info_bytes.err) {
-      res.err = res_info_bytes.err;
+        res.elf, PG_S(".debug_info"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+    PG_IF_LET_ERR(_err, res_info_bytes) {
+      err = _err;
       goto end;
     }
-    PgString info_bytes = res_info_bytes.value;
-    res.value.debug_info_full = info_bytes;
+    PgString info_bytes = PG_UNWRAP(res_info_bytes);
+    res.debug_info_full = info_bytes;
 
-    u64 offset = pg_dwarf_compilation_unit_get_data_offset(res.value.unit);
+    u64 offset = pg_dwarf_compilation_unit_get_data_offset(res.unit);
     info_bytes = PG_SLICE_RANGE_START(info_bytes, offset);
 
-    res.value.r = pg_reader_make_from_bytes(info_bytes);
+    res.r = pg_reader_make_from_bytes(info_bytes);
   }
 
   // Set string section.
   {
-    PG_RESULT(PG_SLICE(u8))
+    PG_RESULT(PG_SLICE(u8), PgError)
     res_str_bytes = pg_elf_section_header_find_bytes_by_name_and_kind(
-        res.value.elf, PG_S(".debug_str"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
-    PG_TRY(str_bytes, res, res_str_bytes);
-    res.value.str_bytes = str_bytes;
+        res.elf, PG_S(".debug_str"), PG_ELF_SECTION_HEADER_KIND_PROGBITS);
+    PG_IF_LET_ERR(_err, res_str_bytes) {
+      err = _err;
+      goto end;
+    }
+    res.str_bytes = PG_UNWRAP(res_str_bytes);
   }
 
   // Set string offsets section.
   {
-    PG_RESULT(PG_SLICE(u8))
+    PG_RESULT(PG_SLICE(u8), PgError)
     res_str_offsets_bytes = pg_elf_section_header_find_bytes_by_name_and_kind(
-        res.value.elf, PG_S(".debug_str_offsets"),
+        res.elf, PG_S(".debug_str_offsets"),
         PG_ELF_SECTION_HEADER_KIND_PROGBITS);
-    PG_TRY(str_offsets_bytes, res, res_str_offsets_bytes);
+    PG_IF_LET_ERR(_err, res_str_offsets_bytes) {
+      err = _err;
+      goto end;
+    }
+    PG_SLICE(u8) str_offsets_bytes = PG_UNWRAP(res_str_offsets_bytes);
     // Check that the header is present.
     if (str_offsets_bytes.len < 8) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      err = PG_ERR_INVALID_VALUE;
+      goto end;
     }
     str_offsets_bytes = PG_SLICE_RANGE_START(str_offsets_bytes, 8);
     if (0 != (str_offsets_bytes.len % 4)) {
-      return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+      err = PG_ERR_INVALID_VALUE;
+      goto end;
     }
     // TODO: Should we check alignment (`0 != ((u64)str_offsets_bytes.data %
     // 4`)?
@@ -11631,19 +11642,19 @@ pg_self_exe_get_path(PgAllocator *allocator) {
         .data = (u32 *)str_offsets_bytes.data,
         .len = str_offsets_bytes.len / 4,
     };
-    res.value.str_offsets = str_offsets;
+    res.str_offsets = str_offsets;
   }
 
 end:
-  if (res.err) {
-    pg_self_debug_info_iterator_release(res.value);
+  if (err) {
+    pg_self_debug_info_iterator_release(res);
   }
-  return res;
+  return PG_OK(res, PgDebugInfoIterator, PgError);
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_aio_inotify_init() {
-  PG_RESULT(PgFileDescriptor) res = {0};
+  PgFileDescriptor res = {0};
 
   i32 ret = 0;
   do {
@@ -11651,21 +11662,20 @@ end:
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, PgFileDescriptor, PgError);
   }
 
-  res.value.fd = ret;
-  return res;
+  res.fd = ret;
+  return PG_OK(res, PgFileDescriptor, PgError);
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_aio_inotify_register_interest(PgAio aio, PgString name,
                                      PgAioEventKind interest) {
-  PG_RESULT(PgFileDescriptor) res = {0};
+  PgFileDescriptor res = {0};
 
   if (0 == name.len) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgFileDescriptor, PgError);
   }
 
   u32 interest_linux = 0;
@@ -11691,17 +11701,16 @@ end:
   } while (-1 == ret && EINTR == errno);
 
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, PgFileDescriptor, PgError);
   }
 
-  res.value.fd = ret;
+  res.fd = ret;
 
-  return res;
+  return PG_OK(res, PgFileDescriptor, PgError);
 }
 
-[[maybe_unused]] [[nodiscard]] static PgAioResult pg_aio_init() {
-  PgAioResult res = {0};
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgAio, PgError) pg_aio_init() {
+  PG_RESULT(PgAio, PgError) res = {0};
 
   i32 ret = 0;
   do {
