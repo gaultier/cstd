@@ -3980,6 +3980,12 @@ pg_buf_reader_try_fill_once(PgReader *r) {
   return PG_OK(pg_ring_read_bytes(&r->ring, dst), u64, PgError);
 }
 
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
+    pg_reader_read(PgReader *r, u8 *dst, u64 len) {
+  Pgu8Slice slice = {.data = dst, .len = len};
+  return pg_reader_read_slice(r, slice);
+}
+
 [[maybe_unused]] [[nodiscard]] static PgError
 pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   PgString remaining = s;
@@ -12049,7 +12055,16 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
     res.header.reserved = PG_UNWRAP(res_read);
   }
 
-  // TODO
+  {
+    for (u64 i = 0; i < res.header.cmds_count; i++) {
+      PgMachoLoadCommand load_cmd = {0};
+      PG_RESULT(u64, PgError)
+      res_read = pg_reader_read(&r, (u8 *)&load_cmd, sizeof(load_cmd));
+      PG_IF_LET_ERR(err, res_read) { return PG_ERR(err, PgMacho, PgError); }
+
+      switch (load_cmd.cmd) {}
+    }
+  }
 
   return PG_OK(res, PgMacho, PgError);
 }
@@ -12110,10 +12125,6 @@ pg_self_exe_get_path(PgAllocator *allocator) {
     }
 
     res.macho = PG_UNWRAP(res_macho);
-  }
-  {
-    for (u64 i = 0; i < res.macho.header.cmds_count; i++) {
-    }
   }
 
   if (1) {
