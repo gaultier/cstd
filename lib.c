@@ -1028,6 +1028,27 @@ typedef struct {
 static_assert(32 == sizeof(PgMachoHeader));
 
 typedef struct {
+  u8 sectname[16];
+  u8 segname[16];
+  u64 addr;
+  u64 size;
+  u32 offset;
+  u32 align;
+  u32 reloff;
+  u32 nreloc;
+  u32 flags;
+  u32 reserved1;
+  u32 reserved2;
+  u32 reserved3;
+} PgMachoSection64;
+static_assert(80 == sizeof(PgMachoSection64));
+
+typedef struct {
+  u32 cmd;
+  u32 cmdsize;
+} PgMachoLoadCommand;
+
+typedef struct {
   PgMachoHeader header;
 } PgMacho;
 PG_RESULT_DECL(PgMacho, PgError);
@@ -3936,7 +3957,7 @@ pg_buf_reader_try_fill_once(PgReader *r) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
-    pg_reader_read(PgReader *r, PG_SLICE(u8) dst) {
+    pg_reader_read_slice(PgReader *r, PG_SLICE(u8) dst) {
   PG_ASSERT(dst.data);
 
   if (PG_SLICE_IS_EMPTY(dst)) {
@@ -3967,7 +3988,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
       break;
     }
 
-    PG_RESULT(u64, PgError) res = pg_reader_read(r, remaining);
+    PG_RESULT(u64, PgError) res = pg_reader_read_slice(r, remaining);
     PG_IF_LET_ERR(err, res) { return err; }
     u64 value = PG_UNWRAP(res);
 
@@ -4154,7 +4175,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   u8 tmp[4096] = {0};
   PgString dst = {.data = tmp, .len = PG_STATIC_ARRAY_LEN(tmp)};
 
-  res = pg_reader_read(r, dst);
+  res = pg_reader_read_slice(r, dst);
   if (PG_IS_ERR(res)) {
     return res;
   }
@@ -8013,7 +8034,7 @@ typedef enum {
   PG_ASSERT(dst.data);
 
   if (0 == r->ring.data.len) { // Simple reader.
-    PG_RESULT(u64, PgError) res_read = pg_reader_read(r, dst);
+    PG_RESULT(u64, PgError) res_read = pg_reader_read_slice(r, dst);
     PG_IF_LET_ERR(err, res_read) {
       return PG_ERR(err, PG_OPTION(u64), PgError);
     }
@@ -8068,7 +8089,7 @@ typedef enum {
 
   if (0 == r->ring.data.len) { // Simple reader.
     // TODO: Multiple reads?
-    PG_RESULT(u64, PgError) res_read = pg_reader_read(r, dst);
+    PG_RESULT(u64, PgError) res_read = pg_reader_read_slice(r, dst);
     PG_IF_LET_ERR(err, res_read) {
       return PG_ERR(err, PG_OPTION(u64), PgError);
     }
@@ -12074,8 +12095,6 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   debug_path = pg_path_join(debug_path, PG_S("DWARF"), allocator);
   debug_path = pg_path_join(debug_path, pg_path_base_name(exe_path), allocator);
 
-  // TODO: Only read the relevant parts.
-  // Depending on the size of the executable.
   PG_RESULT(PgVirtualMemFile, PgError)
   res_file = pg_virtual_mem_map_file(debug_path, PG_FILE_ACCESS_READ, false);
   PG_IF_LET_ERR(err, res_file) {
@@ -12092,7 +12111,10 @@ pg_self_exe_get_path(PgAllocator *allocator) {
 
     res.macho = PG_UNWRAP(res_macho);
   }
-  // TODO
+  {
+    for (u64 i = 0; i < res.macho.header.cmds_count; i++) {
+    }
+  }
 
   if (1) {
     pg_self_debug_info_iterator_release(res);

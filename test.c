@@ -2881,7 +2881,7 @@ static void test_aio_peer(PgAio aio, PgWriter *w, PgReader *r,
         .data = recv,
         .len = PG_STATIC_ARRAY_LEN(recv),
     };
-    PG_RESULT(u64, PgError) res = pg_reader_read(r, recv_slice);
+    PG_RESULT(u64, PgError) res = pg_reader_read_slice(r, recv_slice);
 
     recv_slice.len = PG_UNWRAP(res);
     PG_ASSERT(pg_bytes_eq(recv_slice, PG_S("hello world")));
