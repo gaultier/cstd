@@ -9543,34 +9543,29 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
 #include <sys/event.h>
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgAio, PgError) pg_aio_init() {
-  PG_RESULT(PgAio, PgError) res = {0};
-
   i32 ret = kqueue();
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, PgAio, PgError);
   }
 
-  res.value.aio.fd = ret;
-  return res;
+  return PG_OK((PgAio){.aio.fd = ret}, PgAio, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
     pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
                                      PgAioEventKind interest,
                                      PgAllocator *allocator) {
-  PG_RESULT(PgFileDescriptor, PgError)
-  res = pg_file_open(name, PG_FILE_ACCESS_READ, 0666, false, allocator);
-  if (res.err) {
-    return res;
+  PgFileDescriptor fd =
+      PG_TRY(pg_file_open(name, PG_FILE_ACCESS_READ, 0666, false, allocator),
+             PgFileDescriptor, PgError);
+
+  PgError err = pg_aio_register_interest_fd(*aio, fd, interest);
+  if (err) {
+    (void)pg_file_close(fd);
+    return PG_ERR(err, PgFileDescriptor, PgError);
   }
 
-  res.err = pg_aio_register_interest_fd(*aio, res.value, interest);
-  if (res.err) {
-    return res;
-  }
-
-  return res;
+  return PG_OK(fd, PgFileDescriptor, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
@@ -9659,8 +9654,7 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
   i32 ret = kevent(aio.aio.fd, nullptr, 0, eventlist, eventlist_len,
                    timeout_ms.has_value ? &timeout : nullptr);
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, u64, PgError);
   }
 
   for (u64 i = 0; i < (u64)ret; i++) {
@@ -9688,8 +9682,7 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
     }
   }
 
-  res.value = (u64)ret;
-  return res;
+  return PG_OK(ret, u64, PgError);
 };
 
 // TODO: Use `pg_aio_wait` ?
@@ -9713,8 +9706,7 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
   i32 ret = kevent(aio.aio.fd, nullptr, 0, eventlist, eventlist_len,
                    timeout_ms.has_value ? &timeout : nullptr);
   if (-1 == ret) {
-    res.err = (PgError)errno;
-    return res;
+    return PG_ERR(errno, u64, PgError);
   }
 
   for (u64 i = 0; i < (u64)ret; i++) {
@@ -9745,8 +9737,7 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
     PG_ASSERT(sizeof(ev) == pg_ring_write_bytes(cqe, ev_bytes));
   }
 
-  res.value = (u64)ret;
-  return res;
+  return PG_OK(ret, u64, PgError);
 }
 
 #endif
@@ -11979,19 +11970,20 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
 
 #ifdef PG_OS_APPLE
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgMacho)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgMacho, PgError)
     pg_macho_parse(PG_SLICE(u8) bytes) {
-  PG_RESULT(PgMacho) res = {0};
+  PgMacho res = {0};
   PgReader r = pg_reader_make_from_bytes(bytes);
 
-  PG_RESULT(u32) res_read_magic = pg_reader_read_u32_le(&r);
-  PG_TRY(magic, res, res_read_magic);
+  PG_RESULT(u32, PgError) res_read_magic = pg_reader_read_u32_le(&r);
+  PG_IF_LET_ERR(err, res_read_magic) { return PG_ERR(err, PgMacho, PgError); }
+  u32 magic = PG_UNWRAP(res_read_magic);
   if (0xfe'ed'fa'cf != magic) {
-    return PG_ERR(typeof(res), PG_ERR_INVALID_VALUE);
+    return PG_ERR(PG_ERR_INVALID_VALUE, PgMacho, PgError);
   }
 
   // TODO
-  return res;
+  return PG_OK(res, PgMacho, PgError);
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
@@ -12020,29 +12012,30 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   return ret;
 }
 
-[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgDebugInfoIterator)
+[[maybe_unused]] [[nodiscard]] static PG_RESULT(PgDebugInfoIterator, PgError)
     pg_self_debug_info_iterator_make(PgAllocator *allocator) {
-  PG_RESULT(PgDebugInfoIterator) res = {0};
+  PgDebugInfoIterator res = {0};
 
   PgString exe_path = pg_self_exe_get_path(allocator);
   if (pg_string_is_empty(exe_path)) {
-    return res;
+    return PG_OK(res, PgDebugInfoIterator, PgError);
   }
 
   // TODO: Only read the relevant parts.
   // Depending on the size of the executable.
-  PG_RESULT(PgVirtualMemFile)
+  PG_RESULT(PgVirtualMemFile, PgError)
   res_file = pg_virtual_mem_map_file(exe_path, PG_FILE_ACCESS_READ, false);
-  PG_TRY(file, res, res_file);
-  res.value.file = file;
+  PG_IF_LET_ERR(err, res_file) {
+    return PG_ERR(err, PgDebugInfoIterator, PgError);
+  }
+  res.file = PG_UNWRAP(res_file);
 
   // TODO
-  res.err = PG_ERR_INVALID_VALUE;
 
-  if (res.err) {
-    pg_self_debug_info_iterator_release(res.value);
+  if (1) {
+    pg_self_debug_info_iterator_release(res);
   }
-  return res;
+  return PG_ERR(PG_ERR_INVALID_VALUE, PgDebugInfoIterator, PgError);
 }
 
 // TODO: is pthread_yield defined on macos?
