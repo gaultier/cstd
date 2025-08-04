@@ -1,5 +1,5 @@
 - [ ] alloc: Make all allocation failures recoverable
-- [ ] macos: Parse mach-o
+- [.] macos: Parse mach-o
 - [ ] io: Make pg_watch_dir work
 - [ ] alloc: Allocator that exports CTF data
 - [ ] dwarf: Make debug info load work in release mode
