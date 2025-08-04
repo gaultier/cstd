@@ -12077,6 +12077,15 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   }
   res.file = PG_UNWRAP(res_file);
 
+  // Macho.
+  {
+    PG_RESULT(PgMacho, PgError) res_macho = pg_macho_parse(res.file.data);
+    PG_IF_LET_ERR(err, res_macho) {
+      return PG_ERR(err, PgDebugInfoIterator, PgError);
+    }
+
+    res.macho = PG_UNWRAP(res_macho);
+  }
   // TODO
 
   if (1) {

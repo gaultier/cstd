@@ -3900,9 +3900,7 @@ int main() {
   test_u64_leb128();
   test_write_u64_hex();
   test_self();
-#if 0
   test_debug_info();
-#endif
   test_rune_bytes_count();
   test_utf8_count();
   test_string_last();
