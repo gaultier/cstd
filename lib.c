@@ -11360,9 +11360,6 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
     PgWriter w =
         pg_writer_make_from_file_descriptor(pg_os_stderr(), 0, nullptr);
     (void)pg_dwarf_atom_println(&w, atom, nullptr);
-    fprintf(stderr, "[D000] %" PRIu64 " %.*s %#" PRIx64 " %#" PRIx64 "\n",
-            res.len, (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
-    fflush(stderr);
 
     // Only interested in functions.
     if (!pg_dwarf_abbreviation_entry_is_function_like(atom.abbrev)) {
@@ -11373,11 +11370,7 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
       current_die_offset = atom.debug_info_offset;
     }
 
-    // TODO: ignore inlined, external.
     if (current_die_offset != atom.debug_info_offset) {
-      fprintf(stderr, "[D002] %" PRIu64 " %.*s %#" PRIx64 " %#" PRIx64 "\n",
-              res.len, (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
-      fflush(stderr);
       PG_DYN_PUSH(&res, fn, allocator);
       fn = (PgDebugFunctionDeclaration){0};
 
@@ -11386,14 +11379,8 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
 
     if (PG_DWARF_AT_LOW_PC == atom.attr_form.attribute) {
       fn.low_pc = PG_SLICE_AT(it->unit.addresses, atom.u.u64);
-      fprintf(stderr, "[D011] %" PRIu64 " %.*s %#" PRIx64 " %#" PRIx64 "\n",
-              res.len, (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
-      fflush(stderr);
     } else if (PG_DWARF_AT_NAME == atom.attr_form.attribute) {
       fn.name = pg_string_clone(atom.u.bytes, allocator);
-      fprintf(stderr, "[D010] %" PRIu64 " %.*s %#" PRIx64 " %#" PRIx64 "\n",
-              res.len, (i32)fn.name.len, fn.name.data, fn.low_pc, fn.high_pc);
-      fflush(stderr);
     } else if (PG_DWARF_AT_HIGH_PC == atom.attr_form.attribute) {
       fn.high_pc = fn.low_pc + atom.u.u64;
     } else if (PG_DWARF_AT_ABSTRACT_ORIGIN == atom.attr_form.attribute) {
@@ -12097,7 +12084,6 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
         if (remaining_size < PG_STATIC_ARRAY_LEN(name)) {
           return PG_ERR(PG_ERR_INVALID_VALUE, PgMacho, PgError);
         }
-        fprintf(stderr, "[D001] %s\n", name);
 
         if (!pg_string_eq(PG_S("__DWARF"), pg_cstr_to_string((char *)name))) {
           err =
