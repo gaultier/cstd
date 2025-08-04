@@ -1048,6 +1048,11 @@ typedef struct {
   u32 cmdsize;
 } PgMachoLoadCommand;
 
+typedef enum : u32 {
+  PG_MACHO_LC_SYMTAB = 0x2,
+  PG_MACHO_LC_SEGMENT_64 = 0x19,
+} PgMachoLoadCommandKind;
+
 typedef struct {
   PgMachoHeader header;
 } PgMacho;
@@ -3987,7 +3992,7 @@ pg_buf_reader_try_fill_once(PgReader *r) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
-pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
+pg_reader_read_slice_full(PgReader *r, PG_SLICE(u8) s) {
   PgString remaining = s;
   for (u64 _i = 0; _i < s.len; _i++) {
     if (pg_string_is_empty(remaining)) {
@@ -4003,12 +4008,18 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   return pg_string_is_empty(remaining) ? 0 : PG_ERR_IO;
 }
 
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_reader_read_full(PgReader *r, u8 *s, u64 len) {
+  PG_SLICE(u8) slice = {.data = s, .len = len};
+  return pg_reader_read_slice_full(r, slice);
+}
+
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u8, PgError)
     pg_reader_read_u8_le(PgReader *r) {
   u8 dst[sizeof(u8)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
 
-  PgError err = pg_reader_read_full(r, dst_slice);
+  PgError err = pg_reader_read_slice_full(r, dst_slice);
 
   if (err) {
     return PG_ERR(err, u8, PgError);
@@ -4023,7 +4034,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   u8 dst[sizeof(u16)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
 
-  PgError err = pg_reader_read_full(r, dst_slice);
+  PgError err = pg_reader_read_slice_full(r, dst_slice);
 
   if (err) {
     return PG_ERR(err, u16, PgError);
@@ -4038,7 +4049,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   u8 dst[3] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
 
-  PgError err = pg_reader_read_full(r, dst_slice);
+  PgError err = pg_reader_read_slice_full(r, dst_slice);
 
   if (err) {
     return PG_ERR(err, u32, PgError);
@@ -4053,7 +4064,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   u8 dst[sizeof(u32)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
 
-  PgError err = pg_reader_read_full(r, dst_slice);
+  PgError err = pg_reader_read_slice_full(r, dst_slice);
 
   if (err) {
     return PG_ERR(err, u32, PgError);
@@ -4068,7 +4079,7 @@ pg_reader_read_full(PgReader *r, PG_SLICE(u8) s) {
   u8 dst[sizeof(u64)] = {0};
   PG_SLICE(u8) dst_slice = PG_SLICE_FROM_C(dst);
 
-  PgError err = pg_reader_read_full(r, dst_slice);
+  PgError err = pg_reader_read_slice_full(r, dst_slice);
 
   if (err) {
     return PG_ERR(err, u64, PgError);
@@ -11065,7 +11076,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom), PgError)
         .data = (u8 *)&res.u.u128,
         .len = sizeof(res.u.u128),
     };
-    PgError err = pg_reader_read_full(&it->r, dst);
+    PgError err = pg_reader_read_slice_full(&it->r, dst);
     if (err) {
       return PG_ERR(err, PG_OPTION(PgDwarfAtom), PgError);
     }
@@ -12058,11 +12069,48 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
   {
     for (u64 i = 0; i < res.header.cmds_count; i++) {
       PgMachoLoadCommand load_cmd = {0};
-      PG_RESULT(u64, PgError)
-      res_read = pg_reader_read(&r, (u8 *)&load_cmd, sizeof(load_cmd));
-      PG_IF_LET_ERR(err, res_read) { return PG_ERR(err, PgMacho, PgError); }
+      PgError err = pg_reader_read_full(&r, (u8 *)&load_cmd, sizeof(load_cmd));
+      if (err) {
+        return PG_ERR(err, PgMacho, PgError);
+      }
+      if (load_cmd.cmdsize < sizeof(load_cmd)) {
+        return PG_ERR(PG_ERR_INVALID_VALUE, PgMacho, PgError);
+      }
+      u32 remaining_size = load_cmd.cmdsize - sizeof(load_cmd);
 
-      switch (load_cmd.cmd) {}
+      switch (load_cmd.cmd) {
+      case PG_MACHO_LC_SYMTAB: {
+        PgError err = pg_reader_discard(&r, remaining_size);
+        if (err) {
+          return PG_ERR(err, PgMacho, PgError);
+        }
+      } break;
+      case PG_MACHO_LC_SEGMENT_64: {
+        u8 name[16] = {0};
+        PgError err = pg_reader_read_full(&r, name, PG_STATIC_ARRAY_LEN(name));
+        if (err) {
+          return PG_ERR(err, PgMacho, PgError);
+        }
+        if (remaining_size < PG_STATIC_ARRAY_LEN(name)) {
+          return PG_ERR(PG_ERR_INVALID_VALUE, PgMacho, PgError);
+        }
+        fprintf(stderr, "[D001] %s\n", name);
+
+        if (!pg_string_eq(PG_S("__DWARF"), pg_cstr_to_string((char *)name))) {
+          err =
+              pg_reader_discard(&r, remaining_size - PG_STATIC_ARRAY_LEN(name));
+          if (err) {
+            return PG_ERR(err, PgMacho, PgError);
+          }
+        }
+      } break;
+      default: {
+        PgError err = pg_reader_discard(&r, remaining_size);
+        if (err) {
+          return PG_ERR(err, PgMacho, PgError);
+        }
+      }
+      }
     }
   }
 
