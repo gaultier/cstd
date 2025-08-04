@@ -12068,10 +12068,16 @@ pg_self_exe_get_path(PgAllocator *allocator) {
     return PG_OK(res, PgDebugInfoIterator, PgError);
   }
 
+  PgString debug_path = pg_string_concat(exe_path, PG_S(".dSYM"), allocator);
+  debug_path = pg_path_join(debug_path, PG_S("Contents"), allocator);
+  debug_path = pg_path_join(debug_path, PG_S("Resources"), allocator);
+  debug_path = pg_path_join(debug_path, PG_S("DWARF"), allocator);
+  debug_path = pg_path_join(debug_path, pg_path_base_name(exe_path), allocator);
+
   // TODO: Only read the relevant parts.
   // Depending on the size of the executable.
   PG_RESULT(PgVirtualMemFile, PgError)
-  res_file = pg_virtual_mem_map_file(exe_path, PG_FILE_ACCESS_READ, false);
+  res_file = pg_virtual_mem_map_file(debug_path, PG_FILE_ACCESS_READ, false);
   PG_IF_LET_ERR(err, res_file) {
     return PG_ERR(err, PgDebugInfoIterator, PgError);
   }
