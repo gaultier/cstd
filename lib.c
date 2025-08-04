@@ -1933,10 +1933,11 @@ pg_stacktrace_print(const char *file, int line, const char *function) {
 
 #define PG_ASSERT(x)                                                           \
   ((x) ? (0)                                                                   \
-       : (pg_stacktrace_print(__FILE__, __LINE__, __FUNCTION__),               \
+       : (fprintf(stderr, "ASSERT: %s:%d:%s\n", __FILE__, __LINE__,            \
+                  __FUNCTION__),                                               \
           fflush(stdout), fflush(stderr), __builtin_trap(), 0))
 
-static u8 *pg_memcpy(void *restrict dst, void *restrict src, u64 len) {
+static void *pg_memcpy(void *restrict dst, const void *restrict src, u64 len) {
   if (!dst) {
     return dst;
   }
@@ -3525,6 +3526,8 @@ pg_ring_write_bytes(PgRing *rg, PG_SLICE(u8) src) {
   PG_ASSERT(write_count <= rg->data.len);
 
   if (rg->idx_write + write_count <= rg->data.len) { // 1 write.
+    PG_ASSERT(write_count <= src.len);
+    PG_ASSERT(rg->idx_write + write_count <= rg->data.len);
     pg_memcpy(rg->data.data + rg->idx_write, src.data, write_count);
 
     rg->idx_write = (rg->idx_write + write_count) % rg->data.len;

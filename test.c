@@ -3760,7 +3760,7 @@ static void test_self() {
 
 [[maybe_unused]]
 static void test_debug_info() {
-  PgArena arena = pg_arena_make_from_virtual_mem(16 * PG_MiB);
+  PgArena arena = pg_arena_make_from_virtual_mem(32 * PG_MiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
@@ -3772,11 +3772,14 @@ static void test_debug_info() {
   PG_ASSERT(PG_DWARF_COMPILATION_UNIT_COMPILE == unit.kind);
   PG_ASSERT(unit.abbrevs.len > 0);
 
-  {
-    PgWriter w =
-        pg_writer_make_from_file_descriptor(pg_os_stdout(), 1024, allocator);
-    (void)pg_dwarf_compilation_unit_print_abbreviations(&w, unit, nullptr);
-  }
+  PgArena writer_arena = pg_arena_make_from_virtual_mem(1 * PG_KiB);
+  PgArenaAllocator writer_arena_allocator =
+      pg_make_arena_allocator(&writer_arena);
+  PgAllocator *writer_allocator =
+      pg_arena_allocator_as_allocator(&writer_arena_allocator);
+  PgWriter w = pg_writer_make_from_file_descriptor(pg_os_stdout(), 1024,
+                                                   writer_allocator);
+  (void)pg_dwarf_compilation_unit_print_abbreviations(&w, unit, nullptr);
 
   PgArena fn_arena = pg_arena_make_from_virtual_mem(512 * PG_KiB);
   PgArenaAllocator fn_arena_allocator = pg_make_arena_allocator(&fn_arena);
@@ -3791,8 +3794,6 @@ static void test_debug_info() {
   pg_self_debug_info_iterator_release(it);
 
   {
-    PgWriter w =
-        pg_writer_make_from_file_descriptor(pg_os_stderr(), 1024, allocator);
     PG_ASSERT(0 == pg_debug_print_functions(&w, fns, nullptr));
     pg_stack_trace_print_dwarf(1);
   }
