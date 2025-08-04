@@ -11975,14 +11975,61 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
   PgMacho res = {0};
   PgReader r = pg_reader_make_from_bytes(bytes);
 
-  PG_RESULT(u32, PgError) res_read_magic = pg_reader_read_u32_le(&r);
-  PG_IF_LET_ERR(err, res_read_magic) { return PG_ERR(err, PgMacho, PgError); }
-  u32 magic = PG_UNWRAP(res_read_magic);
-  if (0xfe'ed'fa'cf != magic) {
-    return PG_ERR(PG_ERR_INVALID_VALUE, PgMacho, PgError);
+  // Magic.
+  {
+    PG_RESULT(u32, PgError) res_read = pg_reader_read_u32_le(&r);
+    PG_IF_LET_ERR(err, res_read) { return PG_ERR(err, PgMacho, PgError); }
+    u32 magic = PG_UNWRAP(res_read);
+    if (0xfe'ed'fa'cf != magic) {
+      return PG_ERR(PG_ERR_INVALID_VALUE, PgMacho, PgError);
+    }
+    res.header.magic = magic;
+  }
+  // Cpu type.
+  {
+    PG_RESULT(u32, PgError) res_read = pg_reader_read_u32_le(&r);
+    PG_IF_LET_ERR(err, res_read) { return PG_ERR(err, PgMacho, PgError); }
+    res.header.cpu_type = PG_UNWRAP(res_read);
+  }
+  // Cpu sub type.
+  {
+    PG_RESULT(u32, PgError) res_read = pg_reader_read_u32_le(&r);
+    PG_IF_LET_ERR(err, res_read) { return PG_ERR(err, PgMacho, PgError); }
+    res.header.cpu_subtype = PG_UNWRAP(res_read);
+  }
+  // File type.
+  {
+    PG_RESULT(u32, PgError) res_read = pg_reader_read_u32_le(&r);
+    PG_IF_LET_ERR(err, res_read) { return PG_ERR(err, PgMacho, PgError); }
+    res.header.filetype = PG_UNWRAP(res_read);
+  }
+  // Ncmds.
+  {
+    PG_RESULT(u32, PgError) res_read = pg_reader_read_u32_le(&r);
+    PG_IF_LET_ERR(err, res_read) { return PG_ERR(err, PgMacho, PgError); }
+    res.header.cmds_count = PG_UNWRAP(res_read);
+  }
+  // Sizeof cmds.
+  {
+    PG_RESULT(u32, PgError) res_read = pg_reader_read_u32_le(&r);
+    PG_IF_LET_ERR(err, res_read) { return PG_ERR(err, PgMacho, PgError); }
+    res.header.cmds_sizeof = PG_UNWRAP(res_read);
+  }
+  // Flags.
+  {
+    PG_RESULT(u32, PgError) res_read = pg_reader_read_u32_le(&r);
+    PG_IF_LET_ERR(err, res_read) { return PG_ERR(err, PgMacho, PgError); }
+    res.header.flags = PG_UNWRAP(res_read);
+  }
+  // Reserved.
+  {
+    PG_RESULT(u32, PgError) res_read = pg_reader_read_u32_le(&r);
+    PG_IF_LET_ERR(err, res_read) { return PG_ERR(err, PgMacho, PgError); }
+    res.header.reserved = PG_UNWRAP(res_read);
   }
 
   // TODO
+
   return PG_OK(res, PgMacho, PgError);
 }
 
