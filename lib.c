@@ -5767,13 +5767,18 @@ pg_aio_register_watch_directory(PgAio *aio, PgString name,
     }
 
     if (pg_dirent_is_file(dirent) && (PG_WALK_DIRECTORY_KIND_FILE & options)) {
-      PG_RESULT(PgFileDescriptor, PgError)
-      res_fs = pg_aio_register_interest_fs_name(
-          aio, name,
-          PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED,
-          allocator);
-      if (PG_IS_ERR(res_fs) && !ignore_errors) {
-        return PG_UNWRAP_ERR(res_fs);
+#if defined(PG_OS_LINUX)
+      if (0 == (PG_WALK_DIRECTORY_KIND_DIRECTORY & options))
+#endif
+      {
+        PG_RESULT(PgFileDescriptor, PgError)
+        res_fs = pg_aio_register_interest_fs_name(
+            aio, name,
+            PG_AIO_EVENT_KIND_FILE_MODIFIED | PG_AIO_EVENT_KIND_FILE_DELETED,
+            allocator);
+        if (PG_IS_ERR(res_fs) && !ignore_errors) {
+          return PG_UNWRAP_ERR(res_fs);
+        }
       }
     }
 
