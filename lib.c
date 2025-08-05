@@ -239,6 +239,7 @@ typedef double f64;
   }
 
 #define PG_SOME(V, T) ((PG_OPTION(T)){.has_value = true, .value = V})
+#define PG_NONE(T) ((PG_OPTION(T)){0})
 
 // TODO: Separate error type?
 typedef u64 PgError;

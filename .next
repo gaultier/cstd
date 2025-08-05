@@ -1,4 +1,5 @@
-- [ ] aio fs linux: if only watching for file changes in a directory, we only need to watch the directory.
+- [x] aio fs linux: if only watching for file changes in a directory, we only need to watch the directory.
+- [ ] aio fs macos/bsd: impl pg_aio_fs_wait_one
 - [ ] test runner with name filtering
 - [ ] gracefully handle ENOMEM
 - [ ] dwarf: iterator on DIE (easier than on DWARF forms)
