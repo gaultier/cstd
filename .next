@@ -1,3 +1,4 @@
+- [ ] aio fs linux: if only watching for file changes in a directory, we only need to watch the directory.
 - [ ] test runner with name filtering
 - [ ] gracefully handle ENOMEM
 - [ ] dwarf: iterator on DIE (easier than on DWARF forms)
