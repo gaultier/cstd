@@ -1632,7 +1632,6 @@ typedef struct {
 PG_RESULT_DECL(PgDwarfDebugInfoCompilationUnit, PgError);
 
 typedef struct {
-  PgFileDescriptor fd;
   PG_SLICE(u8) data;
 } PgVirtualMemFile;
 PG_RESULT_DECL(PgVirtualMemFile, PgError);
@@ -6664,7 +6663,7 @@ static PG_RESULT(PgProcessStatus, PgError)
   PG_RESULT(u64, PgError) res_size = pg_file_size(fd);
   PG_IF_LET_ERR(_err, res_size) {
     err = _err;
-    goto err_end;
+    goto end;
   }
   u64 size = PG_UNWRAP(res_size);
 
@@ -6688,15 +6687,15 @@ static PG_RESULT(PgProcessStatus, PgError)
   u8 *mem = mmap(nullptr, size, prot, MAP_PRIVATE, fd.fd, 0);
   if ((void *)-1 == mem) {
     err = errno;
-    goto err_end;
+    goto end;
   }
 
-  PgVirtualMemFile res = {.fd = fd, .data = {.data = mem, .len = size}};
-  return PG_OK(res, PgVirtualMemFile, PgError);
+  PgVirtualMemFile res = {.data = {.data = mem, .len = size}};
 
-err_end:
+end:
   (void)pg_file_close(fd);
-  return PG_ERR(err, PgVirtualMemFile, PgError);
+  return err ? PG_ERR(err, PgVirtualMemFile, PgError)
+             : PG_OK(res, PgVirtualMemFile, PgError);
 }
 
 [[nodiscard]] PgError pg_virtual_mem_protect(void *ptr, u64 size,
@@ -11465,7 +11464,6 @@ pg_dwarf_compilation_unit_print_abbreviations(
 pg_self_debug_info_iterator_release(PgDebugInfoIterator dbg) {
   if (dbg.file.data.data) {
     munmap(dbg.file.data.data, dbg.file.data.len);
-    (void)pg_file_close(dbg.file.fd);
   }
 }
 
