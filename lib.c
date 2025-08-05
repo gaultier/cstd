@@ -5412,6 +5412,16 @@ pg_path_join(PgString a, PgString b, PgAllocator *allocator) {
   return PG_SLICE_RANGE(base_name, 0, (u64)idx);
 }
 
+[[maybe_unused]] [[nodiscard]] static PgString pg_file_extension(PgString s) {
+  PgString base_name = pg_path_base_name(s);
+  i64 idx = pg_string_last_index_of_rune(base_name, '.');
+  if (-1 == idx) {
+    return PG_S("");
+  }
+
+  return PG_SLICE_RANGE_START(base_name, (u64)idx + 1);
+}
+
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_concat(PgString left, PgString right, PgAllocator *allocator) {
   PgString res = pg_string_make(left.len + right.len, allocator);
