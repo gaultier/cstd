@@ -11756,7 +11756,8 @@ pg_aio_ensure_inotify(PgAio *aio) {
   aio->inotify.has_value = true;
   aio->inotify.value = PG_UNWRAP(res);
 
-  return 0;
+  return pg_aio_register_interest_fd(*aio, aio->inotify.value,
+                                     PG_AIO_EVENT_KIND_FILE_CREATED);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
@@ -11773,11 +11774,6 @@ pg_aio_ensure_inotify(PgAio *aio) {
   PgFileDescriptor fd =
       PG_TRY(pg_aio_inotify_register_interest(*aio, name, interest),
              PgFileDescriptor, PgError);
-
-  err = pg_aio_register_interest_fd(*aio, fd, interest);
-  if (err) {
-    return PG_ERR(err, PgFileDescriptor, PgError);
-  }
 
   return PG_OK(fd, PgFileDescriptor, PgError);
 }
@@ -11945,6 +11941,8 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
     PG_ASSERT(PG_UNWRAP(res_read) >= sizeof(struct inotify_event));
 
     struct inotify_event inev = *(struct inotify_event *)inev_data;
+    PG_ASSERT(PG_UNWRAP(res_read) == sizeof(struct inotify_event) + inev.len);
+
     res = (PgAioEvent){0};
     if (inev.mask & IN_CREATE) {
       res.kind |= PG_AIO_EVENT_KIND_FILE_CREATED;

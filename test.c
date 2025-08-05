@@ -2953,15 +2953,13 @@ static void test_aio_tcp_sockets() {
   PG_ASSERT(0);
 }
 
-#if 0
 static void test_watch_directory() {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
-  PgAioResult res_aio = pg_aio_init();
-  PG_ASSERT(0 == res_aio.err);
-  PgAio aio = res_aio.res;
+  PG_RESULT(PgAio, PgError) res_aio = pg_aio_init();
+  PgAio aio = PG_UNWRAP(res_aio);
 
   PgError err = pg_aio_register_watch_directory(
       &aio, PG_S("."), PG_WALK_DIRECTORY_KIND_FILE, allocator);
@@ -2971,22 +2969,21 @@ static void test_watch_directory() {
 
   for (u64 _i = 0; _i < 4; _i++) {
     Pgu32Option timeout_opt = {0};
-    PG_RESULT(u64) res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
-    PG_ASSERT(0 == res_wait.err);
-    if (0 == res_wait.res) {
+    PG_RESULT(u64, PgError) res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
+    u64 count = PG_UNWRAP(res_wait);
+    if (0 == count) {
       continue;
     }
 
-    for (u64 i = 0; i < res_wait.res; i++) {
-      PgAioEventOption event_opt = pg_aio_cqe_dequeue(&cqe);
+    for (u64 i = 0; i < count; i++) {
+      PG_OPTION(PgAioEvent) event_opt = pg_aio_cqe_dequeue(&cqe);
       PG_ASSERT(event_opt.has_value);
 
-      PgAioEvent event = event_opt.res;
+      PgAioEvent event = event_opt.value;
       __builtin_dump_struct(&event, &printf);
     }
   }
 }
-#endif
 
 static void test_cli_options_parse() {
   PgArena arena = pg_arena_make_from_virtual_mem(16 * PG_KiB);
@@ -3966,9 +3963,7 @@ int main() {
   test_adjacency_matrix();
   test_thread();
   test_aio_tcp_sockets();
-#if 0
   test_watch_directory();
-#endif
   test_cli_options_parse();
   test_cli_options_help();
 }
