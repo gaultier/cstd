@@ -2958,6 +2958,11 @@ static void test_watch_directory() {
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
 
+  PG_RESULT(PgFileDescriptor, PgError)
+  res_file_write =
+      pg_file_open(PG_S(".test"), PG_FILE_ACCESS_WRITE, 0600, true, allocator);
+  PgFileDescriptor file_write = PG_UNWRAP(res_file_write);
+
   PG_RESULT(PgAio, PgError) res_aio = pg_aio_init();
   PgAio aio = PG_UNWRAP(res_aio);
 
@@ -2967,20 +2972,33 @@ static void test_watch_directory() {
 
   PgRing cqe = pg_ring_make(sizeof(PgAioEvent) * 16, allocator);
 
-  for (u64 _i = 0; _i < 4; _i++) {
-    Pgu32Option timeout_opt = {0};
-    PG_RESULT(u64, PgError) res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
-    u64 count = PG_UNWRAP(res_wait);
-    if (0 == count) {
-      continue;
-    }
+  for (u64 i = 0; i < 4; i++) {
+    Pgu32Option timeout_opt = PG_SOME(1, u32);
+    PG_RESULT(PgAioEvent, PgError)
+    res_wait = pg_aio_fs_wait_one(aio, timeout_opt, allocator);
+    PgAioEvent event = PG_UNWRAP(res_wait);
+    // First, no event and we reach the timeout.
+    // We write to a watched file to trigger an event.
+    if (0 == i) {
+      PG_ASSERT(0 == event.kind);
+      PG_ASSERT(0 ==
+                pg_file_write_full_with_descriptor(file_write, PG_S("hello")));
+    } else if (1 == i) {
+      // We get the write event from the last iteration.
+      PG_ASSERT(event.kind & PG_AIO_EVENT_KIND_FILE_MODIFIED);
 
-    for (u64 i = 0; i < count; i++) {
-      PG_OPTION(PgAioEvent) event_opt = pg_aio_cqe_dequeue(&cqe);
-      PG_ASSERT(event_opt.has_value);
+      // Now we create a new file which will trigger an event.
+      PG_RESULT(PgFileDescriptor, PgError)
+      res_file_new = pg_file_open(PG_S(".test_new"), PG_FILE_ACCESS_WRITE, 0600,
+                                  true, allocator);
+      PgFileDescriptor file_new = PG_UNWRAP(res_file_new);
+      (void)pg_file_close(file_new);
+    } else if (2 == i) {
+      // We get the create event from the last iteration.
+      PG_ASSERT(event.kind & PG_AIO_EVENT_KIND_FILE_CREATED);
 
-      PgAioEvent event = event_opt.value;
-      __builtin_dump_struct(&event, &printf);
+      // End of test.
+      return;
     }
   }
 }
@@ -3776,7 +3794,9 @@ static void test_debug_info() {
       pg_arena_allocator_as_allocator(&writer_arena_allocator);
   PgWriter w = pg_writer_make_from_file_descriptor(pg_os_stdout(), 1024,
                                                    writer_allocator);
+#if 0
   (void)pg_dwarf_compilation_unit_print_abbreviations(&w, unit, nullptr);
+#endif
 
   PgArena fn_arena = pg_arena_make_from_virtual_mem(512 * PG_KiB);
   PgArenaAllocator fn_arena_allocator = pg_make_arena_allocator(&fn_arena);

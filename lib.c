@@ -11359,7 +11359,9 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
     PgDwarfAtom atom = next.value;
     PgWriter w =
         pg_writer_make_from_file_descriptor(pg_os_stderr(), 0, nullptr);
+#if 0
     (void)pg_dwarf_atom_println(&w, atom, nullptr);
+#endif
 
     // Only interested in functions.
     if (!pg_dwarf_abbreviation_entry_is_function_like(atom.abbrev)) {
@@ -11927,7 +11929,12 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
 
   PG_RESULT(u64, PgError) res_wait = pg_aio_wait(aio, events_slice, timeout_ms);
   PG_IF_LET_ERR(err, res_wait) { return PG_ERR(err, PgAioEvent, PgError); }
-  events_slice.len = PG_UNWRAP(res_wait);
+  u64 wait = PG_UNWRAP(res_wait);
+  if (0 == wait) {
+    // TODO: Should it be `PG_RESULT(PG_OPTION(PgAioEvent),PgError)`?
+    return PG_OK(res, PgAioEvent, PgError);
+  }
+  events_slice.len = wait;
 
   if (res.kind & PG_AIO_EVENT_KIND_READABLE) {
     u8 inev_data[sizeof(struct inotify_event) + 4096 + 1] = {0};

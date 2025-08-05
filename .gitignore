@@ -5,3 +5,4 @@ a.out
 *.gz
 *.dSYM
 *_dwo
+.test*
