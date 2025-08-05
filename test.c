@@ -2967,10 +2967,10 @@ static void test_watch_directory() {
   PgAio aio = PG_UNWRAP(res_aio);
 
   PgError err = pg_aio_register_watch_directory(
-      &aio, PG_S("."), PG_WALK_DIRECTORY_KIND_FILE, allocator);
+      &aio, PG_S("."),
+      PG_WALK_DIRECTORY_KIND_FILE | PG_WALK_DIRECTORY_KIND_DIRECTORY,
+      allocator);
   PG_ASSERT(0 == err);
-
-  PgRing cqe = pg_ring_make(sizeof(PgAioEvent) * 16, allocator);
 
   for (u64 i = 0; i < 4; i++) {
     Pgu32Option timeout_opt = PG_SOME(1, u32);

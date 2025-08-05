@@ -11357,9 +11357,9 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
     }
 
     PgDwarfAtom atom = next.value;
+#if 0
     PgWriter w =
         pg_writer_make_from_file_descriptor(pg_os_stderr(), 0, nullptr);
-#if 0
     (void)pg_dwarf_atom_println(&w, atom, nullptr);
 #endif
 
