@@ -11757,7 +11757,7 @@ pg_aio_ensure_inotify(PgAio *aio) {
   aio->inotify.value = PG_UNWRAP(res);
 
   return pg_aio_register_interest_fd(*aio, aio->inotify.value,
-                                     PG_AIO_EVENT_KIND_FILE_CREATED);
+                                     PG_AIO_EVENT_KIND_READABLE);
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgFileDescriptor, PgError)
