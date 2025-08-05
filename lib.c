@@ -1147,11 +1147,19 @@ PG_SLICE_DECL(PgAioEvent);
 PG_RESULT_DECL(PgAioEvent, PgError);
 PG_OPTION_DECL(PgAioEvent);
 
+typedef struct PgAioFsNode PgAioFsNode;
+struct PgAioFsNode {
+  PgFileDescriptor fd;
+  PgString name;
+  PgAioFsNode *child[4];
+};
+
 typedef struct {
   PgFileDescriptor aio;
 #ifdef PG_OS_LINUX
   PG_OPTION(PgFileDescriptor) inotify;
 #endif
+  PgAioFsNode *fs_nodes;
 } PgAio;
 PG_RESULT_DECL(PgAio, PgError);
 
@@ -11452,6 +11460,27 @@ pg_self_debug_info_iterator_release(PgDebugInfoIterator dbg) {
 
 #endif
 
+[[nodiscard]] static PgAioFsNode *
+pg_aio_fs_node_upsert(PgAioFsNode **htrie, PgFileDescriptor fd,
+                      PgAllocator *allocator) {
+  Pgu8Slice slice = {.data = (u8 *)&fd.fd, .len = sizeof(fd.fd)};
+
+  for (u64 h = pg_hash_fnv(slice); *htrie; h <<= 2) {
+    if (fd.fd == (*htrie)->fd.fd) {
+      return *htrie;
+    }
+    htrie = &(*htrie)->child[h >> 62];
+  }
+  if (!allocator) {
+    return nullptr;
+  }
+
+  *htrie = PG_NEW(PgAioFsNode, allocator);
+  (*htrie)->fd = fd;
+
+  return (*htrie);
+}
+
 #ifdef PG_OS_LINUX
 
 [[maybe_unused]] static void pg_thread_yield() { sched_yield(); }
@@ -11771,8 +11800,6 @@ pg_aio_ensure_inotify(PgAio *aio) {
     pg_aio_register_interest_fs_name(PgAio *aio, PgString name,
                                      PgAioEventKind interest,
                                      PgAllocator *allocator) {
-  PG_UNUSED(allocator); // Unused on Linux.
-
   PgError err = pg_aio_ensure_inotify(aio);
   if (err) {
     return PG_ERR(err, PgFileDescriptor, PgError);
@@ -11781,6 +11808,10 @@ pg_aio_ensure_inotify(PgAio *aio) {
   PgFileDescriptor fd =
       PG_TRY(pg_aio_inotify_register_interest(*aio, name, interest),
              PgFileDescriptor, PgError);
+
+  PgAioFsNode *fs_node = pg_aio_fs_node_upsert(&aio->fs_nodes, fd, allocator);
+  PG_ASSERT(fs_node);
+  fs_node->name = name;
 
   return PG_OK(fd, PgFileDescriptor, PgError);
 }
@@ -11956,6 +11987,8 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
     PG_ASSERT(PG_UNWRAP(res_read) == sizeof(struct inotify_event) + inev.len);
 
     res = (PgAioEvent){0};
+    res.fd.fd = inev.wd;
+
     if (inev.mask & IN_CREATE) {
       res.kind |= PG_AIO_EVENT_KIND_FILE_CREATED;
     }
@@ -11967,8 +12000,10 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
     }
 
     if (0 != inev.len) {
-      res.name = pg_string_make(inev.len, allocator);
-      pg_memcpy(res.name.data, inev_data + sizeof(inev), inev.len);
+      char *s = (char *)inev_data + sizeof(inev);
+      u64 real_len = strlen(s);
+      res.name = pg_string_make(real_len, allocator);
+      pg_memcpy(res.name.data, s, real_len);
     }
   }
 

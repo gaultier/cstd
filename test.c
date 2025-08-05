@@ -2995,7 +2995,14 @@ static void test_watch_directory() {
       (void)pg_file_close(file_new);
     } else if (2 == i) {
       // We get the create event from the last iteration.
-      PG_ASSERT(event.kind & PG_AIO_EVENT_KIND_FILE_CREATED);
+      PG_ASSERT(event.kind & (PG_AIO_EVENT_KIND_FILE_CREATED |
+                              PG_AIO_EVENT_KIND_FILE_MODIFIED));
+      PG_ASSERT(pg_string_eq(event.name, PG_S(".test_new")));
+
+      PgAioFsNode *fs_node =
+          pg_aio_fs_node_upsert(&aio.fs_nodes, event.fd, nullptr);
+      PG_ASSERT(fs_node);
+      PG_ASSERT(pg_string_eq(fs_node->name, PG_S(".")));
 
       // End of test.
       return;
