@@ -2918,6 +2918,9 @@ pg_string_contains_rune(PgString haystack, PgRune needle) {
 
 [[maybe_unused]] [[nodiscard]] static bool
 pg_string_starts_with(PgString haystack, PgString needle) {
+  if (0 == needle.len) {
+    return true;
+  }
   if (haystack.len == 0 || haystack.len < needle.len) {
     return false;
   }
@@ -12886,17 +12889,79 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
 }
 
 #define PG_TEST(F)                                                             \
-  (PgTest) { .name = PG_S("##F"), .fn = F }
+  (PgTest) { .name = PG_S("" #F ""), .fn = F }
 
 static void pg_run_tests(int argc, char **argv, PG_SLICE(PgTest) tests) {
-  PG_UNUSED(argc);
-  PG_UNUSED(argv);
+  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
+  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
+  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
+
+  PG_ASSERT(argc >= 1);
+  PgString exe = pg_cstr_to_string(argv[0]);
+
+  PgString description = PG_S("Run tests.");
+  PG_DYN(PgCliOptionDescription) descs = {0};
+  PG_DYN_PUSH(&descs,
+              ((PgCliOptionDescription){
+                  .name_short = PG_S("v"),
+                  .name_long = PG_S("verbose"),
+                  .description = PG_S("Verbose mode"),
+              }),
+              allocator);
+  PG_DYN_PUSH(&descs,
+              ((PgCliOptionDescription){
+                  .name_short = PG_S("r"),
+                  .name_long = PG_S("run"),
+                  .description = PG_S("Run only these tests (prefix-based)"),
+                  .value_name = PG_S("prefix"),
+              }),
+              allocator);
+
+  PgCliParseResult res_cli_parse = pg_cli_parse(&descs, argc, argv, allocator);
+  if (res_cli_parse.err) {
+    pg_cli_print_parse_err(res_cli_parse);
+    exit(1);
+  }
+  if (res_cli_parse.plain_arguments.len > 0) {
+    fprintf(stderr, "Unexpected plain arguments\n");
+    exit(1);
+  }
+
+  bool cli_verbose = false;
+  PgString cli_run = {0};
+
+  for (u64 i = 0; i < res_cli_parse.options.len; i++) {
+    PgCliOption opt = PG_SLICE_AT(res_cli_parse.options, i);
+
+    if (pg_string_eq(opt.description.name_long, PG_S("verbose"))) {
+      cli_verbose = true;
+    } else if (pg_string_eq(opt.description.name_long, PG_S("run"))) {
+      if (1 != opt.values.len) {
+        fprintf(stderr,
+                "Only one value expected for -r,--run, got %" PRIu64 "\n",
+                opt.values.len);
+      }
+      cli_run = PG_SLICE_AT(opt.values, 0);
+    } else if (pg_string_eq(opt.description.name_long, PG_S("help"))) {
+      PgString help =
+          pg_cli_generate_help(descs, exe, description, PG_S(""), allocator);
+      printf("%.*s", (i32)help.len, help.data);
+
+      exit(0);
+    }
+  }
 
   for (u64 i = 0; i < tests.len; i++) {
     PgTest t = PG_SLICE_AT(tests, i);
-    // TODO: filter by name
     // TODO: Run each test in its own child process.
     // TODO: Verbose reporting.
+    if (!pg_string_starts_with(t.name, cli_run)) {
+      continue;
+    }
+
+    if (cli_verbose) {
+      printf("RUN %.*s\n", (i32)t.name.len, t.name.data);
+    }
     t.fn();
   }
 }
