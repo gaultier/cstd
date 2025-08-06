@@ -137,6 +137,8 @@
     u64 len;                                                                   \
   } PG_SLICE(T)
 
+#define PG_SLICE_OF(D, L) {.data = D, .len = L}
+
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -1772,6 +1774,12 @@ typedef enum : i32 {
   PG_ONCE_INITIALIZING,
   PG_ONCE_INITIALIZED,
 } PgOnce;
+
+typedef struct {
+  PgString name;
+  void (*fn)(void);
+} PgTest;
+PG_SLICE_DECL(PgTest);
 
 // ---------------- Functions.
 
@@ -12876,5 +12884,22 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     }
   }
 }
+
+#define PG_TEST(F)                                                             \
+  (PgTest) { .name = PG_S("##F"), .fn = F }
+
+static void pg_run_tests(int argc, char **argv, PG_SLICE(PgTest) tests) {
+  PG_UNUSED(argc);
+  PG_UNUSED(argv);
+
+  for (u64 i = 0; i < tests.len; i++) {
+    PgTest t = PG_SLICE_AT(tests, i);
+    // TODO: filter by name
+    // TODO: Run each test in its own child process.
+    // TODO: Verbose reporting.
+    t.fn();
+  }
+}
+
 #endif
 #pragma GCC diagnostic pop

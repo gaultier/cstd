@@ -1,3 +1,4 @@
+- [ ] cli long options: allow `--foo bar` as an alternative to `--fo=bar`
 - [ ] alloc: Make all allocation failures recoverable
 - [.] macos: Parse mach-o
 - [ ] io: Make pg_watch_dir work
