@@ -4,7 +4,7 @@
       - dir: name, [CachedDirEntry] (+ hash?)
       - CacheDirEntry: mtime, name, size (+ content hash?)
 - [ ] aio fs macos/bsd: impl pg_aio_fs_wait
-- [ ] test runner with name filtering
+- [x] test runner with name filtering
 - [ ] gracefully handle ENOMEM
 - [ ] dwarf: iterator on DIE (easier than on DWARF forms)
 test
