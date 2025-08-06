@@ -11469,7 +11469,7 @@ pg_self_debug_info_iterator_release(PgDebugInfoIterator dbg) {
 
 #endif
 
-[[nodiscard]] static PgAioFsNode *
+[[maybe_unused]] [[nodiscard]] static PgAioFsNode *
 pg_aio_fs_node_upsert(PgAioFsNode **htrie, PgFileDescriptor fd,
                       PgAllocator *allocator) {
   Pgu8Slice slice = {.data = (u8 *)&fd.fd, .len = sizeof(fd.fd)};
