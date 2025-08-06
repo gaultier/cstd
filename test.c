@@ -2972,42 +2972,63 @@ static void test_watch_directory() {
       allocator);
   PG_ASSERT(0 == err);
 
+  PgRing cqe = pg_ring_make(16 * sizeof(PgAioEvent), allocator);
+
+  u64 event_seen = 0;
+
   for (u64 i = 0; i < 4; i++) {
     Pgu32Option timeout_opt = PG_SOME(1, u32);
-    PG_RESULT(PgAioEvent, PgError)
-    res_wait = pg_aio_fs_wait_one(aio, timeout_opt, allocator);
-    PgAioEvent event = PG_UNWRAP(res_wait);
+    PG_RESULT(u64, PgError)
+    res_wait = pg_aio_wait_cqe(aio, &cqe, timeout_opt);
+
+    u64 count = PG_UNWRAP(res_wait);
+
     // First, no event and we reach the timeout.
     // We write to a watched file to trigger an event.
     if (0 == i) {
-      PG_ASSERT(0 == event.kind);
+      PG_ASSERT(0 == count);
       PG_ASSERT(0 ==
                 pg_file_write_full_with_descriptor(file_write, PG_S("hello")));
-    } else if (1 == i) {
-      // We get the write event from the last iteration.
-      PG_ASSERT(event.kind & PG_AIO_EVENT_KIND_FILE_MODIFIED);
+      continue;
+    }
 
-      // Now we create a new file which will trigger an event.
-      PG_RESULT(PgFileDescriptor, PgError)
-      res_file_new = pg_file_open(PG_S(".test_new"), PG_FILE_ACCESS_WRITE, 0600,
-                                  true, allocator);
-      PgFileDescriptor file_new = PG_UNWRAP(res_file_new);
-      (void)pg_file_close(file_new);
-    } else if (2 == i) {
-      // We get the create event from the last iteration.
-      PG_ASSERT(event.kind & (PG_AIO_EVENT_KIND_FILE_CREATED |
-                              PG_AIO_EVENT_KIND_FILE_MODIFIED));
-      PG_ASSERT(pg_string_eq(event.name, PG_S(".test_new")));
+    for (u64 j = 0; j < count; j++) {
+      PgAioEvent event = pg_aio_cqe_dequeue(&cqe).value;
+      event_seen += 1;
 
-      PgAioFsNode *fs_node =
-          pg_aio_fs_node_upsert(&aio.fs_nodes, event.fd, nullptr);
-      PG_ASSERT(fs_node);
-      PG_ASSERT(pg_string_eq(fs_node->name, PG_S(".")));
+      if (1 == event_seen) {
+        // We get the write event from the last iteration.
+        PG_ASSERT(event.kind & PG_AIO_EVENT_KIND_FILE_MODIFIED);
+        PgAioFsNode *fs_node =
+            pg_aio_fs_node_upsert(&aio.fs_nodes, event.fd, nullptr);
+        PG_ASSERT(fs_node);
+        PG_ASSERT(pg_string_eq(fs_node->name, PG_S(".test")));
 
-      // End of test.
-      return;
+        // Now we create a new file which will trigger an event.
+        PG_RESULT(PgFileDescriptor, PgError)
+        res_file_new = pg_file_open(PG_S(".test_new"), PG_FILE_ACCESS_WRITE,
+                                    0600, true, allocator);
+        PgFileDescriptor file_new = PG_UNWRAP(res_file_new);
+        (void)pg_file_close(file_new);
+      } else if (2 == event_seen) {
+        // We get the create event from the last iteration.
+        PG_ASSERT(event.kind & (PG_AIO_EVENT_KIND_FILE_CREATED |
+                                PG_AIO_EVENT_KIND_FILE_MODIFIED));
+        PG_ASSERT(pg_string_eq(event.name, PG_S(".test_new")));
+
+        PgAioFsNode *fs_node =
+            pg_aio_fs_node_upsert(&aio.fs_nodes, event.fd, nullptr);
+        PG_ASSERT(fs_node);
+        PG_ASSERT(pg_string_eq(fs_node->name, PG_S(".")));
+
+        // End of test.
+        goto end;
+      }
     }
   }
+
+end:
+  PG_ASSERT(2 == event_seen);
 }
 
 static void test_cli_options_parse() {
@@ -3921,6 +3942,7 @@ static void test_arena() {
 }
 
 int main() {
+  test_watch_directory();
   test_arena();
   test_u64_leb128();
   test_write_u64_hex();
@@ -3990,7 +4012,6 @@ int main() {
   test_adjacency_matrix();
   test_thread();
   test_aio_tcp_sockets();
-  test_watch_directory();
   test_cli_options_parse();
   test_cli_options_help();
 }

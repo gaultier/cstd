@@ -1777,6 +1777,13 @@ typedef enum : i32 {
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
 
+#define PG_NEW(T, allocator) pg_alloc(allocator, sizeof(T), _Alignof(T), 1)
+
+[[maybe_unused]] [[nodiscard]] static void *pg_alloc(PgAllocator *allocator,
+                                                     u64 sizeof_type,
+                                                     u64 alignof_type,
+                                                     u64 elem_count);
+
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdin();
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stdout();
 [[maybe_unused]] [[nodiscard]] static PgFileDescriptor pg_os_stderr();
@@ -1871,6 +1878,29 @@ pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
 [[maybe_unused]] [[nodiscard]] PgError
 pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex,
                  const struct timespec *time_point);
+
+[[maybe_unused]] [[nodiscard]] static u64 pg_hash_fnv(PG_SLICE(u8) s);
+
+[[maybe_unused]] [[nodiscard]] static PgAioFsNode *
+pg_aio_fs_node_upsert(PgAioFsNode **htrie, PgFileDescriptor fd,
+                      PgAllocator *allocator) {
+  Pgu8Slice slice = {.data = (u8 *)&fd.fd, .len = sizeof(fd.fd)};
+
+  for (u64 h = pg_hash_fnv(slice); *htrie; h <<= 2) {
+    if (fd.fd == (*htrie)->fd.fd) {
+      return *htrie;
+    }
+    htrie = &(*htrie)->child[h >> 62];
+  }
+  if (!allocator) {
+    return nullptr;
+  }
+
+  *htrie = PG_NEW(PgAioFsNode, allocator);
+  (*htrie)->fd = fd;
+
+  return (*htrie);
+}
 
 static void pg_once_mark_as_done(_Atomic PgOnce *done) {
   // PG_ONCE_INITIALIZING -> PG_ONCE_INITIALIZED.
@@ -3171,8 +3201,6 @@ static PgAllocator *pg_heap_allocator() {
 
   return allocator->alloc_fn(allocator, sizeof_type, alignof_type, elem_count);
 }
-
-#define PG_NEW(T, allocator) pg_alloc(allocator, sizeof(T), _Alignof(T), 1)
 
 [[maybe_unused]] [[nodiscard]] static void *
 pg_realloc(PgAllocator *allocator, void *ptr, u64 elem_count_old,
@@ -9603,7 +9631,7 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
   return PG_OK(PG_SLICE_RANGE(bytes, sym.value, end), PG_SLICE(u8), PgError);
 }
 
-#if defined(__FreeBSD__) || defined(__APPLE__)
+#if defined(PG_OS_FREEBSD) || defined(PG_OS_APPLE)
 #include <sys/event.h>
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(PgAio, PgError) pg_aio_init() {
@@ -9628,6 +9656,10 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
     (void)pg_file_close(fd);
     return PG_ERR(err, PgFileDescriptor, PgError);
   }
+
+  PgAioFsNode *fs_node = pg_aio_fs_node_upsert(&aio->fs_nodes, fd, allocator);
+  PG_ASSERT(fs_node);
+  fs_node->name = name;
 
   return PG_OK(fd, PgFileDescriptor, PgError);
 }
@@ -9749,16 +9781,16 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
   return PG_OK(ret, u64, PgError);
 };
 
-// TODO: Use `pg_aio_wait` ?
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
     pg_aio_wait_cqe(PgAio aio, PgRing *cqe, PG_OPTION(u32) timeout_ms) {
-  PG_RESULT(u64, PgError) res = {0};
+  // TODO: Use `pg_aio_wait` ?
+
   u64 can_write_count = pg_ring_can_write_count(*cqe) / sizeof(PgAioEvent);
 
   struct kevent eventlist[1024] = {0};
   u64 eventlist_len = PG_MIN(PG_STATIC_ARRAY_LEN(eventlist), can_write_count);
   if (0 == eventlist_len) {
-    return res;
+    return PG_OK(0, u64, PgError);
   }
 
   struct timespec timeout = {0};
@@ -11468,27 +11500,6 @@ pg_self_debug_info_iterator_release(PgDebugInfoIterator dbg) {
 }
 
 #endif
-
-[[maybe_unused]] [[nodiscard]] static PgAioFsNode *
-pg_aio_fs_node_upsert(PgAioFsNode **htrie, PgFileDescriptor fd,
-                      PgAllocator *allocator) {
-  Pgu8Slice slice = {.data = (u8 *)&fd.fd, .len = sizeof(fd.fd)};
-
-  for (u64 h = pg_hash_fnv(slice); *htrie; h <<= 2) {
-    if (fd.fd == (*htrie)->fd.fd) {
-      return *htrie;
-    }
-    htrie = &(*htrie)->child[h >> 62];
-  }
-  if (!allocator) {
-    return nullptr;
-  }
-
-  *htrie = PG_NEW(PgAioFsNode, allocator);
-  (*htrie)->fd = fd;
-
-  return (*htrie);
-}
 
 #ifdef PG_OS_LINUX
 
