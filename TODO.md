@@ -1,4 +1,3 @@
-- [ ] cli long options: allow `--foo bar` as an alternative to `--fo=bar`
 - [ ] alloc: Make all allocation failures recoverable
 - [.] macos: Parse mach-o
 - [ ] io: Make pg_watch_dir work
@@ -14,3 +13,4 @@
 - [ ] crypto: TLS 1.3
 - [ ] test: Test untested functions (add test coverage to build).
 - [ ] windows: Unix/Windows parity.
+- [x] cli long options: allow `--foo bar` as an alternative to `--fo=bar`
