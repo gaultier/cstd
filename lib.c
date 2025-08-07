@@ -12474,10 +12474,11 @@ pg_cli_options_find_by_name(PG_DYN(PgCliOption) options, PgString name_short,
   return nullptr;
 }
 
-[[nodiscard]] static PgError pg_cli_handle_one_short_option(
-    PgString opt_name, bool with_opt_value_allowed,
-    PG_DYN(PgCliOption) * options, PG_SLICE(PgCliOptionDescription) descs,
-    char **argv, u64 *argv_idx, PgAllocator *allocator) {
+[[nodiscard]] static PgError
+pg_cli_handle_short_option(PgString opt_name, bool with_opt_value_allowed,
+                           PG_DYN(PgCliOption) * options,
+                           PG_SLICE(PgCliOptionDescription) descs, char **argv,
+                           u64 *argv_idx, PgAllocator *allocator) {
   PG_OPTION(PgCliOptionDescription)
   desc_has_value = pg_cli_desc_find_by_name(descs, opt_name);
   if (!desc_has_value.has_value) {
@@ -12527,9 +12528,9 @@ pg_cli_options_find_by_name(PG_DYN(PgCliOption) options, PgString name_short,
 }
 
 [[nodiscard]] static PgError
-pg_cli_handle_one_long_option(PgString opt_name, PG_DYN(PgCliOption) * options,
-                              PG_SLICE(PgCliOptionDescription) descs,
-                              PgAllocator *allocator) {
+pg_cli_handle_long_option(PgString opt_name, PG_DYN(PgCliOption) * options,
+                          PG_SLICE(PgCliOptionDescription) descs, char **argv,
+                          u64 *argv_idx, PgAllocator *allocator) {
   PgString opt_value = {0};
   PgStringCut cut = pg_string_cut_rune(opt_name, '=');
   if (cut.has_value) {
@@ -12544,9 +12545,23 @@ pg_cli_handle_one_long_option(PgString opt_name, PG_DYN(PgCliOption) * options,
   }
   PgCliOptionDescription desc = desc_has_value.value;
 
-  // A value is expected in the same `argv` slot after `=`.
-  if (!pg_string_is_empty(desc.value_name) && pg_string_is_empty(opt_value)) {
-    return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
+  // Find the value if one is expected.
+  // Could be after the `=` in the same `argv` slot, or in the next argv slot,
+  // if there is no `=`.
+  // E.g.: `--foo=bar`, `--foo bar`, `--foo=--bar`.
+  // But not: `--foo=` , `--foo --bar`.
+  {
+    bool value_expected = !pg_string_is_empty(desc.value_name);
+    if (value_expected && pg_string_is_empty(opt_value)) {
+      // A value is expected in the next `argv` slot.
+      *argv_idx += 1;
+      opt_value = pg_cstr_to_string(argv[*argv_idx]);
+    }
+    bool is_value_suitable =
+        !pg_string_is_empty(opt_value) && pg_cli_is_no_option(opt_value);
+    if (value_expected && !is_value_suitable) {
+      return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
+    }
   }
 
   // Find by the long name.
@@ -12626,7 +12641,7 @@ pg_cli_parse(PG_DYN(PgCliOptionDescription) * descs, int argc, char *argv[],
       PG_ASSERT(opt_name.len > 0);
 
       if (1 == opt_name.len) {
-        PgError err = pg_cli_handle_one_short_option(
+        PgError err = pg_cli_handle_short_option(
             opt_name, true, &res.options, desc_slice, argv, &i, allocator);
         if (0 != err) {
           res.err = err;
@@ -12641,7 +12656,7 @@ pg_cli_parse(PG_DYN(PgCliOptionDescription) * descs, int argc, char *argv[],
         // Assume ASCII.
         for (u64 j = 1; j < arg.len; j++) {
           PgString opt_name = {.data = PG_SLICE_AT_PTR(&arg, j), .len = 1};
-          PgError err = pg_cli_handle_one_short_option(
+          PgError err = pg_cli_handle_short_option(
               opt_name, false, &res.options, desc_slice, argv, &i, allocator);
           if (0 != err) {
             res.err = err;
@@ -12667,8 +12682,8 @@ pg_cli_parse(PG_DYN(PgCliOptionDescription) * descs, int argc, char *argv[],
 
     PgString opt_name = pg_string_trim_left(arg, '-');
     PG_ASSERT(opt_name.len > 0);
-    PgError err = pg_cli_handle_one_long_option(opt_name, &res.options,
-                                                desc_slice, allocator);
+    PgError err = pg_cli_handle_long_option(opt_name, &res.options, desc_slice,
+                                            argv, &i, allocator);
     if (0 != err) {
       res.err = err;
       res.err_argv = arg;
