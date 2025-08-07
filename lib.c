@@ -12552,6 +12552,11 @@ pg_cli_handle_long_option(PgString opt_name, PG_DYN(PgCliOption) * options,
   // But not: `--foo=` , `--foo --bar`.
   {
     bool value_expected = !pg_string_is_empty(desc.value_name);
+    // Reject `--foo=`.
+    if (value_expected && cut.has_value && pg_string_is_empty(opt_value)) {
+      return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
+    }
+
     if (value_expected && pg_string_is_empty(opt_value)) {
       // A value is expected in the next `argv` slot.
       *argv_idx += 1;

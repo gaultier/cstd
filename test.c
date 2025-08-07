@@ -3059,8 +3059,9 @@ static void test_cli_options_parse() {
         "main.bin",
         "out.txt",
         "some_argument",
+        "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
@@ -3092,12 +3093,9 @@ static void test_cli_options_parse() {
                 allocator);
 
     char *argv[] = {
-        "main.bin",
-        "-o",
-        "out.txt",
-        "some_argument",
+        "main.bin", "-o", "out.txt", "some_argument", "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
@@ -3134,9 +3132,9 @@ static void test_cli_options_parse() {
                 allocator);
 
     char *argv[] = {
-        "main.bin", "-o", "out.txt", "some_argument", "-v",
+        "main.bin", "-o", "out.txt", "some_argument", "-v", "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
@@ -3185,9 +3183,9 @@ static void test_cli_options_parse() {
                 allocator);
 
     char *argv[] = {
-        "main.bin", "-o", "out.txt", "-vH", "some_argument",
+        "main.bin", "-o", "out.txt", "-vH", "some_argument", "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
@@ -3241,12 +3239,9 @@ static void test_cli_options_parse() {
                 allocator);
 
     char *argv[] = {
-        "main.bin",
-        "-o",
-        "-vH",
-        "some_argument",
+        "main.bin", "-o", "-vH", "some_argument", "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE == res.err);
@@ -3276,8 +3271,9 @@ static void test_cli_options_parse() {
         "main.bin",
         "-H",
         "some_argument",
+        "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(PG_ERR_CLI_MISSING_REQUIRED_OPTION == res.err);
@@ -3299,8 +3295,9 @@ static void test_cli_options_parse() {
         "main.bin",
         "---foo",
         "some_argument",
+        "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(PG_ERR_CLI_MALFORMED_OPTION == res.err);
@@ -3322,8 +3319,9 @@ static void test_cli_options_parse() {
         "main.bin",
         "-",
         "some_argument",
+        "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(PG_ERR_CLI_MALFORMED_OPTION == res.err);
@@ -3349,9 +3347,9 @@ static void test_cli_options_parse() {
                 allocator);
 
     char *argv[] = {
-        "main.bin", "-H", "--", "--verbose", "some_argument",
+        "main.bin", "-H", "--", "--verbose", "some_argument", "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
@@ -3396,9 +3394,10 @@ static void test_cli_options_parse() {
                 allocator);
 
     char *argv[] = {
-        "main.bin", "-o", "out1.txt", "-vH", "some_argument", "-o", "out2.txt",
+        "main.bin",      "-o", "out1.txt", "-vH",
+        "some_argument", "-o", "out2.txt", "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
@@ -3447,12 +3446,9 @@ static void test_cli_options_parse() {
                 allocator);
 
     char *argv[] = {
-        "main.bin",
-        "-vH",
-        "some_argument",
-        "-v",
+        "main.bin", "-vH", "some_argument", "-v", "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
@@ -3488,8 +3484,9 @@ static void test_cli_options_parse() {
         "main.bin",
         "-vx",
         "some_argument",
+        "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(PG_ERR_CLI_UNKNOWN_OPTION == res.err);
@@ -3511,14 +3508,15 @@ static void test_cli_options_parse() {
         "main.bin",
         "-x",
         "some_argument",
+        "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(PG_ERR_CLI_UNKNOWN_OPTION == res.err);
     PG_ASSERT(pg_string_eq(res.err_argv, PG_S("-x")));
   }
-  // Long option given.
+  // Long option given with `=`.
   {
     PG_DYN(PgCliOptionDescription) descs = {0};
     PG_DYN_PUSH(&descs,
@@ -3548,8 +3546,9 @@ static void test_cli_options_parse() {
         "main.bin",
         "--output=out1.txt",
         "some_argument",
+        "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
@@ -3566,6 +3565,124 @@ static void test_cli_options_parse() {
     PgString opt0_value0 = PG_SLICE_AT(opt0.values, 0);
     PG_ASSERT(pg_string_eq(opt0_value0, PG_S("out1.txt")));
   }
+  // Long option given without `=`.
+  {
+    PG_DYN(PgCliOptionDescription) descs = {0};
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
+
+    char *argv[] = {
+        "main.bin", "--output", "out1.txt", "some_argument", "",
+    };
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
+
+    PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
+    PG_ASSERT(0 == res.err);
+    PG_ASSERT(1 == res.plain_arguments.len);
+    PG_ASSERT(1 == res.options.len);
+
+    PG_ASSERT(pg_string_eq(PG_SLICE_AT(res.plain_arguments, 0),
+                           PG_S("some_argument")));
+
+    PgCliOption opt0 = PG_SLICE_AT(res.options, 0);
+    PG_ASSERT(0 == opt0.err);
+    PG_ASSERT(pg_string_eq(opt0.description.name_long, PG_S("output")));
+    PG_ASSERT(1 == opt0.values.len);
+    PgString opt0_value0 = PG_SLICE_AT(opt0.values, 0);
+    PG_ASSERT(pg_string_eq(opt0_value0, PG_S("out1.txt")));
+  }
+  // Long option given with `=` but the value is empty.
+  {
+    PG_DYN(PgCliOptionDescription) descs = {0};
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
+
+    char *argv[] = {
+        "main.bin", "--output=", "out1.txt", "some_argument", "",
+    };
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
+
+    PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
+    PG_ASSERT(PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE == res.err);
+  }
+
+  // Long option given without `=` but the value is empty.
+  {
+    PG_DYN(PgCliOptionDescription) descs = {0};
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("v"),
+                    .name_long = PG_S("verbose"),
+                    .description = PG_S("Verbose mode"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("H"),
+                    .name_long = PG_S("hidden"),
+                    .description = PG_S("scan hidden files"),
+                }),
+                allocator);
+    PG_DYN_PUSH(&descs,
+                ((PgCliOptionDescription){
+                    .name_short = PG_S("o"),
+                    .name_long = PG_S("output"),
+                    .description = PG_S("Specify an output"),
+                    .value_name = PG_S("file"),
+                }),
+                allocator);
+
+    char *argv[] = {
+        "main.bin",
+        "--output",
+        "",
+    };
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
+
+    PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
+    PG_ASSERT(PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE == res.err);
+  }
+
   // Long & short options given.
   {
     PG_DYN(PgCliOptionDescription) descs = {0};
@@ -3593,9 +3710,9 @@ static void test_cli_options_parse() {
                 allocator);
 
     char *argv[] = {
-        "main.bin", "-v", "--output=out1.txt", "some_argument", "--hidden",
+        "main.bin", "-v", "--output=out1.txt", "some_argument", "--hidden", "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
@@ -3650,9 +3767,9 @@ static void test_cli_options_parse() {
                 allocator);
 
     char *argv[] = {
-        "main.bin", "--output=out1.txt", "some_argument", "-o", "foo.txt",
+        "main.bin", "--output=out1.txt", "some_argument", "-o", "foo.txt", "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
@@ -3698,9 +3815,9 @@ static void test_cli_options_parse() {
                 allocator);
 
     char *argv[] = {
-        "main.bin", "--output=out1.txt", "some_argument", "-h", "foo.txt",
+        "main.bin", "--output=out1.txt", "some_argument", "-h", "foo.txt", "",
     };
-    int argc = PG_STATIC_ARRAY_LEN(argv);
+    int argc = PG_STATIC_ARRAY_LEN(argv) - 1;
 
     PgCliParseResult res = pg_cli_parse(&descs, argc, argv, allocator);
     PG_ASSERT(0 == res.err);
