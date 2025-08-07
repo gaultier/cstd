@@ -3935,8 +3935,8 @@ static void test_cli_options_help() {
       "<file2> <file3>\n\nThis is "
       "an example program. It helps fooizing bars.\n\nOPTIONS:\n    -v\n     "
       "  "
-      " Verbose mode.\n\n    --hidden\n        Scan hidden files.\n\n    -o "
-      "file, --output=file    [required]\n        Specify an output "
+      " Verbose mode.\n\n    --hidden\n        Scan hidden files.\n\n    -o"
+      ", --output file    [required]\n        Specify an output "
       "file.\n\n    -h, --help\n        Print this help message.\n\n\n");
   PG_ASSERT(pg_string_eq(expected, help));
 }

@@ -12874,11 +12874,6 @@ pg_cli_generate_help(PG_DYN(PgCliOptionDescription) descs, PgString exe_name,
       if (!pg_string_is_empty(desc.name_short)) {
         pg_string_builder_append_string(&sb, PG_S("-"), allocator);
         pg_string_builder_append_string(&sb, desc.name_short, allocator);
-
-        if (!pg_string_is_empty(desc.value_name)) {
-          pg_string_builder_append_string(&sb, PG_S(" "), allocator);
-          pg_string_builder_append_string(&sb, desc.value_name, allocator);
-        }
       }
       if (!pg_string_is_empty(desc.name_long)) {
         if (!pg_string_is_empty(desc.name_short)) {
@@ -12887,11 +12882,10 @@ pg_cli_generate_help(PG_DYN(PgCliOptionDescription) descs, PgString exe_name,
 
         pg_string_builder_append_string(&sb, PG_S("--"), allocator);
         pg_string_builder_append_string(&sb, desc.name_long, allocator);
-
-        if (!pg_string_is_empty(desc.value_name)) {
-          pg_string_builder_append_string(&sb, PG_S("="), allocator);
-          pg_string_builder_append_string(&sb, desc.value_name, allocator);
-        }
+      }
+      if (!pg_string_is_empty(desc.value_name)) {
+        pg_string_builder_append_string(&sb, PG_S(" "), allocator);
+        pg_string_builder_append_string(&sb, desc.value_name, allocator);
       }
 
       if (desc.required) {
@@ -13070,7 +13064,7 @@ static void pg_run_tests(int argc, char **argv, PG_SLICE(PgTest) tests) {
   for (u64 i = 0; i < tests.len; i++) {
     PgTest t = PG_SLICE_AT(tests, i);
     // TODO: Run each test in its own child process.
-    // TODO: Verbose reporting.
+    // TODO: Exclude pattern.
     if (!pg_string_starts_with(t.name, cli_run)) {
       continue;
     }
