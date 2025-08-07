@@ -12563,7 +12563,8 @@ pg_cli_handle_long_option(PgString opt_name, PG_DYN(PgCliOption) * options,
       opt_value = pg_cstr_to_string(argv[*argv_idx]);
     }
     bool is_value_suitable =
-        !pg_string_is_empty(opt_value) && pg_cli_is_no_option(opt_value);
+        !pg_string_is_empty(opt_value) &&
+        (cut.has_value ? true : pg_cli_is_no_option(opt_value));
     if (value_expected && !is_value_suitable) {
       return PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE;
     }
