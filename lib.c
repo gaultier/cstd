@@ -111,6 +111,10 @@
 #define PG_Microseconds (1000ULL * PG_Nanoseconds)
 #define PG_Milliseconds (1000ULL * PG_Microseconds)
 #define PG_Seconds (1000ULL * PG_Milliseconds)
+#define PG_Minutes (60ULL * PG_Seconds)
+#define PG_Hours (60ULL * PG_Minutes)
+#define PG_Days (24 * PG_Hours)
+#define PG_Weeks (7 * PG_Days)
 
 #define PG_BIT_CLEAR(n, idx) (n & ~(1 << (idx)))
 #define PG_BIT_SET(n, idx) (n | (1 << (idx)))
@@ -1781,6 +1785,22 @@ typedef struct {
 } PgTest;
 PG_SLICE_DECL(PgTest);
 
+typedef enum {
+  PG_DURATION_NANOSECOND,
+  PG_DURATION_MICROSECOND, // 1000 nanoseconds.
+  PG_DURATION_MILLISECOND, // 1000 microseconds.
+  PG_DURATION_SECOND,      // 1000 milliseconds.
+  PG_DURATION_MINUTE,      // 60 seconds.
+  PG_DURATION_HOUR,        // 60 minutes.
+  PG_DURATION_DAY,         // 24 hours.
+  PG_DURATION_WEEK,        // 7 days.
+} PgDurationKind;
+
+typedef struct {
+  PgDurationKind kind;
+  f32 value;
+} PgDuration;
+
 // ---------------- Functions.
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
@@ -2052,6 +2072,50 @@ static u8 *pg_memmove(void *dst, void *src, u64 len) {
     }                                                                          \
     (s)->len -= 1;                                                             \
   } while (0)
+
+[[maybe_unused]] [[nodiscard]] static PgDuration
+pg_time_ns_to_human_readable_duration(u64 ns) {
+  PgDuration res = {0};
+  if (ns < 1 * PG_Microseconds) {
+    res.kind = PG_DURATION_NANOSECOND;
+    res.value = ns;
+    return res;
+  }
+  if (ns < 1 * PG_Milliseconds) {
+    res.kind = PG_DURATION_MICROSECOND;
+    res.value = ns / (f32)PG_Microseconds;
+    return res;
+  }
+  if (ns < 1 * PG_Seconds) {
+    res.kind = PG_DURATION_MILLISECOND;
+    res.value = ns / (f32)PG_Milliseconds;
+    return res;
+  }
+  if (ns < 1 * PG_Minutes) {
+    res.kind = PG_DURATION_SECOND;
+    res.value = ns / (f32)PG_Seconds;
+    return res;
+  }
+  if (ns < 1 * PG_Hours) {
+    res.kind = PG_DURATION_MINUTE;
+    res.value = ns / (f32)PG_Minutes;
+    return res;
+  }
+  if (ns < 1 * PG_Days) {
+    res.kind = PG_DURATION_HOUR;
+    res.value = ns / (f32)PG_Hours;
+    return res;
+  }
+  if (ns < 1 * PG_Weeks) {
+    res.kind = PG_DURATION_DAY;
+    res.value = ns / (f32)PG_Days;
+    return res;
+  }
+
+  res.kind = PG_DURATION_WEEK;
+  res.value = ns / (f32)PG_Weeks;
+  return res;
+}
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_hash_fnv(PG_SLICE(u8) s) {
   u64 hash = 0x100;
@@ -4708,6 +4772,37 @@ pg_string_clone(PgString s, PgAllocator *allocator) {
     }
   }
   return true;
+}
+
+// TODO: Cannot use writer here since it does not yet support floats.
+[[maybe_unused]] static void pg_duration_print(FILE *f, PgDuration d) {
+  fprintf(f, "%.2f", d.value);
+  switch (d.kind) {
+  case PG_DURATION_NANOSECOND:
+    fprintf(f, "ns");
+    break;
+  case PG_DURATION_MICROSECOND:
+    fprintf(f, "us");
+    break;
+  case PG_DURATION_MILLISECOND:
+    fprintf(f, "ms");
+    break;
+  case PG_DURATION_SECOND:
+    fprintf(f, "s");
+    break;
+  case PG_DURATION_MINUTE:
+    fprintf(f, "m");
+    break;
+  case PG_DURATION_HOUR:
+    fprintf(f, "h");
+    break;
+  case PG_DURATION_DAY:
+    fprintf(f, "d");
+    break;
+  case PG_DURATION_WEEK:
+    fprintf(f, "w");
+    break;
+  }
 }
 
 #if defined(__x86_64__) && defined(__SSSE3__) && defined(__SHA__)
@@ -12981,9 +13076,15 @@ static void pg_run_tests(int argc, char **argv, PG_SLICE(PgTest) tests) {
     }
 
     if (cli_verbose) {
-      printf("RUN %.*s\n", (i32)t.name.len, t.name.data);
+      printf("RUN\t%.*s\t", (i32)t.name.len, t.name.data);
     }
+    u64 start = PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC));
     t.fn();
+    u64 end = PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC));
+    PgDuration duration = pg_time_ns_to_human_readable_duration(end - start);
+    printf("OK ");
+    pg_duration_print(stdout, duration);
+    printf("\n");
   }
 }
 
