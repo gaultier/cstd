@@ -13001,7 +13001,8 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
 #define PG_TEST(F)                                                             \
   (PgTest) { .name = PG_S("" #F ""), .fn = F }
 
-static void pg_run_tests(int argc, char **argv, PG_SLICE(PgTest) tests) {
+[[maybe_unused]] static void pg_run_tests(int argc, char **argv,
+                                          PG_SLICE(PgTest) tests) {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
   PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
   PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
