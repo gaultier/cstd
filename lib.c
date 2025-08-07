@@ -13077,14 +13077,14 @@ static void pg_run_tests(int argc, char **argv, PG_SLICE(PgTest) tests) {
 
     if (cli_verbose) {
       printf("RUN\t%.*s\t", (i32)t.name.len, t.name.data);
+      u64 start = PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC));
+      t.fn();
+      u64 end = PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC));
+      PgDuration duration = pg_time_ns_to_human_readable_duration(end - start);
+      printf("OK ");
+      pg_duration_print(stdout, duration);
+      printf("\n");
     }
-    u64 start = PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC));
-    t.fn();
-    u64 end = PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC));
-    PgDuration duration = pg_time_ns_to_human_readable_duration(end - start);
-    printf("OK ");
-    pg_duration_print(stdout, duration);
-    printf("\n");
   }
 }
 

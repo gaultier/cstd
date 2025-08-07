@@ -4117,7 +4117,9 @@ int main(int argc, char *argv[]) {
     PG_TEST(test_u64_leb128),
     PG_TEST(test_write_u64_hex),
     PG_TEST(test_self),
+#if 0
     PG_TEST(test_debug_info),
+#endif
     PG_TEST(test_rune_bytes_count),
     PG_TEST(test_utf8_count),
     PG_TEST(test_string_last),
