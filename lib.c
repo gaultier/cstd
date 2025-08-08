@@ -253,6 +253,12 @@ typedef double f64;
       for (typeof(*(V).data) E = (V).data[PG_UNIQUIFY(i)]; PG_UNIQUIFY(once);  \
            PG_UNIQUIFY(once) = false)
 
+#define PG_EACH_I(E, I, V)                                                     \
+  for (u64 I = 0; I < (V).len; (I)++)                                          \
+    for (bool PG_UNIQUIFY(once) = true; PG_UNIQUIFY(once);)                    \
+      for (typeof(*(V).data) E = (V).data[I]; PG_UNIQUIFY(once);               \
+           PG_UNIQUIFY(once) = false)
+
 #define PG_SOME(V, T) ((PG_OPTION(T)){.has_value = true, .value = V})
 #define PG_NONE(T) ((PG_OPTION(T)){0})
 
@@ -2519,30 +2525,21 @@ pg_string_is_ascii_alphabetical(PgString s) {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_trim_space_left(PgString s) {
   PgString res = s;
-  for (u64 i = 0; i < PG_ASCII_SPACES.len; i++) {
-    u8 space = PG_SLICE_AT(PG_ASCII_SPACES, i);
-    res = pg_string_trim_left(res, space);
-  }
+  PG_EACH(space, PG_ASCII_SPACES) { res = pg_string_trim_left(res, space); }
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_trim_space_right(PgString s) {
   PgString res = s;
-  for (u64 i = 0; i < PG_ASCII_SPACES.len; i++) {
-    u8 space = PG_SLICE_AT(PG_ASCII_SPACES, i);
-    res = pg_string_trim_right(res, space);
-  }
+  PG_EACH(space, PG_ASCII_SPACES) { res = pg_string_trim_right(res, space); }
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_trim_space(PgString s) {
   PgString res = s;
-  for (u64 i = 0; i < PG_ASCII_SPACES.len; i++) {
-    u8 space = PG_SLICE_AT(PG_ASCII_SPACES, i);
-    res = pg_string_trim(res, space);
-  }
+  PG_EACH(space, PG_ASCII_SPACES) { res = pg_string_trim(res, space); }
   return res;
 }
 
@@ -2724,12 +2721,9 @@ pg_bytes_ends_with(PG_SLICE(u8) haystack, PG_SLICE(u8) needle) {
 [[nodiscard]]
 static bool pg_bytes_contains_any_byte(PG_SLICE(u8) haystack,
                                        PG_SLICE(u8) needles) {
-  for (u64 i = 0; i < haystack.len; i++) {
-    u8 c = PG_SLICE_AT(haystack, i);
-    for (u64 j = 0; j < needles.len; j++) {
-      u8 n = PG_SLICE_AT(needles, j);
-
-      if (c == n) {
+  PG_EACH(h, haystack) {
+    PG_EACH(n, needles) {
+      if (h == n) {
         return true;
       }
     }
@@ -3030,8 +3024,8 @@ pg_string_starts_with(PgString haystack, PgString needle) {
   PG_OPTION(PgString) res = {0};
   res.value = haystack;
 
-  for (u64 i = 0; i < needle.len; i++) {
-    res = pg_string_consume_rune(res.value, PG_SLICE_AT(needle, i));
+  PG_EACH(c, needle) {
+    res = pg_string_consume_rune(res.value, c);
     if (!res.has_value) {
       return res;
     }
@@ -3045,8 +3039,8 @@ pg_string_starts_with(PgString haystack, PgString needle) {
   PG_OPTION(PgString) res = {0};
   res.value = haystack;
 
-  for (u64 i = 0; i < needles.len; i++) {
-    res = pg_string_consume_string(res.value, PG_SLICE_AT(needles, i));
+  PG_EACH(s, needles) {
+    res = pg_string_consume_string(res.value, s);
     if (res.has_value) {
       return res;
     }
@@ -3068,7 +3062,7 @@ pg_string_ends_with(PgString haystack, PgString needle) {
 }
 
 [[maybe_unused]] [[nodiscard]] static PgParseNumberResult
-pg_string_parse_u64(PgString s, u64 base, bool forbig_leading_zeroes) {
+pg_string_parse_u64(PgString s, u64 base, bool forbid_leading_zeroes) {
   PG_ASSERT(10 == base || 16 == base);
 
   PgParseNumberResult res = {0};
@@ -3083,7 +3077,7 @@ pg_string_parse_u64(PgString s, u64 base, bool forbig_leading_zeroes) {
   };
 
   // Forbid leading zero(es) if there is more than one digit.
-  if (forbig_leading_zeroes && pg_string_starts_with(s, PG_S("0")) &&
+  if (forbid_leading_zeroes && pg_string_starts_with(s, PG_S("0")) &&
       s.len >= 2 && pg_rune_ascii_is_numeric(PG_SLICE_AT(s, 1))) {
     return res;
   }
@@ -4666,9 +4660,7 @@ static PgString pg_bytes_to_hex_string(PG_SLICE(u8) bytes, PgRune sep,
       .len = pg_utf8_rune_bytes_count(sep),
   };
 
-  for (u64 i = 0; i < bytes.len; i++) {
-    u8 n = PG_SLICE_AT(bytes, i);
-
+  PG_EACH(n, bytes) {
     u8 c1 = n & 15; // i.e. `% 16`.
     u8 c2 = n >> 4; // i.e. `/ 16`
 
@@ -5099,10 +5091,7 @@ static void pg_bitfield_set_ptr(u8 *bitfield, u64 bitfield_len, u64 idx_bit,
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_bitfield_count(PgString bitfield) {
   u64 res = 0;
-  for (u64 i = 0; i < bitfield.len; i++) {
-    u8 c = PG_SLICE_AT(bitfield, i);
-    res += (u8)__builtin_popcount((u8)c);
-  }
+  PG_EACH(c, bitfield) { res += (u8)__builtin_popcount((u8)c); }
   return res;
 }
 
@@ -6470,9 +6459,7 @@ static PG_RESULT(PgProcess, PgError)
   PG_DYN_ENSURE_CAP(&args_c, args.len + 2, allocator);
   PG_DYN_PUSH(&args_c, path_c, allocator);
 
-  for (u64 i = 0; i < args.len; i++) {
-    PgString arg = PG_SLICE_AT(args, i);
-
+  PG_EACH(arg, args) {
     PG_DYN_PUSH(&args_c, pg_string_to_cstr(arg, allocator), allocator);
   }
   PG_ASSERT(args.len + 1 == args_c.len);
@@ -6580,10 +6567,7 @@ static PG_RESULT(PgProcess, PgError)
   res = PG_OK(process, PgProcess, PgError);
 
 end:
-  for (u64 i = 0; i < args_c.len; i++) {
-    char *arg_c = PG_SLICE_AT(args_c, i);
-    pg_free(allocator, arg_c);
-  }
+  PG_EACH(arg_c, args_c) { pg_free(allocator, arg_c); }
 
   if (stdin_pipe[PG_PIPE_READ]) {
     close(stdin_pipe[PG_PIPE_READ]);
@@ -7503,8 +7487,7 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value,
                      PgAllocator *allocator) {
   PgError err = 0;
 
-  for (u64 i = 0; i < key.len; i++) {
-    u8 c = PG_SLICE_AT(key, i);
+  PG_EACH(c, key) {
     if (pg_rune_ascii_is_alphanumeric(c)) {
       err = pg_writer_write_u8(w, c, allocator);
       if (err) {
@@ -7528,8 +7511,7 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value,
     return err;
   }
 
-  for (u64 i = 0; i < value.len; i++) {
-    u8 c = PG_SLICE_AT(value, i);
+  PG_EACH(c, value) {
     if (pg_rune_ascii_is_alphanumeric(c)) {
       err = pg_writer_write_u8(w, c, allocator);
       if (err) {
@@ -7565,8 +7547,7 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
     return err;
   }
 
-  for (u64 i = 0; i < req.url.path_components.len; i++) {
-    PgString path_component = PG_SLICE_AT(req.url.path_components, i);
+  PG_EACH_I(path_component, i, req.url.path_components) {
     err = pg_writer_write_full(w, path_component, allocator);
     if (err) {
       return err;
@@ -7586,8 +7567,7 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
       return err;
     }
 
-    for (u64 i = 0; i < req.url.query_parameters.len; i++) {
-      PgStringKeyValue param = PG_SLICE_AT(req.url.query_parameters, i);
+    PG_EACH_I(param, i, req.url.query_parameters) {
       err = pg_writer_url_encode(w, param.key, param.value, allocator);
       if (err) {
         return err;
@@ -7689,9 +7669,7 @@ pg_html_sanitize(PgString s, PgAllocator *allocator) {
   PG_DYN(u8) res = {0};
   PG_DYN_ENSURE_CAP(&res, s.len * 2, allocator);
 
-  for (u64 i = 0; i < s.len; i++) {
-    u8 c = PG_SLICE_AT(s, i);
-
+  PG_EACH(c, s) {
     if ('&' == c) {
       PG_DYN_APPEND_SLICE(&res, PG_S("&amp;"), allocator);
     } else if ('<' == c) {
@@ -7811,8 +7789,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
     pg_string_builder_append_u64(&sb, u.port, allocator);
   }
 
-  for (u64 i = 0; i < u.path_components.len; i++) {
-    PgString it = PG_SLICE_AT(u.path_components, i);
+  PG_EACH(it, u.path_components) {
     PG_DYN_APPEND_SLICE(&sb, PG_S("/"), allocator);
     PG_DYN_APPEND_SLICE(&sb, it, allocator);
   }
@@ -7820,8 +7797,7 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
   if (u.query_parameters.len) {
     PG_DYN_APPEND_SLICE(&sb, PG_S("?"), allocator);
 
-    for (u64 i = 0; i < u.query_parameters.len; i++) {
-      PgStringKeyValue it = PG_SLICE_AT(u.query_parameters, i);
+    PG_EACH(it, u.query_parameters) {
       if (it.key.len) {
         PG_DYN_APPEND_SLICE(&sb, it.key, allocator);
       }
@@ -7967,8 +7943,7 @@ pg_url_is_scheme_valid(PgString scheme) {
     return false;
   }
 
-  for (u64 i = 0; i < scheme.len; i++) {
-    u8 c = PG_SLICE_AT(scheme, i);
+  PG_EACH(c, scheme) {
     if (!(pg_rune_ascii_is_alphanumeric(c) || c == '+' || c == '-' ||
           c == '.')) {
       return false;
@@ -8463,9 +8438,7 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req, PgAllocator *allocator) {
   if (err) {
     return err;
   }
-
-  for (u64 i = 0; i < req.headers.len; i++) {
-    PgStringKeyValue header = PG_SLICE_AT(req.headers, i);
+  PG_EACH(header, req.headers) {
     err = pg_http_write_header(w, header, allocator);
     if (err) {
       return err;
@@ -8502,8 +8475,7 @@ pg_http_write_response(PgWriter *w, PgHttpResponse res,
     return err;
   }
 
-  for (u64 i = 0; i < res.headers.len; i++) {
-    PgStringKeyValue header = PG_SLICE_AT(res.headers, i);
+  PG_EACH(header, res.headers) {
     err = pg_http_write_header(w, header, allocator);
     if (err) {
       return err;
@@ -8526,9 +8498,7 @@ pg_http_write_response(PgWriter *w, PgHttpResponse res,
     pg_http_content_length(PG_SLICE(PgStringKeyValue) headers) {
   PG_RESULT(u64, PgError) res = {0};
 
-  for (u64 i = 0; i < headers.len; i++) {
-    PgStringKeyValue h = PG_SLICE_AT(headers, i);
-
+  PG_EACH(h, headers) {
     if (!pg_string_ieq_ascii(PG_S("Content-Length"), h.key)) {
       continue;
     }
@@ -8693,9 +8663,7 @@ static PgError pg_logfmt_write_string_escaped(PgWriter *w, PgString entry,
     }
   }
 
-  for (u64 i = 0; i < entry.len; i++) {
-    u8 c = PG_SLICE_AT(entry, i);
-
+  PG_EACH(c, entry) {
     if (pg_logfmt_byte_needs_escaping(c)) {
       err = pg_writer_write_u8(w, '\\', allocator);
       if (err) {
@@ -9348,8 +9316,7 @@ pg_html_node_get_next_sibling(PgHtmlNode *node) {
 
   PgHtmlNode *parent = root;
 
-  for (u64 i = 0; i < tokens.len; i++) {
-    PgHtmlToken token = PG_SLICE_AT(tokens, i);
+  PG_EACH(token, tokens) {
     PG_ASSERT(parent);
 
     bool is_self_closing = ((PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind) ||
@@ -9555,9 +9522,7 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, PgThreadFn fn,
   PG_ASSERT(0 == pg_cnd_broadcast(&pool->tasks_cnd));
   PG_ASSERT(0 == pg_mtx_unlock(&pool->tasks_mtx));
 
-  for (u32 i = 0; i < pool->workers.len; i++) {
-    (void)pg_thread_join(PG_SLICE_AT(pool->workers, i));
-  }
+  PG_EACH(w, pool->workers) { (void)pg_thread_join(w); }
 }
 
 [[maybe_unused]] [[nodiscard]] static PgElfSymbolType
@@ -9978,8 +9943,7 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
                                    u64 addr) {
   PG_OPTION(PgDebugFunctionDeclaration) res = {0};
 
-  for (u64 i = 0; i < fns.len; i++) {
-    PgDebugFunctionDeclaration fn = PG_SLICE_AT(fns, i);
+  PG_EACH(fn, fns) {
     if (fn.low_pc <= addr && addr < fn.high_pc) {
       res.has_value = true;
       res.value = fn;
@@ -11575,9 +11539,7 @@ pg_dwarf_compilation_unit_print_abbreviations(
   PG_ERR_RETURN(pg_writer_write_u64_as_string(w, unit.abbrevs.len, allocator));
   PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
 
-  for (u64 i = 0; i < unit.abbrevs.len; i++) {
-    PgDwarfAbbreviationEntry abbrev = PG_SLICE_AT(unit.abbrevs, i);
-
+  PG_EACH(abbrev, unit.abbrevs) {
     PG_ERR_RETURN(pg_writer_write_full(w, PG_S("type="), allocator));
     PG_ERR_RETURN(pg_writer_write_u64_as_string(w, abbrev.type, allocator));
 
@@ -11590,9 +11552,7 @@ pg_dwarf_compilation_unit_print_abbreviations(
                                                 allocator));
     PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
 
-    for (u64 j = 0; j < abbrev.attribute_forms.len; j++) {
-      PgDwarfAttributeForm attr_form = PG_SLICE_AT(abbrev.attribute_forms, j);
-
+    PG_EACH(attr_form, abbrev.attribute_forms) {
       PG_ERR_RETURN(pg_writer_write_full(w, PG_S("  attribute="), allocator));
       PgString attr_str = pg_dwarf_attribute_str[attr_form.attribute];
       PG_ERR_RETURN(pg_writer_write_full(w, attr_str, allocator));
@@ -12552,8 +12512,7 @@ typedef struct {
                              PgString name) {
   PG_OPTION(PgCliOptionDescription) res = {0};
 
-  for (u64 i = 0; i < descs.len; i++) {
-    PgCliOptionDescription it = PG_SLICE_AT(descs, i);
+  PG_EACH(it, descs) {
     if (pg_string_eq(it.name_long, name) || pg_string_eq(it.name_short, name)) {
       res.has_value = true;
       res.value = it;
@@ -12801,8 +12760,7 @@ pg_cli_parse(PG_DYN(PgCliOptionDescription) * descs, int argc, char *argv[],
   }
 
   // Check that all required options are present.
-  for (u64 i = 0; i < desc_slice.len; i++) {
-    PgCliOptionDescription desc = PG_SLICE_AT(desc_slice, i);
+  PG_EACH(desc, desc_slice) {
     if (!desc.required) {
       continue;
     }
@@ -12829,9 +12787,7 @@ pg_cli_generate_help(PG_DYN(PgCliOptionDescription) descs, PgString exe_name,
 
   pg_string_builder_append_string(&sb, exe_name, allocator);
 
-  for (u64 i = 0; i < descs.len; i++) {
-    PgCliOptionDescription desc = PG_SLICE_AT(descs, i);
-
+  PG_EACH(desc, descs) {
     pg_string_builder_append_string(&sb, PG_S(" "), allocator);
 
     pg_string_builder_append_string(&sb, desc.required ? PG_S("(") : PG_S("["),
@@ -12875,9 +12831,7 @@ pg_cli_generate_help(PG_DYN(PgCliOptionDescription) descs, PgString exe_name,
   if (!PG_SLICE_IS_EMPTY(descs)) {
     pg_string_builder_append_string(&sb, PG_S("\nOPTIONS:\n"), allocator);
 
-    for (u64 i = 0; i < descs.len; i++) {
-      PgCliOptionDescription desc = PG_SLICE_AT(descs, i);
-
+    PG_EACH(desc, descs) {
       pg_string_builder_append_string(&sb, PG_S("    "), allocator);
       if (!pg_string_is_empty(desc.name_short)) {
         pg_string_builder_append_string(&sb, PG_S("-"), allocator);
@@ -13049,9 +13003,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
   bool cli_verbose = false;
   PgString cli_run = {0};
 
-  for (u64 i = 0; i < res_cli_parse.options.len; i++) {
-    PgCliOption opt = PG_SLICE_AT(res_cli_parse.options, i);
-
+  PG_EACH(opt, res_cli_parse.options) {
     if (pg_string_eq(opt.description.name_long, PG_S("verbose"))) {
       cli_verbose = true;
     } else if (pg_string_eq(opt.description.name_long, PG_S("run"))) {
@@ -13070,8 +13022,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     }
   }
 
-  for (u64 i = 0; i < tests.len; i++) {
-    PgTest t = PG_SLICE_AT(tests, i);
+  PG_EACH(t, tests) {
     // TODO: Run each test in its own child process.
     // TODO: Exclude pattern.
     if (!pg_string_starts_with(t.name, cli_run)) {
