@@ -2647,8 +2647,7 @@ pg_string_cut_rune(PgString s, PgRune needle) {
 static PG_OPTION(u64) pg_bytes_index_of_byte(PG_SLICE(u8) haystack, u8 needle) {
   PG_OPTION(u64) res = {0};
 
-  for (u64 i = 0; i < haystack.len; i++) {
-    u8 it = PG_SLICE_AT(haystack, i);
+  PG_EACH_I(it, i, haystack) {
     if (needle == it) {
       res.value = i;
       res.has_value = true;
@@ -2707,8 +2706,9 @@ pg_bytes_ends_with(PG_SLICE(u8) haystack, PG_SLICE(u8) needle) {
     return res;
   }
 
-  for (u64 i = 0; i < haystack.len; i++) {
-    if (pg_bytes_starts_with(PG_SLICE_RANGE_START(haystack, (u64)i), needle)) {
+  PG_EACH_I(h, i, haystack) {
+    PG_UNUSED(h);
+    if (pg_bytes_starts_with(PG_SLICE_RANGE_START(haystack, i), needle)) {
       res.value = (u64)i;
       res.has_value = true;
       return res;
@@ -4767,8 +4767,7 @@ pg_string_clone(PgString s, PgAllocator *allocator) {
   PG_ASSERT(b.data != nullptr);
   PG_ASSERT(a.len == b.len);
 
-  for (u64 i = 0; i < a.len; i++) {
-    u8 c_a = PG_SLICE_AT(a, i);
+  PG_EACH_I(c_a, i, a) {
     u8 c_b = PG_SLICE_AT(b, i);
 
     if (pg_rune_ascii_to_lower_case(c_a) != pg_rune_ascii_to_lower_case(c_b)) {
@@ -5099,8 +5098,7 @@ static void pg_bitfield_set_ptr(u8 *bitfield, u64 bitfield_len, u64 idx_bit,
     pg_bitfield_get_first_zero(PgString bitfield) {
   PG_OPTION(u64) res = {0};
 
-  for (u64 i = 0; i < bitfield.len; i++) {
-    u8 c = PG_SLICE_AT(bitfield, i);
+  PG_EACH_I(c, i, bitfield) {
     if (0xff == c) {
       continue;
     }
@@ -5270,9 +5268,7 @@ static void pg_adjacency_matrix_remove_node(PgAdjacencyMatrix *matrix,
 [[maybe_unused]] [[nodiscard]]
 static bool pg_adjacency_matrix_is_empty(PgAdjacencyMatrix matrix) {
   bool set = false;
-  for (u64 i = 0; i < matrix.bitfield.len; i++) {
-    set |= PG_SLICE_AT(matrix.bitfield, i);
-  }
+  PG_EACH(it, matrix.bitfield) { set |= it; }
   return set == 0;
 }
 
