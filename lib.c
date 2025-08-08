@@ -247,17 +247,7 @@ typedef double f64;
 #define PG_EACH_PTR(E, V)                                                      \
   for (typeof((V)->data) E = &(V)->data[0]; E < (V)->data + (V)->len; E++)
 
-#define PG_EACH(E, V)                                                          \
-  for (u64 PG_UNIQUIFY(i) = 0; PG_UNIQUIFY(i) < (V).len; PG_UNIQUIFY(i)++)     \
-    for (bool PG_UNIQUIFY(once) = true; PG_UNIQUIFY(once);)                    \
-      for (typeof(*(V).data) E = (V).data[PG_UNIQUIFY(i)]; PG_UNIQUIFY(once);  \
-           PG_UNIQUIFY(once) = false)
-
-#define PG_EACH_I(E, I, V)                                                     \
-  for (u64 I = 0; I < (V).len; (I)++)                                          \
-    for (bool PG_UNIQUIFY(once) = true; PG_UNIQUIFY(once);)                    \
-      for (typeof(*(V).data) E = (V).data[I]; PG_UNIQUIFY(once);               \
-           PG_UNIQUIFY(once) = false)
+#define PG_SLICE_PTR_TO_INDEX(P, B) ((P) - (B).data)
 
 #define PG_SOME(V, T) ((PG_OPTION(T)){.has_value = true, .value = V})
 #define PG_NONE(T) ((PG_OPTION(T)){0})
@@ -2134,8 +2124,8 @@ pg_time_ns_to_human_readable_duration(u64 ns) {
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_hash_fnv(PG_SLICE(u8) s) {
   u64 hash = 0x100;
-  PG_EACH(c, s) {
-    hash ^= c;
+  PG_EACH_PTR(c, &s) {
+    hash ^= *c;
     hash *= 1111111111111111111;
   }
   return hash;
@@ -2162,7 +2152,7 @@ pg_rune_ascii_is_alphabetical(PgRune c) {
          pg_rune_ascii_is_alphabetical_lowercase(c);
 }
 
-static const PgString PG_ASCII_SPACES = PG_S(" \f\n\r\t");
+static PgString PG_ASCII_SPACES = PG_S(" \f\n\r\t");
 
 [[maybe_unused]] [[nodiscard]] static bool pg_rune_ascii_is_space(PgRune c) {
   return ' ' == c || '\t' == c || '\n' == c || '\f' == c || '\r' == c;
@@ -2525,21 +2515,25 @@ pg_string_is_ascii_alphabetical(PgString s) {
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_trim_space_left(PgString s) {
   PgString res = s;
-  PG_EACH(space, PG_ASCII_SPACES) { res = pg_string_trim_left(res, space); }
+  PG_EACH_PTR(space, &PG_ASCII_SPACES) {
+    res = pg_string_trim_left(res, *space);
+  }
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_trim_space_right(PgString s) {
   PgString res = s;
-  PG_EACH(space, PG_ASCII_SPACES) { res = pg_string_trim_right(res, space); }
+  PG_EACH_PTR(space, &PG_ASCII_SPACES) {
+    res = pg_string_trim_right(res, *space);
+  }
   return res;
 }
 
 [[maybe_unused]] [[nodiscard]] static PgString
 pg_string_trim_space(PgString s) {
   PgString res = s;
-  PG_EACH(space, PG_ASCII_SPACES) { res = pg_string_trim(res, space); }
+  PG_EACH_PTR(space, &PG_ASCII_SPACES) { res = pg_string_trim(res, *space); }
   return res;
 }
 
@@ -2647,9 +2641,9 @@ pg_string_cut_rune(PgString s, PgRune needle) {
 static PG_OPTION(u64) pg_bytes_index_of_byte(PG_SLICE(u8) haystack, u8 needle) {
   PG_OPTION(u64) res = {0};
 
-  PG_EACH_I(it, i, haystack) {
-    if (needle == it) {
-      res.value = i;
+  PG_EACH_PTR(it, &haystack) {
+    if (needle == *it) {
+      res.value = PG_SLICE_PTR_TO_INDEX(it, haystack);
       res.has_value = true;
       return res;
     }
@@ -2706,8 +2700,7 @@ pg_bytes_ends_with(PG_SLICE(u8) haystack, PG_SLICE(u8) needle) {
     return res;
   }
 
-  PG_EACH_I(h, i, haystack) {
-    PG_UNUSED(h);
+  for (u64 i = 0; i < haystack.len; i++) {
     if (pg_bytes_starts_with(PG_SLICE_RANGE_START(haystack, i), needle)) {
       res.value = (u64)i;
       res.has_value = true;
@@ -2721,9 +2714,9 @@ pg_bytes_ends_with(PG_SLICE(u8) haystack, PG_SLICE(u8) needle) {
 [[nodiscard]]
 static bool pg_bytes_contains_any_byte(PG_SLICE(u8) haystack,
                                        PG_SLICE(u8) needles) {
-  PG_EACH(h, haystack) {
-    PG_EACH(n, needles) {
-      if (h == n) {
+  PG_EACH_PTR(h, &haystack) {
+    PG_EACH_PTR(n, &needles) {
+      if (*h == *n) {
         return true;
       }
     }
@@ -3024,8 +3017,8 @@ pg_string_starts_with(PgString haystack, PgString needle) {
   PG_OPTION(PgString) res = {0};
   res.value = haystack;
 
-  PG_EACH(c, needle) {
-    res = pg_string_consume_rune(res.value, c);
+  PG_EACH_PTR(c, &needle) {
+    res = pg_string_consume_rune(res.value, *c);
     if (!res.has_value) {
       return res;
     }
@@ -3039,8 +3032,8 @@ pg_string_starts_with(PgString haystack, PgString needle) {
   PG_OPTION(PgString) res = {0};
   res.value = haystack;
 
-  PG_EACH(s, needles) {
-    res = pg_string_consume_string(res.value, s);
+  PG_EACH_PTR(s, &needles) {
+    res = pg_string_consume_string(res.value, *s);
     if (res.has_value) {
       return res;
     }
@@ -4660,9 +4653,9 @@ static PgString pg_bytes_to_hex_string(PG_SLICE(u8) bytes, PgRune sep,
       .len = pg_utf8_rune_bytes_count(sep),
   };
 
-  PG_EACH(n, bytes) {
-    u8 c1 = n & 15; // i.e. `% 16`.
-    u8 c2 = n >> 4; // i.e. `/ 16`
+  PG_EACH_PTR(n, &bytes) {
+    u8 c1 = *n & 15; // i.e. `% 16`.
+    u8 c2 = *n >> 4; // i.e. `/ 16`
 
     *PG_DYN_PUSH_WITHIN_CAPACITY(&sb) =
         (u8)pg_rune_ascii_to_upper_case(pg_u8_to_hex_rune(c2));
@@ -4767,10 +4760,10 @@ pg_string_clone(PgString s, PgAllocator *allocator) {
   PG_ASSERT(b.data != nullptr);
   PG_ASSERT(a.len == b.len);
 
-  PG_EACH_I(c_a, i, a) {
-    u8 c_b = PG_SLICE_AT(b, i);
+  PG_EACH_PTR(c_a, &a) {
+    u8 c_b = PG_SLICE_AT(b, PG_SLICE_PTR_TO_INDEX(c_a, a));
 
-    if (pg_rune_ascii_to_lower_case(c_a) != pg_rune_ascii_to_lower_case(c_b)) {
+    if (pg_rune_ascii_to_lower_case(*c_a) != pg_rune_ascii_to_lower_case(c_b)) {
       return false;
     }
   }
@@ -5090,7 +5083,7 @@ static void pg_bitfield_set_ptr(u8 *bitfield, u64 bitfield_len, u64 idx_bit,
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_bitfield_count(PgString bitfield) {
   u64 res = 0;
-  PG_EACH(c, bitfield) { res += (u8)__builtin_popcount((u8)c); }
+  PG_EACH_PTR(c, &bitfield) { res += (u8)__builtin_popcount(*c); }
   return res;
 }
 
@@ -5098,15 +5091,15 @@ static void pg_bitfield_set_ptr(u8 *bitfield, u64 bitfield_len, u64 idx_bit,
     pg_bitfield_get_first_zero(PgString bitfield) {
   PG_OPTION(u64) res = {0};
 
-  PG_EACH_I(c, i, bitfield) {
-    if (0xff == c) {
+  PG_EACH_PTR(c, &bitfield) {
+    if (0xff == *c) {
       continue;
     }
 
     u64 bit_idx = 0;
     u8 bit_pattern = 1;
     for (u64 j = 0; j < 8; j++) {
-      if (0 == (c & bit_pattern)) {
+      if (0 == (*c & bit_pattern)) {
         bit_idx = j;
         break;
       }
@@ -5115,7 +5108,7 @@ static void pg_bitfield_set_ptr(u8 *bitfield, u64 bitfield_len, u64 idx_bit,
     PG_ASSERT(bit_idx < 8);
     PG_ASSERT(bit_idx > 0);
 
-    res.value = i * 8 + (bit_idx - 1);
+    res.value = PG_SLICE_PTR_TO_INDEX(c, bitfield) * 8 + (bit_idx - 1);
     res.has_value = true;
     return res;
   }
@@ -5268,7 +5261,7 @@ static void pg_adjacency_matrix_remove_node(PgAdjacencyMatrix *matrix,
 [[maybe_unused]] [[nodiscard]]
 static bool pg_adjacency_matrix_is_empty(PgAdjacencyMatrix matrix) {
   bool set = false;
-  PG_EACH(it, matrix.bitfield) { set |= it; }
+  PG_EACH_PTR(it, &matrix.bitfield) { set |= *it; }
   return set == 0;
 }
 
@@ -6455,8 +6448,8 @@ static PG_RESULT(PgProcess, PgError)
   PG_DYN_ENSURE_CAP(&args_c, args.len + 2, allocator);
   PG_DYN_PUSH(&args_c, path_c, allocator);
 
-  PG_EACH(arg, args) {
-    PG_DYN_PUSH(&args_c, pg_string_to_cstr(arg, allocator), allocator);
+  PG_EACH_PTR(arg, &args) {
+    PG_DYN_PUSH(&args_c, pg_string_to_cstr(*arg, allocator), allocator);
   }
   PG_ASSERT(args.len + 1 == args_c.len);
 
@@ -6563,7 +6556,7 @@ static PG_RESULT(PgProcess, PgError)
   res = PG_OK(process, PgProcess, PgError);
 
 end:
-  PG_EACH(arg_c, args_c) { pg_free(allocator, arg_c); }
+  PG_EACH_PTR(arg_c, &args_c) { pg_free(allocator, *arg_c); }
 
   if (stdin_pipe[PG_PIPE_READ]) {
     close(stdin_pipe[PG_PIPE_READ]);
@@ -7483,9 +7476,9 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value,
                      PgAllocator *allocator) {
   PgError err = 0;
 
-  PG_EACH(c, key) {
-    if (pg_rune_ascii_is_alphanumeric(c)) {
-      err = pg_writer_write_u8(w, c, allocator);
+  PG_EACH_PTR(c, &key) {
+    if (pg_rune_ascii_is_alphanumeric(*c)) {
+      err = pg_writer_write_u8(w, *c, allocator);
       if (err) {
         return err;
       }
@@ -7495,7 +7488,7 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value,
         return err;
       }
 
-      err = pg_writer_write_u8_hex_upper(w, c, allocator);
+      err = pg_writer_write_u8_hex_upper(w, *c, allocator);
       if (err) {
         return err;
       }
@@ -7507,9 +7500,9 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value,
     return err;
   }
 
-  PG_EACH(c, value) {
-    if (pg_rune_ascii_is_alphanumeric(c)) {
-      err = pg_writer_write_u8(w, c, allocator);
+  PG_EACH_PTR(c, &value) {
+    if (pg_rune_ascii_is_alphanumeric(*c)) {
+      err = pg_writer_write_u8(w, *c, allocator);
       if (err) {
         return err;
       }
@@ -7518,7 +7511,7 @@ pg_writer_url_encode(PgWriter *w, PgString key, PgString value,
       if (err) {
         return err;
       }
-      err = pg_writer_write_u8_hex_upper(w, c, allocator);
+      err = pg_writer_write_u8_hex_upper(w, *c, allocator);
       if (err) {
         return err;
       }
@@ -7543,13 +7536,13 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
     return err;
   }
 
-  PG_EACH_I(path_component, i, req.url.path_components) {
-    err = pg_writer_write_full(w, path_component, allocator);
+  PG_EACH_PTR(path_component, &req.url.path_components) {
+    err = pg_writer_write_full(w, *path_component, allocator);
     if (err) {
       return err;
     }
 
-    if (i < req.url.path_components.len - 1) {
+    if (path_component != PG_SLICE_LAST_PTR(&req.url.path_components)) {
       err = pg_writer_write_full(w, PG_S("/"), allocator);
       if (err) {
         return err;
@@ -7563,13 +7556,13 @@ pg_http_request_write_status_line(PgWriter *w, PgHttpRequest req,
       return err;
     }
 
-    PG_EACH_I(param, i, req.url.query_parameters) {
-      err = pg_writer_url_encode(w, param.key, param.value, allocator);
+    PG_EACH_PTR(param, &req.url.query_parameters) {
+      err = pg_writer_url_encode(w, param->key, param->value, allocator);
       if (err) {
         return err;
       }
 
-      if (i < req.url.query_parameters.len - 1) {
+      if (param != PG_SLICE_LAST_PTR(&req.url.query_parameters)) {
         err = pg_writer_write_full(w, PG_S("&"), allocator);
         if (err) {
           return err;
@@ -7665,19 +7658,19 @@ pg_html_sanitize(PgString s, PgAllocator *allocator) {
   PG_DYN(u8) res = {0};
   PG_DYN_ENSURE_CAP(&res, s.len * 2, allocator);
 
-  PG_EACH(c, s) {
-    if ('&' == c) {
+  PG_EACH_PTR(c, &s) {
+    if ('&' == *c) {
       PG_DYN_APPEND_SLICE(&res, PG_S("&amp;"), allocator);
-    } else if ('<' == c) {
+    } else if ('<' == *c) {
       PG_DYN_APPEND_SLICE(&res, PG_S("&lt;"), allocator);
-    } else if ('>' == c) {
+    } else if ('>' == *c) {
       PG_DYN_APPEND_SLICE(&res, PG_S("&gt;"), allocator);
-    } else if ('"' == c) {
+    } else if ('"' == *c) {
       PG_DYN_APPEND_SLICE(&res, PG_S("&quot;"), allocator);
-    } else if ('\'' == c) {
+    } else if ('\'' == *c) {
       PG_DYN_APPEND_SLICE(&res, PG_S("&#39;"), allocator);
     } else {
-      PG_DYN_PUSH(&res, c, allocator);
+      PG_DYN_PUSH(&res, *c, allocator);
     }
   }
 
@@ -7785,23 +7778,23 @@ pg_url_to_string(PgUrl u, PgAllocator *allocator) {
     pg_string_builder_append_u64(&sb, u.port, allocator);
   }
 
-  PG_EACH(it, u.path_components) {
+  PG_EACH_PTR(it, &u.path_components) {
     PG_DYN_APPEND_SLICE(&sb, PG_S("/"), allocator);
-    PG_DYN_APPEND_SLICE(&sb, it, allocator);
+    PG_DYN_APPEND_SLICE(&sb, *it, allocator);
   }
 
   if (u.query_parameters.len) {
     PG_DYN_APPEND_SLICE(&sb, PG_S("?"), allocator);
 
-    PG_EACH(it, u.query_parameters) {
-      if (it.key.len) {
-        PG_DYN_APPEND_SLICE(&sb, it.key, allocator);
+    PG_EACH_PTR(it, &u.query_parameters) {
+      if (it->key.len) {
+        PG_DYN_APPEND_SLICE(&sb, it->key, allocator);
       }
-      if (it.key.len && it.value.len) {
+      if (it->key.len && it->value.len) {
         PG_DYN_APPEND_SLICE(&sb, PG_S("="), allocator);
       }
-      if (it.value.len) {
-        PG_DYN_APPEND_SLICE(&sb, it.value, allocator);
+      if (it->value.len) {
+        PG_DYN_APPEND_SLICE(&sb, it->value, allocator);
       }
 
       PG_DYN_APPEND_SLICE(&sb, PG_S("&"), allocator);
@@ -7939,9 +7932,9 @@ pg_url_is_scheme_valid(PgString scheme) {
     return false;
   }
 
-  PG_EACH(c, scheme) {
-    if (!(pg_rune_ascii_is_alphanumeric(c) || c == '+' || c == '-' ||
-          c == '.')) {
+  PG_EACH_PTR(c, &scheme) {
+    if (!(pg_rune_ascii_is_alphanumeric(*c) || *c == '+' || *c == '-' ||
+          *c == '.')) {
       return false;
     }
   }
@@ -8434,8 +8427,8 @@ pg_http_write_request(PgWriter *w, PgHttpRequest req, PgAllocator *allocator) {
   if (err) {
     return err;
   }
-  PG_EACH(header, req.headers) {
-    err = pg_http_write_header(w, header, allocator);
+  PG_EACH_PTR(header, &req.headers) {
+    err = pg_http_write_header(w, *header, allocator);
     if (err) {
       return err;
     }
@@ -8471,8 +8464,8 @@ pg_http_write_response(PgWriter *w, PgHttpResponse res,
     return err;
   }
 
-  PG_EACH(header, res.headers) {
-    err = pg_http_write_header(w, header, allocator);
+  PG_EACH_PTR(header, &res.headers) {
+    err = pg_http_write_header(w, *header, allocator);
     if (err) {
       return err;
     }
@@ -8494,12 +8487,12 @@ pg_http_write_response(PgWriter *w, PgHttpResponse res,
     pg_http_content_length(PG_SLICE(PgStringKeyValue) headers) {
   PG_RESULT(u64, PgError) res = {0};
 
-  PG_EACH(h, headers) {
-    if (!pg_string_ieq_ascii(PG_S("Content-Length"), h.key)) {
+  PG_EACH_PTR(h, &headers) {
+    if (!pg_string_ieq_ascii(PG_S("Content-Length"), h->key)) {
       continue;
     }
 
-    PgParseNumberResult res_parse = pg_string_parse_u64(h.value, 10, true);
+    PgParseNumberResult res_parse = pg_string_parse_u64(h->value, 10, true);
     if (!res_parse.present) {
       return PG_ERR(PG_ERR_INVALID_VALUE, u64, PgError);
     }
@@ -8659,14 +8652,14 @@ static PgError pg_logfmt_write_string_escaped(PgWriter *w, PgString entry,
     }
   }
 
-  PG_EACH(c, entry) {
-    if (pg_logfmt_byte_needs_escaping(c)) {
+  PG_EACH_PTR(c, &entry) {
+    if (pg_logfmt_byte_needs_escaping(*c)) {
       err = pg_writer_write_u8(w, '\\', allocator);
       if (err) {
         return err;
       }
     }
-    err = pg_writer_write_u8(w, c, allocator);
+    err = pg_writer_write_u8(w, *c, allocator);
     if (err) {
       return err;
     }
@@ -9312,23 +9305,23 @@ pg_html_node_get_next_sibling(PgHtmlNode *node) {
 
   PgHtmlNode *parent = root;
 
-  PG_EACH(token, tokens) {
+  PG_EACH_PTR(token, &tokens) {
     PG_ASSERT(parent);
 
-    bool is_self_closing = ((PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind) ||
-                            PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind) &&
-                           (pg_html_tag_is_self_closing(token.tag) ||
-                            pg_svg_tag_is_self_closing(token.tag));
+    bool is_self_closing = ((PG_HTML_TOKEN_KIND_TAG_OPENING == token->kind) ||
+                            PG_HTML_TOKEN_KIND_TAG_CLOSING == token->kind) &&
+                           (pg_html_tag_is_self_closing(token->tag) ||
+                            pg_svg_tag_is_self_closing(token->tag));
 
-    if (PG_HTML_TOKEN_KIND_TEXT == token.kind ||
-        PG_HTML_TOKEN_KIND_COMMENT == token.kind ||
-        PG_HTML_TOKEN_KIND_DOCTYPE == token.kind || is_self_closing) {
+    if (PG_HTML_TOKEN_KIND_TEXT == token->kind ||
+        PG_HTML_TOKEN_KIND_COMMENT == token->kind ||
+        PG_HTML_TOKEN_KIND_DOCTYPE == token->kind || is_self_closing) {
       PgHtmlNode *node =
           pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
       pg_linked_list_init(&node->parent);
       pg_linked_list_init(&node->first_child);
       pg_linked_list_init(&node->next_sibling);
-      node->token_start = node->token_end = token;
+      node->token_start = node->token_end = *token;
       node->parent.next = &parent->parent;
 
       PgLinkedListNode *first_child_of_parent = &parent->first_child;
@@ -9340,13 +9333,13 @@ pg_html_node_get_next_sibling(PgHtmlNode *node) {
         pg_linked_list_append(next_sibling_of_first_child_of_parent,
                               &node->next_sibling);
       }
-    } else if (PG_HTML_TOKEN_KIND_TAG_OPENING == token.kind) {
+    } else if (PG_HTML_TOKEN_KIND_TAG_OPENING == token->kind) {
       PgHtmlNode *node =
           pg_alloc(allocator, sizeof(PgHtmlNode), _Alignof(PgHtmlNode), 1);
       pg_linked_list_init(&node->parent);
       pg_linked_list_init(&node->first_child);
       pg_linked_list_init(&node->next_sibling);
-      node->token_start = node->token_end = token;
+      node->token_start = node->token_end = *token;
       node->parent.next = &parent->parent;
 
       PgLinkedListNode *first_child_of_parent = &parent->first_child;
@@ -9362,10 +9355,10 @@ pg_html_node_get_next_sibling(PgHtmlNode *node) {
       if (!is_self_closing) {
         parent = node;
       }
-    } else if (PG_HTML_TOKEN_KIND_TAG_CLOSING == token.kind) {
+    } else if (PG_HTML_TOKEN_KIND_TAG_CLOSING == token->kind) {
       PG_ASSERT(PG_HTML_TOKEN_KIND_TAG_OPENING == parent->token_start.kind &&
-                pg_string_eq(parent->token_start.tag, token.tag));
-      parent->token_end = token;
+                pg_string_eq(parent->token_start.tag, token->tag));
+      parent->token_end = *token;
 
       parent = pg_html_node_get_parent(parent);
     } else {
@@ -9518,7 +9511,7 @@ static void pg_thread_pool_enqueue_task(PgThreadPool *pool, PgThreadFn fn,
   PG_ASSERT(0 == pg_cnd_broadcast(&pool->tasks_cnd));
   PG_ASSERT(0 == pg_mtx_unlock(&pool->tasks_mtx));
 
-  PG_EACH(w, pool->workers) { (void)pg_thread_join(w); }
+  PG_EACH_PTR(w, &pool->workers) { (void)pg_thread_join(*w); }
 }
 
 [[maybe_unused]] [[nodiscard]] static PgElfSymbolType
@@ -9939,10 +9932,10 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
                                    u64 addr) {
   PG_OPTION(PgDebugFunctionDeclaration) res = {0};
 
-  PG_EACH(fn, fns) {
-    if (fn.low_pc <= addr && addr < fn.high_pc) {
+  PG_EACH_PTR(fn, &fns) {
+    if (fn->low_pc <= addr && addr < fn->high_pc) {
       res.has_value = true;
-      res.value = fn;
+      res.value = *fn;
       return res;
     }
   }
@@ -11535,26 +11528,26 @@ pg_dwarf_compilation_unit_print_abbreviations(
   PG_ERR_RETURN(pg_writer_write_u64_as_string(w, unit.abbrevs.len, allocator));
   PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
 
-  PG_EACH(abbrev, unit.abbrevs) {
+  PG_EACH_PTR(abbrev, &unit.abbrevs) {
     PG_ERR_RETURN(pg_writer_write_full(w, PG_S("type="), allocator));
-    PG_ERR_RETURN(pg_writer_write_u64_as_string(w, abbrev.type, allocator));
+    PG_ERR_RETURN(pg_writer_write_u64_as_string(w, abbrev->type, allocator));
 
     PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" tag="), allocator));
-    PgString tag_str = pg_dwarf_tag_str[abbrev.tag];
+    PgString tag_str = pg_dwarf_tag_str[abbrev->tag];
     PG_ERR_RETURN(pg_writer_write_full(w, tag_str, allocator));
 
     PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" forms_len="), allocator));
-    PG_ERR_RETURN(pg_writer_write_u64_as_string(w, abbrev.attribute_forms.len,
+    PG_ERR_RETURN(pg_writer_write_u64_as_string(w, abbrev->attribute_forms.len,
                                                 allocator));
     PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
 
-    PG_EACH(attr_form, abbrev.attribute_forms) {
+    PG_EACH_PTR(attr_form, &abbrev->attribute_forms) {
       PG_ERR_RETURN(pg_writer_write_full(w, PG_S("  attribute="), allocator));
-      PgString attr_str = pg_dwarf_attribute_str[attr_form.attribute];
+      PgString attr_str = pg_dwarf_attribute_str[attr_form->attribute];
       PG_ERR_RETURN(pg_writer_write_full(w, attr_str, allocator));
 
       PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" form="), allocator));
-      PgString form_str = pg_dwarf_form_str[attr_form.form];
+      PgString form_str = pg_dwarf_form_str[attr_form->form];
       PG_ERR_RETURN(pg_writer_write_full(w, form_str, allocator));
       PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
     }
@@ -12508,10 +12501,11 @@ typedef struct {
                              PgString name) {
   PG_OPTION(PgCliOptionDescription) res = {0};
 
-  PG_EACH(it, descs) {
-    if (pg_string_eq(it.name_long, name) || pg_string_eq(it.name_short, name)) {
+  PG_EACH_PTR(it, &descs) {
+    if (pg_string_eq(it->name_long, name) ||
+        pg_string_eq(it->name_short, name)) {
       res.has_value = true;
-      res.value = it;
+      res.value = *it;
       return res;
     }
   }
@@ -12756,17 +12750,17 @@ pg_cli_parse(PG_DYN(PgCliOptionDescription) * descs, int argc, char *argv[],
   }
 
   // Check that all required options are present.
-  PG_EACH(desc, desc_slice) {
-    if (!desc.required) {
+  PG_EACH_PTR(desc, &desc_slice) {
+    if (!desc->required) {
       continue;
     }
 
     // Find by either the short or long name.
-    if (!pg_cli_options_find_by_name(res.options, desc.name_short,
-                                     desc.name_long)) {
+    if (!pg_cli_options_find_by_name(res.options, desc->name_short,
+                                     desc->name_long)) {
       res.err = PG_ERR_CLI_MISSING_REQUIRED_OPTION;
-      res.err_argv = pg_string_is_empty(desc.name_short) ? desc.name_long
-                                                         : desc.name_short;
+      res.err_argv = pg_string_is_empty(desc->name_short) ? desc->name_long
+                                                          : desc->name_short;
       return res;
     }
   }
@@ -12783,31 +12777,31 @@ pg_cli_generate_help(PG_DYN(PgCliOptionDescription) descs, PgString exe_name,
 
   pg_string_builder_append_string(&sb, exe_name, allocator);
 
-  PG_EACH(desc, descs) {
+  PG_EACH_PTR(desc, &descs) {
     pg_string_builder_append_string(&sb, PG_S(" "), allocator);
 
-    pg_string_builder_append_string(&sb, desc.required ? PG_S("(") : PG_S("["),
+    pg_string_builder_append_string(&sb, desc->required ? PG_S("(") : PG_S("["),
                                     allocator);
 
-    if (!pg_string_is_empty(desc.name_short)) {
+    if (!pg_string_is_empty(desc->name_short)) {
       pg_string_builder_append_string(&sb, PG_S("-"), allocator);
-      pg_string_builder_append_string(&sb, desc.name_short, allocator);
+      pg_string_builder_append_string(&sb, desc->name_short, allocator);
     }
-    if (!pg_string_is_empty(desc.name_long)) {
-      if (!pg_string_is_empty(desc.name_short)) {
+    if (!pg_string_is_empty(desc->name_long)) {
+      if (!pg_string_is_empty(desc->name_short)) {
         pg_string_builder_append_string(&sb, PG_S("|"), allocator);
       }
 
       pg_string_builder_append_string(&sb, PG_S("--"), allocator);
-      pg_string_builder_append_string(&sb, desc.name_long, allocator);
+      pg_string_builder_append_string(&sb, desc->name_long, allocator);
     }
 
-    if (!pg_string_is_empty(desc.value_name)) {
+    if (!pg_string_is_empty(desc->value_name)) {
       pg_string_builder_append_string(&sb, PG_S(" "), allocator);
-      pg_string_builder_append_string(&sb, desc.value_name, allocator);
+      pg_string_builder_append_string(&sb, desc->value_name, allocator);
     }
 
-    pg_string_builder_append_string(&sb, desc.required ? PG_S(")") : PG_S("]"),
+    pg_string_builder_append_string(&sb, desc->required ? PG_S(")") : PG_S("]"),
                                     allocator);
   }
 
@@ -12827,33 +12821,33 @@ pg_cli_generate_help(PG_DYN(PgCliOptionDescription) descs, PgString exe_name,
   if (!PG_SLICE_IS_EMPTY(descs)) {
     pg_string_builder_append_string(&sb, PG_S("\nOPTIONS:\n"), allocator);
 
-    PG_EACH(desc, descs) {
+    PG_EACH_PTR(desc, &descs) {
       pg_string_builder_append_string(&sb, PG_S("    "), allocator);
-      if (!pg_string_is_empty(desc.name_short)) {
+      if (!pg_string_is_empty(desc->name_short)) {
         pg_string_builder_append_string(&sb, PG_S("-"), allocator);
-        pg_string_builder_append_string(&sb, desc.name_short, allocator);
+        pg_string_builder_append_string(&sb, desc->name_short, allocator);
       }
-      if (!pg_string_is_empty(desc.name_long)) {
-        if (!pg_string_is_empty(desc.name_short)) {
+      if (!pg_string_is_empty(desc->name_long)) {
+        if (!pg_string_is_empty(desc->name_short)) {
           pg_string_builder_append_string(&sb, PG_S(", "), allocator);
         }
 
         pg_string_builder_append_string(&sb, PG_S("--"), allocator);
-        pg_string_builder_append_string(&sb, desc.name_long, allocator);
+        pg_string_builder_append_string(&sb, desc->name_long, allocator);
       }
-      if (!pg_string_is_empty(desc.value_name)) {
+      if (!pg_string_is_empty(desc->value_name)) {
         pg_string_builder_append_string(&sb, PG_S(" "), allocator);
-        pg_string_builder_append_string(&sb, desc.value_name, allocator);
+        pg_string_builder_append_string(&sb, desc->value_name, allocator);
       }
 
-      if (desc.required) {
+      if (desc->required) {
         pg_string_builder_append_string(&sb, PG_S("    [required]"), allocator);
       }
 
-      if (!pg_string_is_empty(desc.description)) {
+      if (!pg_string_is_empty(desc->description)) {
         pg_string_builder_append_string(&sb, PG_S("\n        "), allocator);
-        pg_string_builder_append_string(&sb, desc.description, allocator);
-        if (!pg_string_ends_with(desc.description, PG_S("."))) {
+        pg_string_builder_append_string(&sb, desc->description, allocator);
+        if (!pg_string_ends_with(desc->description, PG_S("."))) {
           pg_string_builder_append_string(&sb, PG_S("."), allocator);
         }
         pg_string_builder_append_string(&sb, PG_S("\n"), allocator);
@@ -12999,17 +12993,17 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
   bool cli_verbose = false;
   PgString cli_run = {0};
 
-  PG_EACH(opt, res_cli_parse.options) {
-    if (pg_string_eq(opt.description.name_long, PG_S("verbose"))) {
+  PG_EACH_PTR(opt, &res_cli_parse.options) {
+    if (pg_string_eq(opt->description.name_long, PG_S("verbose"))) {
       cli_verbose = true;
-    } else if (pg_string_eq(opt.description.name_long, PG_S("run"))) {
-      if (1 != opt.values.len) {
+    } else if (pg_string_eq(opt->description.name_long, PG_S("run"))) {
+      if (1 != opt->values.len) {
         fprintf(stderr,
                 "Only one value expected for -r,--run, got %" PRIu64 "\n",
-                opt.values.len);
+                opt->values.len);
       }
-      cli_run = PG_SLICE_AT(opt.values, 0);
-    } else if (pg_string_eq(opt.description.name_long, PG_S("help"))) {
+      cli_run = PG_SLICE_AT(opt->values, 0);
+    } else if (pg_string_eq(opt->description.name_long, PG_S("help"))) {
       PgString help =
           pg_cli_generate_help(descs, exe, description, PG_S(""), allocator);
       printf("%.*s", (i32)help.len, help.data);
@@ -13018,19 +13012,19 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     }
   }
 
-  PG_EACH(t, tests) {
+  PG_EACH_PTR(t, &tests) {
     // TODO: Run each test in its own child process.
     // TODO: Exclude pattern.
-    if (!pg_string_starts_with(t.name, cli_run)) {
+    if (!pg_string_starts_with(t->name, cli_run)) {
       continue;
     }
 
     u64 start = 0;
     if (cli_verbose) {
-      printf("RUN\t%.*s\t", (i32)t.name.len, t.name.data);
+      printf("RUN\t%.*s\t", (i32)t->name.len, t->name.data);
       start = PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC));
     }
-    t.fn();
+    t->fn();
     if (cli_verbose) {
       u64 end = PG_UNWRAP_OR_DEFAULT(pg_time_ns_now(PG_CLOCK_KIND_MONOTONIC));
       PgDuration duration = pg_time_ns_to_human_readable_duration(end - start);
