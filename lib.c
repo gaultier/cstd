@@ -247,6 +247,12 @@ typedef double f64;
 #define PG_EACH_PTR(E, V)                                                      \
   for (typeof((V)->data) E = &(V)->data[0]; E < (V)->data + (V)->len; E++)
 
+#define PG_EACH(E, V)                                                          \
+  for (u64 PG_UNIQUIFY(i) = 0; PG_UNIQUIFY(i) < (V).len; PG_UNIQUIFY(i)++)     \
+    for (bool PG_UNIQUIFY(once) = true; PG_UNIQUIFY(once);)                    \
+      for (typeof(*(V).data) E = (V).data[PG_UNIQUIFY(i)]; PG_UNIQUIFY(once);  \
+           PG_UNIQUIFY(once) = false)
+
 #define PG_SOME(V, T) ((PG_OPTION(T)){.has_value = true, .value = V})
 #define PG_NONE(T) ((PG_OPTION(T)){0})
 
@@ -2122,8 +2128,7 @@ pg_time_ns_to_human_readable_duration(u64 ns) {
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_hash_fnv(PG_SLICE(u8) s) {
   u64 hash = 0x100;
-  for (u64 i = 0; i < s.len; i++) {
-    u8 c = PG_SLICE_AT(s, i);
+  PG_EACH(c, s) {
     hash ^= c;
     hash *= 1111111111111111111;
   }
