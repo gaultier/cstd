@@ -228,13 +228,13 @@ typedef double f64;
 #define PG_IF_LET_OK(I, V)                                                     \
   if (PG_IS_OK(V))                                                             \
     for (bool PG_UNIQUIFY(once) = true; PG_UNIQUIFY(once);)                    \
-      for (typeof(V._ok) I = V._ok; PG_UNIQUIFY(once);                         \
+      for (typeof((V)._ok) I = (V)._ok; PG_UNIQUIFY(once);                     \
            PG_UNIQUIFY(once) = false)
 
 #define PG_IF_LET_ERR(I, V)                                                    \
   if (PG_IS_ERR(V))                                                            \
     for (bool PG_UNIQUIFY(once) = true; PG_UNIQUIFY(once);)                    \
-      for (typeof(V.u._err) I = V.u._err; PG_UNIQUIFY(once);                   \
+      for (typeof((V).u._err) I = (V).u._err; PG_UNIQUIFY(once);               \
            PG_UNIQUIFY(once) = false)
 
 #define PG_ERR_RETURN(E)                                                       \
@@ -243,6 +243,9 @@ typedef double f64;
       return (E);                                                              \
     }                                                                          \
   }
+
+#define PG_EACH_PTR(E, V)                                                      \
+  for (typeof((V)->data) E = &(V)->data[0]; E < (V)->data + (V)->len; E++)
 
 #define PG_SOME(V, T) ((PG_OPTION(T)){.has_value = true, .value = V})
 #define PG_NONE(T) ((PG_OPTION(T)){0})
@@ -3489,6 +3492,10 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
 #define PG_DYN_POP(s)                                                          \
   (0 == (s)->len || nullptr == (s)->data) ? (__builtin_trap(), (s)->data[0])   \
                                           : ((s)->data[--(s)->len])
+
+#define PG_SLICE_FIRST_PTR(s) PG_C_ARRAY_AT_PTR((s)->data, (s)->len, 0)
+
+#define PG_SLICE_FIRST(s) PG_C_ARRAY_AT((s)->data, (s)->len, 0)
 
 #define PG_SLICE_LAST_PTR(s)                                                   \
   PG_C_ARRAY_AT_PTR((s)->data, (s)->len, (s)->len - 1)
@@ -9500,8 +9507,7 @@ static i32 pg_pool_worker_start_fn(void *data) {
   res.workers.data =
       pg_alloc(allocator, sizeof(PgThread), _Alignof(PgThread), size);
 
-  for (u32 i = 0; i < size; i++) {
-    PgThread *it = PG_SLICE_AT_PTR(&res.workers, i);
+  PG_EACH_PTR(it, &res.workers) {
     PG_RESULT(PgThread, PgError)
     res_thread = pg_thread_create(pg_pool_worker_start_fn, it);
 
@@ -9509,7 +9515,7 @@ static i32 pg_pool_worker_start_fn(void *data) {
       return PG_ERR(err, PgThreadPool, PgError);
     }
 
-    PG_SLICE_AT(res.workers, i) = PG_UNWRAP(res_thread);
+    *it = PG_UNWRAP(res_thread);
   }
 
   return PG_OK(res, PgThreadPool, PgError);
@@ -9627,9 +9633,7 @@ pg_elf_section_header_find_ptr_by_name_and_kind(PgElf *elf, PgString name,
                                                 PgElfSectionHeaderKind kind) {
   PG_ASSERT(elf);
 
-  for (u32 i = 0; i < elf->section_headers.len; i++) {
-    PgElfSectionHeader *section = PG_SLICE_AT_PTR(&elf->section_headers, i);
-
+  PG_EACH_PTR(section, &elf->section_headers) {
     if (kind != section->kind) {
       continue;
     }
@@ -12558,8 +12562,7 @@ typedef struct {
 [[nodiscard]] static PgCliOption *
 pg_cli_options_find_by_name(PG_DYN(PgCliOption) options, PgString name_short,
                             PgString name_long) {
-  for (u64 i = 0; i < options.len; i++) {
-    PgCliOption *it = PG_SLICE_AT_PTR(&options, i);
+  PG_EACH_PTR(it, &options) {
     if (pg_string_eq(it->description.name_long, name_long) ||
         pg_string_eq(it->description.name_short, name_short)) {
       return it;
