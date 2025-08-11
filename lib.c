@@ -1671,7 +1671,7 @@ typedef struct {
   } u;
   PgDwarfAbbreviationEntry abbrev;
   PgDwarfAttributeForm attr_form;
-  u64 debug_info_offset;
+  u64 die_offset;
 } PgDwarfAtom;
 PG_OPTION_DECL(PgDwarfAtom);
 PG_RESULT_DECL(PG_OPTION(PgDwarfAtom), PgError);
@@ -1693,6 +1693,7 @@ typedef struct {
   // Current attribute form being iterated on.
   u64 abbrev_attr_form_idx;
   PG_SLICE(u8) debug_info_full;
+  u64 die_offset;
 } PgDebugInfoIterator;
 PG_RESULT_DECL(PgDebugInfoIterator, PgError);
 
@@ -1809,6 +1810,7 @@ typedef struct {
 // ---------------- Functions.
 
 #define PG_S(s) ((PgString){.data = (u8 *)s, .len = sizeof(s) - 1})
+#define PG_S_FMT(s) (i32)(s).len, s.data
 
 #define PG_NEW(T, allocator) pg_alloc(allocator, sizeof(T), _Alignof(T), 1)
 
@@ -10920,10 +10922,11 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom), PgError)
   }
 
   PG_ASSERT(it->r.u.bytes.data >= it->debug_info_full.data);
-  u64 offset = it->r.u.bytes.data - it->debug_info_full.data;
 
   if (!it->abbrev_opt.has_value ||
       it->abbrev_attr_form_idx >= it->abbrev_opt.value.attribute_forms.len) {
+    it->die_offset = it->r.u.bytes.data - it->debug_info_full.data;
+
     PG_RESULT(u64, PgError) res_entry_idx = pg_reader_read_u64_leb128(&it->r);
     PG_IF_LET_ERR(err, res_entry_idx) {
       return PG_ERR(err, PG_OPTION(PgDwarfAtom), PgError);
@@ -10949,7 +10952,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom), PgError)
   PG_ASSERT(it->abbrev_opt.has_value);
   PgDwarfAbbreviationEntry abbrev = it->abbrev_opt.value;
   res.abbrev = abbrev;
-  res.debug_info_offset = offset;
+  res.die_offset = it->die_offset;
 
   if (PG_SLICE_IS_EMPTY(abbrev.attribute_forms)) {
     return PG_OK(PG_SOME(res, PgDwarfAtom), PG_OPTION(PgDwarfAtom), PgError);
@@ -11489,22 +11492,28 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
     }
 
     if (0 == current_die_offset) {
-      current_die_offset = atom.debug_info_offset;
+      current_die_offset = atom.die_offset;
     }
 
-    if (current_die_offset != atom.debug_info_offset) {
+    if (current_die_offset != atom.die_offset) {
       PG_DYN_PUSH(&res, fn, allocator);
       fn = (PgDebugFunctionDeclaration){0};
 
-      current_die_offset = atom.debug_info_offset;
+      current_die_offset = atom.die_offset;
     }
 
     if (PG_DWARF_AT_LOW_PC == atom.attr_form.attribute) {
       fn.low_pc = PG_SLICE_AT(it->unit.addresses, atom.u.u64);
+      fprintf(stderr, "[D001] low_pc=%lu high_pc=%lu name=%.*s offset=%lu\n",
+              fn.low_pc, fn.high_pc, PG_S_FMT(fn.name), atom.die_offset);
     } else if (PG_DWARF_AT_NAME == atom.attr_form.attribute) {
       fn.name = pg_string_clone(atom.u.bytes, allocator);
+      fprintf(stderr, "[D002] low_pc=%lu high_pc=%lu name=%.*s offset=%lu\n",
+              fn.low_pc, fn.high_pc, PG_S_FMT(fn.name), atom.die_offset);
     } else if (PG_DWARF_AT_HIGH_PC == atom.attr_form.attribute) {
       fn.high_pc = fn.low_pc + atom.u.u64;
+      fprintf(stderr, "[D003] low_pc=%lu high_pc=%lu name=%.*s offset=%lu\n",
+              fn.low_pc, fn.high_pc, PG_S_FMT(fn.name), atom.die_offset);
     } else if (PG_DWARF_AT_ABSTRACT_ORIGIN == atom.attr_form.attribute) {
       PG_ASSERT(PG_DWARF_TAG_INLINED_SUBROUTINE == atom.abbrev.tag);
       // To be resolved later.
