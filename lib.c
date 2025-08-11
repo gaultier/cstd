@@ -11469,17 +11469,15 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
     PG_IF_LET_ERR(err, res_next) {
       return PG_ERR(err, PG_DYN(PgDebugFunctionDeclaration), PgError);
     }
-    PG_OPTION(PgDwarfAtom) next = PG_UNWRAP(res_next);
+    PG_OPTION(PgDwarfAtom) atom_opt = PG_UNWRAP(res_next);
 
     // The end.
-    if (!next.has_value) {
-      if (!pg_string_is_empty(fn.name) && fn.high_pc) {
-        PG_DYN_PUSH(&res, fn, allocator);
-      }
+    if (!atom_opt.has_value) {
+      PG_DYN_PUSH(&res, fn, allocator);
       return PG_OK(res, PG_DYN(PgDebugFunctionDeclaration), PgError);
     }
 
-    PgDwarfAtom atom = next.value;
+    PgDwarfAtom atom = atom_opt.value;
 #if 0
     PgWriter w =
         pg_writer_make_from_file_descriptor(pg_os_stderr(), 0, nullptr);
