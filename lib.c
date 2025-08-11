@@ -1970,8 +1970,7 @@ static void pg_once_mark_as_done(_Atomic PgOnce *done) {
   return false;
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_self_exe_get_path(PgAllocator *allocator);
+[[maybe_unused]] [[nodiscard]] static PgString pg_self_exe_get_path();
 
 [[nodiscard]] static u64 pg_self_pie_get_offset();
 
@@ -11567,12 +11566,12 @@ pg_self_debug_info_iterator_release(PgDebugInfoIterator dbg) {
 
 [[maybe_unused]] static void pg_thread_yield() { sched_yield(); }
 
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_self_exe_get_path(PgAllocator *allocator) {
+[[maybe_unused]] [[nodiscard]] static PgString pg_self_exe_get_path() {
   static _Atomic PgOnce once = PG_ONCE_UNINITIALIZED;
+  static char path_c[PG_PATH_MAX] = {0};
   static PgString res = {0};
+
   if (pg_once_do(&once)) {
-    char path_c[PG_PATH_MAX] = {0};
     i32 ret = 0;
     do {
       ret = readlink("/proc/self/exe", path_c, PG_STATIC_ARRAY_LEN(path_c));
@@ -11581,7 +11580,7 @@ pg_self_exe_get_path(PgAllocator *allocator) {
       return res;
     }
 
-    res = pg_string_clone(pg_cstr_to_string(path_c), allocator);
+    res = pg_cstr_to_string(path_c);
 
     pg_once_mark_as_done(&once);
   }
@@ -11683,7 +11682,7 @@ pg_self_exe_get_path(PgAllocator *allocator) {
   PgDebugInfoIterator res = {0};
   PgError err = 0;
 
-  PgString exe_path = pg_self_exe_get_path(allocator);
+  PgString exe_path = pg_self_exe_get_path();
   if (pg_string_is_empty(exe_path)) {
     return PG_OK(res, PgDebugInfoIterator, PgError);
   }
