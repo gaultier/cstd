@@ -2,7 +2,6 @@
 - [.] macos: Parse mach-o
 - [ ] io: Make pg_watch_dir work
 - [ ] alloc: Allocator that exports CTF data
-- [ ] dwarf: Make debug info load work in release mode
 - [ ] dwarf: Map current address to file+line in debug info (.debug_line, .debug_loc_lists etc)
 - [ ] std: Add higher-level APIs for common use-cases
 - [ ] doc: Document all functions.
@@ -13,4 +12,3 @@
 - [ ] crypto: TLS 1.3
 - [ ] test: Test untested functions (add test coverage to build).
 - [ ] windows: Unix/Windows parity.
-- [x] cli long options: allow `--foo bar` as an alternative to `--fo=bar`
