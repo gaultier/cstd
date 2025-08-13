@@ -12234,19 +12234,19 @@ pg_file_send_to_socket(PgFileDescriptor dst, PgFileDescriptor src) {
   return PG_OK(res, PgMacho, PgError);
 }
 
-[[maybe_unused]] [[nodiscard]] static PgString
-pg_self_exe_get_path(PgAllocator *allocator) {
+[[maybe_unused]] [[nodiscard]] static PgString pg_self_exe_get_path() {
   static _Atomic PgOnce once = PG_ONCE_UNINITIALIZED;
+  static char path_c[PG_PATH_MAX] = {0};
   static PgString res = {0};
+
   if (pg_once_do(&once)) {
-    char path_c[PG_PATH_MAX] = {0};
     u32 len = PG_STATIC_ARRAY_LEN(path_c);
 
     i32 ret = _NSGetExecutablePath(path_c, &len);
     if (-1 == ret) {
       return res;
     }
-    res = pg_string_clone(pg_cstr_to_string(path_c), allocator);
+    res = pg_cstr_to_string(path_c);
 
     pg_once_mark_as_done(&once);
   }
@@ -12264,7 +12264,7 @@ pg_self_exe_get_path(PgAllocator *allocator) {
     pg_self_debug_info_iterator_make(PgAllocator *allocator) {
   PgDebugInfoIterator res = {0};
 
-  PgString exe_path = pg_self_exe_get_path(allocator);
+  PgString exe_path = pg_self_exe_get_path();
   if (pg_string_is_empty(exe_path)) {
     return PG_OK(res, PgDebugInfoIterator, PgError);
   }
