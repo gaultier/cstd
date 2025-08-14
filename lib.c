@@ -6866,8 +6866,6 @@ pg_fill_stack_trace(u64 skip, u64 pie_offset,
 
   while (res < PG_STACK_TRACE_MAX && frame_pointer != 0) {
     u64 instruction_pointer = *(frame_pointer + 1);
-    fprintf(stderr, "[D101] %#lx %#lx %#lx\n", (u64)frame_pointer,
-            (u64)(frame_pointer + 1), instruction_pointer);
     // Careful not to enter an infinite recursion of `PG_ASSERT ->
     // pg_fill_stack_trace`.
     PG_ASSERT_TRAP_ONLY(instruction_pointer >= pie_offset);
@@ -13011,7 +13009,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
     u64 stack_trace_len = pg_fill_stack_trace(skip, 0, stack_trace);
 
-    fprintf(stderr, " Stack trace (%#lx):\n", pg_self_pie_get_offset());
+    fprintf(stderr, " Stack trace:\n");
 
     for (u32 i = 0; i < stack_trace_len; i++) {
       u64 addr = PG_C_ARRAY_AT(stack_trace, PG_STACK_TRACE_MAX, i);
