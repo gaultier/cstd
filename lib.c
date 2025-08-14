@@ -1997,7 +1997,7 @@ pg_stacktrace_print(const char *file, int line, const char *function) {
   fprintf(stderr, "ASSERT: %s:%d:%s\n", file, line, function);
 
   u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
-  u64 stack_trace_len = pg_fill_stack_trace(1, pie_offset, stack_trace);
+  u64 stack_trace_len = pg_fill_stack_trace(0, pie_offset, stack_trace);
 
   for (u64 i = 0; i < stack_trace_len; i++) {
     fprintf(stderr, "%#" PRIx64 "\n", stack_trace[i]);
@@ -6864,8 +6864,7 @@ pg_fill_stack_trace(u64 skip, u64 pie_offset,
   u64 *frame_pointer = __builtin_frame_address(0);
   u64 res = 0;
 
-  while (res < PG_STACK_TRACE_MAX && frame_pointer != 0 &&
-         ((u64)frame_pointer & 7) == 0 && *frame_pointer != 0) {
+  while (res < PG_STACK_TRACE_MAX && frame_pointer != 0) {
     u64 instruction_pointer = *(frame_pointer + 1);
     fprintf(stderr, "[D101] %#lx %#lx %#lx\n", (u64)frame_pointer,
             (u64)(frame_pointer + 1), instruction_pointer);
@@ -6876,7 +6875,7 @@ pg_fill_stack_trace(u64 skip, u64 pie_offset,
     // FIXME: If the current function is inlined, do not walk up the stack.
     frame_pointer = (u64 *)*frame_pointer;
 
-    if (0 == skip || res >= skip) {
+    if (0 == skip) {
       stack_trace[res++] = (instruction_pointer)-pie_offset;
     } else {
       skip--;

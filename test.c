@@ -4003,7 +4003,7 @@ static void test_debug_info() {
 
   {
     PG_ASSERT(0 == pg_debug_print_functions(&w, fns, nullptr));
-    pg_stack_trace_print_dwarf(1);
+    pg_stack_trace_print_dwarf(0);
   }
 }
 
