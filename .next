@@ -1,4 +1,4 @@
-- [ ] dwarf: handle inlined functions
+- [.] dwarf: handle inlined functions
 - [ ] aio fs linux: move pg_aio_fs_wait_one to pg_aio_fs_wait due to inotify deficiencies
 - [ ] watchdir: only watch directories and cache the (hashed) state to avoid watching each file individually
       - dir: name, [CachedDirEntry] (+ hash?)
