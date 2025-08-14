@@ -274,6 +274,7 @@ typedef u64 PgError;
 #define PG_ERR_CLI_MALFORMED_OPTION 0xff'00'04
 
 #define PG_ERR_DWARF_UNKNOWN_FORM 0xff'00'f0
+#define PG_ERR_DWARF_INVALID_ATTR_FORM_VALUE 0xff'00'f1
 
 PG_RESULT_DECL(u8, PgError);
 PG_RESULT_DECL(u16, PgError);
@@ -1629,6 +1630,8 @@ typedef struct {
   PgString name;
   PgString file;
   u64 debug_info_offset;
+  u64 debug_info_offset_ref;
+  bool inlined;
 } PgDebugFunctionDeclaration;
 PG_DYN_DECL(PgDebugFunctionDeclaration);
 PG_OPTION_DECL(PgDebugFunctionDeclaration);
@@ -6864,10 +6867,13 @@ pg_fill_stack_trace(u64 skip, u64 pie_offset,
   while (res < PG_STACK_TRACE_MAX && frame_pointer != 0 &&
          ((u64)frame_pointer & 7) == 0 && *frame_pointer != 0) {
     u64 instruction_pointer = *(frame_pointer + 1);
+    fprintf(stderr, "[D101] %#lx %#lx %#lx\n", (u64)frame_pointer,
+            (u64)(frame_pointer + 1), instruction_pointer);
     // Careful not to enter an infinite recursion of `PG_ASSERT ->
     // pg_fill_stack_trace`.
     PG_ASSERT_TRAP_ONLY(instruction_pointer >= pie_offset);
 
+    // FIXME: If the current function is inlined, do not walk up the stack.
     frame_pointer = (u64 *)*frame_pointer;
 
     if (0 == skip || res >= skip) {
@@ -9941,14 +9947,22 @@ pg_aio_is_fs_event_kind(PgAioEventKind kind) {
 static PgError pg_debug_print_function(PgWriter *w,
                                        PgDebugFunctionDeclaration fn,
                                        PgAllocator *allocator) {
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("inlined="), allocator));
+  PG_ERR_RETURN(pg_writer_write_u64_as_string(w, fn.inlined, allocator));
+  PG_ERR_RETURN(
+      pg_writer_write_full(w, PG_S(" debug_info_offset="), allocator));
   PG_ERR_RETURN(pg_writer_write_u64_hex(w, fn.debug_info_offset, allocator));
-  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(":"), allocator));
+  PG_ERR_RETURN(
+      pg_writer_write_full(w, PG_S(" debug_info_offset_ref="), allocator));
+  PG_ERR_RETURN(
+      pg_writer_write_u64_hex(w, fn.debug_info_offset_ref, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" file="), allocator));
   PG_ERR_RETURN(pg_writer_write_full(w, fn.file, allocator));
-  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(":"), allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" name="), allocator));
   PG_ERR_RETURN(pg_writer_write_full(w, fn.name, allocator));
-  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(":"), allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" low_pc="), allocator));
   PG_ERR_RETURN(pg_writer_write_u64_hex(w, fn.low_pc, allocator));
-  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("-"), allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" high_pc="), allocator));
   PG_ERR_RETURN(pg_writer_write_u64_hex(w, fn.high_pc, allocator));
 
   return 0;
@@ -11030,10 +11044,14 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom), PgError)
     res.u.u32 = PG_UNWRAP(res_read);
   } break;
 
-    // No data.
-  case PG_DWARF_FORM_IMPLICIT_CONST:
+  case PG_DWARF_FORM_IMPLICIT_CONST: {
+    res.u.u64 = attr_form.u.value;
+    res.kind = PG_DEBUG_ATOM_KIND_U64;
+  } break;
+
   case PG_DWARF_FORM_FLAG_PRESENT: {
-    res.kind = PG_DEBUG_ATOM_KIND_NO_DATA;
+    res.u.u64 = true;
+    res.kind = PG_DEBUG_ATOM_KIND_U64;
   } break;
 
   case PG_DWARF_FORM_STRP: {
@@ -11451,6 +11469,37 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
   return 0;
 }
 
+[[nodiscard]] [[maybe_unused]] PG_OPTION(u64)
+    pg_dwarf_atom_as_u64(PgDwarfAtom atom) {
+  switch (atom.kind) {
+  case PG_DEBUG_ATOM_KIND_U8:
+    return PG_SOME(atom.u.u8, u64);
+  case PG_DEBUG_ATOM_KIND_U16:
+    return PG_SOME(atom.u.u16, u64);
+  case PG_DEBUG_ATOM_KIND_U32:
+    return PG_SOME(atom.u.u32, u64);
+  case PG_DEBUG_ATOM_KIND_U64:
+    return PG_SOME(atom.u.u64, u64);
+
+  case PG_DEBUG_ATOM_KIND_NO_DATA:
+  case PG_DEBUG_ATOM_KIND_I64:
+  case PG_DEBUG_ATOM_KIND_BYTES:
+  case PG_DEBUG_ATOM_KIND_U128:
+    return PG_NONE(u64);
+  default:
+    PG_ASSERT(0);
+  }
+}
+
+[[nodiscard]] [[maybe_unused]] PG_OPTION(bool)
+    pg_dwarf_atom_as_bool(PgDwarfAtom atom) {
+  PG_OPTION(u64) val = pg_dwarf_atom_as_u64(atom);
+  if (!val.has_value) {
+    return PG_NONE(bool);
+  }
+  return PG_SOME(val.value, bool);
+}
+
 [[nodiscard]] static PG_RESULT(PG_DYN(PgDebugFunctionDeclaration), PgError)
     pg_dwarf_collect_functions(PgDebugInfoIterator *it,
                                PgAllocator *allocator) {
@@ -11469,7 +11518,7 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
     // The end.
     if (!atom_opt.has_value) {
       PG_DYN_PUSH(&res, fn, allocator);
-      return PG_OK(res, PG_DYN(PgDebugFunctionDeclaration), PgError);
+      goto end;
     }
 
     PgDwarfAtom atom = atom_opt.value;
@@ -11486,8 +11535,13 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
     if (current_die_offset != atom.debug_info_offset) {
       PG_DYN_PUSH(&res, fn, allocator);
       fn = (PgDebugFunctionDeclaration){0};
+      fn.debug_info_offset = atom.debug_info_offset;
 
       current_die_offset = atom.debug_info_offset;
+    }
+
+    if (PG_DWARF_TAG_INLINED_SUBROUTINE == atom.abbrev.tag) {
+      fn.inlined = true;
     }
 
     if (PG_DWARF_AT_LOW_PC == atom.attr_form.attribute) {
@@ -11510,7 +11564,36 @@ pg_dwarf_atom_println(PgWriter *w, PgDwarfAtom atom, PgAllocator *allocator) {
       //              atom.debug_info_offset);
     } else if (PG_DWARF_AT_ABSTRACT_ORIGIN == atom.attr_form.attribute) {
       // To be resolved later.
-      fn.debug_info_offset = atom.u.u64;
+      PG_OPTION(u64) val_opt = pg_dwarf_atom_as_u64(atom);
+      if (!val_opt.has_value) {
+        return PG_ERR(PG_ERR_DWARF_INVALID_ATTR_FORM_VALUE,
+                      PG_DYN(PgDebugFunctionDeclaration), PgError);
+      }
+      fn.debug_info_offset_ref = val_opt.value;
+    } else if (PG_DWARF_AT_INLINE == atom.attr_form.attribute) {
+      PG_OPTION(bool) val_opt = pg_dwarf_atom_as_bool(atom);
+      if (!val_opt.has_value) {
+        return PG_ERR(PG_ERR_DWARF_INVALID_ATTR_FORM_VALUE,
+                      PG_DYN(PgDebugFunctionDeclaration), PgError);
+      }
+      fn.inlined = val_opt.value;
+    }
+  }
+
+end:
+  // TODO: This is quadratic, speed up by using a hashtrie.
+  // Also, only DIEs with the attribute/form `DW_AT_inline`/true need to be
+  // resolved.
+  PG_EACH_PTR(a, &res) {
+    if (0 == a->debug_info_offset_ref) {
+      continue;
+    }
+
+    PG_EACH_PTR(b, &res) {
+      if (a->debug_info_offset_ref == b->debug_info_offset) {
+        a->name = b->name;
+        a->inlined = b->inlined;
+      }
     }
   }
 
@@ -12929,7 +13012,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
     u64 stack_trace[PG_STACK_TRACE_MAX] = {0};
     u64 stack_trace_len = pg_fill_stack_trace(skip, 0, stack_trace);
 
-    fprintf(stderr, " Stack trace:\n");
+    fprintf(stderr, " Stack trace (%#lx):\n", pg_self_pie_get_offset());
 
     for (u32 i = 0; i < stack_trace_len; i++) {
       u64 addr = PG_C_ARRAY_AT(stack_trace, PG_STACK_TRACE_MAX, i);
