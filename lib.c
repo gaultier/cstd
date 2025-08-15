@@ -1231,7 +1231,7 @@ typedef enum : u8 {
   PG_DWARF_LNS_SET_ISA,
 } PgDwarfLns;
 
-typedef enum {
+typedef enum : u16 {
   PG_DWARF_TAG_NULL = 0X0000,
   PG_DWARF_TAG_ARRAY_TYPE = 0X0001,
   PG_DWARF_TAG_CLASS_TYPE = 0X0002,
@@ -1614,10 +1614,18 @@ typedef struct {
 PG_DYN_DECL(PgDwarfAttributeForm);
 
 typedef struct {
+  u32 value;
+} PgDwarfAbbreviationEntryIndex;
+PG_OPTION_DECL(PgDwarfAbbreviationEntryIndex);
+
+typedef struct {
   u64 type;
   PgDwarfTag tag;
   bool has_children;
   PG_DYN(PgDwarfAttributeForm) attribute_forms;
+
+  // Not present in file but computed to be able to walk up the tree.
+  PG_OPTION(PgDwarfAbbreviationEntryIndex) parent;
 } PgDwarfAbbreviationEntry;
 PG_DYN_DECL(PgDwarfAbbreviationEntry);
 PG_OPTION_DECL(PgDwarfAbbreviationEntry);
@@ -3494,6 +3502,8 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
 #define PG_SLICE_FIRST_PTR(s) PG_C_ARRAY_AT_PTR((s)->data, (s)->len, 0)
 
 #define PG_SLICE_FIRST(s) PG_C_ARRAY_AT((s)->data, (s)->len, 0)
+
+#define PG_SLICE_LAST_INDEX(s) (PG_ASSERT((s).len > 0), (s).len - 1)
 
 #define PG_SLICE_LAST_PTR(s)                                                   \
   PG_C_ARRAY_AT_PTR((s)->data, (s)->len, (s)->len - 1)
@@ -10467,6 +10477,8 @@ static const PgString pg_dwarf_form_str[] = {
 
   PgReader r = pg_reader_make_from_bytes(bytes);
 
+  PG_OPTION(PgDwarfAbbreviationEntryIndex) parent = {0};
+
   for (u64 _i = 0; _i < PG_DWARF_MAX_ABBREV; _i++) {
     PG_RESULT(PG_OPTION(PgDwarfAbbreviationEntry), PgError)
     res_abbrev = pg_dwarf_parse_abbreviation_entry(&r, allocator);
@@ -10475,7 +10487,16 @@ static const PgString pg_dwarf_form_str[] = {
     }
     PG_OPTION(PgDwarfAbbreviationEntry) abbrev_opt = PG_UNWRAP(res_abbrev);
     if (abbrev_opt.has_value) {
-      PG_DYN_PUSH(&res, abbrev_opt.value, allocator);
+      PgDwarfAbbreviationEntry abbrev = abbrev_opt.value;
+      abbrev.parent = parent;
+      PG_DYN_PUSH(&res, abbrev, allocator);
+
+      if (abbrev.has_children) {
+        parent =
+            PG_SOME({PG_SLICE_LAST_INDEX(res)}, PgDwarfAbbreviationEntryIndex);
+      } else {
+        parent = PG_NONE(PgDwarfAbbreviationEntryIndex);
+      }
     } else { // The end.
       return PG_OK(res, PG_DYN(PgDwarfAbbreviationEntry), PgError);
     }
@@ -10927,6 +10948,7 @@ static PG_RESULT(PG_OPTION(PgDwarfAtom), PgError)
 
   PG_ASSERT(it->r.u.bytes.data >= it->debug_info_full.data);
 
+  // New abbrev.
   if (!it->abbrev_opt.has_value ||
       it->abbrev_attr_form_idx >= it->abbrev_opt.value.attribute_forms.len) {
     it->die_offset = it->r.u.bytes.data - it->debug_info_full.data;
@@ -11598,39 +11620,58 @@ end:
 }
 
 [[maybe_unused]] [[nodiscard]] static PgError
+pg_dwarf_compilation_unit_print_abbreviation(PgWriter *w,
+                                             PgDwarfDebugInfoCompilationUnit cu,
+                                             PgDwarfAbbreviationEntry abbrev,
+                                             PgAllocator *allocator) {
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("type="), allocator));
+  PG_ERR_RETURN(pg_writer_write_u64_as_string(w, abbrev.type, allocator));
+
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" tag="), allocator));
+  PgString tag_str = pg_dwarf_tag_str[abbrev.tag];
+  PG_ERR_RETURN(pg_writer_write_full(w, tag_str, allocator));
+
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" forms_len="), allocator));
+  PG_ERR_RETURN(
+      pg_writer_write_u64_as_string(w, abbrev.attribute_forms.len, allocator));
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
+
+  PG_EACH_PTR(attr_form, &abbrev.attribute_forms) {
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("  attribute="), allocator));
+    PgString attr_str = pg_dwarf_attribute_str[attr_form->attribute];
+    PG_ERR_RETURN(pg_writer_write_full(w, attr_str, allocator));
+
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" form="), allocator));
+    PgString form_str = pg_dwarf_form_str[attr_form->form];
+    PG_ERR_RETURN(pg_writer_write_full(w, form_str, allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
+  }
+
+  if (abbrev.parent.has_value) {
+    PgDwarfAbbreviationEntry parent =
+        PG_SLICE_AT(cu.abbrevs, abbrev.parent.value.value);
+    PG_ERR_RETURN(
+        pg_dwarf_compilation_unit_print_abbreviation(w, cu, parent, allocator));
+  }
+
+  PG_ERR_RETURN(pg_writer_flush(w, allocator));
+
+  return 0;
+}
+
+[[maybe_unused]] [[nodiscard]] static PgError
 pg_dwarf_compilation_unit_print_abbreviations(
-    PgWriter *w, PgDwarfDebugInfoCompilationUnit unit, PgAllocator *allocator) {
-  PgString kind_str = pg_dwarf_compilation_unit_kind_to_str[unit.kind];
+    PgWriter *w, PgDwarfDebugInfoCompilationUnit cu, PgAllocator *allocator) {
+  PgString kind_str = pg_dwarf_compilation_unit_kind_to_str[cu.kind];
   PG_ERR_RETURN(pg_writer_write_full(w, kind_str, allocator));
   PG_ERR_RETURN(
       pg_writer_write_full(w, PG_S(" abbrev_entries_len="), allocator));
-  PG_ERR_RETURN(pg_writer_write_u64_as_string(w, unit.abbrevs.len, allocator));
+  PG_ERR_RETURN(pg_writer_write_u64_as_string(w, cu.abbrevs.len, allocator));
   PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
 
-  PG_EACH_PTR(abbrev, &unit.abbrevs) {
-    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("type="), allocator));
-    PG_ERR_RETURN(pg_writer_write_u64_as_string(w, abbrev->type, allocator));
-
-    PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" tag="), allocator));
-    PgString tag_str = pg_dwarf_tag_str[abbrev->tag];
-    PG_ERR_RETURN(pg_writer_write_full(w, tag_str, allocator));
-
-    PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" forms_len="), allocator));
-    PG_ERR_RETURN(pg_writer_write_u64_as_string(w, abbrev->attribute_forms.len,
-                                                allocator));
-    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
-
-    PG_EACH_PTR(attr_form, &abbrev->attribute_forms) {
-      PG_ERR_RETURN(pg_writer_write_full(w, PG_S("  attribute="), allocator));
-      PgString attr_str = pg_dwarf_attribute_str[attr_form->attribute];
-      PG_ERR_RETURN(pg_writer_write_full(w, attr_str, allocator));
-
-      PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" form="), allocator));
-      PgString form_str = pg_dwarf_form_str[attr_form->form];
-      PG_ERR_RETURN(pg_writer_write_full(w, form_str, allocator));
-      PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
-    }
-    PG_ERR_RETURN(pg_writer_flush(w, allocator));
+  PG_EACH_PTR(abbrev, &cu.abbrevs) {
+    PG_ERR_RETURN(pg_dwarf_compilation_unit_print_abbreviation(w, cu, *abbrev,
+                                                               allocator));
   }
   return 0;
 }
