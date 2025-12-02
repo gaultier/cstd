@@ -1198,8 +1198,14 @@ PG_RESULT_DECL(PgDirectory, PgError);
 typedef struct dirent *PgDirectoryEntry;
 #else
 // TODO: Windows.
+typedef void *PgDirectoryEntry;
 #endif
 PG_RESULT_DECL(PgDirectoryEntry, PgError);
+
+typedef struct {
+  u64 seconds;
+  u64 nanoseconds;
+} PgTime;
 
 typedef enum {
   PG_WALK_DIRECTORY_KIND_NONE = 0,
@@ -1921,7 +1927,7 @@ pg_aio_unregister_interest(PgAio aio, PgFileDescriptor fd,
 [[maybe_unused]] [[nodiscard]] PgError pg_mtx_lock(PgMutex *mutex);
 [[maybe_unused]] [[nodiscard]] PgError pg_mtx_trylock(PgMutex *mutex);
 [[maybe_unused]] [[nodiscard]] PgError
-pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
+pg_mtx_timedlock(PgMutex *mutex, const PgTime *time_point);
 [[maybe_unused]] [[nodiscard]] PgError pg_mtx_unlock(PgMutex *mutex);
 
 [[maybe_unused]] [[nodiscard]] PgError pg_cnd_init(PgConditionVar *cond);
@@ -1932,7 +1938,7 @@ pg_mtx_timedlock(PgMutex *mutex, const struct timespec *time_point);
 [[maybe_unused]] [[nodiscard]] PgError pg_cnd_signal(PgConditionVar *cond);
 [[maybe_unused]] [[nodiscard]] PgError
 pg_cnd_timedwait(PgConditionVar *cond, PgMutex *mutex,
-                 const struct timespec *time_point);
+                 const PgTime *time_point);
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_hash_fnv(PG_SLICE(u8) s);
 
