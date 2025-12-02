@@ -12511,6 +12511,7 @@ pg_http_server_handler(PgFileDescriptor sock, PgHttpServerOptions options,
   return 0;
 }
 
+#ifndef PG_OS_WASM
 [[maybe_unused]]
 static PgError pg_http_server_start(PgHttpServerOptions options,
                                     PgLogger *logger) {
@@ -12602,6 +12603,7 @@ end:
   (void)pg_net_socket_close(server_socket);
   return err;
 }
+#endif
 
 [[maybe_unused]] [[nodiscard]] static PG_OPTION(PgAioEvent)
     pg_aio_cqe_dequeue(PgRing *cqe) {
@@ -13034,35 +13036,49 @@ pg_cli_generate_help(PG_DYN(PgCliOptionDescription) descs, PgString exe_name,
   return PG_DYN_TO_SLICE(PgString, sb);
 }
 
-[[maybe_unused]] static void
-pg_cli_print_parse_err(PgCliParseResult res_parse) {
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_cli_print_parse_err(PgCliParseResult res_parse, PgWriter *w,
+                       PgAllocator *allocator) {
   switch (res_parse.err) {
   case 0:
-    return;
+    return (PgError){0};
 
   case PG_ERR_CLI_MISSING_REQUIRED_OPTION:
-    fprintf(stderr, "Missing required CLI option %.*s.",
-            (i32)res_parse.err_argv.len, res_parse.err_argv.data);
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("Missing required CLI option "),
+                                       allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, res_parse.err_argv, allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("."), allocator));
     break;
   case PG_ERR_CLI_MISSING_REQUIRED_OPTION_VALUE:
-    fprintf(stderr, "Missing required value for CLI option %.*s.",
-            (i32)res_parse.err_argv.len, res_parse.err_argv.data);
+    PG_ERR_RETURN(pg_writer_write_full(
+        w, PG_S("Missing required value for CLI option"), allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, res_parse.err_argv, allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("."), allocator));
     break;
   case PG_ERR_CLI_UNKNOWN_OPTION:
-    fprintf(stderr, "Encountered unknown CLI option %.*s.",
-            (i32)res_parse.err_argv.len, res_parse.err_argv.data);
+    PG_ERR_RETURN(pg_writer_write_full(
+        w, PG_S("Encountered unknown CLI option"), allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, res_parse.err_argv, allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("."), allocator));
     break;
   case PG_ERR_CLI_FORBIDEN_OPTION_VALUE:
-    fprintf(stderr, "Encountered forbidden value for CLI option %.*s.",
-            (i32)res_parse.err_argv.len, res_parse.err_argv.data);
+    PG_ERR_RETURN(pg_writer_write_full(
+        w, PG_S("Encountered forbidden value for CLI option"), allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, res_parse.err_argv, allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("."), allocator));
     break;
   case PG_ERR_CLI_MALFORMED_OPTION:
-    fprintf(stderr, "Malformed CLI option %.*s.\n", (i32)res_parse.err_argv.len,
-            res_parse.err_argv.data);
+    PG_ERR_RETURN(
+        pg_writer_write_full(w, PG_S("Malformed CLI option"), allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, res_parse.err_argv, allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("."), allocator));
     break;
   default:
-    fprintf(stderr, "Unknown CLI options parse error.");
+    PG_ERR_RETURN(pg_writer_write_full(
+        w, PG_S("Unknown CLI options parse error."), allocator));
   }
+
+  return pg_writer_flush(w, allocator);
 }
 
 [[maybe_unused]] static void pg_stack_trace_print_dwarf(u64 skip) {
@@ -13154,7 +13170,10 @@ pg_cli_print_parse_err(PgCliParseResult res_parse) {
 
   PgCliParseResult res_cli_parse = pg_cli_parse(&descs, argc, argv, allocator);
   if (res_cli_parse.err) {
-    pg_cli_print_parse_err(res_cli_parse);
+    PgWriter w = pg_writer_make_from_file_descriptor(pg_os_stderr(), 1 * PG_KiB,
+                                                     allocator);
+
+    PG_ASSERT(0 == pg_cli_print_parse_err(res_cli_parse, &w, allocator));
     exit(1);
   }
   if (res_cli_parse.plain_arguments.len > 0) {
