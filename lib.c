@@ -3252,6 +3252,7 @@ pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
 #define pg_try_arena_new(a, t, n)                                              \
   ((t *)pg_try_arena_alloc((a), sizeof(t), _Alignof(typeof(t)), (n)))
 
+#ifndef __wasm__
 [[nodiscard]]
 static void *pg_alloc_heap_libc(PgAllocator *allocator, u64 sizeof_type,
                                 u64 alignof_type, u64 elem_count) {
@@ -3297,6 +3298,7 @@ static PgAllocator *pg_heap_allocator() {
   };
   return pg_heap_allocator_as_allocator(&pg_heap_allocator_);
 }
+#endif
 
 [[maybe_unused]] [[nodiscard]] static void *pg_alloc(PgAllocator *allocator,
                                                      u64 sizeof_type,
@@ -3399,10 +3401,19 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
   return res;
 }
 
+[[nodiscard]] u64 static pg_strlen(char *s) {
+  PG_ASSERT(s != nullptr);
+  char *it = s;
+  while (it && *it) {
+    it += 1;
+  }
+  return it - s;
+}
+
 [[maybe_unused]] [[nodiscard]] static PgString pg_cstr_to_string(char *s) {
   return (PgString){
       .data = (u8 *)s,
-      .len = strlen(s),
+      .len = pg_strlen(s),
   };
 }
 
