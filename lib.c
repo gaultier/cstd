@@ -35,15 +35,17 @@
 #endif
 
 #include "sha1.c"
-#include <inttypes.h>
 #include <stdarg.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdckdint.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#ifndef __wasm__
 #include <stdio.h>
 #include <stdlib.h>
+#endif
 
 #ifdef PG_OS_UNIX
 #include <arpa/inet.h>
@@ -156,6 +158,11 @@ typedef int64_t i64;
 typedef __int128_t i128;
 
 typedef size_t usize;
+
+#ifndef ssize_t
+// FIXME: long vs long long.
+typedef long ssize_t;
+#endif
 typedef ssize_t isize;
 
 typedef float f32;
@@ -2019,7 +2026,7 @@ static void *pg_memcpy(void *restrict dst, const void *restrict src, u64 len) {
     return dst;
   }
 
-  return memcpy(dst, src, len);
+  return __builtin_memcpy(dst, src, len);
 }
 
 static u8 *pg_memmove(void *dst, void *src, u64 len) {
@@ -2033,7 +2040,7 @@ static u8 *pg_memmove(void *dst, void *src, u64 len) {
     return dst;
   }
 
-  return memmove(dst, src, len);
+  return __builtin_memmove(dst, src, len);
 }
 
 [[maybe_unused]] [[nodiscard]] static u64 pg_div_ceil(u64 a, u64 b) {
@@ -3153,7 +3160,7 @@ pg_try_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
   PG_ASSERT(a->start <= a->end);
   PG_ASSERT((u64)a->start % align == 0); // Aligned.
 
-  return memset(res, 0, count * size);
+  return __builtin_memset(res, 0, count * size);
 }
 
 [[maybe_unused]] [[nodiscard]]

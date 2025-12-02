@@ -14,8 +14,8 @@
  *   34AA973C D4C4DAA4 F61EEB2B DBAD2731 6534016F
  */
 
-#include <inttypes.h>
-#include <string.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #define PG_SHA1_BLOCK_LENGTH 64
 #define PG_SHA1_DIGEST_LENGTH 20
@@ -76,7 +76,7 @@ static void PG_SHA1Transform(uint32_t state[5],
   uint8_t workspace[PG_SHA1_BLOCK_LENGTH];
   PG_CHAR64LONG16 *block = (void *)(PG_CHAR64LONG16 *)(void *)workspace;
 
-  (void)memcpy(block, buffer, PG_SHA1_BLOCK_LENGTH);
+  (void)__builtin_memcpy(block, buffer, PG_SHA1_BLOCK_LENGTH);
 
   /* Copy context->state[] to working vars */
   a = state[0];
@@ -205,7 +205,7 @@ static void PG_SHA1Update(PG_SHA1_CTX *context, const uint8_t *data,
   context->count += ((uint64_t)len << 3);
   if ((j + len) > 63) { // Too big to fit in 64 bytes => Do a round.
     // i = 64 - j i.e. i = 64 - ((count * 8) % 64)
-    (void)memcpy(&context->buffer[j], data, (i = 64 - j));
+    (void)__builtin_memcpy(&context->buffer[j], data, (i = 64 - j));
     // Why do we do a first round here?
     PG_SHA1Transform(context->state, context->buffer);
     // Process each chunk, 64 bytes at a time.
@@ -217,7 +217,7 @@ static void PG_SHA1Update(PG_SHA1_CTX *context, const uint8_t *data,
     i = 0;
   }
   // Remainder, smaller than one chunk.
-  (void)memcpy(&context->buffer[j], &data[i], len - i);
+  (void)__builtin_memcpy(&context->buffer[j], &data[i], len - i);
 }
 
 /*
@@ -259,5 +259,5 @@ static void PG_SHA1Final(uint8_t digest[PG_SHA1_DIGEST_LENGTH],
     digest[i] =
         (uint8_t)((context->state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);
   }
-  memset(context, 0, sizeof(*context));
+  __builtin_memset(context, 0, sizeof(*context));
 }
