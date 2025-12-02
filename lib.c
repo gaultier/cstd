@@ -13081,6 +13081,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse, PgWriter *w,
   return pg_writer_flush(w, allocator);
 }
 
+#ifndef PG_OS_WASM
 [[maybe_unused]] static void pg_stack_trace_print_dwarf(u64 skip) {
   static _Atomic PgOnce once = false;
   static PgArena arena = {0};
@@ -13137,10 +13138,12 @@ pg_cli_print_parse_err(PgCliParseResult res_parse, PgWriter *w,
     }
   }
 }
+#endif
 
 #define PG_TEST(F)                                                             \
   (PgTest) { .name = PG_S("" #F ""), .fn = F }
 
+#ifndef PG_OS_WASM
 [[maybe_unused]] static void pg_run_tests(int argc, char **argv,
                                           PG_SLICE(PgTest) tests) {
   PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
@@ -13225,6 +13228,7 @@ pg_cli_print_parse_err(PgCliParseResult res_parse, PgWriter *w,
     }
   }
 }
+#endif
 
 #endif
 #pragma GCC diagnostic pop
