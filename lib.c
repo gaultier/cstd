@@ -23,6 +23,14 @@
 #define PG_OS_UNIX
 #endif
 
+#if defined(__win32__)
+#define PG_OS_WINDOWS
+#endif
+
+#if defined(__wasm__)
+#define PG_OS_WASM
+#endif
+
 #if defined(PG_OS_UNIX)
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE 1
@@ -42,7 +50,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifndef __wasm__
+#ifndef PG_OS_WASM
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2014,7 +2022,7 @@ pg_fill_stack_trace(u64 skip, u64 pie_offset,
 
 [[nodiscard]] static u64 pg_self_pie_get_offset();
 
-#ifndef __wasm__
+#ifndef PG_OS_WASM
 [[maybe_unused]] inline static void
 pg_stacktrace_print(const char *file, int line, const char *function) {
   u64 pie_offset = pg_self_pie_get_offset();
@@ -2034,7 +2042,7 @@ pg_stacktrace_print(const char *file, int line, const char *function) {
 
 #define PG_ASSERT_TRAP_ONLY(x) ((x) ? (0) : (__builtin_trap(), 0))
 
-#ifdef __wasm__
+#ifdef PG_OS_WASM
 #define PG_ASSERT(x) ((x) ? (0) : __builtin_trap())
 #else
 
@@ -3253,7 +3261,7 @@ pg_arena_alloc(PgArena *a, u64 size, u64 align, u64 count) {
 #define pg_try_arena_new(a, t, n)                                              \
   ((t *)pg_try_arena_alloc((a), sizeof(t), _Alignof(typeof(t)), (n)))
 
-#ifndef __wasm__
+#ifndef PG_OS_WASM
 [[nodiscard]]
 static void *pg_alloc_heap_libc(PgAllocator *allocator, u64 sizeof_type,
                                 u64 alignof_type, u64 elem_count) {
@@ -4814,7 +4822,7 @@ pg_string_clone(PgString s, PgAllocator *allocator) {
 
 // TODO: Cannot use writer here since it does not yet support floats.
 
-#ifndef __wasm__
+#ifndef PG_OS_WASM
 [[maybe_unused]] static void pg_duration_print(FILE *f, PgDuration d) {
   fprintf(f, "%.2f", d.value);
   switch (d.kind) {
@@ -5337,7 +5345,8 @@ pg_adjacency_matrix_print(PgAdjacencyMatrix matrix, PgWriter *w,
   for (u64 col = 0; col < matrix.nodes_count; col++) {
     PG_ERR_RETURN(pg_writer_write_u64_as_string(w, col, allocator));
   }
-  printf("\n");
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
+
   for (u64 col = 0; col < matrix.nodes_count; col++) {
     PG_ERR_RETURN(pg_writer_write_full(w, PG_S("-----"), allocator));
   }
@@ -7097,7 +7106,7 @@ pg_fd_set_blocking(PgFileDescriptor fd, bool block) {
   return 0;
 }
 
-#else
+#elif PG_OS_WINDOWS
 
 // -- Win32 ---
 
@@ -7408,6 +7417,7 @@ pg_file_truncate(PgFileDescriptor file, u64 size) {
   return res;
 }
 
+#elifdef PG_OS_WASM
 #endif
 
 [[maybe_unused]]
