@@ -3964,6 +3964,9 @@ static void test_self() {
   }
 }
 
+// This test currently only works on Linux due to needing to implement a Mach-o
+// loader (I think?).
+#ifdef PG_OS_LINUX
 [[maybe_unused]]
 static void test_debug_info() {
   PgArena arena = pg_arena_make_from_virtual_mem(32 * PG_MiB);
@@ -4006,6 +4009,7 @@ static void test_debug_info() {
     pg_stack_trace_print_dwarf(0);
   }
 }
+#endif
 
 static void test_u64_leb128() {
   u8 input[] = {0xC0, 0x9c, 0xD2, 0x01};
@@ -4113,7 +4117,9 @@ int main(int argc, char *argv[]) {
     PG_TEST(test_u64_leb128),
     PG_TEST(test_write_u64_hex),
     PG_TEST(test_self),
+#if 0
     PG_TEST(test_debug_info),
+#endif
     PG_TEST(test_rune_bytes_count),
     PG_TEST(test_utf8_count),
     PG_TEST(test_string_last),
