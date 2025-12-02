@@ -8860,10 +8860,50 @@ pg_logger_do_log(PgLogger *logger, PgLogLevel level, PgString msg,
 
 typedef int (*PgCmpFn)(const void *a, const void *b);
 
+static void pg_quicksort(void *elems, u64 elem_size, u64 elems_count,
+                         PgCmpFn cmp_fn) {
+  PG_ASSERT(elems != nullptr);
+  PG_ASSERT(elem_size != 0);
+  PG_ASSERT(cmp_fn);
+
+  if (elem_size <= 1) {
+    return;
+  }
+  if (elem_size == 2) {
+    void *a = elems + elem_size * 1;
+    void *b = elems + elem_size * 2;
+    int cmp = cmp_fn(a, b);
+    if (cmp > 0) { // Need to swap.
+      u8 tmp[256] = {0};
+
+      for (u64 copied = 0; copied < elem_size;) {
+        PG_ASSERT(copied < elem_size);
+
+        u64 batch_size = PG_MIN(sizeof(tmp), elem_size);
+        if (elem_size - copied < batch_size) {
+          batch_size = elem_size - copied;
+        }
+
+        __builtin_memcpy(tmp + copied, a, batch_size);
+        __builtin_memcpy(b, tmp + copied, batch_size);
+        copied += batch_size;
+      }
+    }
+    return;
+  }
+  void *pivot = elems + (elems_count / 2) * elem_size;
+  void *end = elems + elems_count * elem_size;
+  PG_ASSERT(elems <= pivot);
+  PG_ASSERT(pivot < end);
+
+  pg_quicksort(elems, elem_size, elems_count / 2, cmp_fn);
+  pg_quicksort(pivot, elem_size, (end - pivot) / elem_size, cmp_fn);
+}
+
 [[maybe_unused]] static void pg_sort_unique(void *elems, u64 elem_size,
                                             u64 *elems_count, PgCmpFn cmp_fn) {
   // TODO: own sort.
-  qsort(elems, *elems_count, elem_size, cmp_fn);
+  pg_quicksort(elems, *elems_count, elem_size, cmp_fn);
 
   if (*elems_count <= 1) {
     return;
