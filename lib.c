@@ -43,8 +43,10 @@
 #include <stdint.h>
 
 #ifndef __wasm__
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #endif
 
 #ifdef PG_OS_UNIX
@@ -2011,6 +2013,7 @@ pg_fill_stack_trace(u64 skip, u64 pie_offset,
 
 [[nodiscard]] static u64 pg_self_pie_get_offset();
 
+#ifndef __wasm__
 [[maybe_unused]] inline static void
 pg_stacktrace_print(const char *file, int line, const char *function) {
   u64 pie_offset = pg_self_pie_get_offset();
@@ -2026,14 +2029,21 @@ pg_stacktrace_print(const char *file, int line, const char *function) {
 
   puts("");
 }
+#endif
 
 #define PG_ASSERT_TRAP_ONLY(x) ((x) ? (0) : (__builtin_trap(), 0))
+
+#ifdef __wasm__
+#define PG_ASSERT(x) ((x) ? (0) : __builtin_trap())
+#else
 
 #define PG_ASSERT(x)                                                           \
   ((x) ? (0)                                                                   \
        : (fprintf(stderr, "ASSERT: %s:%d:%s\n", __FILE__, __LINE__,            \
                   __FUNCTION__),                                               \
           fflush(stdout), fflush(stderr), __builtin_trap(), 0))
+
+#endif
 
 static void *pg_memcpy(void *restrict dst, const void *restrict src, u64 len) {
   if (!dst) {
@@ -2661,7 +2671,7 @@ pg_string_cut_rune(PgString s, PgRune needle) {
   PG_ASSERT(b.data != nullptr);
   PG_ASSERT(a.len == b.len);
 
-  return memcmp(a.data, b.data, a.len) == 0;
+  return __builtin_memcmp(a.data, b.data, a.len) == 0;
 }
 
 [[maybe_unused]] [[nodiscard]]
@@ -2784,7 +2794,7 @@ pg_bytes_cut_byte(PG_SLICE(u8) haystack, u8 needle) {
 
   PG_ASSERT(haystack.data);
   // TODO: Use `pg_bytes_index_of_byte`?
-  u8 *ret = memchr(haystack.data, needle, haystack.len);
+  u8 *ret = __builtin_memchr(haystack.data, needle, haystack.len);
 
   if (!ret) {
     return res;
