@@ -1,7 +1,10 @@
+- [.] dwarf: handle inlined functions
+  - Build tree of (inlined) DIE functions
+  - Maintain mapping of: address range -> DIE function (sorted? From smallest range to biggest range? BTree or such?)
+  - When wanting to build the call stack: addr_range_to_function[$rip] => current DIE function => walk up the tree of (DIE) functions
 - [ ] aio fs linux: move pg_aio_fs_wait_one to pg_aio_fs_wait due to inotify deficiencies
 - [ ] watchdir: only watch directories and cache the (hashed) state to avoid watching each file individually
       - dir: name, [CachedDirEntry] (+ hash?)
       - CacheDirEntry: mtime, name, size (+ content hash?)
 - [ ] aio fs macos/bsd: impl pg_aio_fs_wait
 - [ ] gracefully handle ENOMEM
-- [ ] dwarf: iterator on DIE (easier than on DWARF forms)

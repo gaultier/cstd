@@ -3942,10 +3942,6 @@ static void test_cli_options_help() {
 }
 
 static void test_self() {
-  PgArena arena = pg_arena_make_from_virtual_mem(4 * PG_KiB);
-  PgArenaAllocator arena_allocator = pg_make_arena_allocator(&arena);
-  PgAllocator *allocator = pg_arena_allocator_as_allocator(&arena_allocator);
-
   {
     u64 offset = pg_self_pie_get_offset();
     PG_ASSERT(offset > 0xffff);
@@ -3957,13 +3953,13 @@ static void test_self() {
   }
 
   {
-    PgString exe_path = pg_self_exe_get_path(allocator);
+    PgString exe_path = pg_self_exe_get_path();
     PG_ASSERT(pg_string_contains(exe_path, PG_S("cstd/test")));
   }
 
   // Do it twice to check that it works with the `once` mechanism.
   {
-    PgString exe_path = pg_self_exe_get_path(nullptr);
+    PgString exe_path = pg_self_exe_get_path();
     PG_ASSERT(pg_string_contains(exe_path, PG_S("cstd/test")));
   }
 }
@@ -4007,7 +4003,7 @@ static void test_debug_info() {
 
   {
     PG_ASSERT(0 == pg_debug_print_functions(&w, fns, nullptr));
-    pg_stack_trace_print_dwarf(1);
+    pg_stack_trace_print_dwarf(0);
   }
 }
 
@@ -4117,9 +4113,7 @@ int main(int argc, char *argv[]) {
     PG_TEST(test_u64_leb128),
     PG_TEST(test_write_u64_hex),
     PG_TEST(test_self),
-#if 0
     PG_TEST(test_debug_info),
-#endif
     PG_TEST(test_rune_bytes_count),
     PG_TEST(test_utf8_count),
     PG_TEST(test_string_last),
