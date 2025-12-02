@@ -274,6 +274,7 @@ typedef u64 PgError;
 #define PG_ERR_INVALID_VALUE 22
 #define PG_ERR_IO 5
 #define PG_ERR_TOO_BIG 7
+#define PG_ERR_EAGAIN 35
 #endif
 
 #define PG_ERR_CLI_MISSING_REQUIRED_OPTION 0xff'00'00
@@ -3432,7 +3433,7 @@ pg_string_to_cstr(PgString s, PgAllocator *allocator) {
 
 [[maybe_unused]] [[nodiscard]] static PgCompare pg_string_cmp(PgString a,
                                                               PgString b) {
-  int cmp = memcmp(a.data, b.data, PG_MIN(a.len, b.len));
+  int cmp = __builtin_memcmp(a.data, b.data, PG_MIN(a.len, b.len));
   if (cmp < 0) {
     return PG_CMP_LESS;
   } else if (cmp > 0) {
@@ -3758,7 +3759,7 @@ pg_ring_write_bytes(PgRing *rg, PG_SLICE(u8) src) {
     u8 *start = rg.data.data + rg.idx_read;
     u64 len =
         rg.idx_read == rg.idx_write ? rg.count : (rg.idx_write - rg.idx_read);
-    u8 *find = memchr(start, needle, len);
+    u8 *find = __builtin_memchr(start, needle, len);
     if (find) {
       res.has_value = true;
       res.value = (u64)(find - start);
@@ -3770,7 +3771,7 @@ pg_ring_write_bytes(PgRing *rg, PG_SLICE(u8) src) {
     {
       u8 *start = rg.data.data + rg.idx_read;
       u64 len = rg.data.len - rg.idx_read;
-      u8 *find = memchr(start, needle, len);
+      u8 *find = __builtin_memchr(start, needle, len);
       if (find) {
         res.has_value = true;
         res.value = (u64)(find - start);
@@ -3780,7 +3781,7 @@ pg_ring_write_bytes(PgRing *rg, PG_SLICE(u8) src) {
     {
       u8 *start = rg.data.data;
       u64 len = rg.idx_write;
-      u8 *find = memchr(start, needle, len);
+      u8 *find = __builtin_memchr(start, needle, len);
       if (find) {
         res.has_value = true;
         res.value = (u64)(find - start);
