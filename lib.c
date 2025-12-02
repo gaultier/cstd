@@ -4813,6 +4813,8 @@ pg_string_clone(PgString s, PgAllocator *allocator) {
 }
 
 // TODO: Cannot use writer here since it does not yet support floats.
+
+#ifndef __wasm__
 [[maybe_unused]] static void pg_duration_print(FILE *f, PgDuration d) {
   fprintf(f, "%.2f", d.value);
   switch (d.kind) {
@@ -4842,6 +4844,7 @@ pg_string_clone(PgString s, PgAllocator *allocator) {
     break;
   }
 }
+#endif
 
 #if defined(__x86_64__) && defined(__SSSE3__) && defined(__SHA__)
 #include <immintrin.h>
@@ -5326,32 +5329,36 @@ static u64 pg_adjacency_matrix_count_neighbors(PgAdjacencyMatrix matrix,
   return res;
 }
 
-// FIXME: Should print to a writer.
-[[maybe_unused]] static void
-pg_adjacency_matrix_print(PgAdjacencyMatrix matrix) {
-  printf("    | ");
+[[maybe_unused]] [[nodiscard]] static PgError
+pg_adjacency_matrix_print(PgAdjacencyMatrix matrix, PgWriter *w,
+                          PgAllocator *allocator) {
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("    | "), allocator));
+
   for (u64 col = 0; col < matrix.nodes_count; col++) {
-    printf("%03" PRIu64, col);
+    PG_ERR_RETURN(pg_writer_write_u64_as_string(w, col, allocator));
   }
   printf("\n");
   for (u64 col = 0; col < matrix.nodes_count; col++) {
-    printf("-----");
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("-----"), allocator));
   }
-  printf("\n");
+  PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
 
   for (u64 row = 0; row < matrix.nodes_count; row++) {
-    printf("%03" PRIu64 " | ", row);
+    PG_ERR_RETURN(pg_writer_write_u64_as_string(w, row, allocator));
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S(" | "), allocator));
     for (u64 col = 0; col < matrix.nodes_count; col++) {
       if (col >= row) {
-        printf("  ");
+        PG_ERR_RETURN(pg_writer_write_full(w, PG_S("  "), allocator));
         continue;
       }
 
       bool edge = pg_adjacency_matrix_has_edge(matrix, row, col);
-      printf("%s ", edge ? "1  " : "0  ");
+      PG_ERR_RETURN(
+          pg_writer_write_full(w, edge ? PG_S("1") : PG_S("0"), allocator));
     }
-    printf("\n");
+    PG_ERR_RETURN(pg_writer_write_full(w, PG_S("\n"), allocator));
   }
+  return (PgError){0};
 }
 
 [[maybe_unused]] [[nodiscard]] static PG_RESULT(u64, PgError)
