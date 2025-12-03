@@ -4108,6 +4108,17 @@ static void test_arena() {
   }
 }
 
+static void test_sort() {
+  u64 nums[] = {5, 66, 7, 3, 6, 9, 1, 3};
+  u64 count = PG_STATIC_ARRAY_LEN(nums);
+  pg_quicksort(nums, sizeof(nums[0]), count, pg_cmp_u64);
+
+  for (u64 i = 1; i < count; i++) {
+    PG_ASSERT(PG_C_ARRAY_AT(nums, count, i - 1) <=
+              PG_C_ARRAY_AT(nums, count, i));
+  }
+}
+
 int main(int argc, char *argv[]) {
   PgTest tests[] = {
 #if 0
@@ -4186,6 +4197,7 @@ int main(int argc, char *argv[]) {
     PG_TEST(test_aio_tcp_sockets),
     PG_TEST(test_cli_options_parse),
     PG_TEST(test_cli_options_help),
+    PG_TEST(test_sort),
   };
   pg_run_tests(argc, argv, (PG_SLICE(PgTest))PG_SLICE_FROM_C(tests));
 }
